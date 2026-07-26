@@ -75,6 +75,9 @@ end
 
 -- Single part factory so the Anchored/CanCollide contract cannot be missed on
 -- any of the ~200 part placements below.
+-- Studded top faces are the genre's whole texture -- every reference brainrot
+-- is visibly built out of BRICKS. Balls and cylinders can't show studs, so they
+-- stay smooth; blocks and wedges wear them.
 local function P(model, partName, class, size, cf, color, material)
 	local part
 	if class == "Wedge" then
@@ -92,10 +95,23 @@ local function P(model, partName, class, size, cf, color, material)
 	part.Material = material or Enum.Material.Plastic
 	part.Anchored = true
 	part.CanCollide = false
-	part.TopSurface = Enum.SurfaceType.Smooth
+	if class == "Block" and size.X > 0.5 and size.Z > 0.5 then
+		part.TopSurface = Enum.SurfaceType.Studs
+	else
+		part.TopSurface = Enum.SurfaceType.Smooth
+	end
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = model
 	return part
+end
+
+-- Reference palettes are CANDY: magenta owls, cyan bunnies, lime plants. Our
+-- authored recipe colours are food-accurate and read muddy next to them, so
+-- every body colour gets pushed toward full saturation on the way in. Hue is
+-- untouched -- a mortadella stays pink, it just stops being beige.
+local function candy(c, satFloor, valFloor)
+	local h, s, v = c:ToHSV()
+	return Color3.fromHSV(h, math.max(s, satFloor or 0.62), math.max(v, valFloor or 0.82))
 end
 
 -- Roblox cylinders lie along X natively; AXIS_ROT stands them up (Y) or rolls
@@ -601,69 +617,94 @@ local BODIES = {
 -- silhouette thumbnails) can find them without tags.
 --------------------------------------------------------------------------------
 
+-- EYES ARE THE CHARACTER. Every reference brainrot leads with enormous white
+-- eyes -- roughly a third of the body each -- with a black pupil and a white
+-- shine dot. The old 0.34 sclera was a pinprick that read as "abstract object";
+-- these are 0.78 and sit proud of the surface so they catch light.
 local function addEyes(model, faceCF, s, opts)
 	opts = opts or {}
-	local scleraD = (opts.sclera or 0.34) * s
-	local pupilD = (opts.pupil or 0.15) * s
+	local scleraD = (opts.sclera or 0.66) * s
+	local pupilD = (opts.pupil or 0.32) * s
+	local gap = (opts.gap or 0.4) * s
+	-- Ride UP by a share of the eye's own size. The body builders placed their
+	-- face anchors around 0.34 pinprick eyes; at this size a centred eye hangs
+	-- off the bottom edge (and shoves the mouth clean off the model), so the
+	-- offset has to scale with the eye rather than being a fixed nudge.
+	local riseY = scleraD * 0.42
 	for _, side in ipairs({ -1, 1 }) do
 		local shift = (side < 0 and opts.shiftL or opts.shiftR) or Vector2.new(0, 0)
-		P(model, "Sclera", "Ball", Vector3.new(scleraD, scleraD, scleraD),
-			faceCF * CFrame.new(side * 0.26 * s, 0.08 * s, -0.02 * s), WHITE, Enum.Material.SmoothPlastic)
+		local eyeCF = faceCF * CFrame.new(side * gap, riseY, -scleraD * 0.3)
+		P(model, "Sclera", "Ball", Vector3.new(scleraD, scleraD * 1.08, scleraD), eyeCF, WHITE, Enum.Material.SmoothPlastic)
 		P(model, "Pupil", "Ball", Vector3.new(pupilD, pupilD, pupilD),
-			faceCF * CFrame.new(side * 0.26 * s + shift.X * s, 0.08 * s + shift.Y * s, -0.02 * s - scleraD * 0.42),
-			BLACK, Enum.Material.SmoothPlastic)
+			eyeCF * CFrame.new(shift.X * s, shift.Y * s, -scleraD * 0.4), BLACK, Enum.Material.SmoothPlastic)
+		-- the shine dot is what makes a bead read as an EYE rather than a hole
+		P(model, "Shine", "Ball", Vector3.new(pupilD * 0.42, pupilD * 0.42, pupilD * 0.42),
+			eyeCF * CFrame.new(shift.X * s - scleraD * 0.16, shift.Y * s + scleraD * 0.17, -scleraD * 0.5),
+			WHITE, Enum.Material.SmoothPlastic)
 	end
 end
 
 local FACES = {}
 
+-- Geometry the whole table is pinned to, now that eyes are huge: an eye spans
+-- y -0.29..+0.49 and x +-0.83, so mouths sit at -0.62 and brows ride at +0.6.
+-- Anything closer collides with the sclera and reads as a smear.
+local MOUTH_Y = -0.34
+local BROW_Y = 0.62
+local EYE_X = 0.4
+
 function FACES.happy(model, faceCF, s, bodyColor, accent)
 	addEyes(model, faceCF, s)
-	P(model, "Mouth", "Block", Vector3.new(0.46 * s, 0.09 * s, 0.06 * s), faceCF * CFrame.new(0, -0.26 * s, -0.04 * s), MOUTH)
+	P(model, "Mouth", "Block", Vector3.new(0.5 * s, 0.12 * s, 0.08 * s), faceCF * CFrame.new(0, MOUTH_Y * s, -0.06 * s), MOUTH)
+	for _, side in ipairs({ -1, 1 }) do   -- upturned corners
+		P(model, "Mouth", "Block", Vector3.new(0.16 * s, 0.12 * s, 0.08 * s),
+			faceCF * CFrame.new(side * 0.29 * s, (MOUTH_Y + 0.07) * s, -0.06 * s) * CFrame.Angles(0, 0, side * math.rad(-38)), MOUTH)
+	end
 end
 
 function FACES.derp(model, faceCF, s, bodyColor, accent)
-	-- Mismatched pupils are the whole joke.
-	addEyes(model, faceCF, s, { shiftL = Vector2.new(0, 0.06), shiftR = Vector2.new(0.02, -0.05) })
-	P(model, "Mouth", "Block", Vector3.new(0.4 * s, 0.09 * s, 0.06 * s),
-		faceCF * CFrame.new(0.04 * s, -0.26 * s, -0.03 * s) * CFrame.Angles(0, 0, math.rad(10)), MOUTH)
-	P(model, "Tongue", "Block", Vector3.new(0.16 * s, 0.14 * s, 0.06 * s), faceCF * CFrame.new(0.08 * s, -0.37 * s, -0.03 * s), TONGUE)
+	-- Mismatched pupils are the whole joke; at this eye size it finally lands.
+	addEyes(model, faceCF, s, { shiftL = Vector2.new(-0.06, 0.1), shiftR = Vector2.new(0.05, -0.09) })
+	P(model, "Mouth", "Block", Vector3.new(0.42 * s, 0.12 * s, 0.08 * s),
+		faceCF * CFrame.new(0.05 * s, MOUTH_Y * s, -0.06 * s) * CFrame.Angles(0, 0, math.rad(10)), MOUTH)
+	P(model, "Tongue", "Block", Vector3.new(0.2 * s, 0.18 * s, 0.08 * s), faceCF * CFrame.new(0.1 * s, (MOUTH_Y - 0.13) * s, -0.06 * s), TONGUE)
 end
 
 function FACES.angry(model, faceCF, s, bodyColor, accent)
 	addEyes(model, faceCF, s)
-	-- Brows take the ACCENT color (palette rule) and angle inner-end-down.
+	-- Heavy accent brows angled inner-end-DOWN, riding above the sclera. These
+	-- are the single clearest expression cue at gameplay distance.
 	for _, side in ipairs({ -1, 1 }) do
-		P(model, "Brow", "Block", Vector3.new(0.32 * s, 0.09 * s, 0.06 * s),
-			faceCF * CFrame.new(side * 0.24 * s, 0.3 * s, -0.05 * s) * CFrame.Angles(0, 0, side * math.rad(20)), accent)
+		P(model, "Brow", "Block", Vector3.new(0.5 * s, 0.15 * s, 0.09 * s),
+			faceCF * CFrame.new(side * EYE_X * s, BROW_Y * s, -0.3 * s) * CFrame.Angles(0, 0, side * math.rad(22)), accent)
 	end
-	P(model, "Mouth", "Block", Vector3.new(0.34 * s, 0.09 * s, 0.06 * s), faceCF * CFrame.new(0, -0.3 * s, -0.04 * s), MOUTH)
+	P(model, "Mouth", "Block", Vector3.new(0.38 * s, 0.12 * s, 0.08 * s), faceCF * CFrame.new(0, MOUTH_Y * s, -0.06 * s), MOUTH)
 end
 
 function FACES.sleepy(model, faceCF, s, bodyColor, accent)
-	addEyes(model, faceCF, s, { shiftL = Vector2.new(0, -0.04), shiftR = Vector2.new(0, -0.04) })
-	-- Lids in the body color read as skin folding over the eye.
+	addEyes(model, faceCF, s, { shiftL = Vector2.new(0, -0.12), shiftR = Vector2.new(0, -0.12) })
+	-- Lids in the body colour read as the face folding over the eye.
 	for _, side in ipairs({ -1, 1 }) do
-		P(model, "Lid", "Block", Vector3.new(0.38 * s, 0.16 * s, 0.08 * s),
-			faceCF * CFrame.new(side * 0.26 * s, 0.19 * s, -0.04 * s), bodyColor)
+		P(model, "Lid", "Block", Vector3.new(0.72 * s, 0.34 * s, 0.16 * s),
+			faceCF * CFrame.new(side * EYE_X * s, 0.44 * s, -0.3 * s), bodyColor)
 	end
-	P(model, "Mouth", "Block", Vector3.new(0.18 * s, 0.08 * s, 0.06 * s), faceCF * CFrame.new(0, -0.28 * s, -0.04 * s), MOUTH)
+	P(model, "Mouth", "Block", Vector3.new(0.22 * s, 0.1 * s, 0.08 * s), faceCF * CFrame.new(0, MOUTH_Y * s, -0.06 * s), MOUTH)
 end
 
 function FACES.shocked(model, faceCF, s, bodyColor, accent)
-	addEyes(model, faceCF, s, { sclera = 0.42, pupil = 0.12 })
-	P(model, "Mouth", "Ball", Vector3.new(0.2 * s, 0.2 * s, 0.2 * s), faceCF * CFrame.new(0, -0.32 * s, -0.03 * s), MOUTH)
+	addEyes(model, faceCF, s, { sclera = 0.78, pupil = 0.26, gap = 0.46 })
+	P(model, "Mouth", "Ball", Vector3.new(0.3 * s, 0.34 * s, 0.22 * s), faceCF * CFrame.new(0, (MOUTH_Y - 0.04) * s, -0.06 * s), MOUTH)
 end
 
 function FACES.smug(model, faceCF, s, bodyColor, accent)
-	addEyes(model, faceCF, s)
-	-- Heavy diagonal lids, outer-end-down, plus an off-center smirk.
+	addEyes(model, faceCF, s, { shiftL = Vector2.new(0.09, 0), shiftR = Vector2.new(0.09, 0) })
+	-- Heavy diagonal lids, outer-end-down, plus an off-centre smirk.
 	for _, side in ipairs({ -1, 1 }) do
-		P(model, "Lid", "Block", Vector3.new(0.38 * s, 0.14 * s, 0.08 * s),
-			faceCF * CFrame.new(side * 0.26 * s, 0.2 * s, -0.04 * s) * CFrame.Angles(0, 0, side * math.rad(-15)), bodyColor)
+		P(model, "Lid", "Block", Vector3.new(0.72 * s, 0.3 * s, 0.16 * s),
+			faceCF * CFrame.new(side * EYE_X * s, 0.46 * s, -0.3 * s) * CFrame.Angles(0, 0, side * math.rad(-16)), bodyColor)
 	end
-	P(model, "Mouth", "Block", Vector3.new(0.3 * s, 0.08 * s, 0.06 * s),
-		faceCF * CFrame.new(0.1 * s, -0.26 * s, -0.04 * s) * CFrame.Angles(0, 0, math.rad(12)), MOUTH)
+	P(model, "Mouth", "Block", Vector3.new(0.34 * s, 0.11 * s, 0.08 * s),
+		faceCF * CFrame.new(0.1 * s, MOUTH_Y * s, -0.06 * s) * CFrame.Angles(0, 0, math.rad(14)), MOUTH)
 end
 
 --------------------------------------------------------------------------------
@@ -910,6 +951,56 @@ ACCESSORIES["halo-ring"] = function(model, a, accent, variant)
 end
 
 --------------------------------------------------------------------------------
+-- Limbs
+--------------------------------------------------------------------------------
+-- Reference brainrots are CHARACTERS, not objects: a chunky body standing on
+-- thin dark stick legs, with thin dark arms out to the sides. The same body
+-- without limbs reads as furniture -- this is the single biggest thing that was
+-- missing. Bodies that float or roll keep their own base instead.
+local LIMB = Color3.fromRGB(38, 34, 42)
+local NO_LEGS = { boat = true, cart = true, orb = true }
+local NO_ARMS = { orb = true }
+
+local function addLimbs(model, anchors, bodyKey)
+	-- Bodies build their own colour-matched stubs; those are REPLACED, never
+	-- joined, or the silhouette grows a second pair of everything.
+	for _, d in ipairs(model:GetChildren()) do
+		if d:IsA("BasePart") and (d.Name == "Arm" or d.Name == "Leg" or d.Name == "Foot") then
+			d:Destroy()
+		end
+	end
+	table.clear(anchors.feet)
+
+	if not NO_LEGS[bodyKey] then
+		-- Legs must be long enough to show DAYLIGHT under the body -- that gap is
+		-- what makes a thing look like it is standing rather than sitting on the
+		-- floor. Scaled off the body so a tall tower doesn't get stumps.
+		local hipY = anchors.bottomY
+		local legLen = math.clamp(anchors.halfWidth * 1.35, 0.95, 1.7)
+		for _, side in ipairs({ -1, 1 }) do
+			local x = side * math.max(0.26, anchors.halfWidth * 0.4)
+			Cyl(model, "Leg", 0.28, legLen, CFrame.new(x, hipY - legLen * 0.5 + 0.06, 0), "Y", LIMB)
+			P(model, "Foot", "Block", Vector3.new(0.46, 0.24, 0.7),
+				CFrame.new(x, hipY - legLen + 0.06, -0.12), LIMB)
+		end
+	end
+
+	if not NO_ARMS[bodyKey] then
+		-- Arms HANG (20 degrees off vertical). Sticking them out horizontally
+		-- reads as a T-pose mannequin; the references all let them fall.
+		local armY = anchors.rightArm.Y
+		local armLen = 0.85
+		for _, side in ipairs({ -1, 1 }) do
+			local x = side * (anchors.halfWidth + 0.1)
+			local tilt = math.rad(-side * 20)
+			local shoulder = CFrame.new(x, armY, 0) * CFrame.Angles(0, 0, tilt)
+			Cyl(model, "Arm", 0.26, armLen, shoulder * CFrame.new(0, -armLen * 0.5, 0), "Y", LIMB)
+			P(model, "Hand", "Ball", Vector3.new(0.32, 0.32, 0.32), shoulder * CFrame.new(0, -armLen, 0), LIMB)
+		end
+	end
+end
+
+--------------------------------------------------------------------------------
 -- Assembly
 --------------------------------------------------------------------------------
 
@@ -956,8 +1047,8 @@ function M.Build(name, recipe)
 	local model = Instance.new("Model")
 	model.Name = displayName
 
-	local bodyColor = resolveColor(recipe.BodyColor, DEFAULT_BODY_COLOR, displayName, "BodyColor")
-	local accent = resolveColor(recipe.Accent, DEFAULT_ACCENT, displayName, "Accent")
+	local bodyColor = candy(resolveColor(recipe.BodyColor, DEFAULT_BODY_COLOR, displayName, "BodyColor"))
+	local accent = candy(resolveColor(recipe.Accent, DEFAULT_ACCENT, displayName, "Accent"), 0.7, 0.9)
 
 	local bodyBase, bodyVariant = splitKey(recipe.Body)
 	local bodyFn = bodyBase and BODIES[bodyBase]
@@ -978,6 +1069,10 @@ function M.Build(name, recipe)
 		faceFn = FACES.happy
 	end
 	faceFn(model, anchors.face, anchors.faceScale, bodyColor, accent)
+
+	-- limbs BEFORE accessories: spring-legs and wheels replace what this adds,
+	-- and they read the same anchors
+	addLimbs(model, anchors, bodyBase)
 
 	applyAccessory(model, anchors, recipe.Accessory, accent, bodyColor, bodyBase, displayName, "Accessory")
 	applyAccessory(model, anchors, recipe.Accessory2, accent, bodyColor, bodyBase, displayName, "Accessory2")
