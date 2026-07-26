@@ -20,3 +20,7 @@ Also in Studio but not mirrored: a 7-line HeightScale patch in BrainrotSpawner.b
 - ThrowHandler: GetSweetSpot RemoteFunction (single-use band, 30s age), perfect judged server-side vs thrown power; clientPerfect arg deliberately unread.
 - ClientMain.randomizeSweetSpot: fetches and DRAWS the server band (token-guarded, sentinel -1 until answered).
 - Verified via ThrowResult.Perfect: spoof (0.01,true)->false; in-band claiming false->true; out-of-band with fresh band->false.
+
+## IconForge (2026-07-25)
+- IconForge.lua -> ReplicatedStorage.Modules.IconForge: 3D primitive icon models rendered as stacked static ViewportFrames (shadow + ink outline + icon), bounding-box camera fit. Rail-ready kinds: gift/target/star/book/trophy. Draft kinds needing another pass before use: tent, bag (stone is decent).
+- SideRail now calls IconForge.Mount instead of drawing an emoji.

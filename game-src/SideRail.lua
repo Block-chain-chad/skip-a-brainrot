@@ -15,6 +15,7 @@ local PAL = UIStyle.Palette
 -- and badge rims -- the only framing a free-floating icon still has.
 local UITheme = require(script.Parent.UITheme)
 local CF = UITheme.Camp
+local IconForge = require(script.Parent.IconForge)
 
 local OUTLINE = CF.ink   -- warm campfire black (was a cool navy) behind every glyph
 local WHITE = Color3.fromRGB(255, 255, 255)
@@ -103,9 +104,6 @@ function SideRail.MakeTile(cfg)
 	tile.Parent = slot
 	local uiscale = Instance.new("UIScale"); uiscale.Parent = tile
 
-	local GLYPH = { gift = "\u{1F381}", target = "\u{1F3AF}", star = "\u{2B50}", book = "\u{1F4D6}", trophy = "\u{1F3C6}", pack = "\u{1F392}", wheel = "\u{1F3A1}" }
-	local glyphChar = GLYPH[cfg.iconKind] or "\u{2B50}"
-
 	-- setReady's claim cue, built first so it sits UNDER everything: a soft gold
 	-- halo behind the glyph. A glow is a cue, not a box -- the box era is over.
 	local readyGlow = Instance.new("Frame")
@@ -120,35 +118,11 @@ function SideRail.MakeTile(cfg)
 	readyGlow.Parent = tile
 	Instance.new("UICorner", readyGlow).CornerRadius = UDim.new(1, 0)
 
-	-- Soft drop shadow: the SAME glyph, ink-dark and translucent, offset down.
-	-- This is what keeps a free-floating icon from looking pasted on the world.
-	local iconShadow = Instance.new("TextLabel")
-	iconShadow.Name = "IconShadow"
-	iconShadow.BackgroundTransparency = 1
-	iconShadow.AnchorPoint = Vector2.new(0.5, 0.5)
-	iconShadow.Position = UDim2.new(0.5, 0, 0.5, 5)
-	iconShadow.Size = UDim2.fromScale(1.16, 1.16)
-	iconShadow.TextScaled = true
-	iconShadow.Text = glyphChar
-	iconShadow.TextColor3 = CF.ink
-	iconShadow.TextTransparency = 0.55
-	iconShadow.ZIndex = 3
-	iconShadow.Parent = tile
-
-	-- The bubbly icon itself: an oversized emoji glyph with the heavy black
-	-- contextual outline the rest of the campfire UI wears. Emoji stay the
-	-- sanctioned icon source (catalog decals resolved blank/moderated).
-	local icon = Instance.new("TextLabel")
-	icon.Name = "Icon"
-	icon.BackgroundTransparency = 1
-	icon.AnchorPoint = Vector2.new(0.5, 0.5)
-	icon.Position = UDim2.fromScale(0.5, 0.5)
-	icon.Size = UDim2.fromScale(1.16, 1.16)
-	icon.TextScaled = true
-	icon.Text = glyphChar
-	icon.ZIndex = 4
-	icon.Parent = tile
-	UIStyle.bubbleText(icon, OUTLINE).Thickness = 4
+	-- The icon itself: a rendered 3D primitive model from IconForge (outline +
+	-- shadow + icon as stacked static viewports) -- the same technique Pet Sim's
+	-- own icons use. Emoji were the previous fallback and read hand-drawn;
+	-- uploaded decals stay off the table (they resolved blank/moderated).
+	IconForge.Mount(tile, cfg.iconKind)
 
 	-- badge (top-right)
 	local badge = Instance.new("Frame")
