@@ -15,7 +15,7 @@
 - The roll path must never yield: `LimitedStock.SoldOut` (stale-tolerant) is the only sold-out check allowed there; `TryClaim` stays confined to `revealCatch`.
 - Ownership is never gated: vault/tide/caps affect *catching* only. Placed brainrots, saves, trades, booths must work unchanged for retired names.
 - `BrainrotWaves` keeps its public API (`IsObtainable`, `Counts`, `FORCE_ON`, `VAULTED`) — its two call sites (`RarityRoll`, `IndexClient`) must not change imports.
-- Season 1 starts **1785110400** (2026-07-27 00:00 UTC, Monday). Season 2 starts **1789948800** (2026-09-21 00:00 UTC, 8 weeks later). Verify: 1785110400 + 56·86400 = 1789948800.
+- **Pre-launch dormancy (user decision 2026-07-25: game is not public yet):** before `SEASONS[1].Starts`, `StatusOf` returns `capped` for capped names and `live` for everything else (after the `unreleased` check — future debuts stay hidden), `PeriodKey()` returns the constant `"pre"`, and `NextChange()` returns `SEASONS[1].Starts`. Season 1's `Starts` is authored as **1798761600** (2027-01-01 00:00 UTC — a deliberate placeholder with a `-- SET THIS WHEN YOU LAUNCH: the real go-live Monday 00:00 UTC` comment). Season 2 stays authored **exactly 8 weeks after Season 1** — when the launch date is set, move both (S2 = S1 + 4838400). The Task 1/Task 3 clock tests keep testing active-schedule behavior by injecting times past the placeholder.
 - Season-1 retire batch (leaves when Season 2 starts): `Sovrano Pancetta`, `Console Grattugia`, `Idolo Cappelletto`.
 - Secret caps ladder (spec table): Il Papa Meteorite 500, Il Tiranno Eclissi 400, La Sentinella Vuoto 320, Sua Altezza Galassia 250, Il Verdetto Supernova 200, La Cattedrale Cometa 150, Il Colosso Equinozio 120, Il Firmamento Ribollente 90, L'Ammiraglio Nebulosa 65, La Genesi Corazzata 45, Sua Grazia Abisso 25. Secret Pete stays 5, untouched.
 - Status precedence: `unreleased > vaulted > retiring > away > capped > live`.
@@ -72,12 +72,17 @@ local WEEK = 604800
 -- the tide keeps alternating, nothing further retires or debuts.
 M.SEASONS = {
 	{
-		Starts = 1785110400, -- 2026-07-27 00:00 UTC (Mon)
+		-- SET THIS WHEN YOU LAUNCH: the real go-live Monday 00:00 UTC. Until
+		-- then it is a far-future placeholder and the whole schedule is DORMANT
+		-- (everything catchable, no tide, no countdowns) -- the game is not
+		-- public yet, and nothing may retire before the public could catch it.
+		Starts = 1798761600, -- PLACEHOLDER: 2027-01-01 00:00 UTC
 		Retire = { "Sovrano Pancetta", "Console Grattugia", "Idolo Cappelletto" },
 		Debut = {},
 	},
 	{
-		Starts = 1789948800, -- 2026-09-21 00:00 UTC (8 weeks later)
+		-- keep exactly 8 weeks (4838400s) after Season 1 when moving the date
+		Starts = 1803600000, -- PLACEHOLDER: Season 1 + 8 weeks
 		Retire = {},
 		Debut = {},
 	},
@@ -194,6 +199,13 @@ function M.StatusOf(name)
 		return "unreleased", M.SEASONS[debutIdx].Starts
 	end
 
+	-- Pre-launch dormancy: until Season 1's authored start, the schedule is
+	-- inert -- no tide, no countdowns, everything catchable (caps still shown).
+	-- Sits AFTER the unreleased check so future debuts stay hidden pre-launch.
+	if t < M.SEASONS[1].Starts then
+		return M.CAPPED[name] and "capped" or "live", nil
+	end
+
 	local retireIdx = retireSeasonOf[name]
 	if retireIdx then
 		if seasonEndedAt(retireIdx, t) then
@@ -241,6 +253,7 @@ end
 -- its pool cache on this so pools rebuild at boundaries and never in between.
 function M.PeriodKey()
 	local t = now()
+	if t < M.SEASONS[1].Starts then return "pre" end
 	return seasonIndexAt(t) .. ":" .. weekIndexAt(t) % 2
 end
 
@@ -260,19 +273,26 @@ return M
 
 ```lua
 local S = require(game.ReplicatedStorage.Modules.SupplySchedule)
-local S1, S2 = 1785110400, 1789948800
+local S1, S2 = 1798761600, 1803600000
 local function check(label, got, want)
 	print((got == want and "OK  " or "FAIL") .. " " .. label .. " (got " .. tostring(got) .. ", want " .. tostring(want) .. ")")
 end
 local t
 S.SetClock(function() return t end)
 
--- pre-launch behaves as week 0 of season 1
+-- pre-launch DORMANCY: nothing rotates, nothing counts down, caps still shown
 t = S1 - 3600
 check("pre-launch Common live", S.StatusOf("Broccolo Torpedo"), "live")
-check("pre-launch retiring batch shows retiring", S.StatusOf("Sovrano Pancetta"), "retiring")
+check("pre-launch retire batch NOT retiring yet", S.StatusOf("Sovrano Pancetta"), "live")
+check("pre-launch Rare never away", S.StatusOf("Pizzarino Volante"), "live")
 check("pre-launch capped Secret", S.StatusOf("Sua Grazia Abisso"), "capped")
 check("Secret obtainable", S.IsObtainable("Sua Grazia Abisso"), true)
+check("pre-launch PeriodKey constant", S.PeriodKey(), "pre")
+check("pre-launch NextChange is launch instant", S.NextChange(), S1)
+
+-- the moment the schedule wakes: retiring countdown begins at launch
+t = S1 + 1
+check("at launch retire batch shows retiring", S.StatusOf("Sovrano Pancetta"), "retiring")
 
 -- week parity flips exactly at the boundary
 t = S1 + 1

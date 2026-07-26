@@ -54,7 +54,13 @@ the same answer.
   Semantics: a season's `Debut` names become catchable when the season
   **starts**; its `Retire` names stop being catchable when the season **ends**
   (so the whole season is the "last chance" window, with countdown).
-  **Season 1 starts Monday 2026-07-27 00:00 UTC.** Its retire batch (mid-ladder
+  **Pre-launch dormancy (amended 2026-07-25 — the game is not public yet):**
+  before `SEASONS[1].Starts` the schedule is dormant — no tide, no retiring
+  countdowns, everything catchable (caps still apply). Season 1's `Starts` is
+  authored as a far-future placeholder and set to the real go-live Monday at
+  launch; the whole economy wakes up with the actual player base, so nothing
+  can retire before the public ever had a chance to catch it.
+  Season 1's retire batch (mid-ladder
   picks, so neither a tier's weakest nor its apex leaves first):
   Legendary — *Sovrano Pancetta*, *Console Grattugia*; Mythic — *Idolo
   Cappelletto*. Season 1 has no debuts; debuts begin when newly authored
