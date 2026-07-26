@@ -1,0 +1,127 @@
+PATCH 1 — requires (insert after the line matching `local SideRail = require(ReplicatedStorage.Modules.SideRail)`, currently line 26):
+
+```lua
+local BrainrotLooks = require(ReplicatedStorage.Modules.BrainrotLooks)
+local BodyBuilder = require(ReplicatedStorage.Modules.BrainrotBodyBuilder)
+```
+
+PATCH 2 — thumbnail helpers (insert immediately BEFORE the banner comment line matching `---------------------------------------------------------------- build rows`, currently line 391):
+
+```lua
+---------------------------------------------------------------- thumbnails
+-- One master model per name per session: Build() assembles a few dozen
+-- primitives, and paging back to a page you have already seen must not pay
+-- that again. Masters stay UNPARENTED; every viewport gets a CLONE, because a
+-- card dies with its page render and would take a shared model down with it.
+local SILHOUETTE = Color3.fromRGB(20, 20, 24)
+-- front-quarter, slightly above; bodies stand on Y=0 facing -Z
+local THUMB_DIR = Vector3.new(0.9, 0.45, -1).Unit
+local thumbCache = {}   -- [name] = master Model, or false for "no recipe"
+
+local function thumbModel(name)
+	if thumbCache[name] == nil then
+		local recipe = BrainrotLooks[name]
+		-- false, not nil: a name the looks table does not know must not re-run
+		-- the lookup on every render
+		thumbCache[name] = recipe and BodyBuilder.Build(name, recipe) or false
+	end
+	return thumbCache[name] or nil
+end
+
+-- Returns true only when a viewport was actually added, so the caller can keep
+-- the old flat swatch as the fallback for names without a recipe yet.
+local function addThumb(parent, name, silhouette)
+	local master = thumbModel(name)
+	if not master then return false end
+
+	local vp = Instance.new("ViewportFrame")
+	vp.Size = UDim2.fromScale(1, 1)
+	vp.BackgroundTransparency = 1   -- the sunburst behind stays the tier read
+	-- locked: sit UNDER the state glyph (16); known: take the dot's old slot
+	vp.ZIndex = silhouette and 15 or 16
+	vp.Parent = parent
+
+	local m = master:Clone()
+	if silhouette then
+		-- EVERY part goes near-black, eyes included: a locked entry may tease
+		-- its shape but never its colours, and white eyes would light up the
+		-- shadow and half-reveal the face
+		for _, p in ipairs(m:GetDescendants()) do
+			if p:IsA("BasePart") then p.Color = SILHOUETTE end
+		end
+	end
+	m.Parent = vp
+
+	-- distance from the real bounding box, not a constant: the recipe Size
+	-- field scales bodies far apart and a fixed distance would crop the big
+	-- ones and shrink the small ones to a dot
+	local cf, ext = m:GetBoundingBox()
+	local dist = math.max(ext.X, ext.Y, ext.Z) / (2 * math.tan(math.rad(15))) + ext.Z * 0.5
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = 30
+	cam.CFrame = CFrame.lookAt(cf.Position + THUMB_DIR * dist, cf.Position)
+	cam.Parent = vp
+	vp.CurrentCamera = cam
+
+	return true
+end
+```
+
+PATCH 3 — card swatch (REPLACE the whole `if known then ... else ... end` block inside buildList that creates the `dot` Frame and the `lock` TextLabel — currently lines 578-602, right after `UITheme.ink(icon, 2.5)`):
+
+```lua
+		if known then
+			-- the viewport is the swatch now; the flat dot survives only as the
+			-- fallback for a name BrainrotLooks has not been given yet
+			if not addThumb(icon, e.Name, false) then
+				local dot = Instance.new("Frame")
+				dot.AnchorPoint = Vector2.new(0.5, 0.5)
+				dot.Position = UDim2.fromScale(0.5, 0.5)
+				dot.Size = UDim2.fromOffset(24, 24)
+				dot.BackgroundColor3 = tier.Color
+				dot.BorderSizePixel = 0
+				dot.ZIndex = 16
+				dot.Parent = icon
+				UITheme.corner(dot, 12)
+				UITheme.ink(dot, 2.5)
+				UITheme.gloss(dot, 10, 0.55)
+			end
+		else
+			-- silhouette sits UNDER the glyph: the shape may tease, but
+			-- padlock / hourglass / cross must stay the fastest read of the
+			-- three locked states
+			addThumb(icon, e.Name, true)
+			local lock = Instance.new("TextLabel")
+			lock.Size = UDim2.fromScale(1, 1)
+			lock.BackgroundTransparency = 1
+			lock.Font = FONT
+			lock.TextSize = 22
+			lock.TextColor3 = (av == AV_LIVE) and Color3.fromRGB(214, 186, 140) or COLD_TEXT
+			lock.Text = glyph
+			lock.ZIndex = 16
+			lock.Parent = icon
+		end
+```
+
+No other lines change. Laziness is inherited from the file's own paging: buildList only constructs the ~20 visible cards per page render (the "page renders" trigger), and thumbCache makes every Build() once-per-name-per-session; later renders only pay a Clone().
+
+=== NOTES ===
+Verified against the real file (game.StarterPlayer.StarterPlayerScripts.IndexClient, 766 lines). Integration risks, in order of severity:
+
+1. BLOCKER — neither module exists in the connected place yet. I confirmed via a game-tree listing of ReplicatedStorage.Modules (16 ModuleScripts, no BrainrotLooks, no BrainrotBodyBuilder) and a global script grep (zero matches for either name). PATCH 1 uses direct indexing, so if this lands before the modules do, the require throws at startup and the ENTIRE Index panel dies (no cards, no rail tile). Land the modules first, or the whole game loses this UI.
+
+2. Roster/looks drift — BrainrotConfig has ~214 entries; if BrainrotLooks covers fewer, the patch degrades gracefully (known entries keep the old tier-colored dot, locked entries keep the bare glyph over the sunburst), and thumbCache stores `false` so missing names don't re-lookup per render. But a page of mixed thumbnails+dots will look inconsistent; worth checking coverage before shipping.
+
+3. Silhouette-vs-glyph decision — the file's own comment (line ~591) calls the padlock/hourglass/cross glyph "the fastest read of the three locked states" (catchable-now / later-wave / vaulted), and that distinction is load-bearing for the panel's honesty-about-availability contract (header comment, lines 1-14). I therefore kept the glyph ON TOP of the silhouette (ZIndex 16 over 15) rather than reading "silhouette-only" as glyph removal. If the intent was glyph removal, delete the `lock` block — but that destroys the vaulted/soon/live distinction for locked entries.
+
+4. ZIndex assumption inside the 42x42 icon frame — dot and lock were both ZIndex 16; I put known-thumbnails at 16 and silhouettes at 15. UITheme.sunburst's internal children ZIndex is unverified; if sunburst rays sit at 15+, the silhouette could tie with them (sibling order then favors the viewport, added later, so it likely still renders above — but verify visually once).
+
+5. Facing convention unknown — BodyBuilder doesn't exist yet, so "front" is assumed to be -Z (Roblox convention for CFrame.LookVector). THUMB_DIR = (0.9, 0.45, -1).Unit gives a front-quarter view only if bodies face -Z; if the builder faces them +Z, flip the Z sign in THUMB_DIR.
+
+6. Rebuild frequency — buildList() reruns on every pager click, filter toggle, panel open, AND every DataUpdated snapshot while the panel is visible (line ~745). Each rerun clones ~20 primitive models. Masters are cached so Build() cost is once per name, and clones die with the destroyed cards (masters are never parented, so list-child :Destroy() can't reach them). Instance count stays bounded by PAGE_SIZE, consistent with the file's phone-hitch warning at line ~392.
+
+7. Motion field intentionally ignored — thumbnails are static, no WorldModel needed (parts are anchored per the builder contract, and ViewportFrame without WorldModel is cheaper). If animated thumbnails are wanted later, each viewport needs a WorldModel wrapper and a stepped updater — deliberately out of scope for the minimal patch.
+
+8. Eye whites — handled by tinting EVERY BasePart descendant to Color3.fromRGB(20,20,24) with no exemptions; whites go near-black along with everything else, which is what keeps them hidden. If the builder ever renders eyes as Decals or SurfaceGuis instead of primitive parts, the uniform part-tint won't hide them — but the stated contract is primitives only.
+
+9. The 42px viewport keeps default ViewportFrame lighting (Ambient 200,200,200) — fine for colored models, and it gives silhouettes a faint facet shading that keeps the shape readable against the dark locked sunburst (78,70,64 warm / 58,62,72 cold). No lighting code needed.

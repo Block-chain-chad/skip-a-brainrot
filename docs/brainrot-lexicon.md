@@ -1,0 +1,151 @@
+# Brainrot Visual Lexicon
+
+Generated 2026-07-25 with the visual contract. Future waves: derive new looks from these rules so the name/look joke stays consistent.
+
+## Palette rules
+SLOT RULE (applies to every creature): BodyColor comes from the FOOD/OBJECT word's lexicon rule; Accent comes from the OTHER word and is applied to the accessory, the angry-face brows, and any Neon parts. When both words map to bodies (e.g. Biscotto Pantofola), the pun-priority body wins (shoe) and the food word supplies BodyColor. When neither word maps to a body, use blob. Eyes are ALWAYS white sclera + black pupils at every tier — that is the alive signal; never tint or glow them. TIER TINTS — Common: matte Plastic, food-true muted colors (keep lexicon hexes as-is), soft accents. Uncommon: same bodies, animal-accent saturated one step brighter. Rare: desaturate/cool BodyColor ~10%, weather accents (storm #7A8B99, ice #E8F1F5, electric #F4D03F). Epic: darken BodyColor ~25%, accessory and trim parts switch to Neon material in teal/violet (#4DD0E1, #9B59B6). Legendary: bodies read as stone/marble (#BFB6A8, or the food hue desaturated toward it), accents Metal gold #D4AF37 — crowns, capes, cornices. Mythic: near-black #1E1A24 bodies tinted faintly by the food hue, deep-red #7B1E2B + gold Neon trims. Secret: cosmic near-black #14101E on orb bodies, ALL accents Neon from the galaxy set (#7C4DFF, #4DD0E1, #FF4D9E), halo-ring cosmic variant standard, Transparency 0.1 shimmer allowed on the ring and orbit chunks only; eyes stay plain white/black. Materials: Plastic default, SmoothPlastic Legendary+, Metal only for gold/steel accents, Neon only for flame, halo-ring, glow antenna tips, and Epic+ accents. Unmatched lexicon words: body defaults to blob, accent defaults to the tier accent above.
+
+## Body presets
+- **loaf** (~6p): Bread/cheese/sausage loaf: horizontal Block core 2.6x1.2x1.4; squashed Ball 2.4x0.9x1.3 half-sunk into the top as domed crust; 4 Cylinder stub legs 0.35 dia x 0.45 under the corners. Face goes on the front end-cap of the Block. Sausage recipes may swap the core Block for a horizontal Cylinder 1.3 dia x 2.6, same part count.
+- **ball** (~5p): Round food: Ball 2.0 dia core; 2 Block feet 0.6x0.35x0.8 under the front half; 2 Cylinder stub arms 0.25 dia x 0.55 on the sides, pitched down 30 deg. Face on the upper-front of the Ball. Flattened variant (cheese wheel, gear, dial): scale core to 2.2x1.2x2.2.
+- **slab** (~6p): Flat food: upright Block 2.2x2.2x0.35 tilted back 12 deg; 2 Block feet 0.7x0.4x0.9; 2 Cylinder stub arms 0.25 dia x 0.5 on the side edges; 1 Wedge kickstand 0.6x1.0x0.4 behind. Face centered on the front flat. Horizontal variant (cushion/mattress/bench): lay the slab flat on the feet, face on front edge.
+- **noodle** (~6p): Tall skinny: vertical Cylinder 0.85 dia x 2.7 leaned 8 deg; Ball cap 0.95 dia on top; 2 Block feet 0.6x0.35x0.8; 2 Cylinder arms 0.22 dia x 0.5 at mid height. Face on the upper front of the shaft. Horizontal tube variant (cannolo): lay cylinder flat, face on one open end. Tool variant: swap Ball cap for the tool head noted in the recipe (e.g. Block hammer head 0.9x0.5x0.5).
+- **shoe** (~5p): Shoe: horizontal Block sole 2.4x0.45x1.2; Ball toe cap 1.15 dia half-sunk at front top; Block heel 0.9x0.85x0.9 at back top; Cylinder ankle collar 0.95 dia x 0.55 upright on the heel; Wedge tongue 0.5x0.4x0.6 on the mid-top. Face on the toe-cap front.
+- **boat** (~5p): Vessel: hull Block 2.8x0.7x1.3; bow Wedge 1.3x0.7x1.0 at front pointing forward; stern Wedge 0.8x0.7x1.0 mirrored at rear; deck Block 2.0x0.2x1.0 on top; cabin Block 0.8x0.6x0.8 on the rear deck. No legs; sits flush or hovers per motion. Face on the bow front.
+- **cart** (~6p): Wheeled vehicle: chassis Block 2.3x0.8x1.4; cab Block 1.0x0.9x1.3 on the rear half; 4 Cylinder wheels 0.8 dia x 0.28 with axles across X, half-exposed below the chassis, 2 per side. Face on the chassis front (grille). Sled variant: swap wheels for 2 Wedge skids 1.8x0.3x0.3. Cable-car variant: omit wheels, hang from motion=hover.
+- **pot** (~5p): Container/appliance: upright body Cylinder 1.8 dia x 1.6; lid Cylinder 1.9 dia x 0.22 with Ball knob 0.35 on top; spout Cylinder 0.4 dia x 0.7 pitched 40 deg up on the right wall; handle Block 0.15x0.8x0.15 bowed off the left wall. Face on the front wall of the body Cylinder. Pan variant: body flattened to 0.7 tall, no lid/knob. Bottle variant: body stretched to 1.2 dia x 2.2, lid becomes a Cylinder cork 0.5 dia x 0.3.
+- **tower** (~5p): Building/monument: base Block 2.0x0.6x2.0; shaft Block 1.3x2.2x1.3; cornice Block 1.6x0.25x1.6; roof = 2 Wedges 1.3x0.7x0.65 back-to-back forming a ridge. Face high on the shaft front. Dome variant (duomo): swap wedges for 1 Ball 1.2 half-sunk. Obelisk variant: shaft tapers (1.1 bottom to 0.7 top via 2 stacked Blocks), no cornice. Squat shop variant: shaft 1.8x1.2x1.6 with an awning Block 1.6x0.1x0.5 over the face.
+- **critter** (~6p): Animal-as-body: torso Block 1.9x1.0x1.0 horizontal; head Ball 1.05 dia at front top overlapping the torso; 4 Cylinder legs 0.3 dia x 0.55 under the corners. Face on the head Ball front. Headless furniture variant (stool/bench): skip the head Ball, face on the torso front.
+- **orb** (~5p): Celestial (Secrets): core Ball 2.2 dia; equatorial ring = flattened Cylinder 3.3 dia x 0.12 tilted 18 deg through the core (Neon); 3 orbit-chunk Balls 0.5, 0.35, 0.3 dia parked at staggered offsets around the core. No legs; always paired with motion=hover. Face on the core front.
+- **blob** (~6p): DEFAULT when no lexicon body rule matches: squashed Ball 2.1x1.7x1.9 body; Ball tuft 0.35 dia on top; 2 Block feet 0.65x0.35x0.85; 2 Cylinder arms 0.25 dia x 0.5. Face on the front-center.
+
+## Faces
+- **happy**: Base eyes: 2 white Balls 0.42 dia set 0.55 apart, each with a black Ball pupil 0.18 front-embedded, centered. Mouth: 3 black Blocks 0.16x0.08x0.06 in a shallow U — outer pair raised 0.06 and rolled +/-25 deg. 7 parts.
+- **derp**: Mismatched base eyes: left white Ball 0.48, right 0.36; black pupils 0.18 — left pupil at the up-left edge, right pupil low-center. Mouth: black Ball 0.16 half-sunk, offset 0.15 to the right. 7 parts.
+- **angry**: Base eyes 0.42 white Balls + 0.15 black pupils pushed toward center; 2 brow Blocks 0.48x0.12x0.08 in ACCENT color rolled -20/+20 deg overlapping the eye tops; mouth: flat black Block 0.45x0.08x0.06 tilted 8 deg. 9 parts.
+- **sleepy**: Base eyes 0.42 white Balls + 0.16 black pupils at the bottom edge; 2 eyelid Blocks 0.46x0.22x0.1 in BODY color covering the upper half of each eye; mouth: tiny black Ball 0.13. 9 parts.
+- **shocked**: Enlarged eyes: 2 white Balls 0.55 dia + tiny black pupils 0.10 dead-center; mouth: black Cylinder 0.32 dia x 0.1 with axis facing outward (O-mouth). 7 parts.
+- **smug**: Base eyes 0.42 white Balls + 0.17 black pupils both shifted right (side-eye); 2 eyelid Blocks 0.46x0.18x0.1 in BODY color rolled 12 deg down toward the nose; mouth: black Block 0.3x0.07x0.06 flat with a second black Block 0.14x0.07x0.06 rolled up 35 deg at the right end (smirk). 8 parts.
+
+## Accessories
+- **wings** (~4p): One wing per side at upper-back: each = Wedge 1.2x0.16x0.7 sloping outward-up 15 deg + smaller Wedge 0.7x0.16x0.45 tucked behind it. White unless accent overrides. Small-insect variant: scale 0.6.
+- **hat** (~2p): Brim Cylinder 1.35 dia x 0.1 + crown Cylinder 0.85 dia x 0.6, centered on the body top, tilted 8 deg. Naval variant: crown flattened to 0.3 tall. Hex-bolt variant: single crown only, steel color.
+- **crown** (~5p): Gold band Cylinder 1.0 dia x 0.28 on the body top + 4 Ball tips 0.14 dia spaced around the top rim. Material Metal, color #D4AF37.
+- **moustache** (~2p): 2 black Blocks 0.5x0.13x0.1 mounted just below the face midline, each yawed outward and rolled down 15 deg from center.
+- **umbrella** (~6p): Pole Cylinder 0.09 dia x 1.4 + Ball tip 0.14 + canopy of 4 Wedges 0.7x0.35x0.7 arranged as a shallow pyramid at the pole top. Mounts pitched 15 deg from the top-back, or held at a side arm.
+- **wheels** (~4p): 4 Cylinders 0.75 dia x 0.25, axles across X, mounted 2 per side at the body underside corners. For bodies that already have wheels (cart) the recipe skips this. Skid variant (slitta): 2 Wedges 1.6x0.3x0.3 instead.
+- **propeller** (~4p): Hub Cylinder 0.3 dia x 0.2 + 3 Block blades 0.85x0.18x0.06 at 120 deg spacing. Mounts on top (helicopter) or on the rear (marine/air). The prop itself spins when the rule sets motion=spin.
+- **utensil** (~5p): Oversized fork held at the right arm, rolled 30 deg outward: handle Cylinder 0.14 dia x 1.2 + head Block 0.42x0.3x0.07 + 3 tine Blocks 0.07x0.35x0.06. Spoon variant: handle + squashed Ball bowl 0.5x0.15x0.35 (2 parts).
+- **instrument** (~4p): Mandolin slung on the front: squashed Ball bowl 0.7x0.25x0.55 + Block neck 0.14x0.75x0.08 angled 40 deg + Block headstock 0.2x0.15x0.1 + strap Block 0.08x0.9x0.06 over the shoulder. Drum variant: Cylinder 0.7 dia x 0.3 + strap.
+- **cape** (~3p): Back drape: Block sheet 1.4x1.6x0.07 hung from the top-back with the bottom kicked out 12 deg + 2 Ball clasps 0.12 at the shoulder line. Necktie variant (cravatta): sheet scaled to 0.35x1.2 worn on the FRONT below the face.
+- **spring-legs** (~6p): Replaces the body's feet: per side, 2 stacked Cylinders 0.5 dia x 0.1 with 0.07 gaps + Block foot 0.55x0.2x0.7 (reads as a coil). Tentacle variant (piovra/kraken): 4 coil stacks splayed around the base, no feet. Rigid stool variant: no gaps, motion=none.
+- **tail** (~4p): Rear appendage: 3 Balls 0.4, 0.3, 0.22 dia stepping up-and-back in an arc + Wedge tip 0.25x0.3x0.2. Fin variant (sea): single upright Wedge 0.5x0.6x0.15 on the rear + matching Wedge on the body top. Stinger variant (scorpione): arc curls forward over the top.
+- **antenna** (~4p): 2 thin Cylinders 0.06 dia x 0.6 from the head/body top, yawed outward 20 deg + 2 Ball tips 0.13 (Neon when the rule says glow). Bell variant (sveglia): Ball tips enlarged to 0.2. Needle variant (dial gadgets): single antenna, brass.
+- **flame** (~3p): 3 stacked Balls 0.5, 0.34, 0.2 dia with slight lateral offsets, Material Neon, colors #E25822/#F5A623/#FFD75E bottom-to-top. Mounts on the body top OR as rear exhaust per rule. Steam variant: recolor white-grey #E8E8E8/#CFCFCF. Reactor variant: recolor #39FF88.
+- **halo-ring** (~1p): Flattened Cylinder ring 1.1 dia x 0.07, Material Neon, floating 0.35 above the body top (welded to the head anchor). Cosmic variant: scale to 1.6 dia and tilt 15 deg. Lamp variant (lampione): sits directly on the noodle cap as the glowing lamp head.
+
+## Word rules
+- **pane/panino/michetta/focaccia** (bread/roll): body=loaf, bodyColor=#C89B6A crust tan
+- **ciabatta** (ciabatta bread / slipper (pun)): body=shoe, bodyColor=#C89B6A — the slipper pun wins over the bread reading
+- **panzerotto/calzone/tramezzino** (stuffed bread pocket): body=loaf, bodyColor=#D9A662
+- **piadina/bruschetta/crostino/chiacchiera** (flat bread/cracker): body=slab, bodyColor=#E3B778
+- **frittata/polenta** (omelette/cornmeal): body=slab, bodyColor=#F2C744
+- **pizza/pizzarino** (pizza): body=slab, bodyColor=#E3B778 with #C0392B sauce accent
+- **polpetta/crocchetta/arancino/frittella** (fried round food): body=ball, bodyColor=#B5651D
+- **zeppola/struffolo/maritozzo** (sweet dough ball): body=ball, bodyColor=#D9A05B, sugar-white #F5F0E6 accent
+- **grissino/spaghetto/spaghettoni/fusillo/bucatino/maccherone** (long pasta): body=noodle, bodyColor=#EFD9A7
+- **tagliatella/lasagna/pizzocchero** (ribbon pasta): body=slab, bodyColor=#EFD9A7
+- **tortellino/orecchietta/cappelletto** (shaped pasta): body=ball, bodyColor=#EFD9A7
+- **cannolo** (pastry tube): body=noodle (horizontal tube variant), bodyColor=#C89B6A, cream #F5F0E6 accent
+- **sfogliatella/mostacciolo** (layered pastry): body=slab, bodyColor=#D9A05B
+- **formaggio/pecorino/provolone/parmigiano/taleggio/scamorza/casciotta** (hard cheese): body=loaf, bodyColor=#E8D48B (or ball flattened variant for wheel cheeses)
+- **mozzarella/burrata/ricotta/stracciatella** (soft white cheese): body=ball, bodyColor=#F5F0E6
+- **mortadella/salame/soppressata/salsiccia** (cured sausage): body=loaf (cylinder-core variant), bodyColor=#E8A0A8, fat-fleck #F5F0E6 accent
+- **prosciutto/pancetta/porchetta/lardello/cotoletta/ossobuco/sanguinaccio** (meat cut): body=loaf, bodyColor=#D98880
+- **biscotto/cantuccio/torcetto/amaretto/panforte/cotognata** (biscuit/sweet): body=slab, bodyColor=#B98A50
+- **pandoro/panettone** (festive tall cake): body=tower, bodyColor=#E9C46A, sugar-dust white accent
+- **torrone/zolletta/zuccherino** (sugar/nougat block): body=loaf, bodyColor=#F5F0E6
+- **semifreddo/zabaione/affogato/sgroppino/grattachecca/cassata/zuccotto** (frozen/cream dessert): body=ball, bodyColor=#F2E8D5, motion=shiver (cold)
+- **broccolo/carciofo/radicchio/finocchio/rucola/basilico** (green vegetable): body=ball, bodyColor=#4E7C3A, darker #35582A accent
+- **zucchina/melanzana** (long vegetable): body=noodle; zucchina #6B8E23, melanzana #4A2A5A
+- **peperone/pomodoro/oliva/nocciola/chinotto** (round produce): body=ball; peperone/pomodoro #C0392B, oliva #6B8E23, nocciola #8B5A2B, chinotto #3E2B23
+- **minestrone/zuppa/risotto/giardiniera/panzanella/pesto** (dish served in a vessel): body=pot, bodyColor from contents (minestrone #8A9A5B, risotto #EFD9A7, pesto #4E7C3A)
+- **caffe/espresso/ammazzacaffe** (coffee): bodyColor=#4B2E1E espresso brown; in body slot: body=pot scaled 0.8 (tiny cup)
+- **limoncello** (lemon liqueur): body=pot (bottle variant), bodyColor=#F4D03F
+- **caffettiera/teiera/bricco/caraffa** (pour vessel): body=pot with spout, bodyColor=#9FA6AD steel or #C0392B enamel
+- **pentola/pentolaccia/padella/scodella/coppetta/tazzina/secchio/boccione/fiasco/bottiglia/setaccio** (container): body=pot; padella uses the pan variant, bottiglia/fiasco the bottle variant
+- **gondola/barchetta/battello/traghetto/peschereccio/vaporetto/chiatta/zattera** (watercraft): body=boat, motion=sway; gondola #1E1E24 black
+- **sottomarino** (submarine): body=boat + accessory=propeller (rear), bodyColor=#6B7A8F, motion=hover
+- **idrovolante/dirigibile** (aircraft/airship): body=boat + accessory=propeller, motion=hover; dirigibile #C9CDD4 silver
+- **astronave/navicella** (spacecraft): body slot: body=orb; modifier slot: accessory=flame (rear exhaust), motion=hover
+- **trattore/furgone/carretto/carriola/motorino/vespa/mietitrebbia** (land vehicle): body slot: body=cart; modifier slot: accessory=wheels
+- **bicicletta/slitta** (ride): modifier slot: accessory=wheels (slitta uses skid variant); body slot: body=cart slimmed, motion=sway
+- **seggiovia/funivia** (cable ride): body=cart (cable-car variant, no wheels), motion=hover
+- **scarpa/pantofola/zoccolo** (footwear): body=shoe in EITHER slot (pun priority); pantofola pastel fuzzy, zoccolo wood #8B5A2B
+- **cuscino/materasso/amaca** (soft furniture): body=slab (horizontal variant), pastel bodyColor, motion=none; amaca adds motion=sway
+- **coperta/tovaglia** (blanket/cloth): modifier slot: accessory=cape (draped blanket, checkered accent); body slot: body=slab + motion=sway
+- **sgabello/panchetto** (stool/bench): body slot: body=critter (headless variant); modifier slot: accessory=spring-legs (rigid variant, motion=none)
+- **ombrello/parapioggia** (umbrella): accessory=umbrella
+- **forchetta/cucchiaio** (cutlery): accessory=utensil (forchetta fork, cucchiaio spoon variant)
+- **cappello** (hat): accessory=hat
+- **cravatta** (necktie): accessory=cape (necktie variant, front-worn)
+- **mandolino/ocarina/tamburello/zampogna/grammofono/fischietto** (instrument): accessory=instrument, motion=sway
+- **sveglia/campanello/campanaccio** (bell/alarm): accessory=antenna (bell variant), motion=shiver
+- **orologio/bussola/astrolabio/specchio/cannocchiale/periscopio** (dial/optic gadget): accent=#B08D57 brass, accessory=antenna (needle variant); body slot: body=ball (flattened variant) or noodle for tube optics
+- **grattugia** (box grater): body=tower, bodyColor=#9FA6AD steel, face=derp
+- **frullatore/sbattitore/scaldabagno/fornello/idrante** (appliance): body=pot, bodyColor=#9FA6AD; fornello adds accessory=flame (top); idrante #C0392B
+- **lampione** (street lamp): body=noodle + accessory=halo-ring (lamp variant)
+- **scopa/rastrello/zappetta/batacchio/martello/verricello** (handled tool): body=noodle (tool variant), wood #8B5A2B + steel accent
+- **bullone/dado/ingranaggio** (hardware): body slot: body=ball (flattened variant) #9FA6AD, motion=spin; modifier slot: accessory=hat (hex-bolt variant)
+- **megafono/trombino** (horn): body=noodle flared (3 stacked Cylinders 0.5/0.8/1.1 at mouth end), face=shocked; modifier slot: accessory=instrument
+- **colosseo/anfiteatro/duomo/campanile/castello/fortezza/cittadella/bastione/mausoleo/santuario/battistero/ossario/cattedrale/acquedotto/obelisco** (monument): body=tower, stone #BFB6A8; duomo dome variant, obelisco obelisk variant
+- **trattoria/tabaccheria/bottega/bancarella/cantina/grotta/piazzetta/loggiato/colonnato** (place/shop): body=tower (squat shop variant), plaster #D8C39A, striped awning accent
+- **vesuvio/vulcano** (volcano): body slot: body=tower + accessory=flame (top), motion=shiver; modifier slot: accessory=flame + motion=shiver
+- **duca/sovrano/monarca/imperatore/tiranno/despota/sua-altezza** (royal title): accessory=crown, face=smug
+- **papa/pontefice/cardinale/oracolo/progenitore/idolo/simulacro/reliquiario/conclave/giudizio/verdetto/sua-grazia** (holy title): accessory=halo-ring, motion=hover
+- **capitano/ammiraglio/corsaro** (naval title): accessory=hat (naval variant), face=smug
+- **condottiero/centurione/gladiatore/custode/sentinella** (warrior title): accessory=cape, face=angry
+- **senatore/console/arconte/baritono** (statesman): accessory=moustache, face=smug
+- **titano/colosso/monolito** (giant): scale the whole model 1.4x, motion=none (imposing stillness)
+- **genesi** (origin/genesis): body=orb + accessory=halo-ring, motion=hover
+- **melodramma** (melodrama): body=blob, face=shocked, motion=sway
+- **calabrone/scarabeo/cicala/cavalletta/grillotalpa/mantide/lucciola** (insect): accessory=antenna; lucciola uses Neon glow tips
+- **farfalla/libellula** (winged insect): accessory=wings (small variant), motion=hover
+- **pipistrello** (bat): accessory=wings (black), face=derp, motion=hover
+- **corvo/gabbiano/falco/falconetto/pettirosso/taccola/svasso/tarabuso** (bird): accessory=wings; falco/falconetto add face=angry
+- **gufo/civetta** (owl): accessory=wings, face=shocked (huge owl eyes)
+- **ramarro/geco/lucertola/salamandra/donnola/ghiro/tasso/riccio/istrice** (small critter): accessory=tail; ghiro adds face=sleepy
+- **cinghiale/stambecco** (wild beast): face=angry, accessory=tail; body slot: body=critter
+- **granchio/gambero/aragosta/scorpione** (crustacean/arachnid pincer): accessory=tail (scorpione stinger variant), accent #C0392B
+- **murena/anguilla/vongola/cernia/storione/orca/balena/squalo/torpedine** (sea creature): accessory=tail (fin variant), accent #2E6E8E
+- **piovra/kraken/calamaro** (tentacled): accessory=spring-legs (tentacle variant); body slot: body=ball + spring-legs
+- **ragno/tarantola** (spider): accessory=spring-legs (tentacle variant as 4 leg clusters)
+- **dragonessa** (dragoness): accessory=wings, accent #E25822, motion=hover
+- **fantasma** (ghost): bodyColor=#F5F0E6, Transparency 0.3, motion=hover, face=shocked
+- **tornado/tifone/turbine/uragano/procella** (windstorm): accessory=propeller (top), motion=spin, accent #7A8B99 storm grey
+- **valanga/slavina/nevischio/grandine** (snow/ice weather): tint bodyColor toward icy #E8F1F5, motion=shiver
+- **terremoto/maremoto/tellurica** (quake): motion=shiver, cracked-earth #3E2B23 accent
+- **tuono/tonante** (thunder): accent=#F4D03F electric yellow, motion=shiver
+- **diluvio** (flood/downpour): accessory=umbrella, accent #2E6E8E, motion=sway
+- **missile/torpedo/turbo/supersonico/ipersonico/balistico/bombarda** (speed/ordnance): accessory=flame (rear exhaust), motion=hover
+- **fiammante/rovente/candela** (burning): accessory=flame (top; candela small candle), accent #E25822
+- **ribollente** (boiling): accessory=flame (steam variant), motion=shiver
+- **vaporosa** (steamy): accessory=flame (steam variant), motion=hover
+- **reattore/nucleare/ionizzato/elettrodotto/fotonico/quantistica/antimateria/magnetico** (energy tech): accent=Neon #39FF88; reattore/nucleare: accessory=flame (reactor variant); others: accessory=antenna (glow tips)
+- **meccanica/automatico/cyborgo/blindato/corazzata/idraulico** (mechanical/armored): accent=#9FA6AD steel, accessory=antenna, motion=shiver (ticking machinery)
+- **meteorite/cometa/supernova/galassia/nebulosa/eclissi/vuoto/abisso/equinozio** (celestial body): body slot (Secrets): body=orb; modifier slot: accessory=halo-ring (cosmic variant); always motion=hover, cosmic palette per paletteNotes
+- **stellare/astrale/cosmico/siderale/solare/ellittico/costellazione/firmamento** (cosmic adjective): accessory=halo-ring (cosmic variant), motion=hover, Neon accent
+- **volante** (flying): accessory=wings, motion=hover
+- **errante/clandestina/sovversivo** (wandering/underground): motion=sway; clandestina/sovversivo add face=smug
+- **sonnambulo/penombra** (sleepwalking/dusk): face=sleepy, motion=sway, dim the accent 30%
+- **danzante** (dancing): motion=sway, face=happy
+- **galoppante/trottante** (galloping): motion=bob
+- **rimbalzante** (bouncy): accessory=spring-legs, motion=bob
+- **serpeggiante** (slithering): accessory=tail, motion=sway
+- **ululante/ruggente/sbraitante** (howling/roaring): face=angry, motion=shiver
+- **furiosa/feroce/temibile/spietata** (ferocious): face=angry
+- **pomposa/baldanzosa** (pompous/swaggering): face=smug, motion=bob (strut)
+- **lamentoso** (moaning): face=sleepy, motion=sway
+- **abbagliante** (dazzling): accessory=halo-ring, Neon accent, face=happy
+- **nerissimo** (blackest): bodyColor=#14100E near-black, face=angry
+- **immortale/perpetua/illimitato/smisurata/sterminato** (boundless/eternal): accessory=halo-ring, motion=hover
