@@ -8,3 +8,10 @@ The live source of truth is Roblox Studio. These are commit-time mirrors:
 - IndexPatch.txt -> applied to IndexClient (viewport thumbnails + silhouettes)
 
 Also in Studio but not mirrored: a 7-line HeightScale patch in BrainrotSpawner.buildModelVisual (size ladder on plots, clamped 0.7-1.5).
+
+## Vault & Tide (installed 2026-07-25, DORMANT until launch)
+- SupplySchedule.lua -> ReplicatedStorage.Modules.SupplySchedule (clock brain; SET SEASONS[1].Starts AT LAUNCH)
+- BrainrotWaves.lua -> ReplicatedStorage.Modules.BrainrotWaves (adapter + FORCE_ON/VAULTED + OverrideKey)
+- RarityRoll.lua -> ServerScriptService.Modules.RarityRoll (period-keyed pool cache)
+- LimitedStock.lua -> ServerScriptService.Modules.LimitedStock (12-name cap ladder; collaborator's file, config-only change)
+- Not mirrored: ThrowHandler mid-flight recheck (9 lines before the IsLimited claim block), Main's GetSupplySnapshot wiring, IndexClient badge patch (availabilityOf/status copy/refreshAvailability/refreshSupplySnap).
