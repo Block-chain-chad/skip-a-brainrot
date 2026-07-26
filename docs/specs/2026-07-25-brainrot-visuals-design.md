@@ -34,22 +34,26 @@ server systems that make brainrots earn, trade, and persist.
   ~10–16 primitives (Block/Ball/Cylinder/Wedge/CornerWedge only; no uploads,
   no MeshParts, no CSG). One fixed look per name, forever, derived from the
   name — never randomized, identical for every player on every server.
-- **Architecture**: bodies are built **client-side** over the existing
-  server anchor Part, which becomes invisible. Server stays authoritative for
-  everything that matters (Uid, StorePrompt, billboard, income); the client
-  owns rendering and idle motion.
+- **Architecture** (revised at implementation, 2026-07-25): bodies are
+  generated as **server-side Models in `ServerStorage.BrainrotModels`**,
+  consumed by the spawner's EXISTING authored-model path. Idle motion runs
+  client-side on tagged models.
 
-## Why client-side bodies
+## Why the existing model path (architecture revision)
 
-The three fragile integration points identified last session —
-`IncomeLoop` filtering pads with `model:IsA("BasePart")`,
-`BrainrotMover.RemovePadVisual`, and the billboard lookup — all assume the
-brainrot is a single Part. Building bodies client-side keeps all three
-untouched: the anchor Part IS still the brainrot as far as the server is
-concerned. Bonus: ~1,400 parts (full plots) never replicate, and idle motion
-costs the server nothing. Trade-off accepted: bodies only exist at runtime on
-clients, so Studio Edit mode shows anchors only; verification happens in Play
-mode.
+The spec originally proposed client-built bodies over invisible anchors, to
+protect three integration points that assumed a brainrot is a single Part.
+Reading the live code killed that premise: `BrainrotSpawner` already has a
+complete authored-model path — "if ServerStorage.BrainrotModels holds a model
+whose name matches the config entry, it is cloned" (its own header calls a
+new model "a content drop, not a code change"), with height normalization,
+base seating, Model-aware billboard/prompt/mutation-VFX — and `IncomeLoop` /
+`BrainrotMover` find brainrots by the `PadIndex` ATTRIBUTE, not by class.
+Secret Pete (47 parts, hand-authored, presumably the collaborator's) is live
+proof. So we generate 213 Models into that folder at server start and change
+ZERO battle-tested server code. Trade-off accepted vs. the client-side idea:
+placed bodies replicate (~1,400 parts at full plots) — normal for the genre
+and far cheaper than maintaining a parallel rendering path.
 
 ## Components
 
@@ -84,17 +88,21 @@ random calls. Body presets (~12 shapes), face presets (~6), accessory presets
 ViewportFrame thumbnails, so the roster UI finally shows creatures.
 Budget: ≤16 parts standard, ≤24 for Secrets.
 
-### 4. `StarterPlayer.StarterPlayerScripts.BrainrotBodyClient` (new)
-Watches for brainrot anchor Parts appearing on plot pads (existing folder
-structure / names — exact hook chosen at implementation after reading
-`BrainrotSpawner`), builds the body at the anchor, runs the idle motion
-preset (bob/sway/hover via RenderStepped-lite or a single Heartbeat loop with
-staggered phases), destroys the body when the anchor goes. Distance-gated:
-full motion near, static beyond ~120 studs.
+### 4. `ServerScriptService.BrainrotModelFactory` (new)
+At server start: builds every BrainrotLooks recipe into a Model inside
+`ServerStorage.BrainrotModels` (pcall per name — a bad recipe skips, never
+blocks), SKIPPING names that already have hand-authored models (Secret Pete
+must never be overwritten). Templates carry the CollectionService tag
+"BrainrotBody" and a `Motion` attribute; clones inherit both. The existing
+spawner then finds the templates naturally — no spawner changes.
 
-### 5. Server-side change (minimal)
-`BrainrotSpawner` makes the anchor invisible (Transparency = 1, keep size and
-Neon removal) — the cube era ends. Nothing else changes server-side.
+### 5. `StarterPlayer.StarterPlayerScripts.BrainrotIdleClient` (new)
+Client-side idle motion for models tagged "BrainrotBody": one Heartbeat loop
+for all bodies, motion preset per the model's `Motion` attribute (bob / sway /
+hover / spin / shiver / none), phases staggered by name-hash (never
+math.random — looks must be stable), distance-gated beyond ~120 studs, and
+capped at the nearest 80 bodies. Server parts are anchored, so client-local
+CFrame writes never replicate back.
 
 ### 6. Bespoke tiers
 The 11 Secrets + Secret Pete get hand-authored bespoke recipes (still
@@ -120,10 +128,10 @@ always our own build from scratch, never imported assets.
 
 ## Edge cases
 
-- **Anchor destroyed mid-animation** → body cleanup is connection-driven
-  (AncestryChanged), never polled.
-- **Player joins with plots already full** → renderer does an initial sweep,
-  then listens.
+- **Body removed mid-animation** → animator cleanup is driven by the
+  "BrainrotBody" tag-removed signal / AncestryChanged, never polled.
+- **Player joins with plots already full** → animator starts from
+  `CollectionService:GetTagged`, then listens for additions.
 - **Unknown name (future wave before recipes ship)** → fallback recipe (the
   classic cube, as a wink) + warn once; never error.
 - **Index thumbnails for locked names** → silhouette-only render (black
