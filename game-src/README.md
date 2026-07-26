@@ -15,3 +15,8 @@ Also in Studio but not mirrored: a 7-line HeightScale patch in BrainrotSpawner.b
 - RarityRoll.lua -> ServerScriptService.Modules.RarityRoll (period-keyed pool cache)
 - LimitedStock.lua -> ServerScriptService.Modules.LimitedStock (12-name cap ladder; collaborator's file, config-only change)
 - Not mirrored: ThrowHandler mid-flight recheck (9 lines before the IsLimited claim block), Main's GetSupplySnapshot wiring, IndexClient badge patch (availabilityOf/status copy/refreshAvailability/refreshSupplySnap).
+
+## Perfect-throw fix (2026-07-25)
+- ThrowHandler: GetSweetSpot RemoteFunction (single-use band, 30s age), perfect judged server-side vs thrown power; clientPerfect arg deliberately unread.
+- ClientMain.randomizeSweetSpot: fetches and DRAWS the server band (token-guarded, sentinel -1 until answered).
+- Verified via ThrowResult.Perfect: spoof (0.01,true)->false; in-band claiming false->true; out-of-band with fresh band->false.
