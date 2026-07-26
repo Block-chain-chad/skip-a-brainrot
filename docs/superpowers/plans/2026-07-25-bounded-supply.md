@@ -104,12 +104,19 @@ M.CAPPED = {
 local TIDE = { Rare = true, Epic = true }
 
 --============================ injectable clock ==============================--
-local now = os.time
+-- Server-synchronised UNIX time on BOTH peers. os.time() on a client reads the
+-- DEVICE clock, which players can skew by minutes -- the Index would then
+-- disagree with the server near every boundary. GetServerTimeNow is epoch-based
+-- and synced for clients, and equals wall time on the server.
+local function realNow()
+	return workspace:GetServerTimeNow()
+end
+local now = realNow
 -- Studio-only: tests step the clock across week and season boundaries instead
 -- of waiting eight weeks. A nil fn restores the real clock.
 function M.SetClock(fn)
 	if RunService:IsStudio() then
-		now = fn or os.time
+		now = fn or realNow
 	end
 end
 
@@ -130,6 +137,13 @@ local retireSeasonOf = {}  -- [name] = season index whose END retires it
 for k, season in ipairs(M.SEASONS) do
 	for _, n in ipairs(season.Debut) do debutSeasonOf[n] = k end
 	for _, n in ipairs(season.Retire) do retireSeasonOf[n] = k end
+end
+
+-- A retire list needs a NEXT season to define when it triggers; the final
+-- authored season's Retire can never fire. Loud, because silently-immortal
+-- "retirements" would be a lie in the Index.
+if #M.SEASONS[#M.SEASONS].Retire > 0 then
+	warn("[SupplySchedule] the final season's Retire list can never trigger -- author the next season row")
 end
 
 --============================== time helpers ================================--
@@ -155,32 +169,23 @@ local function weekIndexAt(t)
 end
 
 --================================ the tide ==================================--
--- Deterministic split per (tier, season): an LCG-seeded Fisher-Yates over the
--- authored name order. Same inputs -> same sets on every machine, forever.
--- Odd-size tiers put the extra name in A (so A-weeks run one name richer).
-local function splitForSeason(tierName, seasonIdx)
-	local names = tideNamesByTier[tierName]
-	local a = table.clone(names)
-	local s = seasonIdx * 2654435761 % 2147483647
-	for i = #a, 2, -1 do
-		s = (s * 1103515245 + 12345) % 2147483648
-		local j = s % i + 1
-		a[i], a[j] = a[j], a[i]
+-- Split membership is PER-NAME and PERMANENT, from a hash of the name alone.
+-- Two rejected alternatives, both review-killed:
+--   * per-season reshuffle -- at every season boundary ~half the away names
+--     land away AGAIN (14 straight days), breaking the "live at least every
+--     other week" guarantee and falsifying every RETURNS timestamp;
+--   * positional shuffle over the roster -- appending ONE config entry moves
+--     EXISTING names between sets mid-week.
+-- djb2 folded mod a prime (the exact shape MintRegistry already ships): every
+-- intermediate stays far below 2^53, so double math is exact and the answer is
+-- identical on every client and server, forever. Slight A/B imbalance per tier
+-- is accepted; the Task 1 test asserts it stays sane.
+local function inSetA(name)
+	local h = 5381
+	for i = 1, #name do
+		h = (h * 33 + string.byte(name, i)) % 4294967291
 	end
-	local inA = {}
-	for i = 1, math.ceil(#a / 2) do inA[a[i]] = true end
-	return inA
-end
-
-local splitCache = {}   -- [tierName .. seasonIdx] = inA set
-local function inSetA(tierName, name, seasonIdx)
-	local key = tierName .. seasonIdx
-	local set = splitCache[key]
-	if not set then
-		set = splitForSeason(tierName, seasonIdx)
-		splitCache[key] = set
-	end
-	return set[name] == true
+	return h % 2 == 0
 end
 
 --================================ public API ================================--
@@ -220,7 +225,8 @@ function M.StatusOf(name)
 	if TIDE[entry.Rarity] then
 		local wk = weekIndexAt(t)
 		local wantA = (wk % 2 == 0)
-		if inSetA(entry.Rarity, name, curIdx) ~= wantA then
+		-- With a permanent split, "next flip" is always the true return time.
+		if inSetA(name) ~= wantA then
 			return "away", M.SEASONS[1].Starts + (wk + 1) * WEEK
 		end
 	end
@@ -294,6 +300,36 @@ check("pre-launch NextChange is launch instant", S.NextChange(), S1)
 t = S1 + 1
 check("at launch retire batch shows retiring", S.StatusOf("Sovrano Pancetta"), "retiring")
 
+-- tide split balance (hash-based, permanent): each tier's A-set within sane bounds
+local cfg = require(game.ReplicatedStorage.Modules.BrainrotConfig)
+for _, tierName in ipairs({ "Rare", "Epic" }) do
+	local total, inA = 0, 0
+	for _, e in ipairs(cfg) do
+		if e.Rarity == tierName then
+			total += 1
+			if S.StatusOf(e.Name) == "live" or S.StatusOf(e.Name) == "capped" then inA += 1 end
+		end
+	end
+	check(tierName .. " A-set balance sane (" .. inA .. "/" .. total .. ")", inA >= math.floor(total / 3) and inA <= math.ceil(total * 2 / 3), true)
+end
+
+-- season boundary: with a PERMANENT split, an away name in the season's last
+-- week MUST be live in the first week of the next season (parity flips, split
+-- does not). This is the review-blocker regression test.
+t = S2 - 3600
+local awayLastWeek = {}
+for _, e in ipairs(cfg) do
+	if (e.Rarity == "Rare" or e.Rarity == "Epic") and S.StatusOf(e.Name) == "away" then
+		awayLastWeek[#awayLastWeek + 1] = e.Name
+	end
+end
+t = S2 + 3600
+local stuckAcrossSeason = 0
+for _, n in ipairs(awayLastWeek) do
+	if S.StatusOf(n) == "away" then stuckAcrossSeason += 1 end
+end
+check("no name away across the season boundary (of " .. #awayLastWeek .. ")", stuckAcrossSeason, 0)
+
 -- week parity flips exactly at the boundary
 t = S1 + 1
 local w0 = S.StatusOf("Pizzarino Volante")
@@ -328,6 +364,8 @@ t = S1 + 604801 ; check("PeriodKey changes at flip", S.PeriodKey() ~= k1, true)
 S.SetClock(nil)
 print("done")
 ```
+
+(Run the whole body inside `pcall` with `S.SetClock(nil)` after it unconditionally — an assertion error must never leave the injected clock live in the Studio session.)
 
 - [ ] **Step 3: Mirror to `game-src/SupplySchedule.lua`, commit** (`git add game-src/SupplySchedule.lua && git commit -m "feat: SupplySchedule (Vault & Tide clock-pure availability)"`).
 
@@ -369,6 +407,17 @@ function M.IsObtainable(name)
 	if M.VAULTED[name] then return false end
 	if M.FORCE_ON[name] then return true end
 	return SupplySchedule.IsObtainable(name)
+end
+
+-- Deterministic fingerprint of the override tables, for RarityRoll's pool
+-- cache key: an emergency VAULTED flip must invalidate pools NOW, not at the
+-- next weekly flip. Sorted, so iteration order can never wobble the string.
+function M.OverrideKey()
+	local keys = {}
+	for n in pairs(M.FORCE_ON) do keys[#keys + 1] = "+" .. n end
+	for n in pairs(M.VAULTED) do keys[#keys + 1] = "-" .. n end
+	table.sort(keys)
+	return table.concat(keys, ";")
 end
 
 -- for the Index UI: currently catchable vs total authored
@@ -414,15 +463,19 @@ local poolsByTier, totalByTier, fixedByTier
 local currentKey = nil
 
 local function poolKey()
-	local key = SupplySchedule.PeriodKey()
+	-- OverrideKey folds in the FORCE_ON/VAULTED emergency levers so a runtime
+	-- flip rebuilds pools immediately instead of hiding until the next boundary.
+	local key = SupplySchedule.PeriodKey() .. "#" .. Waves.OverrideKey()
 	-- SoldOut is stale-tolerant (<=60s) and never yields, so folding it into the
 	-- key costs a dozen table lookups. TryClaim at reveal time stays the authority.
+	local sold = {}
 	for name in pairs(LimitedStock.MAX) do
 		if LimitedStock.SoldOut(name) then
-			key = key .. "|" .. name
+			sold[#sold + 1] = name
 		end
 	end
-	return key
+	table.sort(sold)
+	return key .. "|" .. table.concat(sold, "|")
 end
 
 local function rebuildPools()
@@ -498,6 +551,20 @@ local MAX = {
 
 - [ ] **Step 3: Verify claim generalization by READING ThrowHandler** (no edit): confirm `revealCatch` gates on `LimitedStock.IsLimited(brainrotEntry.Name)` → `TryClaim` → `PickInTier(baseTier + promotions, true)` fallback (it does today — this step is the regression tripwire in case that code moved).
 
+- [ ] **Step 3b: Close the mid-flight boundary window** (review finding). The stone flies 1.15–4.2s; a weekly flip or season turn during flight must not land an away/vaulted catch. In `ThrowHandler`, add `local Waves = require(ReplicatedStorage.Modules.BrainrotWaves)` to the requires, and insert IMMEDIATELY BEFORE the `if LimitedStock.IsLimited(brainrotEntry.Name) then` block inside `revealCatch`:
+
+```lua
+			-- The stone flies for up to 4.2s: a weekly tide flip or a season turn
+			-- mid-flight must not land an away/vaulted catch. Clock-pure and
+			-- non-yielding, so it is allowed on the reveal path.
+			if not Waves.IsObtainable(brainrotEntry.Name) then
+				local fallback, fallbackTier = RarityRoll.PickInTier(baseTier + promotions, true)
+				if not fallback then return end
+				brainrotEntry, tier = fallback, fallbackTier
+				tracked = MintRegistry.IsTracked(tier.Name, mutation)
+			end
+```
+
 - [ ] **Step 4: Mirror + commit** (`git commit -m "feat: hard mint caps for all 11 Secrets"`).
 
 ---
@@ -550,9 +617,9 @@ end
 
 - [ ] **Step 1: Extend availability + copy.** Keep the three AV buckets (their glyph semantics are load-bearing per the file's own comments) but derive them from `SupplySchedule.StatusOf`, and enrich the card sub-text:
   - `live` → existing behavior.
-  - `capped` → AV_LIVE + sub-text `"N OF CAP LEFT"` (from a session-cached `GetSupplySnapshot` invoked lazily on first Index open, refreshed on open at most every 60s), flipping to `"SOLD OUT — CAP EXIST"` when `minted >= cap`; count omitted while `minted` is nil.
-  - `retiring` → AV_LIVE + sub-text `"LEAVES <D>d <H>h"` from the returned timestamp (compute `os.time()` delta; clamp at `0d 0h`).
-  - `away` → AV_SOON glyph (hourglass) + `"RETURNS <weekday>"` from the timestamp (`os.date("!%a", ts)`).
+  - `capped` → AV_LIVE + sub-text `"LIMITED"` while `minted` is nil (never do arithmetic on a nil count), `"LIMITED · N OF CAP LEFT"` once known, `"SOLD OUT — CAP EXIST"` when `minted >= cap`. Snapshot from a session-cached `GetSupplySnapshot` invoked lazily on first Index open, refreshed on open at most every 60s.
+  - `retiring` → AV_LIVE + sub-text from the timestamp delta: `"LEAVES <D>d <H>h"`, switching to `"LEAVES <M>m"` under one hour (review finding: a whole final hour of `0d 0h` reads as already gone), clamped at `LEAVES 0m`.
+  - `away` → AV_SOON glyph (hourglass) + `"RETURNS <D>d <H>h"` (same delta formatter — review finding: every flip is a Monday-00:00 UTC instant, so a weekday label reads `RETURNS MON` forever and actively misleads on Mondays).
   - `unreleased` → AV_SOON + `"DEBUTS <ts as !%b %d>"`.
   - `vaulted` → AV_VAULTED (cross glyph) + `"VAULTED"` — owned copies still render color thumbnails and stats exactly as before (ownership never gated).
 
