@@ -178,21 +178,26 @@ local function buildWorld(rec, spec, info)
 	-- measured 37/84 clear across the dock's real stance spots before this
 	-- loop, 84/84 after. A fully-transparent hit is not a visual obstruction:
 	-- exclude it and cast again, bounded so a stack of invisible parts can't
-	-- spin forever.
+	-- spin forever. `blocked` starts true and only clears on a genuine no-hit
+	-- cast -- measured a maximum of 4 consecutive transparent hits across 168
+	-- real casts (cap is 6, so there is headroom), but exhausting the cap
+	-- without ever reaching a clean cast must still fail SAFE: an unresolved
+	-- line of sight is exactly the kind of obstruction nobody verified, so it
+	-- falls back rather than assuming clear.
 	local exclude = { player.Character }
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = exclude
-	local blocked = false
+	local blocked = true
 	for _ = 1, 6 do
 		local hit = workspace:Raycast(origin.Position, (spot.Position - origin.Position), params)
 		if not hit then
+			blocked = false
 			break
 		elseif hit.Instance:IsA("BasePart") and hit.Instance.Transparency >= 1 then
 			table.insert(exclude, hit.Instance)
 			params.FilterDescendantsInstances = exclude
 		else
-			blocked = true
 			break
 		end
 	end
@@ -233,20 +238,22 @@ local function buildWorld(rec, spec, info)
 	-- PrimaryPart is an arbitrary limb sitting anywhere inside the body.
 	-- Scaling around that off-centre point drags the bounding-box centre along
 	-- with it (measured a 3.75-stud shift on a real model) -- pivoting here
-	-- first means there is nothing off-centre left to scale around.
+	-- first means there is nothing off-centre left to scale around. One
+	-- GetBoundingBox call covers both the centre (for the pivot) and the
+	-- Y-extent (for the scale factor) since nothing between them moves a part.
 	m.PrimaryPart = nil
-	local preScale = m:GetBoundingBox()
+	local preScale, ext = m:GetBoundingBox()
 	m.WorldPivot = CFrame.new(preScale.Position)
 
 	-- ScaleTo is ABSOLUTE. Re-measuring an already-scaled model and calling it
 	-- again resets to authored size, so always multiply the CURRENT scale.
-	local _, ext = m:GetBoundingBox()
 	if ext.Y > 0 then
 		m:ScaleTo(m:GetScale() * (WORLD_HEIGHT / ext.Y))
 	end
 
 	-- Re-measure rather than assume the centre held: cheap, and the per-frame
-	-- PivotTo below must be exact.
+	-- PivotTo below must be exact. This one CANNOT fold into the call above --
+	-- ScaleTo has genuinely moved the parts in between.
 	local postScale = m:GetBoundingBox()
 	m.WorldPivot = CFrame.new(postScale.Position)
 	m.Parent = workspace          -- client-created: never replicates
