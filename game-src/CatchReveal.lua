@@ -51,7 +51,9 @@ local SPEC = {
 	{ size = 380, hold = 2.8, dark = 0.45, halo = true,  shimmer = 2.4,   sparkle = 4 },
 	-- Band 4 is filled in by the world path. Until that exists it renders as
 	-- band 3, so every tier already has a working reveal.
-	{ size = 380, hold = 3.8, dark = 0.80, halo = true,  shimmer = 1.8,   sparkle = 5 },
+	-- world path: size is the viewport FALLBACK size, used only when the spot
+	-- ahead of the camera is blocked
+	{ size = 380, hold = 3.8, dark = 0.80, halo = false, shimmer = false, sparkle = 0, world = true },
 }
 
 local SPIN = 70     -- degrees per second, identical in every band
@@ -135,6 +137,116 @@ local function buildViewport(rec, spec, info, parent)
 	end
 end
 
+-- === Band 4: a real model in the world ===
+--
+-- The camera does NOT move -- it only stops taking input. Moving it risks
+-- landing inside terrain or a building, and a reveal that ruins your view is
+-- worse than one that is merely close. A black backdrop part behind the model
+-- does the darkening, because a full-screen UI dim would darken the model too:
+-- UI always renders above the 3D world.
+local WORLD_DIST   = 13   -- studs ahead of the camera
+local WORLD_HEIGHT = 7    -- studs tall, whatever the model was authored at
+local BACKDROP_AT  = 26   -- studs ahead, behind the model
+local BACKDROP_SIZE = 260
+
+local function stripScripts(model)
+	-- ReplicatedStorage.BrainrotModels is verified 0 scripts today, but this
+	-- pack has carried embedded free-model scripts before and they only run
+	-- OUTSIDE Studio, so they can never be caught by testing here.
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("LuaSourceContainer") then d:Destroy() end
+	end
+end
+
+local function buildWorld(rec, spec, info)
+	local cam = workspace.CurrentCamera
+	local folder = ReplicatedStorage:FindFirstChild("BrainrotModels")
+	local src = folder and folder:FindFirstChild(info.Name)
+	if not cam or not src then return nil end
+
+	local origin = cam.CFrame
+	local spot = origin * CFrame.new(0, 0, -WORLD_DIST)
+
+	-- If real geometry sits between the camera and the reveal spot the model
+	-- would be hidden behind a wall. Rather than shove the camera somewhere it
+	-- might not fit, fall back to the viewport path -- a Secret that looks like
+	-- a Legendary beats a Secret you cannot see.
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { player.Character }
+	local hit = workspace:Raycast(origin.Position, (spot.Position - origin.Position), params)
+	if hit then return nil end
+
+	local m = src:Clone()
+	stripScripts(m)
+	for _, p in ipairs(m:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.Anchored = true
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+		end
+	end
+
+	-- ScaleTo is ABSOLUTE. Re-measuring an already-scaled model and calling it
+	-- again resets to authored size, so always multiply the CURRENT scale.
+	local _, ext = m:GetBoundingBox()
+	if ext.Y > 0 then
+		m:ScaleTo(m:GetScale() * (WORLD_HEIGHT / ext.Y))
+	end
+
+	-- Pivot about the bounding-box centre. On these packs the PrimaryPart is an
+	-- arbitrary limb, so pivoting on it makes the model wobble off-axis.
+	local bcf = m:GetBoundingBox()
+	m.PrimaryPart = nil
+	m.WorldPivot = CFrame.new(bcf.Position)
+	m.Parent = workspace          -- client-created: never replicates
+	rec.worldModel = m
+
+	local backdrop = Instance.new("Part")
+	backdrop.Name = "CatchRevealBackdrop"
+	backdrop.Size = Vector3.new(BACKDROP_SIZE, BACKDROP_SIZE, 1)
+	backdrop.CFrame = origin * CFrame.new(0, 0, -BACKDROP_AT)
+	backdrop.Anchored = true
+	backdrop.CanCollide = false
+	backdrop.CanQuery = false
+	backdrop.CanTouch = false
+	backdrop.CastShadow = false
+	backdrop.Material = Enum.Material.SmoothPlastic
+	backdrop.Color = Color3.new(0, 0, 0)
+	backdrop.Transparency = 1
+	backdrop.Parent = workspace
+	rec.backdrop = backdrop
+	TweenService:Create(backdrop, TweenInfo.new(FADE),
+		{ Transparency = 1 - spec.dark }):Play()
+
+	-- Freeze the camera where it already is.
+	local savedType = cam.CameraType
+	cam.CameraType = Enum.CameraType.Scriptable
+	cam.CFrame = origin
+
+	rec.restore = function()
+		if rec.worldModel then rec.worldModel:Destroy(); rec.worldModel = nil end
+		if rec.backdrop then rec.backdrop:Destroy(); rec.backdrop = nil end
+		local c = workspace.CurrentCamera
+		if c then c.CameraType = savedType end
+	end
+
+	-- A camera left Scriptable is unrecoverable without rejoining, so it gets a
+	-- second, independent guard on top of teardown -- the same belt-and-braces
+	-- as ThrowHandler's flight watchdog.
+	task.delay(FADE * 2 + spec.hold + 3, function()
+		if not rec.dead then teardown(rec) end
+	end)
+
+	return function(t)
+		if rec.worldModel and rec.worldModel.Parent then
+			rec.worldModel:PivotTo(spot * CFrame.Angles(0, math.rad(SPIN) * t, 0))
+		end
+	end
+end
+
 function M.isPlaying()
 	return live ~= nil and not live.dead
 end
@@ -175,7 +287,7 @@ function M.play(info)
 
 		-- backdrop. Stated as OPACITY in SPEC, so invert it here -- "dark 0.8" read
 		-- as a transparency would mean the opposite of what is intended.
-		if spec.dark > 0 then
+		if spec.dark > 0 and band ~= 4 then
 			local dim = Instance.new("Frame")
 			dim.Name = "Dim"
 			dim.Size = UDim2.fromScale(1, 1)
@@ -219,7 +331,15 @@ function M.play(info)
 			table.insert(fades, { haloStroke, "Transparency", 0.35 })
 		end
 
-		local spin = buildViewport(rec, spec, info, holder)
+		-- Band 4 tries the world first and falls back to the viewport when the spot
+		-- is blocked, so a Secret always reveals as SOMETHING.
+		local spin
+		if band == 4 then
+			spin = buildWorld(rec, spec, info)
+		end
+		if not spin then
+			spin = buildViewport(rec, spec, info, holder)
+		end
 		if rec.viewport then
 			rec.viewport.ImageTransparency = 1
 			table.insert(fades, { rec.viewport, "ImageTransparency", 0 })
