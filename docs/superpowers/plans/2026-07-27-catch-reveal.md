@@ -20,7 +20,8 @@
 - Client-created instances parented to `Workspace` do **not** replicate — the band-4 model is local to the catching player by construction.
 - `UITheme.Font` is the single-source font face; never hardcode `Enum.Font.*` in new UI.
 - `UITheme.inkText(label, thickness)` **returns the UIStroke** it created; collect them to fade, because a UIStroke carries its own `Transparency` and does not follow `TextTransparency`.
-- Studio may be in Play mode (the owner plays regularly). All `multi_edit` installs require **Edit** mode — stop Play only with a heads-up, never silently.
+- Studio may be in Play mode (the owner plays regularly). All `multi_edit` installs require **Edit** mode — stop Play only with a heads-up, never silently. **In Play mode, `script_read` and `script_grep` silently address the Client DataModel**, so server scripts read as "not found" and greps come back empty. That is not a missing file — check `get_studio_state` first.
+- **`script_grep`'s line numbers do not match `script_read`'s** in this place (observed ~50 lines apart in `ThrowHandler`). Use grep to find *whether* something exists; use `script_read` and exact anchor strings to locate an edit. Never drive a `multi_edit` from a grep line number.
 - Testing is Studio-side: there is no test framework. Each task's test step is an `execute_luau` script whose printed assertions must all read `OK`. Reveal UI must be driven from the **Client** VM (it lives in PlayerGui).
 
 ## File Structure
@@ -42,12 +43,13 @@
 Band 4 deliberately renders as band 3 for now; Task 2 gives it the world path. This keeps Task 1 a complete, shippable reveal for all eight tiers.
 
 **Files:**
+- Modify: `ReplicatedStorage.Modules.BrainrotThumb` (additive — extract the framing maths)
 - Create: `ReplicatedStorage.Modules.CatchReveal` (ModuleScript)
-- Mirror: `game-src/CatchReveal.lua`
+- Mirror: `game-src/BrainrotThumb.lua`, `game-src/CatchReveal.lua`
 
 **Interfaces:**
 - Consumes:
-  - `ReplicatedStorage.Modules.BrainrotThumb` → `master(name) -> Model?` (cached, stripped, unparented master; clone it, never parent the master)
+  - `ReplicatedStorage.Modules.BrainrotThumb` → `master(name) -> Model?` (cached, stripped, unparented master; clone it, never parent the master), plus the two members added in Step 2 below
   - `ReplicatedStorage.Modules.UITheme` → `.Camp` palette table, `.Font`, `corner(inst, radius)`, `inkText(label, thickness) -> UIStroke`
 - Produces (relied on by Tasks 2, 3, 4):
   - `M.play(info: {Name: string, Rarity: string?, RarityColor: Color3?, Mutation: string?}) -> handle?`
@@ -59,7 +61,60 @@ Band 4 deliberately renders as band 3 for now; Task 2 gives it the world path. T
 
 Run `get_studio_state`. Expected: `Current Studio Mode: Edit`. If it reports Play, tell the user before stopping it.
 
-- [ ] **Step 2: Create the module**
+- [ ] **Step 2: Extract the framing maths into `BrainrotThumb`**
+
+`CatchReveal` must ORBIT the viewport camera, which `BrainrotThumb.add` never exposes — it sets the camera once and returns only the ViewportFrame. Rather than copy the six-line bounding-box calculation into a second module where the two would drift apart, extract it. Additive and pure: `add`'s behaviour is unchanged and its two existing callers (`BackpackClient`, and `IndexClient`'s own copy) are untouched.
+
+`multi_edit` on `game.ReplicatedStorage.Modules.BrainrotThumb`. Replace:
+
+```lua
+-- front-quarter, slightly above; bodies stand on Y=0 facing -Z
+local DEFAULT_DIR = Vector3.new(0.9, 0.45, -1).Unit
+```
+
+with:
+
+```lua
+-- front-quarter, slightly above; bodies stand on Y=0 facing -Z
+local DEFAULT_DIR = Vector3.new(0.9, 0.45, -1).Unit
+M.DEFAULT_DIR = DEFAULT_DIR
+
+-- Where to put a camera so a model of any size fills the frame: the point it
+-- looks at, and how far back to stand. Extracted so CatchReveal can ORBIT the
+-- camera using the same numbers add() uses to place it once -- two copies of
+-- this calculation would drift.
+function M.framing(model, fov)
+	fov = fov or 30
+	local cf, ext = model:GetBoundingBox()
+	local dist = math.max(ext.X, ext.Y, ext.Z) / (2 * math.tan(math.rad(fov / 2))) + ext.Z * 0.5
+	return cf.Position, dist
+end
+```
+
+Then replace `add`'s inlined copy:
+
+```lua
+	local fov = opts.fov or 30
+	local cf, ext = m:GetBoundingBox()
+	local dist = math.max(ext.X, ext.Y, ext.Z) / (2 * math.tan(math.rad(fov / 2))) + ext.Z * 0.5
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = fov
+	cam.CFrame = CFrame.lookAt(cf.Position + (opts.dir or DEFAULT_DIR) * dist, cf.Position)
+```
+
+with:
+
+```lua
+	local fov = opts.fov or 30
+	local centre, dist = M.framing(m, fov)
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = fov
+	cam.CFrame = CFrame.lookAt(centre + (opts.dir or DEFAULT_DIR) * dist, centre)
+```
+
+Leave the comment above that block in place — it explains *why* the box drives the distance, and it is still true.
+
+- [ ] **Step 3: Create the module**
 
 Install with `multi_edit`, `file_path = "game.ReplicatedStorage.Modules.CatchReveal"`, `className = "ModuleScript"`, `datamodel_type = "Edit"`, first edit `old_string = ""`:
 
@@ -178,10 +233,9 @@ local function buildViewport(rec, spec, info, parent)
 
 	-- Frame from the REAL bounding box: these models run from under 5 studs to
 	-- over 30, so one fixed distance would crop the big ones and shrink the
-	-- small ones to a dot.
-	local bcf, ext = m:GetBoundingBox()
-	local centre = bcf.Position
-	local dist = math.max(ext.X, ext.Y, ext.Z) / (2 * math.tan(math.rad(FOV / 2))) + ext.Z * 0.5
+	-- small ones to a dot. Shared with BrainrotThumb.add so the grids and the
+	-- reveal cannot disagree about how a model is framed.
+	local centre, dist = BrainrotThumb.framing(m, FOV)
 
 	local cam = Instance.new("Camera")
 	cam.FieldOfView = FOV
@@ -195,7 +249,7 @@ local function buildViewport(rec, spec, info, parent)
 	-- packs the PrimaryPart is an arbitrary limb sitting anywhere inside the
 	-- body -- it would wobble around an off-centre point. Orbiting the camera
 	-- is identical on screen and cannot disturb the model at all.
-	local base = Vector3.new(0.9, 0.45, -1).Unit   -- BrainrotThumb's front quarter
+	local base = BrainrotThumb.DEFAULT_DIR
 	return function(t)
 		local dir = CFrame.Angles(0, math.rad(SPIN) * t, 0) * base
 		cam.CFrame = CFrame.lookAt(centre + dir * dist, centre)
@@ -418,7 +472,7 @@ end
 return M
 ```
 
-- [ ] **Step 3: Verify it compiles and every tier renders**
+- [ ] **Step 4: Verify it compiles and every tier renders**
 
 Studio may have cached a stale copy of the module. Run this in the **Client** VM (`datamodel_type = "Client"`, requires Play mode — start Play first with `start_stop_play`):
 
@@ -496,12 +550,31 @@ print(fails == 0 and "ALL OK" or (fails .. " FAILURES"))
 
 Expected: ten `OK` lines and `ALL OK`. Then `get_console_output` and confirm no errors or warnings from `CatchReveal`.
 
-- [ ] **Step 4: Mirror and commit**
+- [ ] **Step 5: Confirm the backpack grid still renders**
 
-Read the installed source back with `script_read` on `game.ReplicatedStorage.Modules.CatchReveal` and write it verbatim to `game-src/CatchReveal.lua`, so the mirror matches what actually shipped rather than what was intended.
+`BrainrotThumb.add` was refactored in Step 2, and `BackpackClient` depends on it. In the **Client** VM, open the backpack and count tiles against viewports:
+
+```lua
+local plr = game:GetService("Players").LocalPlayer
+local bp = plr.PlayerGui:FindFirstChild("BackpackUI")
+	or plr.PlayerGui:FindFirstChild("BackpackPanel")
+if not bp then print("SKIP no backpack gui found -- open it and re-run") return end
+local vp, tiles = 0, 0
+for _, d in ipairs(bp:GetDescendants()) do
+	if d:IsA("ViewportFrame") then vp += 1 end
+	if d:IsA("Frame") and d.Name == "Tile" then tiles += 1 end
+end
+print(("%s viewports=%d tiles=%d"):format(vp > 0 and "OK  " or "FAIL", vp, tiles))
+```
+
+Expected: a non-zero viewport count, matching what the grid showed before the change. If the panel's ScreenGui or tile names differ from the guesses above, find them with `search_game_tree` on `PlayerGui` rather than assuming.
+
+- [ ] **Step 6: Mirror and commit**
+
+Read both installed modules back with `script_read` and write them verbatim to `game-src/CatchReveal.lua` and `game-src/BrainrotThumb.lua`, so the mirrors match what actually shipped rather than what was intended. Add a line to `game-src/README.md` recording both, following the format of the entries already there.
 
 ```bash
-git add game-src/CatchReveal.lua docs/superpowers/plans/2026-07-27-catch-reveal.md
+git add game-src/CatchReveal.lua game-src/BrainrotThumb.lua game-src/README.md
 git commit -m "CatchReveal: spinning viewport reveal for bands 1-3"
 ```
 
@@ -1069,7 +1142,19 @@ The spec is explicit that the numbers are starting points and that verification 
 
 - [ ] **Step 1: Force one catch per tier through the real throw path**
 
-`ThrowHandler` has a `forcedCatch` override. Drive it from the **Server** VM so the whole chain runs — server grant, remote, client reveal — rather than calling `CatchReveal.play` directly. Watch each of the eight reveals and note: is the model framed well, is the spin speed right, is the text readable against the world behind it.
+`ThrowHandler` carries an attribute-driven test hook — **no server code change is needed, which is why this respects the no-server-changes constraint.** Arm it from the **Server** VM, then throw:
+
+```lua
+local ServerStorage = game:GetService("ServerStorage")
+ServerStorage:SetAttribute("ForceNextCatch", "Secret Pete")   -- any BrainrotConfig name
+ServerStorage:SetAttribute("ForceNextCatchFor", "prohacks_sorry")  -- optional; blank = anyone
+```
+
+It is **consumed exactly once** — the attribute clears the instant it fires, so re-arm before each throw. An unknown name warns and falls through to a normal catch rather than failing loudly, so read the output: `[ThrowHandler] TEST override consumed: <player> caught <name> (<tier>)` is the confirmation it actually fired.
+
+Throwing requires standing in `Workspace.GameWorld.ThrowZone` **and** having a claimed plot — otherwise `ThrowRequest` is silently refused and nothing happens at all.
+
+Watch each of the eight reveals and judge: is the model framed well, is the spin speed right, is the text readable against the world behind it.
 
 - [ ] **Step 2: Check the band-4 raycast fallback rate**
 
@@ -1109,6 +1194,7 @@ Screenshots of a low-tier and a Secret reveal, the FPS A/B numbers, and an expli
 **Deviations from the spec, both deliberate:**
 1. The spec says band 3 adds "rays behind + sparkles". The plan uses **shimmer + sparkles** instead — `RarityFX`'s established vocabulary, already tuned and already what the backpack does for Legendary and Mythic. Rays would have been a new visual idea invented at implementation time. Flagged rather than silently substituted.
 2. The spec says band 4 dims the screen. The plan uses a **black backdrop part in the world**, not a UI dim, because UI always renders above the 3D world and a full-screen dim frame would darken the reveal model along with everything else. This is a correctness fix, not a preference.
+3. The spec says the reveal touches no shared module. Task 1 Step 2 makes a small **additive change to `BrainrotThumb`** — extracting the bounding-box framing into `M.framing()` and exposing `M.DEFAULT_DIR` — rather than copying six lines into `CatchReveal` where the two copies would drift. User decision, taken at pre-flight on 2026-07-27. `add`'s behaviour is unchanged, and Task 1 Step 5 verifies the backpack grid still renders.
 
 **Placeholder scan:** none. Every code step carries the real source; every test step carries a runnable script with explicit expected output.
 
