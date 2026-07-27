@@ -50,20 +50,30 @@ local BAND_OF = {
 
 -- size    viewport square in px
 -- hold    seconds fully on screen, excluding the fades
--- dark    how black the backdrop goes, as OPACITY (0 = no backdrop)
+-- dark    how black the backdrop goes, as OPACITY (0 = no backdrop). For band
+--         4 this is the WORLD backdrop Part only -- see fallbackDark below.
 -- halo    coloured ring behind the model
 -- shimmer seconds per shine sweep, or false
 -- sparkle how many twinkles
 local SPEC = {
 	{ size = 180, hold = 1.4, dark = 0.00, halo = false, shimmer = false, sparkle = 0 },
 	{ size = 280, hold = 2.0, dark = 0.15, halo = true,  shimmer = false, sparkle = 0 },
-	{ size = 380, hold = 2.8, dark = 0.45, halo = true,  shimmer = 2.4,   sparkle = 4 },
-	-- Band 4 always tries the world path first (buildWorld, below); this row
-	-- only matters for the viewport FALLBACK, used when the spot ahead of the
-	-- camera is blocked. size/hold/dark are that fallback's real numbers, but
+	{ size = 380, hold = 2.8, dark = 0.60, halo = true,  shimmer = 2.4,   sparkle = 4 },
+	-- Band 4 always tries the world path first (buildWorld, below); this row's
+	-- size/hold apply to BOTH paths, but dark and fallbackDark are deliberately
+	-- separate numbers for two different mechanisms:
+	--   dark         the WORLD backdrop, a lit 3D Part (buildWorld, below).
+	--   fallbackDark the UI dim Frame used only when the world path is
+	--                blocked and this falls back to a viewport instead -- a
+	--                flat 2D overlay at the SAME opacity as a lit 3D Part
+	--                reads far heavier (verified live: dark's own 0.92 value,
+	--                reused for the fallback, nearly erased the persistent
+	--                HUD -- the hotbar and top buttons -- which the world
+	--                backdrop never touches at all since it only affects the
+	--                3D scene), so the fallback earns its own, lower number.
 	-- halo/shimmer/sparkle here are unused placeholders -- M.play borrows band
 	-- 3's instead, so a fallen-back Secret never reads sparser than a Mythic.
-	{ size = 380, hold = 3.8, dark = 0.80, halo = false, shimmer = false, sparkle = 0, world = true },
+	{ size = 380, hold = 3.8, dark = 0.92, fallbackDark = 0.75, halo = false, shimmer = false, sparkle = 0, world = true },
 }
 
 local SPIN = 70     -- degrees per second, identical in every band
@@ -423,7 +433,7 @@ function M.play(info)
 			effective = { size = spec.size, hold = spec.hold, dark = 0,
 				halo = false, shimmer = false, sparkle = 0 }
 		elseif band == 4 then
-			effective = { size = spec.size, hold = spec.hold, dark = spec.dark,
+			effective = { size = spec.size, hold = spec.hold, dark = spec.fallbackDark,
 				halo = SPEC[3].halo, shimmer = SPEC[3].shimmer, sparkle = SPEC[3].sparkle }
 		end
 
