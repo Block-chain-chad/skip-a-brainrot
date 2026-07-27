@@ -156,190 +156,204 @@ function M.play(info)
 
 	local rec = { dead = false, band = band, token = myToken }
 
-	local root = Instance.new("Frame")
-	root.Name = "Reveal"
-	root.Size = UDim2.fromScale(1, 1)
-	root.BackgroundTransparency = 1
-	root.ZIndex = 1
-	root.Parent = ensureGui()
-	rec.root = root
+	-- Everything below touches live Instances and third-party modules
+	-- (BrainrotThumb, UITheme). It all runs inside ONE pcall: rec is reachable
+	-- from the instant root is parented below, so no matter how far
+	-- construction gets before something throws, teardown(rec) can still find
+	-- and destroy whatever was built. Reveal must never be able to break the
+	-- catch that triggered it.
+	local ok, err = pcall(function()
+		local root = Instance.new("Frame")
+		root.Name = "Reveal"
+		root.Size = UDim2.fromScale(1, 1)
+		root.BackgroundTransparency = 1
+		root.ZIndex = 1
+		root.Parent = ensureGui()
+		rec.root = root
 
-	local fades = {}   -- {inst, prop, to}
+		local fades = {}   -- {inst, prop, to}
 
-	-- backdrop. Stated as OPACITY in SPEC, so invert it here -- "dark 0.8" read
-	-- as a transparency would mean the opposite of what is intended.
-	if spec.dark > 0 then
-		local dim = Instance.new("Frame")
-		dim.Name = "Dim"
-		dim.Size = UDim2.fromScale(1, 1)
-		dim.BackgroundColor3 = Color3.new(0, 0, 0)
-		dim.BackgroundTransparency = 1
-		dim.BorderSizePixel = 0
-		dim.ZIndex = 1
-		dim.Parent = root
-		table.insert(fades, { dim, "BackgroundTransparency", 1 - spec.dark })
-	end
-
-	local holder = Instance.new("Frame")
-	holder.Name = "Holder"
-	holder.AnchorPoint = Vector2.new(0.5, 0.5)
-	holder.Position = UDim2.fromScale(0.5, 0.42)   -- above centre, clear of the hotbar
-	holder.Size = UDim2.fromOffset(spec.size, spec.size + 92)
-	holder.BackgroundTransparency = 1
-	holder.ZIndex = 2
-	holder.Parent = root
-
-	-- halo: an oversized ring behind the model carrying a coloured stroke
-	local haloStroke
-	if spec.halo then
-		local halo = Instance.new("Frame")
-		halo.Name = "Halo"
-		halo.AnchorPoint = Vector2.new(0.5, 0.5)
-		halo.Position = UDim2.new(0.5, 0, 0, spec.size / 2)
-		halo.Size = UDim2.fromOffset(spec.size * 0.86, spec.size * 0.86)
-		halo.BackgroundTransparency = 1
-		halo.ZIndex = 2
-		halo.Parent = holder
-		local hc = Instance.new("UICorner")
-		hc.CornerRadius = UDim.new(1, 0)
-		hc.Parent = halo
-		haloStroke = Instance.new("UIStroke")
-		haloStroke.Color = accent
-		haloStroke.Thickness = 6
-		haloStroke.Transparency = 1
-		haloStroke.LineJoinMode = Enum.LineJoinMode.Round
-		haloStroke.Parent = halo
-		table.insert(fades, { haloStroke, "Transparency", 0.35 })
-	end
-
-	local spin = buildViewport(rec, spec, info, holder)
-	if rec.viewport then
-		rec.viewport.ImageTransparency = 1
-		table.insert(fades, { rec.viewport, "ImageTransparency", 0 })
-	end
-
-	-- shimmer lives on its OWN empty frame, never on anything holding text: a
-	-- UIGradient tints its parent's glyphs too, which has bitten this codebase.
-	local shimmerGrad
-	if spec.shimmer then
-		local shim = Instance.new("Frame")
-		shim.Name = "Shimmer"
-		shim.Size = UDim2.fromOffset(spec.size, spec.size)
-		shim.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-		shim.BackgroundTransparency = 0
-		shim.BorderSizePixel = 0
-		shim.ZIndex = 4
-		shim.Parent = holder
-		shimmerGrad = Instance.new("UIGradient")
-		shimmerGrad.Rotation = 24
-		shimmerGrad.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.44, 1),
-			NumberSequenceKeypoint.new(0.50, 0.62),
-			NumberSequenceKeypoint.new(0.56, 1),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		shimmerGrad.Parent = shim
-	end
-
-	local sparkles = {}
-	for i = 1, spec.sparkle do
-		local at = SPARKLE_AT[i] or SPARKLE_AT[1]
-		local s = Instance.new("TextLabel")
-		s.Name = "Sparkle"
-		s.AnchorPoint = Vector2.new(0.5, 0.5)
-		s.Position = UDim2.new(at.X, 0, 0, at.Y * spec.size)
-		s.Size = UDim2.fromOffset(40, 40)
-		s.BackgroundTransparency = 1
-		s.Font = Enum.Font.GothamBold
-		s.Text = "\u{2726}"
-		s.TextColor3 = Color3.fromRGB(255, 255, 255)
-		s.TextSize = 26
-		s.TextTransparency = 1
-		s.ZIndex = 5
-		s.Parent = holder
-		sparkles[i] = s
-	end
-
-	-- name, then rarity. No panel behind either -- that is the whole point.
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "BrainrotName"
-	nameLabel.AnchorPoint = Vector2.new(0.5, 0)
-	nameLabel.Position = UDim2.new(0.5, 0, 0, spec.size + 6)
-	nameLabel.Size = UDim2.fromOffset(spec.size + 160, 40)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Font = UITheme.Font
-	nameLabel.TextSize = 30
-	nameLabel.TextColor3 = CF.onDark
-	nameLabel.TextScaled = false
-	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLabel.Text = info.Name
-	nameLabel.TextTransparency = 1
-	nameLabel.ZIndex = 6
-	nameLabel.Parent = holder
-	local nameInk = UITheme.inkText(nameLabel, 3)
-	nameInk.Transparency = 1
-
-	local rarityLabel = Instance.new("TextLabel")
-	rarityLabel.Name = "Rarity"
-	rarityLabel.AnchorPoint = Vector2.new(0.5, 0)
-	rarityLabel.Position = UDim2.new(0.5, 0, 0, spec.size + 48)
-	rarityLabel.Size = UDim2.fromOffset(spec.size + 160, 32)
-	rarityLabel.BackgroundTransparency = 1
-	rarityLabel.Font = UITheme.Font
-	rarityLabel.TextSize = 23
-	rarityLabel.TextColor3 = accent
-	rarityLabel.Text = string.upper(tostring(info.Rarity or "?"))
-	rarityLabel.TextTransparency = 1
-	rarityLabel.ZIndex = 6
-	rarityLabel.Parent = holder
-	local rarityInk = UITheme.inkText(rarityLabel, 2.6)
-	rarityInk.Transparency = 1
-	rec.rarityLabel = rarityLabel
-
-	table.insert(fades, { nameLabel, "TextTransparency", 0 })
-	table.insert(fades, { rarityLabel, "TextTransparency", 0 })
-	table.insert(fades, { nameInk, "Transparency", 0 })
-	table.insert(fades, { rarityInk, "Transparency", 0 })
-
-	-- fade in
-	for _, f in ipairs(fades) do
-		TweenService:Create(f[1], TweenInfo.new(FADE), { [f[2]] = f[3] }):Play()
-	end
-
-	-- One driver for this reveal, disconnected in teardown. Nothing per-frame
-	-- survives the reveal.
-	local t = 0
-	rec.conn = RunService.RenderStepped:Connect(function(dt)
-		t += dt
-		if spin then spin(t) end
-		if haloStroke then
-			haloStroke.Transparency = 0.35 + 0.22 * (0.5 + 0.5 * math.sin(t * 2.1))
+		-- backdrop. Stated as OPACITY in SPEC, so invert it here -- "dark 0.8" read
+		-- as a transparency would mean the opposite of what is intended.
+		if spec.dark > 0 then
+			local dim = Instance.new("Frame")
+			dim.Name = "Dim"
+			dim.Size = UDim2.fromScale(1, 1)
+			dim.BackgroundColor3 = Color3.new(0, 0, 0)
+			dim.BackgroundTransparency = 1
+			dim.BorderSizePixel = 0
+			dim.ZIndex = 1
+			dim.Parent = root
+			table.insert(fades, { dim, "BackgroundTransparency", 1 - spec.dark })
 		end
-		if shimmerGrad then
-			shimmerGrad.Offset = Vector2.new(((t / spec.shimmer) % 1) * 2.6 - 1.3, 0)
-		end
-		for i = 1, #sparkles do
-			local k = 0.5 + 0.5 * math.sin(t * 3.1 + i * 1.9)
-			sparkles[i].TextTransparency = 1 - k
-			sparkles[i].TextSize = 14 + 14 * k
-		end
-	end)
 
-	live = rec
+		local holder = Instance.new("Frame")
+		holder.Name = "Holder"
+		holder.AnchorPoint = Vector2.new(0.5, 0.5)
+		holder.Position = UDim2.fromScale(0.5, 0.42)   -- above centre, clear of the hotbar
+		holder.Size = UDim2.fromOffset(spec.size, spec.size + 92)
+		holder.BackgroundTransparency = 1
+		holder.ZIndex = 2
+		holder.Parent = root
 
-	-- hold, fade out, tear down
-	task.delay(FADE + spec.hold, function()
-		if rec.dead or rec.token ~= token then return end
+		-- halo: an oversized ring behind the model carrying a coloured stroke
+		local haloStroke
+		if spec.halo then
+			local halo = Instance.new("Frame")
+			halo.Name = "Halo"
+			halo.AnchorPoint = Vector2.new(0.5, 0.5)
+			halo.Position = UDim2.new(0.5, 0, 0, spec.size / 2)
+			halo.Size = UDim2.fromOffset(spec.size * 0.86, spec.size * 0.86)
+			halo.BackgroundTransparency = 1
+			halo.ZIndex = 2
+			halo.Parent = holder
+			local hc = Instance.new("UICorner")
+			hc.CornerRadius = UDim.new(1, 0)
+			hc.Parent = halo
+			haloStroke = Instance.new("UIStroke")
+			haloStroke.Color = accent
+			haloStroke.Thickness = 6
+			haloStroke.Transparency = 1
+			haloStroke.LineJoinMode = Enum.LineJoinMode.Round
+			haloStroke.Parent = halo
+			table.insert(fades, { haloStroke, "Transparency", 0.35 })
+		end
+
+		local spin = buildViewport(rec, spec, info, holder)
+		if rec.viewport then
+			rec.viewport.ImageTransparency = 1
+			table.insert(fades, { rec.viewport, "ImageTransparency", 0 })
+		end
+
+		-- shimmer lives on its OWN empty frame, never on anything holding text: a
+		-- UIGradient tints its parent's glyphs too, which has bitten this codebase.
+		local shimmerGrad
+		if spec.shimmer then
+			local shim = Instance.new("Frame")
+			shim.Name = "Shimmer"
+			shim.Size = UDim2.fromOffset(spec.size, spec.size)
+			shim.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			shim.BackgroundTransparency = 0
+			shim.BorderSizePixel = 0
+			shim.ZIndex = 4
+			shim.Parent = holder
+			shimmerGrad = Instance.new("UIGradient")
+			shimmerGrad.Rotation = 24
+			shimmerGrad.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.44, 1),
+				NumberSequenceKeypoint.new(0.50, 0.62),
+				NumberSequenceKeypoint.new(0.56, 1),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			shimmerGrad.Parent = shim
+		end
+
+		local sparkles = {}
+		for i = 1, spec.sparkle do
+			local at = SPARKLE_AT[i] or SPARKLE_AT[1]
+			local s = Instance.new("TextLabel")
+			s.Name = "Sparkle"
+			s.AnchorPoint = Vector2.new(0.5, 0.5)
+			s.Position = UDim2.new(at.X, 0, 0, at.Y * spec.size)
+			s.Size = UDim2.fromOffset(40, 40)
+			s.BackgroundTransparency = 1
+			s.Font = UITheme.GlyphFont
+			s.Text = "\u{2726}"
+			s.TextColor3 = Color3.fromRGB(255, 255, 255)
+			s.TextSize = 26
+			s.TextTransparency = 1
+			s.ZIndex = 5
+			s.Parent = holder
+			sparkles[i] = s
+		end
+
+		-- name, then rarity. No panel behind either -- that is the whole point.
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Name = "BrainrotName"
+		nameLabel.AnchorPoint = Vector2.new(0.5, 0)
+		nameLabel.Position = UDim2.new(0.5, 0, 0, spec.size + 6)
+		nameLabel.Size = UDim2.fromOffset(spec.size + 160, 40)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Font = UITheme.Font
+		nameLabel.TextSize = 30
+		nameLabel.TextColor3 = CF.onDark
+		nameLabel.TextScaled = false
+		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLabel.Text = info.Name
+		nameLabel.TextTransparency = 1
+		nameLabel.ZIndex = 6
+		nameLabel.Parent = holder
+		local nameInk = UITheme.inkText(nameLabel, 3)
+		nameInk.Transparency = 1
+
+		local rarityLabel = Instance.new("TextLabel")
+		rarityLabel.Name = "Rarity"
+		rarityLabel.AnchorPoint = Vector2.new(0.5, 0)
+		rarityLabel.Position = UDim2.new(0.5, 0, 0, spec.size + 48)
+		rarityLabel.Size = UDim2.fromOffset(spec.size + 160, 32)
+		rarityLabel.BackgroundTransparency = 1
+		rarityLabel.Font = UITheme.Font
+		rarityLabel.TextSize = 23
+		rarityLabel.TextColor3 = accent
+		rarityLabel.Text = string.upper(tostring(info.Rarity or "?"))
+		rarityLabel.TextTransparency = 1
+		rarityLabel.ZIndex = 6
+		rarityLabel.Parent = holder
+		local rarityInk = UITheme.inkText(rarityLabel, 2.6)
+		rarityInk.Transparency = 1
+		rec.rarityLabel = rarityLabel
+
+		table.insert(fades, { nameLabel, "TextTransparency", 0 })
+		table.insert(fades, { rarityLabel, "TextTransparency", 0 })
+		table.insert(fades, { nameInk, "Transparency", 0 })
+		table.insert(fades, { rarityInk, "Transparency", 0 })
+
+		-- fade in
 		for _, f in ipairs(fades) do
-			local back = (f[2] == "ImageTransparency" or f[2] == "TextTransparency"
-				or f[2] == "Transparency" or f[2] == "BackgroundTransparency") and 1 or 0
-			TweenService:Create(f[1], TweenInfo.new(FADE), { [f[2]] = back }):Play()
+			TweenService:Create(f[1], TweenInfo.new(FADE), { [f[2]] = f[3] }):Play()
 		end
-		task.delay(FADE, function()
-			if rec.token == token then teardown(rec) end
+
+		-- One driver for this reveal, disconnected in teardown. Nothing per-frame
+		-- survives the reveal.
+		local t = 0
+		rec.conn = RunService.RenderStepped:Connect(function(dt)
+			t += dt
+			if spin then spin(t) end
+			if haloStroke then
+				haloStroke.Transparency = 0.35 + 0.22 * (0.5 + 0.5 * math.sin(t * 2.1))
+			end
+			if shimmerGrad then
+				shimmerGrad.Offset = Vector2.new(((t / spec.shimmer) % 1) * 2.6 - 1.3, 0)
+			end
+			for i = 1, #sparkles do
+				local k = 0.5 + 0.5 * math.sin(t * 3.1 + i * 1.9)
+				sparkles[i].TextTransparency = 1 - k
+				sparkles[i].TextSize = 14 + 14 * k
+			end
+		end)
+
+		live = rec
+
+		-- hold, fade out, tear down
+		task.delay(FADE + spec.hold, function()
+			if rec.dead or rec.token ~= token then return end
+			for _, f in ipairs(fades) do
+				local back = (f[2] == "ImageTransparency" or f[2] == "TextTransparency"
+					or f[2] == "Transparency" or f[2] == "BackgroundTransparency") and 1 or 0
+				TweenService:Create(f[1], TweenInfo.new(FADE), { [f[2]] = back }):Play()
+			end
+			task.delay(FADE, function()
+				if rec.token == token then teardown(rec) end
+			end)
 		end)
 	end)
+
+	if not ok then
+		warn(("[CatchReveal] M.play failed while building the reveal -- tearing down: %s"):format(tostring(err)))
+		teardown(rec)
+		return nil
+	end
 
 	return {
 		skip = function()

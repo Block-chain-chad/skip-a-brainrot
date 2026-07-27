@@ -28,3 +28,7 @@ Also in Studio but not mirrored: a 7-line HeightScale patch in BrainrotSpawner.b
 ## CatchReveal (2026-07-27, Task 1 of 5)
 - CatchReveal.lua -> ReplicatedStorage.Modules.CatchReveal: the catch moment -- brainrot model spinning in a ViewportFrame instead of a text card. Bands 1-3 of 4 (size/halo/shimmer/sparkle ladder over the eight rarity tiers); band 4 (Secret/God) deliberately renders as band 3 until Task 2 adds the world-model + MutationFX path.
 - BrainrotThumb.lua -> ReplicatedStorage.Modules.BrainrotThumb: additive change. Extracted M.framing(model, fov) -> centre, dist and exposed M.DEFAULT_DIR, so CatchReveal can orbit a camera using the same maths add() uses to place one. add()'s own behaviour and its two callers (BackpackClient, IndexClient) are unchanged.
+
+## CatchReveal review fixes (2026-07-27, Task 1 review round)
+- UITheme.lua -> ReplicatedStorage.Modules.UITheme (first mirror): additive. Added M.GlyphFont = Enum.Font.GothamBold beside M.Font, for decorative dingbats (the cafe face M.Font may not carry glyphs like the sparkle character). Nothing else in UITheme changed.
+- CatchReveal.lua updated: sparkle glyph now reads UITheme.GlyphFont instead of a hardcoded Enum.Font.GothamBold. M.play's construction (root-parenting through the RenderStepped connect and hold/fade scheduling) now runs inside one pcall; on failure it warns, tears down whatever was already built, and returns nil instead of letting the error -- and any already-parented Frame or live connection -- escape the module.
