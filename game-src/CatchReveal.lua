@@ -154,11 +154,31 @@ end
 -- worse than one that is merely close. A black backdrop part behind the model
 -- does the darkening, because a full-screen UI dim would darken the model too:
 -- UI always renders above the 3D world.
-local WORLD_DIST     = 13   -- fallback studs ahead of the camera, only used when there is no character to measure from
-local CHAR_CLEARANCE = 10   -- studs beyond the character, along the camera's forward axis -- clears accessories deeper than ~4 studs (e.g. a 7.99-stud-deep Tarantula) with margin to spare
-local WORLD_HEIGHT   = 7    -- studs tall AT WORLD_DIST; scaled proportionally at other distances so the reveal reads the same size regardless of how far the spot ends up being
-local BACKDROP_GAP   = 13   -- studs behind the MODEL, not the camera -- matches the original fixed 26-13 gap
-local BACKDROP_SIZE  = 260
+-- Task 5 Step 1b: INVERTED from the original design. The model used to sit
+-- BEYOND the character (character distance + clearance), which put the
+-- player's own avatar -- and whatever it's wearing -- between the camera and
+-- the reveal. Measured on this account: a 7.99x4.77x7.74 Tarantula accessory
+-- covered the model's middle, and the backdrop (behind the model) darkened
+-- nothing nearer than that, so the takeover never read as a takeover.
+--
+-- Both the model and the backdrop now sit IN FRONT OF the character instead,
+-- each derived from where the character actually is (not a fixed camera-
+-- relative offset) for the same reason the original code measured the
+-- character rather than hardcoding a distance -- a player who has scrolled
+-- their zoom in or out still gets numbers that make sense for where they are:
+--   dist         = charDist - MODEL_CLEARANCE     (nearer than the character)
+--   backdropDist = charDist - BACKDROP_CLEARANCE  (also nearer, but further
+--                  out than the model, so ONE panel hides the avatar and
+--                  everything past it at once)
+-- MODEL_CLEARANCE > BACKDROP_CLEARANCE by construction, so backdropDist is
+-- always further from the camera than dist is -- camera < model < backdrop <
+-- character holds for any charDist, not just the default one.
+local CHAR_DIST_FALLBACK = 13   -- assumed camera->character distance when there is no character to measure from -- Roblox's default third-person shoulder distance
+local MODEL_CLEARANCE    = 7    -- studs the model sits in front of the character (~6 studs from the camera at the default distance)
+local BACKDROP_CLEARANCE = 3    -- studs the backdrop sits in front of the character -- less than MODEL_CLEARANCE so it always lands BEHIND the model (~10 studs from the camera at the default distance)
+local MIN_MODEL_DIST     = 3    -- floor so the model can never land behind or inside the camera's near plane at a tight zoom
+local WORLD_HEIGHT       = 5    -- studs tall when dist == CHAR_DIST_FALLBACK - MODEL_CLEARANCE (6, the default-zoom case); scaled proportionally at other distances so the reveal reads the same size regardless of zoom. Lower than the old 7 because the model is now ~4x closer to the camera than before (6 studs vs ~23), so the same physical height reads much bigger on screen -- verified live: 7 filled the frame edge-to-edge and cropped the creature's own silhouette.
+local BACKDROP_SIZE      = 400  -- studs square; raised from 260 after a live screenshot showed sky peeking past the top-right corner at the closer ~10-stud backdrop distance -- the corner of a wide viewport reaches slightly further than a naive half-FOV estimate suggests
 
 local function stripScripts(model)
 	-- ReplicatedStorage.BrainrotModels is verified 0 scripts today, but this
@@ -177,28 +197,27 @@ local function buildWorld(rec, spec, info)
 
 	local origin = cam.CFrame
 
-	-- Place the model in front of the PLAYER, not a fixed distance from the
-	-- camera. Roblox's default third-person camera already sits about
-	-- WORLD_DIST studs BEHIND the character, so a camera-relative offset of
-	-- WORLD_DIST put the "reveal" spot exactly on top of the player's own
-	-- avatar -- measured buried inside a 7.99x4.77x7.74 Tarantula accessory.
-	-- Derive the distance from where the character actually is instead, plus
-	-- clearance beyond it, so the model always lands comfortably in front of
-	-- whoever is standing there.
+	-- Nearer the camera than the character now, not farther -- see the header
+	-- comment above (Task 5 Step 1b). charDist assumes CHAR_DIST_FALLBACK when
+	-- there is no character to measure, so the same formula covers both cases.
 	local charRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-	local dist = WORLD_DIST
-	if charRoot then
-		dist = (charRoot.Position - origin.Position).Magnitude + CHAR_CLEARANCE
-	end
+	local charDist = charRoot and (charRoot.Position - origin.Position).Magnitude or CHAR_DIST_FALLBACK
+
+	-- Clamped two ways: never closer to the camera than MIN_MODEL_DIST (the
+	-- near-plane floor), and never further out than the character itself even
+	-- at an extremely tight zoom -- "nearer than the character" must hold
+	-- REGARDLESS of charDist, not just at the default distance.
+	local dist = math.min(charDist - 1, math.max(MIN_MODEL_DIST, charDist - MODEL_CLEARANCE))
 
 	local spot = origin * CFrame.new(0, 0, -dist)
-	-- WORLD_HEIGHT was tuned to read right at WORLD_DIST; scale proportionally
-	-- so the reveal is the same apparent size no matter how far the spot ends
-	-- up landing (otherwise doubling the distance would halve the model).
-	local worldHeight = WORLD_HEIGHT * (dist / WORLD_DIST)
-	-- The backdrop must move WITH the model, or a longer dist would put it in
-	-- FRONT of the model instead of behind it.
-	local backdropAt = dist + BACKDROP_GAP
+	-- WORLD_HEIGHT was tuned to read right when dist is CHAR_DIST_FALLBACK -
+	-- MODEL_CLEARANCE (the default-zoom case); scale proportionally at other
+	-- distances so the reveal is the same apparent size regardless of zoom.
+	local worldHeight = WORLD_HEIGHT * (dist / (CHAR_DIST_FALLBACK - MODEL_CLEARANCE))
+	-- Between the model and the character at every distance: always a little
+	-- further out than the model, always a little short of the character, so
+	-- one panel hides the avatar and the world beyond it at once.
+	local backdropAt = math.min(charDist - 0.5, math.max(dist + 2, charDist - BACKDROP_CLEARANCE))
 
 	-- If real, VISIBLE geometry sits between the camera and the reveal spot the
 	-- model would be hidden behind it. Rather than shove the camera somewhere it
@@ -556,8 +575,16 @@ function M.play(info)
 		rec.conn = RunService.RenderStepped:Connect(function(dt)
 			t += dt
 			if spin then spin(t) end
-			if haloStroke then
-				haloStroke.Transparency = 0.35 + 0.22 * (0.5 + 0.5 * math.sin(t * 2.1))
+			-- Guarded to [FADE, FADE+hold]: outside that window a TWEEN owns
+			-- Transparency (the fade-in below FADE, the fade-out above hold) and
+			-- this per-frame set would win the race every single frame, which is
+			-- why the halo used to SNAP in instead of fading (known since Task 1).
+			-- The phase is shifted so the oscillation's own start (sin = -1, its
+			-- trough) lands exactly on 0.35 -- the value the fade-in tween was
+			-- already headed to -- so handing off from tween to handler at t=FADE
+			-- is seamless instead of jumping to the oscillation's t=0 value.
+			if haloStroke and t >= FADE and t <= FADE + effective.hold then
+				haloStroke.Transparency = 0.35 + 0.22 * (0.5 + 0.5 * math.sin((t - FADE) * 2.1 - math.pi / 2))
 			end
 			if shimmerGrad then
 				shimmerGrad.Offset = Vector2.new(((t / effective.shimmer) % 1) * 2.6 - 1.3, 0)
