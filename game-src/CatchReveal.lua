@@ -49,10 +49,11 @@ local SPEC = {
 	{ size = 180, hold = 1.4, dark = 0.00, halo = false, shimmer = false, sparkle = 0 },
 	{ size = 280, hold = 2.0, dark = 0.15, halo = true,  shimmer = false, sparkle = 0 },
 	{ size = 380, hold = 2.8, dark = 0.45, halo = true,  shimmer = 2.4,   sparkle = 4 },
-	-- Band 4 is filled in by the world path. Until that exists it renders as
-	-- band 3, so every tier already has a working reveal.
-	-- world path: size is the viewport FALLBACK size, used only when the spot
-	-- ahead of the camera is blocked
+	-- Band 4 always tries the world path first (buildWorld, below); this row
+	-- only matters for the viewport FALLBACK, used when the spot ahead of the
+	-- camera is blocked. size/hold/dark are that fallback's real numbers, but
+	-- halo/shimmer/sparkle here are unused placeholders -- M.play borrows band
+	-- 3's instead, so a fallen-back Secret never reads sparser than a Mythic.
 	{ size = 380, hold = 3.8, dark = 0.80, halo = false, shimmer = false, sparkle = 0, world = true },
 }
 
@@ -167,15 +168,53 @@ local function buildWorld(rec, spec, info)
 	local origin = cam.CFrame
 	local spot = origin * CFrame.new(0, 0, -WORLD_DIST)
 
-	-- If real geometry sits between the camera and the reveal spot the model
-	-- would be hidden behind a wall. Rather than shove the camera somewhere it
+	-- If real, VISIBLE geometry sits between the camera and the reveal spot the
+	-- model would be hidden behind it. Rather than shove the camera somewhere it
 	-- might not fit, fall back to the viewport path -- a Secret that looks like
-	-- a Legendary beats a Secret you cannot see.
+	-- a Legendary beats a Secret you cannot see. But in this engine build,
+	-- CanCollide=true overrides CanQuery=false for workspace:Raycast, so the
+	-- lake's invisible collision walls (CanQuery=false, CanCollide=true, fully
+	-- transparent) register as hits despite being nothing a player can see --
+	-- measured 37/84 clear across the dock's real stance spots before this
+	-- loop, 84/84 after. A fully-transparent hit is not a visual obstruction:
+	-- exclude it and cast again, bounded so a stack of invisible parts can't
+	-- spin forever.
+	local exclude = { player.Character }
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { player.Character }
-	local hit = workspace:Raycast(origin.Position, (spot.Position - origin.Position), params)
-	if hit then return nil end
+	params.FilterDescendantsInstances = exclude
+	local blocked = false
+	for _ = 1, 6 do
+		local hit = workspace:Raycast(origin.Position, (spot.Position - origin.Position), params)
+		if not hit then
+			break
+		elseif hit.Instance:IsA("BasePart") and hit.Instance.Transparency >= 1 then
+			table.insert(exclude, hit.Instance)
+			params.FilterDescendantsInstances = exclude
+		else
+			blocked = true
+			break
+		end
+	end
+	if blocked then return nil end
+
+	-- Capture savedType and assign rec.restore BEFORE anything is parented or
+	-- the camera is touched. If a throw happens anywhere below -- cloning,
+	-- scaling, parenting, or the camera assignment itself -- M.play's pcall
+	-- calls teardown(rec), which calls rec.restore if one is SET. Assigning it
+	-- this early, with rec.worldModel/rec.backdrop nil-checked inside it so it
+	-- is safe to call before either exists, closes the window where a throw
+	-- could leave the model or backdrop stranded outside rec.root's tree (so
+	-- teardown's rec.root:Destroy() can't reach them) or the camera stuck
+	-- Scriptable with nothing left to undo it -- unrecoverable without
+	-- rejoining.
+	local savedType = cam.CameraType
+	rec.restore = function()
+		if rec.worldModel then rec.worldModel:Destroy(); rec.worldModel = nil end
+		if rec.backdrop then rec.backdrop:Destroy(); rec.backdrop = nil end
+		local c = workspace.CurrentCamera
+		if c then c.CameraType = savedType end
+	end
 
 	local m = src:Clone()
 	stripScripts(m)
@@ -189,6 +228,16 @@ local function buildWorld(rec, spec, info)
 		end
 	end
 
+	-- Pivot about the bounding-box centre BEFORE scaling, not after: ScaleTo
+	-- scales around the model's CURRENT pivot, and on these packs the
+	-- PrimaryPart is an arbitrary limb sitting anywhere inside the body.
+	-- Scaling around that off-centre point drags the bounding-box centre along
+	-- with it (measured a 3.75-stud shift on a real model) -- pivoting here
+	-- first means there is nothing off-centre left to scale around.
+	m.PrimaryPart = nil
+	local preScale = m:GetBoundingBox()
+	m.WorldPivot = CFrame.new(preScale.Position)
+
 	-- ScaleTo is ABSOLUTE. Re-measuring an already-scaled model and calling it
 	-- again resets to authored size, so always multiply the CURRENT scale.
 	local _, ext = m:GetBoundingBox()
@@ -196,11 +245,10 @@ local function buildWorld(rec, spec, info)
 		m:ScaleTo(m:GetScale() * (WORLD_HEIGHT / ext.Y))
 	end
 
-	-- Pivot about the bounding-box centre. On these packs the PrimaryPart is an
-	-- arbitrary limb, so pivoting on it makes the model wobble off-axis.
-	local bcf = m:GetBoundingBox()
-	m.PrimaryPart = nil
-	m.WorldPivot = CFrame.new(bcf.Position)
+	-- Re-measure rather than assume the centre held: cheap, and the per-frame
+	-- PivotTo below must be exact.
+	local postScale = m:GetBoundingBox()
+	m.WorldPivot = CFrame.new(postScale.Position)
 	m.Parent = workspace          -- client-created: never replicates
 	rec.worldModel = m
 
@@ -221,17 +269,10 @@ local function buildWorld(rec, spec, info)
 	TweenService:Create(backdrop, TweenInfo.new(FADE),
 		{ Transparency = 1 - spec.dark }):Play()
 
-	-- Freeze the camera where it already is.
-	local savedType = cam.CameraType
+	-- Freeze the camera where it already is. rec.restore (above) already knows
+	-- how to undo this.
 	cam.CameraType = Enum.CameraType.Scriptable
 	cam.CFrame = origin
-
-	rec.restore = function()
-		if rec.worldModel then rec.worldModel:Destroy(); rec.worldModel = nil end
-		if rec.backdrop then rec.backdrop:Destroy(); rec.backdrop = nil end
-		local c = workspace.CurrentCamera
-		if c then c.CameraType = savedType end
-	end
 
 	-- A camera left Scriptable is unrecoverable without rejoining, so it gets a
 	-- second, independent guard on top of teardown -- the same belt-and-braces
@@ -285,9 +326,34 @@ function M.play(info)
 
 		local fades = {}   -- {inst, prop, to}
 
+		-- Decide the render path FIRST, before any UI flair is built. A world
+		-- reveal draws its own backdrop and (Task 3) its own MutationFX, so it
+		-- must carry none of the dim/halo/shimmer/sparkle -- and a fallback must
+		-- carry band 3's flair, not band 4's own empty placeholders, so a
+		-- fallen-back Secret is never sparser than a Mythic. Building the UI
+		-- AFTER this decision (rather than building flair, then discovering band
+		-- 4 didn't want it) is what makes that possible.
+		local spin
+		if band == 4 then
+			spin = buildWorld(rec, spec, info)
+		end
+
+		-- effective is what the REST of this function actually builds from.
+		-- World path (spin already set): nothing but the labels. Band-4
+		-- fallback: band 4's own size/hold/dark, but band 3's halo/shimmer/
+		-- sparkle. Bands 1-3: spec, unchanged.
+		local effective = spec
+		if spin then
+			effective = { size = spec.size, hold = spec.hold, dark = 0,
+				halo = false, shimmer = false, sparkle = 0 }
+		elseif band == 4 then
+			effective = { size = spec.size, hold = spec.hold, dark = spec.dark,
+				halo = SPEC[3].halo, shimmer = SPEC[3].shimmer, sparkle = SPEC[3].sparkle }
+		end
+
 		-- backdrop. Stated as OPACITY in SPEC, so invert it here -- "dark 0.8" read
 		-- as a transparency would mean the opposite of what is intended.
-		if spec.dark > 0 and band ~= 4 then
+		if effective.dark > 0 then
 			local dim = Instance.new("Frame")
 			dim.Name = "Dim"
 			dim.Size = UDim2.fromScale(1, 1)
@@ -296,26 +362,26 @@ function M.play(info)
 			dim.BorderSizePixel = 0
 			dim.ZIndex = 1
 			dim.Parent = root
-			table.insert(fades, { dim, "BackgroundTransparency", 1 - spec.dark })
+			table.insert(fades, { dim, "BackgroundTransparency", 1 - effective.dark })
 		end
 
 		local holder = Instance.new("Frame")
 		holder.Name = "Holder"
 		holder.AnchorPoint = Vector2.new(0.5, 0.5)
 		holder.Position = UDim2.fromScale(0.5, 0.42)   -- above centre, clear of the hotbar
-		holder.Size = UDim2.fromOffset(spec.size, spec.size + 92)
+		holder.Size = UDim2.fromOffset(effective.size, effective.size + 92)
 		holder.BackgroundTransparency = 1
 		holder.ZIndex = 2
 		holder.Parent = root
 
 		-- halo: an oversized ring behind the model carrying a coloured stroke
 		local haloStroke
-		if spec.halo then
+		if effective.halo then
 			local halo = Instance.new("Frame")
 			halo.Name = "Halo"
 			halo.AnchorPoint = Vector2.new(0.5, 0.5)
-			halo.Position = UDim2.new(0.5, 0, 0, spec.size / 2)
-			halo.Size = UDim2.fromOffset(spec.size * 0.86, spec.size * 0.86)
+			halo.Position = UDim2.new(0.5, 0, 0, effective.size / 2)
+			halo.Size = UDim2.fromOffset(effective.size * 0.86, effective.size * 0.86)
 			halo.BackgroundTransparency = 1
 			halo.ZIndex = 2
 			halo.Parent = holder
@@ -331,14 +397,8 @@ function M.play(info)
 			table.insert(fades, { haloStroke, "Transparency", 0.35 })
 		end
 
-		-- Band 4 tries the world first and falls back to the viewport when the spot
-		-- is blocked, so a Secret always reveals as SOMETHING.
-		local spin
-		if band == 4 then
-			spin = buildWorld(rec, spec, info)
-		end
 		if not spin then
-			spin = buildViewport(rec, spec, info, holder)
+			spin = buildViewport(rec, effective, info, holder)
 		end
 		if rec.viewport then
 			rec.viewport.ImageTransparency = 1
@@ -348,10 +408,10 @@ function M.play(info)
 		-- shimmer lives on its OWN empty frame, never on anything holding text: a
 		-- UIGradient tints its parent's glyphs too, which has bitten this codebase.
 		local shimmerGrad
-		if spec.shimmer then
+		if effective.shimmer then
 			local shim = Instance.new("Frame")
 			shim.Name = "Shimmer"
-			shim.Size = UDim2.fromOffset(spec.size, spec.size)
+			shim.Size = UDim2.fromOffset(effective.size, effective.size)
 			shim.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 			shim.BackgroundTransparency = 0
 			shim.BorderSizePixel = 0
@@ -370,12 +430,12 @@ function M.play(info)
 		end
 
 		local sparkles = {}
-		for i = 1, spec.sparkle do
+		for i = 1, effective.sparkle do
 			local at = SPARKLE_AT[i] or SPARKLE_AT[1]
 			local s = Instance.new("TextLabel")
 			s.Name = "Sparkle"
 			s.AnchorPoint = Vector2.new(0.5, 0.5)
-			s.Position = UDim2.new(at.X, 0, 0, at.Y * spec.size)
+			s.Position = UDim2.new(at.X, 0, 0, at.Y * effective.size)
 			s.Size = UDim2.fromOffset(40, 40)
 			s.BackgroundTransparency = 1
 			s.Font = UITheme.GlyphFont
@@ -392,8 +452,8 @@ function M.play(info)
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Name = "BrainrotName"
 		nameLabel.AnchorPoint = Vector2.new(0.5, 0)
-		nameLabel.Position = UDim2.new(0.5, 0, 0, spec.size + 6)
-		nameLabel.Size = UDim2.fromOffset(spec.size + 160, 40)
+		nameLabel.Position = UDim2.new(0.5, 0, 0, effective.size + 6)
+		nameLabel.Size = UDim2.fromOffset(effective.size + 160, 40)
 		nameLabel.BackgroundTransparency = 1
 		nameLabel.Font = UITheme.Font
 		nameLabel.TextSize = 30
@@ -410,8 +470,8 @@ function M.play(info)
 		local rarityLabel = Instance.new("TextLabel")
 		rarityLabel.Name = "Rarity"
 		rarityLabel.AnchorPoint = Vector2.new(0.5, 0)
-		rarityLabel.Position = UDim2.new(0.5, 0, 0, spec.size + 48)
-		rarityLabel.Size = UDim2.fromOffset(spec.size + 160, 32)
+		rarityLabel.Position = UDim2.new(0.5, 0, 0, effective.size + 48)
+		rarityLabel.Size = UDim2.fromOffset(effective.size + 160, 32)
 		rarityLabel.BackgroundTransparency = 1
 		rarityLabel.Font = UITheme.Font
 		rarityLabel.TextSize = 23
@@ -444,7 +504,7 @@ function M.play(info)
 				haloStroke.Transparency = 0.35 + 0.22 * (0.5 + 0.5 * math.sin(t * 2.1))
 			end
 			if shimmerGrad then
-				shimmerGrad.Offset = Vector2.new(((t / spec.shimmer) % 1) * 2.6 - 1.3, 0)
+				shimmerGrad.Offset = Vector2.new(((t / effective.shimmer) % 1) * 2.6 - 1.3, 0)
 			end
 			for i = 1, #sparkles do
 				local k = 0.5 + 0.5 * math.sin(t * 3.1 + i * 1.9)
@@ -456,7 +516,7 @@ function M.play(info)
 		live = rec
 
 		-- hold, fade out, tear down
-		task.delay(FADE + spec.hold, function()
+		task.delay(FADE + effective.hold, function()
 			if rec.dead or rec.token ~= token then return end
 			for _, f in ipairs(fades) do
 				local back = (f[2] == "ImageTransparency" or f[2] == "TextTransparency"
