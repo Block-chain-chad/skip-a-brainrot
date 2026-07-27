@@ -1,0 +1,61 @@
+PATCH 1 — retire the old text card (REPLACE inside the `remotes.ThrowResult.OnClientEvent:Connect(function(result) ... end)` handler, the block between `local myToken = resultToken` and `resultScale.Scale = 0.6`; currently lines 606-613):
+
+```lua
+	rarityLabel.Text = string.upper(result.Rarity)
+	rarityLabel.TextColor3 = result.RarityColor
+	nameLabel.Text = result.BrainrotName
+	infoLabel.Text = ("Distance: %dm  |  +%s/s"):format(result.Distance, formatNumber(result.CashPerSecond))
+
+	celebrateCatch(result.Rarity, result.Mutation)
+
+	resultFrame.Visible = true
+```
+
+becomes:
+
+```lua
+	-- The card is retired: CatchRevealClient now shows the caught brainrot
+	-- itself, spinning, instead of describing it in text. The frame and its
+	-- styling are left in place so this is a one-block revert.
+	celebrateCatch(result.Rarity, result.Mutation)
+	if true then return end
+
+	rarityLabel.Text = string.upper(result.Rarity)
+	rarityLabel.TextColor3 = result.RarityColor
+	nameLabel.Text = result.BrainrotName
+	infoLabel.Text = ("Distance: %dm  |  +%s/s"):format(result.Distance, formatNumber(result.CashPerSecond))
+
+	resultFrame.Visible = true
+```
+
+Revert: delete the 3-line comment + `if true then return end`, restore `resultFrame.Visible = true` to sit right after the `celebrateCatch(...)` call (as it does in the "becomes" block above, just without the early return). `resultFrame`, its styling block, and the label variables (`rarityLabel`, `nameLabel`, `infoLabel`) are all left completely untouched by this patch, which is what makes that a one-block revert instead of a reconstruction.
+
+PATCH 2 — suppress world FX (pillar + camera shake) under a band-4 takeover (insert immediately after the line matching `local idx = rarityIndexByName[rarityName] or 1`, the first line of `local function celebrateCatch(rarityName, mutation)`; currently line 548):
+
+```lua
+	local idx = rarityIndexByName[rarityName] or 1
+```
+
+becomes:
+
+```lua
+	local idx = rarityIndexByName[rarityName] or 1
+	-- Band 4 locks the camera onto a world model, so the pillar spawned around
+	-- the character would be off-screen and a shake would fight the lock.
+	if rarityName == "Secret" or rarityName == "God" then return end
+```
+
+Revert: delete the 2-line comment + `if` guard.
+
+No other lines in ClientMain change. `resultFrame`, `rarityLabel`, `nameLabel`, `infoLabel`, and all their one-time styling setup (the `do ... end` block right above the handler) are untouched — Task 4 stops showing the card, it does not remove it.
+
+=== NOTES ===
+Verified against the live Studio place (`game.StarterPlayer.StarterPlayerScripts.ClientMain`), not this repo mirror — the repo's `ClientMain.lua` mirror was stale relative to Studio before this patch (a human collaborator edits the live script directly), which is exactly why this file records a patch instead of a full replacement.
+
+1. Line numbers drift — confirmed firsthand. `script_grep`'s reported line numbers for this file did not match `script_read`'s actual line numbers for either anchor (e.g. grep said line 483 for the `local idx = ...` line; `script_read` showed it at true line 548 — a 65-line gap that was NOT constant across the file: a second, unrelated `ThrowResult.OnClientEvent` connection deeper in the file showed a ~153-line gap between the two tools). Both edits above were therefore matched and applied by exact anchor STRING via `script_read`, then applied via `multi_edit` (which itself requires an exact `old_string` match, so it would have failed loudly on any drift) — never by trusting a line number from any document, including this one. The "currently line N" annotations above are a snapshot at patch time only, not a locator.
+
+2. Both anchors were confirmed unique in the file before editing. PATCH 1's block only appears once (the file's second, unrelated `ThrowResult.OnClientEvent:Connect(function() unlockThrow() end)` handler, ~150 lines further down, takes no `result` parameter and shares none of this text). PATCH 2's line only appears once in `ClientMain` (a similarly-named line exists in `ServerScriptService.Modules.SeasonPassHandler` keyed off `tierName` instead of `rarityName` — a different file, different variable name, no collision).
+
+3. PATCH 2 checks `rarityName` (the tier name string) directly rather than the computed `idx`, and runs BEFORE the mutation-driven `idx` bump (Rainbow/Glitched promoting to Legendary-sized) and before the `idx < 3` early-out. This means Secret/God always skip world FX regardless of mutation, which is the intended behavior (band 4 always has its own world-model reveal; a mutation should never re-enable the old pillar/shake for those two tiers).
+
+4. Verified live in Play mode against real throws (see task-4-report.md for full transcript): a forced Mythic catch showed the reveal GUI with the card staying hidden; a forced God catch showed the same plus a 7-second poll (28 samples, one every 0.25s) that never once found a `CatchPillar` part in Workspace, confirming PATCH 2's suppression actually holds at runtime, not just by inspection. Console stayed clean (no errors) through both throws.
