@@ -26,6 +26,15 @@ local TweenService = game:GetService("TweenService")
 
 local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
+local Mutations = require(ReplicatedStorage.Modules.MutationConfig)
+local MutationFX = require(ReplicatedStorage.Modules.MutationFX)
+
+-- "None" and "" both mean no mutation in this codebase; normalise once.
+local function mutationOf(info)
+	local m = info.Mutation
+	if type(m) ~= "string" or m == "" or m == "None" then return nil end
+	return m
+end
 
 local M = {}
 
@@ -259,6 +268,11 @@ local function buildWorld(rec, spec, info)
 	m.Parent = workspace          -- client-created: never replicates
 	rec.worldModel = m
 
+	-- The payoff for the hybrid. pcall because a bad mutation must never cost
+	-- the player the reveal -- showing the creature matters more than tinting it.
+	local mut = mutationOf(info)
+	if mut then pcall(MutationFX.apply, m, mut) end
+
 	local backdrop = Instance.new("Part")
 	backdrop.Name = "CatchRevealBackdrop"
 	backdrop.Size = Vector3.new(BACKDROP_SIZE, BACKDROP_SIZE, 1)
@@ -313,6 +327,16 @@ function M.play(info)
 	local spec = SPEC[band]
 	local accent = typeof(info.RarityColor) == "Color3" and info.RarityColor
 		or Color3.fromRGB(190, 190, 190)
+
+	-- Bands 1-3 are viewports, where ParticleEmitters and Highlight render
+	-- nothing, so MutationFX cannot appear. The mutation is carried by the halo
+	-- colour and the name prefix instead.
+	local mut = mutationOf(info)
+	local haloColour = accent
+	if mut then
+		local mc = Mutations.Color(mut)
+		if typeof(mc) == "Color3" then haloColour = mc end
+	end
 
 	local rec = { dead = false, band = band, token = myToken }
 
@@ -396,7 +420,7 @@ function M.play(info)
 			hc.CornerRadius = UDim.new(1, 0)
 			hc.Parent = halo
 			haloStroke = Instance.new("UIStroke")
-			haloStroke.Color = accent
+			haloStroke.Color = haloColour
 			haloStroke.Thickness = 6
 			haloStroke.Transparency = 1
 			haloStroke.LineJoinMode = Enum.LineJoinMode.Round
@@ -467,7 +491,7 @@ function M.play(info)
 		nameLabel.TextColor3 = CF.onDark
 		nameLabel.TextScaled = false
 		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-		nameLabel.Text = info.Name
+		nameLabel.Text = mut and (mut .. " " .. info.Name) or info.Name
 		nameLabel.TextTransparency = 1
 		nameLabel.ZIndex = 6
 		nameLabel.Parent = holder
@@ -517,6 +541,13 @@ function M.play(info)
 				local k = 0.5 + 0.5 * math.sin(t * 3.1 + i * 1.9)
 				sparkles[i].TextTransparency = 1 - k
 				sparkles[i].TextSize = 14 + 14 * k
+			end
+
+			-- Band 4's rainbow. There is no card or border in a world reveal for a
+			-- cycling colour to live on, so the rarity label carries it -- the same
+			-- one-property technique RarityFX uses on Secret/God tiles.
+			if band == 4 then
+				rarityLabel.TextColor3 = Color3.fromHSV((t * 0.3) % 1, 0.82, 1)
 			end
 		end)
 
