@@ -1156,6 +1156,25 @@ Throwing requires standing in `Workspace.GameWorld.ThrowZone` **and** having a c
 
 Watch each of the eight reveals and judge: is the model framed well, is the spin speed right, is the text readable against the world behind it.
 
+- [ ] **Step 1b: Fix the band-4 framing so the takeover actually reads**
+
+Added 2026-07-27 after live screenshots. Two problems, both consequences of this plan's "the camera does not move, the backdrop sits behind the model" design — neither is an implementation defect, and neither shows up in any measurement:
+
+1. **The player's own character stands between the camera and the model.** The model is placed at camera→character distance plus clearance, so the avatar is always nearer the camera than the reveal. On this account the `Tarantula` accessory (7.99 × 4.77 × 7.74 studs) covers the model's middle.
+2. **The backdrop darkens nothing.** It sits *behind* the model, so all scenery nearer than the model stays fully lit. Standing near the shop, the reveal reads as a bright ordinary scene with a creature in it — not the takeover the spec approved.
+
+The approved spec says Secret and God "dim harder" and take over the screen. The current build does not deliver that, so this is finishing the approved design, not changing it.
+
+**Fix to implement and then judge by eye:** invert the arrangement. Put the model **nearer the camera than the character** (~6 studs) and the backdrop **between the model and the character** (~10 studs). The backdrop then occludes the player *and* the world in one move, the camera still never moves, and nothing can stand in front of the reveal.
+
+Constraints that must survive the change:
+- The line-of-sight check still runs, still excludes the character, still fails closed.
+- Model height must scale with its distance so on-screen size is unchanged.
+- The backdrop must stay between the model and the character at every distance.
+- Teardown, camera restore and the watchdog are untouched.
+
+**Verify visually, not numerically** — the numbers were right the whole time this was broken. Take a screenshot of a Secret reveal before and after and compare them.
+
 - [ ] **Step 2: Check the band-4 raycast fallback rate**
 
 Stand where a player actually stands — on the dock, facing the lake — and force several Secret catches. Then repeat facing the lodge and the shop. Record how often `buildWorld` returns nil and drops to the viewport. If it fires from normal dock positions, raise `WORLD_DIST` or move the spot upward before accepting the design.
