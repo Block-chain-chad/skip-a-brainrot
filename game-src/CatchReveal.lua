@@ -154,10 +154,11 @@ end
 -- worse than one that is merely close. A black backdrop part behind the model
 -- does the darkening, because a full-screen UI dim would darken the model too:
 -- UI always renders above the 3D world.
-local WORLD_DIST   = 13   -- studs ahead of the camera
-local WORLD_HEIGHT = 7    -- studs tall, whatever the model was authored at
-local BACKDROP_AT  = 26   -- studs ahead, behind the model
-local BACKDROP_SIZE = 260
+local WORLD_DIST     = 13   -- fallback studs ahead of the camera, only used when there is no character to measure from
+local CHAR_CLEARANCE = 10   -- studs beyond the character, along the camera's forward axis -- clears accessories deeper than ~4 studs (e.g. a 7.99-stud-deep Tarantula) with margin to spare
+local WORLD_HEIGHT   = 7    -- studs tall AT WORLD_DIST; scaled proportionally at other distances so the reveal reads the same size regardless of how far the spot ends up being
+local BACKDROP_GAP   = 13   -- studs behind the MODEL, not the camera -- matches the original fixed 26-13 gap
+local BACKDROP_SIZE  = 260
 
 local function stripScripts(model)
 	-- ReplicatedStorage.BrainrotModels is verified 0 scripts today, but this
@@ -175,7 +176,29 @@ local function buildWorld(rec, spec, info)
 	if not cam or not src then return nil end
 
 	local origin = cam.CFrame
-	local spot = origin * CFrame.new(0, 0, -WORLD_DIST)
+
+	-- Place the model in front of the PLAYER, not a fixed distance from the
+	-- camera. Roblox's default third-person camera already sits about
+	-- WORLD_DIST studs BEHIND the character, so a camera-relative offset of
+	-- WORLD_DIST put the "reveal" spot exactly on top of the player's own
+	-- avatar -- measured buried inside a 7.99x4.77x7.74 Tarantula accessory.
+	-- Derive the distance from where the character actually is instead, plus
+	-- clearance beyond it, so the model always lands comfortably in front of
+	-- whoever is standing there.
+	local charRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	local dist = WORLD_DIST
+	if charRoot then
+		dist = (charRoot.Position - origin.Position).Magnitude + CHAR_CLEARANCE
+	end
+
+	local spot = origin * CFrame.new(0, 0, -dist)
+	-- WORLD_HEIGHT was tuned to read right at WORLD_DIST; scale proportionally
+	-- so the reveal is the same apparent size no matter how far the spot ends
+	-- up landing (otherwise doubling the distance would halve the model).
+	local worldHeight = WORLD_HEIGHT * (dist / WORLD_DIST)
+	-- The backdrop must move WITH the model, or a longer dist would put it in
+	-- FRONT of the model instead of behind it.
+	local backdropAt = dist + BACKDROP_GAP
 
 	-- If real, VISIBLE geometry sits between the camera and the reveal spot the
 	-- model would be hidden behind it. Rather than shove the camera somewhere it
@@ -257,7 +280,7 @@ local function buildWorld(rec, spec, info)
 	-- ScaleTo is ABSOLUTE. Re-measuring an already-scaled model and calling it
 	-- again resets to authored size, so always multiply the CURRENT scale.
 	if ext.Y > 0 then
-		m:ScaleTo(m:GetScale() * (WORLD_HEIGHT / ext.Y))
+		m:ScaleTo(m:GetScale() * (worldHeight / ext.Y))
 	end
 
 	-- Re-measure rather than assume the centre held: cheap, and the per-frame
@@ -276,7 +299,7 @@ local function buildWorld(rec, spec, info)
 	local backdrop = Instance.new("Part")
 	backdrop.Name = "CatchRevealBackdrop"
 	backdrop.Size = Vector3.new(BACKDROP_SIZE, BACKDROP_SIZE, 1)
-	backdrop.CFrame = origin * CFrame.new(0, 0, -BACKDROP_AT)
+	backdrop.CFrame = origin * CFrame.new(0, 0, -backdropAt)
 	backdrop.Anchored = true
 	backdrop.CanCollide = false
 	backdrop.CanQuery = false
@@ -334,8 +357,11 @@ function M.play(info)
 	local mut = mutationOf(info)
 	local haloColour = accent
 	if mut then
-		local mc = Mutations.Color(mut)
-		if typeof(mc) == "Color3" then haloColour = mc end
+		-- Guarded the same way as MutationFX.apply below: an unknown name or a
+		-- future throw inside MutationConfig must never escape M.play's pcall --
+		-- the reveal must never be able to block the catch that triggered it.
+		local ok, mc = pcall(Mutations.Color, mut)
+		if ok and typeof(mc) == "Color3" then haloColour = mc end
 	end
 
 	local rec = { dead = false, band = band, token = myToken }
@@ -513,7 +539,6 @@ function M.play(info)
 		rarityLabel.Parent = holder
 		local rarityInk = UITheme.inkText(rarityLabel, 2.6)
 		rarityInk.Transparency = 1
-		rec.rarityLabel = rarityLabel
 
 		table.insert(fades, { nameLabel, "TextTransparency", 0 })
 		table.insert(fades, { rarityLabel, "TextTransparency", 0 })
