@@ -24,3 +24,7 @@ Also in Studio but not mirrored: a 7-line HeightScale patch in BrainrotSpawner.b
 ## IconForge (2026-07-25)
 - IconForge.lua -> ReplicatedStorage.Modules.IconForge: 3D primitive icon models rendered as stacked static ViewportFrames (shadow + ink outline + icon), bounding-box camera fit. Rail-ready kinds: gift/target/star/book/trophy. Draft kinds needing another pass before use: tent, bag (stone is decent).
 - SideRail now calls IconForge.Mount instead of drawing an emoji.
+
+## CatchReveal (2026-07-27, Task 1 of 5)
+- CatchReveal.lua -> ReplicatedStorage.Modules.CatchReveal: the catch moment -- brainrot model spinning in a ViewportFrame instead of a text card. Bands 1-3 of 4 (size/halo/shimmer/sparkle ladder over the eight rarity tiers); band 4 (Secret/God) deliberately renders as band 3 until Task 2 adds the world-model + MutationFX path.
+- BrainrotThumb.lua -> ReplicatedStorage.Modules.BrainrotThumb: additive change. Extracted M.framing(model, fov) -> centre, dist and exposed M.DEFAULT_DIR, so CatchReveal can orbit a camera using the same maths add() uses to place one. add()'s own behaviour and its two callers (BackpackClient, IndexClient) are unchanged.
