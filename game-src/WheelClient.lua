@@ -79,10 +79,26 @@ new("Frame", {
 	BackgroundTransparency = 0.45, BorderSizePixel = 0, ZIndex = 0,
 }, root)
 
+-- Candy shell: a big rounded card the physical wheel sits on top of, giving the
+-- layered "toy" depth the reference has. Centred on the wheel itself (not the
+-- title/buttons) so it holds up unchanged at any viewport size. ZIndex is
+-- explicit and deliberately ordered -- CandyShadow(1) < CandyPanel(2) <
+-- Holder(3) -- because candyShadow derives its own Z from the object's Z AT
+-- CALL TIME (o.ZIndex - 1), so the panel needs a real Z before the shadow
+-- call, and Holder (below, previously an implicit default of 1) is bumped
+-- above both so the wheel itself still renders in front of its own backing card.
+local PANEL_PX = WHEEL_PX + 160
+local candyShell = new("Frame", {
+	Name = "CandyPanel", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.50, 0),
+	Size = UDim2.fromOffset(PANEL_PX, PANEL_PX), ZIndex = 2,
+}, root)
+UITheme.candyPanel(candyShell)
+UITheme.candyShadow(candyShell, 10)
+
 local holder = new("Frame", {
 	Name = "Holder", BackgroundTransparency = 1,
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.50, 0),
-	Size = UDim2.fromOffset(WHEEL_PX, WHEEL_PX),
+	Size = UDim2.fromOffset(WHEEL_PX, WHEEL_PX), ZIndex = 3,
 }, root)
 local holderScale = new("UIScale", { Scale = 1 }, holder)
 -- keeps the whole wheel on screen on short or mobile viewports
@@ -173,11 +189,21 @@ for i, slot in ipairs(SLOTS) do
 	stroke(name, 3)
 
 	p, s = at(R * 0.40, 86, 86)
-	new("TextLabel", {
-		Name = "Icon" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = p, Size = s,
-		BackgroundTransparency = 1, Rotation = mid, Text = slot.Icon,
-		Font = Enum.Font.FredokaOne, TextScaled = true, ZIndex = 6,
+	-- Icon in a rounded gradient chip so it reads as an object, not loose text.
+	-- The chip carries Rotation = mid (candyPanel doesn't touch Rotation, only
+	-- fill/corner/stroke); the icon label nested inside it is Rotation = 0
+	-- because GuiObject.Rotation rotates an object AND its descendants together --
+	-- giving the label its own `mid` too would double the rotation and skew it.
+	local iconChip = new("Frame", {
+		Name = "IconChip" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = p, Size = s,
+		Rotation = mid, ZIndex = 6,
 	}, spinner)
+	UITheme.candyPanel(iconChip, 16)
+	new("TextLabel", {
+		Name = "Icon" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.82, 0.82), BackgroundTransparency = 1, Rotation = 0, Text = slot.Icon,
+		Font = Enum.Font.FredokaOne, TextScaled = true, ZIndex = 6,
+	}, iconChip)
 
 	p, s = at(R * 0.60, 170, 30)
 	local val = new("TextLabel", {
@@ -189,15 +215,25 @@ for i, slot in ipairs(SLOTS) do
 	new("UITextSizeConstraint", { MaxTextSize = 21 }, val)
 	stroke(val, 2.5)
 
+	-- Odds are DERIVED, never typed -- Weight / TOTAL_WEIGHT -- so a future
+	-- re-weighting of WheelConfig can't make the displayed number lie.
+	local pct = (slot.Weight / WheelConfig.TOTAL_WEIGHT) * 100
+	local oddsText = (pct >= 10 and ("%d%%"):format(pct + 0.5))
+		or (pct >= 1 and ("%.0f%%"):format(pct))
+		or ("%.2f%%"):format(pct)
+
 	p, s = at(R * 0.205, 70, 26)
-	local pct = new("TextLabel", {
+	local oddsLabel = new("TextLabel", {
 		Name = "Pct" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = p, Size = s,
-		BackgroundTransparency = 1, Rotation = mid, Text = slot.Weight .. "%",
-		Font = Enum.Font.FredokaOne, TextScaled = true,
+		BackgroundTransparency = 1, Rotation = mid, Text = oddsText,
+		Font = UITheme.Candy.font, TextScaled = true,
 		TextColor3 = slot.Text or Color3.fromRGB(255, 255, 255), ZIndex = 6,
 	}, spinner)
-	new("UITextSizeConstraint", { MaxTextSize = 19 }, pct)
-	stroke(pct, 2.5)
+	new("UITextSizeConstraint", { MaxTextSize = 19 }, oddsLabel)
+	new("UIStroke", {
+		Color = UITheme.Candy.ink, Thickness = 2.5,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual, LineJoinMode = Enum.LineJoinMode.Round,
+	}, oddsLabel)
 end
 
 -- hub and pointer live OUTSIDE the spinner so they hold still while it turns
@@ -209,24 +245,53 @@ local hub = new("Frame", {
 new("UICorner", { CornerRadius = UDim.new(0.5, 0) }, hub)
 stroke(hub, 5)
 
--- white triangle, built from a rotated square so no image asset is needed
+-- Candy pointer: a downward-pointing marker built the same way as the shape it
+-- replaces (a square rotated 45 deg, clipped to its lower half by a
+-- ClipsDescendants frame) but actually sized so the clip does something -- the
+-- old clip frame (60px) was bigger than the diamond's own diagonal (~59px), so
+-- it clipped nothing and the "pointer" rendered as a whole, easy-to-miss white
+-- diamond sitting ON the wheel face rather than a marker above the rim.
+--
+-- Where it sits is not a guess: spin()'s `target = -((index - 1) * SEG + SEG /
+-- 2)` lands the winning slot's wedge centre at rotation 0, i.e. straight up --
+-- so 12 o'clock is the mathematically correct landing angle, confirmed by
+-- reading the spin maths below, not assumed.
+local PTR_SIDE = 46                     -- diamond side length before its 45 deg turn
+local PTR_HALF_DIAG = PTR_SIDE * 0.71   -- centre-to-tip distance once rotated
+local PTR_TIP_Y = -18                   -- tip position: the bezel overhangs the wheel
+                                         -- disc by (WHEEL_PX+54-WHEEL_PX)/2 = 27px, so
+                                         -- -18 rests just inside the metal rim
 local ptrHolder = new("Frame", {
-	Name = "Pointer", AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.fromOffset(60, 60),
-	BackgroundTransparency = 1, ZIndex = 12, ClipsDescendants = true,
+	Name = "Pointer", AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, PTR_TIP_Y - PTR_HALF_DIAG),
+	Size = UDim2.fromOffset(80, PTR_HALF_DIAG + 14), -- +14: room for the tip and its shadow's peek
+	BackgroundTransparency = 1, ZIndex = 13, ClipsDescendants = true,
 }, holder)
-local ptrTri = new("Frame", {
-	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 0),
-	Size = UDim2.fromOffset(42, 42), Rotation = 45,
-	BackgroundColor3 = Color3.fromRGB(255, 255, 255), BorderSizePixel = 0, ZIndex = 12,
+-- candyShadow isn't used here: it copies Size/Position/AnchorPoint but not
+-- Rotation, so on a 45-degree-rotated diamond it would draw an axis-aligned
+-- rounded square behind it -- visibly mismatched. Built by hand instead, same
+-- rotated-diamond technique, offset down and clipped by the same ptrHolder.
+local ptrShadow = new("Frame", {
+	Name = "PointerShadow", AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, 0, 0, 8), Size = UDim2.fromOffset(PTR_SIDE, PTR_SIDE),
+	Rotation = 45, BackgroundColor3 = UITheme.Candy.shadow, BorderSizePixel = 0, ZIndex = 12,
 }, ptrHolder)
-stroke(ptrTri, 4)
+local ptrTri = new("Frame", {
+	Name = "Tri", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 0),
+	Size = UDim2.fromOffset(PTR_SIDE, PTR_SIDE), Rotation = 45,
+	BackgroundColor3 = UITheme.Candy.gold1, BorderSizePixel = 0, ZIndex = 13,
+}, ptrHolder)
+UITheme.gradient(ptrTri, UITheme.Candy.gold1, UITheme.Candy.gold2, 90)
+new("UIStroke", {
+	Color = UITheme.Candy.ink, Thickness = UITheme.Candy.stroke,
+	ApplyStrokeMode = Enum.ApplyStrokeMode.Border, LineJoinMode = Enum.LineJoinMode.Round,
+}, ptrTri)
 
 --================================== chrome =================================--
 local title = new("TextLabel", {
 	Name = "Title", AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.new(0.5, 0, 0.105, 0), Size = UDim2.fromOffset(520, 68),
-	BackgroundTransparency = 1, Text = "DAILY SPIN", Font = Enum.Font.FredokaOne,
+	BackgroundTransparency = 1, Text = "DAILY SPIN", Font = UITheme.Candy.font,
 	TextScaled = true, TextColor3 = Color3.fromRGB(255, 176, 46), ZIndex = 14,
 }, root)
 new("UITextSizeConstraint", { MaxTextSize = 64 }, title)
