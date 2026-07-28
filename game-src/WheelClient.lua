@@ -35,7 +35,8 @@ local WHEEL_PX   = 560
 local R          = WHEEL_PX / 2
 local WINDUP_T   = 0.55
 local WINDUP_DEG = 22
-local SPIN_T     = 6.2
+local SPIN_T     = 7.5    -- tuned longer for a more decisive settle-and-pop feel (Task 3)
+local SPIN_T_FAST = 2.6   -- Fast Spin comfort setting -- see fastSpin below
 local TURNS      = 9
 local TICK_GAP   = 0.055
 local TOAST_HOLD = 5.0
@@ -79,43 +80,47 @@ new("Frame", {
 	BackgroundTransparency = 0.45, BorderSizePixel = 0, ZIndex = 0,
 }, root)
 
--- Candy shell: a big rounded card the physical wheel sits on top of, giving the
--- layered "toy" depth the reference has. Centred on the wheel itself (not the
--- title/buttons) so it holds up unchanged at any viewport size. ZIndex is
--- explicit and deliberately ordered -- CandyShadow(1) < CandyPanel(2) <
--- Holder(3) -- because candyShadow derives its own Z from the object's Z AT
--- CALL TIME (o.ZIndex - 1), so the panel needs a real Z before the shadow
--- call, and Holder (below, previously an implicit default of 1) is bumped
--- above both so the wheel itself still renders in front of its own backing card.
-local PANEL_PX = WHEEL_PX + 160
-local candyShell = new("Frame", {
-	Name = "CandyPanel", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.50, 0),
-	Size = UDim2.fromOffset(PANEL_PX, PANEL_PX), ZIndex = 2,
-}, root)
-UITheme.candyPanel(candyShell)
-UITheme.candyShadow(candyShell, 10)
-
+-- No backdrop panel here. An earlier version of this file added a big opaque
+-- CandyPanel behind Holder to give the wheel a card to sit on -- it broke the
+-- wheel instead: WheelUI.ZIndexBehavior is GLOBAL (every descendant sorts by
+-- its own ZIndex across the WHOLE tree; hierarchy does not matter), Bezel,
+-- Mask and all 240+ wedge bars sit at ZIndex 1, and the opaque panel at
+-- ZIndex 2 painted over every one of them -- the wheel rendered as a blank
+-- white slab with only the Z>=10 chrome (hub, pointer, title, chips) visible
+-- on top. The reference has no card behind the wheel either: it floats on
+-- the dimmed Scrim (above), and the candy identity reads through the rim,
+-- title, buttons and chips instead.
+--
+-- CHECK ANY NEW OPAQUE ELEMENT'S ZINDEX AGAINST GLOBAL SORTING BEFORE ADDING
+-- IT. Anything opaque at ZIndex >= 2 silently buries part of the wheel, with
+-- no error to catch it -- verify with a live screenshot, not just a read.
 local holder = new("Frame", {
 	Name = "Holder", BackgroundTransparency = 1,
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.50, 0),
-	Size = UDim2.fromOffset(WHEEL_PX, WHEEL_PX), ZIndex = 3,
+	Size = UDim2.fromOffset(WHEEL_PX, WHEEL_PX),
 }, root)
 local holderScale = new("UIScale", { Scale = 1 }, holder)
 -- keeps the whole wheel on screen on short or mobile viewports
 new("UISizeConstraint", { MaxSize = Vector2.new(WHEEL_PX, WHEEL_PX) }, holder)
 
--- thick outer rim, like the reference's grey bezel
+-- Chunky candy rim: gradient + ink stroke directly on this Bezel, which was
+-- already correctly placed in the hierarchy (unlike the removed CandyPanel
+-- above). Left at its original implicit ZIndex (1, tied with Mask) -- that
+-- pairing already worked before any of this restyle, so it is untouched.
+-- NOT UITheme.candyPanel: that helper's M.corner call would overwrite the
+-- UDim.new(0.5, 0) corner below with a small pixel radius and turn this ring
+-- into a rounded square.
 local bezel = new("Frame", {
 	Name = "Bezel", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
 	Size = UDim2.fromOffset(WHEEL_PX + 54, WHEEL_PX + 54),
-	BackgroundColor3 = Color3.fromRGB(150, 155, 165), BorderSizePixel = 0,
+	BackgroundColor3 = UITheme.Candy.panelTop, BorderSizePixel = 0,
 }, holder)
 new("UICorner", { CornerRadius = UDim.new(0.5, 0) }, bezel)
-stroke(bezel, 5)
-new("UIGradient", {
-	Color = ColorSequence.new(Color3.fromRGB(196, 201, 210), Color3.fromRGB(112, 117, 128)),
-	Rotation = 90,
+new("UIStroke", {
+	Color = UITheme.Candy.ink, Thickness = UITheme.Candy.stroke,
+	ApplyStrokeMode = Enum.ApplyStrokeMode.Border, LineJoinMode = Enum.LineJoinMode.Round,
 }, bezel)
+UITheme.gradient(bezel, UITheme.Candy.panelTop, UITheme.Candy.panelBot, 90)
 
 local mask = new("Frame", {
 	Name = "Mask", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
@@ -137,6 +142,7 @@ local function radial(frame, angleDeg, len)
 end
 
 local barsBySlot = {}
+local iconChipsBySlot = {}
 local BAR_STEP = 1.5
 local barW = math.ceil(2 * R * math.sin(math.rad(BAR_STEP) / 2)) + 3
 
@@ -169,6 +175,16 @@ end
 -- label is now capped to the width actually available where it sits.
 local TAN_HALF = math.tan(math.rad(SEG / 2))
 local function wedgeWidth(rr) return 2 * rr * TAN_HALF * 0.86 end
+
+-- Odds are DERIVED, never typed -- Weight / TOTAL_WEIGHT -- so a future
+-- re-weighting of WheelConfig can't make a displayed number lie. Shared by
+-- the on-wheel Pct label and the details panel so both can never disagree.
+local function oddsTextFor(slot)
+	local pct = (slot.Weight / WheelConfig.TOTAL_WEIGHT) * 100
+	return (pct >= 10 and ("%d%%"):format(pct + 0.5))
+		or (pct >= 1 and ("%.0f%%"):format(pct))
+		or ("%.2f%%"):format(pct)
+end
 
 for i, slot in ipairs(SLOTS) do
 	local mid = (i - 1) * SEG + SEG / 2
@@ -204,6 +220,7 @@ for i, slot in ipairs(SLOTS) do
 		Size = UDim2.fromScale(0.82, 0.82), BackgroundTransparency = 1, Rotation = 0, Text = slot.Icon,
 		Font = Enum.Font.FredokaOne, TextScaled = true, ZIndex = 6,
 	}, iconChip)
+	iconChipsBySlot[i] = iconChip
 
 	p, s = at(R * 0.60, 170, 30)
 	local val = new("TextLabel", {
@@ -215,17 +232,10 @@ for i, slot in ipairs(SLOTS) do
 	new("UITextSizeConstraint", { MaxTextSize = 21 }, val)
 	stroke(val, 2.5)
 
-	-- Odds are DERIVED, never typed -- Weight / TOTAL_WEIGHT -- so a future
-	-- re-weighting of WheelConfig can't make the displayed number lie.
-	local pct = (slot.Weight / WheelConfig.TOTAL_WEIGHT) * 100
-	local oddsText = (pct >= 10 and ("%d%%"):format(pct + 0.5))
-		or (pct >= 1 and ("%.0f%%"):format(pct))
-		or ("%.2f%%"):format(pct)
-
 	p, s = at(R * 0.205, 70, 26)
 	local oddsLabel = new("TextLabel", {
 		Name = "Pct" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = p, Size = s,
-		BackgroundTransparency = 1, Rotation = mid, Text = oddsText,
+		BackgroundTransparency = 1, Rotation = mid, Text = oddsTextFor(slot),
 		Font = UITheme.Candy.font, TextScaled = true,
 		TextColor3 = slot.Text or Color3.fromRGB(255, 255, 255), ZIndex = 6,
 	}, spinner)
@@ -311,16 +321,22 @@ stroke(closeBtn, 4)
 -- to the wheel and styleClose would reset them to the 30px standard.
 UITheme.closeGlyph(closeBtn)
 
+-- Candy colour pairs for the three button states. refreshButton() below
+-- swaps these via UITheme.setColors (updates the UIGradient candyButton
+-- attaches) rather than spinBtn.BackgroundColor3 directly -- once a
+-- UIGradient sits on an object it paints the fill, so a lone BackgroundColor3
+-- write has no visible effect.
+local SPIN_READY_1, SPIN_READY_2 = UITheme.Candy.green1, UITheme.Candy.green2
+local SPIN_BUSY_1,  SPIN_BUSY_2  = Color3.fromRGB(178, 182, 192), Color3.fromRGB(140, 144, 154)
+local SPIN_WAIT_1,  SPIN_WAIT_2  = Color3.fromRGB(150, 154, 164), Color3.fromRGB(110, 114, 124)
+
 local spinBtn = new("TextButton", {
 	Name = "SpinBtn", AnchorPoint = Vector2.new(0.5, 1),
 	Position = UDim2.new(0.5, 0, 1, -104), Size = UDim2.fromOffset(320, 74),
-	Text = "SPIN", Font = Enum.Font.FredokaOne, TextScaled = true,
-	TextColor3 = Color3.fromRGB(255, 255, 255), AutoButtonColor = false,
-	BackgroundColor3 = Color3.fromRGB(88, 200, 62), ZIndex = 14,
+	Text = "SPIN", TextScaled = true, ZIndex = 14,
 }, root)
-new("UICorner", { CornerRadius = UDim.new(0, 16) }, spinBtn)
 new("UITextSizeConstraint", { MaxTextSize = 42 }, spinBtn)
-stroke(spinBtn, 4)
+UITheme.candyButton(spinBtn, SPIN_READY_1, SPIN_READY_2, 16)
 
 local subLabel = new("TextLabel", {
 	Name = "Sub", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -186),
@@ -370,6 +386,115 @@ local function showResult(text, colour)
 	end)
 end
 
+--================================== details =================================--
+-- A panel beside the wheel listing all six slots rarest-first (so the jackpot
+-- reads as the headline), each row built from WheelConfig -- never hardcoded --
+-- sharing oddsTextFor() with the on-wheel Pct label so the two can never
+-- disagree. Positioned off root.AbsoluteSize (tracks the real viewport, since
+-- root fills the screen) rather than fixed pixels, and re-laid-out on resize
+-- so it collapses BELOW the wheel instead of overlapping it on a narrow one.
+-- All rows are ZIndex 14 -- CHECKED against Global ZIndexBehavior (see the
+-- CandyPanel removal note above): this panel sits beside/below the wheel,
+-- never over its disc, so the Z tie with Title/Close/SpinBtn (also 14) never
+-- overlaps on screen.
+local detailsPanel = new("Frame", {
+	Name = "DetailsPanel", BackgroundTransparency = 1, ZIndex = 14,
+}, root)
+new("UIListLayout", {
+	FillDirection = Enum.FillDirection.Vertical, Padding = UDim.new(0, 8),
+	HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
+}, detailsPanel)
+
+local rarestFirst = {}
+for i = 1, N do rarestFirst[i] = i end
+table.sort(rarestFirst, function(a, b) return SLOTS[a].Weight < SLOTS[b].Weight end)
+
+for order, slotIdx in ipairs(rarestFirst) do
+	local slot = SLOTS[slotIdx]
+	local row = new("Frame", {
+		Name = "Row" .. slotIdx, LayoutOrder = order,
+		Size = UDim2.new(1, 0, 0, 56), ZIndex = 14,
+	}, detailsPanel)
+	UITheme.candyPanel(row, 14)
+
+	local chip = new("Frame", {
+		Name = "Chip", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 6, 0.5, 0),
+		Size = UDim2.fromOffset(44, 44), ZIndex = 15,
+	}, row)
+	UITheme.candyPanel(chip, 12)
+	new("TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.8, 0.8), BackgroundTransparency = 1, Text = slot.Icon,
+		Font = Enum.Font.FredokaOne, TextScaled = true, ZIndex = 16,
+	}, chip)
+
+	new("TextLabel", {
+		Name = "Payout", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 58, 0.28, 0),
+		Size = UDim2.new(1, -66, 0, 22), BackgroundTransparency = 1, Text = slot.Value,
+		Font = UITheme.Candy.font, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = UITheme.Candy.ink, ZIndex = 15,
+	}, row)
+	new("TextLabel", {
+		Name = "Odds", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 58, 0.74, 0),
+		Size = UDim2.new(1, -66, 0, 18), BackgroundTransparency = 1, Text = oddsTextFor(slot),
+		Font = UITheme.Candy.font, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = Color3.fromRGB(96, 102, 116), ZIndex = 15,
+	}, row)
+end
+
+-- Beside the wheel on a wide viewport; collapses BELOW it on a narrow one.
+-- WHEEL_PX + 54 is the bezel's real footprint (the visual outer edge of the
+-- wheel), not WHEEL_PX alone, so "beside" never grazes the rim.
+local DETAILS_W = 250
+local function layoutDetails()
+	local vw, vh = root.AbsoluteSize.X, root.AbsoluteSize.Y
+	local wheelHalf = (WHEEL_PX + 54) / 2
+	if vw - 2 * (wheelHalf + 24) >= DETAILS_W then
+		detailsPanel.AnchorPoint = Vector2.new(0, 0.5)
+		detailsPanel.Position = UDim2.new(0.5, wheelHalf + 24, 0.5, 0)
+		detailsPanel.Size = UDim2.fromOffset(DETAILS_W, math.min(N * 64, vh - 40))
+	else
+		detailsPanel.AnchorPoint = Vector2.new(0.5, 0)
+		detailsPanel.Position = UDim2.new(0.5, 0, 0.5, wheelHalf + 24)
+		detailsPanel.Size = UDim2.new(0.86, 0, 0, math.min(N * 60, vh * 0.32))
+	end
+end
+layoutDetails()
+root:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutDetails)
+
+--================================ fast spin =================================--
+-- Client-local comfort setting only: no server call, no data field, resets on
+-- rejoin -- acceptable for a comfort toggle, and avoids a schema migration in
+-- a shared file. spin() reads `fastSpin` once at the start of each spin, not
+-- live, so toggling mid-flight can't change the timing of a spin already
+-- underway.
+local fastSpin = false
+local FAST_OFF_1, FAST_OFF_2 = Color3.fromRGB(150, 154, 164), Color3.fromRGB(110, 114, 124)
+local FAST_ON_1,  FAST_ON_2  = UITheme.Candy.gold1, UITheme.Candy.gold2
+
+-- Y=80, not 22: Roblox's own CoreGui topbar (hamburger/chat/mic icons) sits in
+-- the top-left ~45px, and this ScreenGui has IgnoreGuiInset = true (needed so
+-- Title/Close can use the full screen), so anything placed at the same corner
+-- as the topbar icons renders UNDER them. Confirmed live: at (22, 22) this
+-- toggle was visibly clipped behind the topbar icons; 80 clears it.
+local fastToggle = new("TextButton", {
+	Name = "FastSpinToggle", AnchorPoint = Vector2.new(0, 0), Position = UDim2.new(0, 22, 0, 80),
+	Size = UDim2.fromOffset(168, 46), Text = "FAST SPIN: OFF", TextScaled = true, ZIndex = 14,
+}, root)
+new("UITextSizeConstraint", { MaxTextSize = 20 }, fastToggle)
+UITheme.candyButton(fastToggle, FAST_OFF_1, FAST_OFF_2, 14)
+
+fastToggle.Activated:Connect(function()
+	fastSpin = not fastSpin
+	if fastSpin then
+		fastToggle.Text = "FAST SPIN: ON"
+		UITheme.setColors(fastToggle, FAST_ON_1, FAST_ON_2)
+	else
+		fastToggle.Text = "FAST SPIN: OFF"
+		UITheme.setColors(fastToggle, FAST_OFF_1, FAST_OFF_2)
+	end
+end)
+
 --================================== sounds =================================--
 local sg = game:GetService("SoundService")
 local tickSound = new("Sound", { SoundId = "rbxasset://sounds/switch.wav", Volume = 0.4 }, sg)
@@ -414,7 +539,9 @@ local function ease(t)
 		return (u * u) * KICK * 0.55
 	end
 	local u = (t - KICK) / (1 - KICK)
-	return KICK * 0.55 + (1 - KICK * 0.55) * (1 - (1 - u) ^ 5)
+	-- ^6 rather than ^5: a slightly harder tail deceleration so the spin
+	-- visibly settles into the pointer instead of coasting to a stop (Task 3).
+	return KICK * 0.55 + (1 - KICK * 0.55) * (1 - (1 - u) ^ 6)
 end
 
 local function hms(sec)
@@ -430,13 +557,13 @@ end
 local function refreshButton()
 	if spinning then
 		spinBtn.Text = "SPINNING..."
-		spinBtn.BackgroundColor3 = Color3.fromRGB(150, 150, 156)
+		UITheme.setColors(spinBtn, SPIN_BUSY_1, SPIN_BUSY_2)
 	elseif cooldown > 0 then
 		spinBtn.Text = "NEXT SPIN " .. hms(cooldown)
-		spinBtn.BackgroundColor3 = Color3.fromRGB(128, 132, 142)
+		UITheme.setColors(spinBtn, SPIN_WAIT_1, SPIN_WAIT_2)
 	else
 		spinBtn.Text = "SPIN"
-		spinBtn.BackgroundColor3 = Color3.fromRGB(88, 200, 62)
+		UITheme.setColors(spinBtn, SPIN_READY_1, SPIN_READY_2)
 	end
 	local bits = {}
 	if luckLeft > 0 then table.insert(bits, ("\u{1F340} LUCK %s"):format(hms(luckLeft))) end
@@ -465,11 +592,30 @@ local function flashWinner(index, myToken)
 	for _, b in ipairs(bars) do if b.Parent then b.BackgroundColor3 = base end end
 end
 
+-- Landing pop: a brief scale bounce on the winning slot's icon chip, alongside
+-- flashWinner's colour flash above -- together, the "brief scale/brightness
+-- kick" a settled landing calls for.
+local function popWinner(index)
+	local chip = iconChipsBySlot[index]
+	if not chip then return end
+	local sc = chip:FindFirstChildOfClass("UIScale") or new("UIScale", { Scale = 1 }, chip)
+	sc.Scale = 1
+	TweenService:Create(sc, TweenInfo.new(0.14, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Scale = 1.35 }):Play()
+	task.delay(0.14, function()
+		TweenService:Create(sc, TweenInfo.new(0.30, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out),
+			{ Scale = 1 }):Play()
+	end)
+end
+
 local function spin(index, onDone)
 	spinToken += 1
 	local myToken = spinToken
 	spinning = true
 	refreshButton()
+	-- Read once per spin, not live -- toggling Fast Spin mid-flight must not
+	-- change the timing of a spin already underway.
+	local spinT = fastSpin and SPIN_T_FAST or SPIN_T
 
 	local startRot = spinner.Rotation
 	local target = -((index - 1) * SEG + SEG / 2)
@@ -496,7 +642,7 @@ local function spin(index, onDone)
 		local nowT = os.clock()
 		local dt = math.min(nowT - lastFrame, 0.1)
 		lastFrame = nowT
-		local t = math.clamp((nowT - t0) / SPIN_T, 0, 1)
+		local t = math.clamp((nowT - t0) / spinT, 0, 1)
 		local rot = from + span * ease(t)
 		spinner.Rotation = rot
 		if worldSpinner and worldSpinner.Parent then worldSpinner.Rotation = rot end
@@ -528,6 +674,7 @@ local function spin(index, onDone)
 			spinning = false
 			refreshButton()
 			task.spawn(flashWinner, index, myToken)
+			task.spawn(popWinner, index)
 			if onDone then onDone() end
 		end
 	end)
