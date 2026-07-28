@@ -467,4 +467,92 @@ function M.styleHudChip(frame, radius, accent, accentTransparency)
 	return frame
 end
 
+-- ===================================================================
+-- CANDY style pack (2026-07-27). A SECOND palette living beside Camp,
+-- from the user's design handoff (docs/design-handoff, build from v3):
+-- bright Pet-Sim treatment -- white panels, comic-thick ink outlines,
+-- and hard unblurred offset shadows.
+--
+-- Deliberately ADDITIVE. Camp and all 12 of its callers are untouched,
+-- so nothing on screen changes until something opts in. That is what
+-- makes reverting this a one-file revert rather than unpicking the
+-- five-stage cafe restyle.
+-- ===================================================================
+local CANDY = {
+	ink       = Color3.fromRGB(16, 19, 31),      -- #10131f, on everything
+	panelTop  = Color3.fromRGB(255, 255, 255),
+	panelBot  = Color3.fromRGB(207, 224, 245),   -- #cfe0f5
+	shadow    = Color3.fromRGB(10, 13, 22),      -- #0a0d16, SOLID, never blurred
+	green1    = Color3.fromRGB(163, 255, 79),
+	green2    = Color3.fromRGB(61, 158, 24),
+	red1      = Color3.fromRGB(255, 92, 122),
+	red2      = Color3.fromRGB(163, 18, 58),
+	gold1     = Color3.fromRGB(255, 230, 128),
+	gold2     = Color3.fromRGB(224, 140, 0),
+	onDark    = Color3.fromRGB(255, 255, 255),
+	-- The handoff specifies Luckiest Guy, which Roblox does not have.
+	-- FredokaOne is the nearest chunky rounded face. Kept HERE rather than
+	-- on M.Font so the cafe face (Cartoon) is unaffected.
+	font      = Enum.Font.FredokaOne,
+	radius    = 26,    -- panels; chips use ~16
+	stroke    = 4,     -- starting point -- the handoff's 6px is from a
+	                   -- 1920-wide web mockup and reads heavy at Roblox scale
+}
+M.Candy = CANDY
+
+-- The detail that makes the reference read as a toy: a HARD offset shadow,
+-- no blur. Drawn as a plain Frame behind the object, matching its corner
+-- radius. Parented to the object's PARENT (not the object) so it cannot be
+-- clipped by ClipsDescendants and cannot inherit a gradient.
+function M.candyShadow(o, offsetY, radius)
+	offsetY = offsetY or 8
+	local sh = Instance.new("Frame")
+	sh.Name = "CandyShadow"
+	sh.BackgroundColor3 = CANDY.shadow
+	sh.BorderSizePixel = 0
+	sh.Size = o.Size
+	sh.Position = o.Position + UDim2.fromOffset(0, offsetY)
+	sh.AnchorPoint = o.AnchorPoint
+	sh.ZIndex = math.max(1, o.ZIndex - 1)
+	sh.Parent = o.Parent
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius or CANDY.radius)
+	c.Parent = sh
+	return sh
+end
+
+function M.candyPanel(f, radius)
+	f.BackgroundColor3 = CANDY.panelTop
+	f.BorderSizePixel = 0
+	M.corner(f, radius or CANDY.radius)
+	M.gradient(f, CANDY.panelTop, CANDY.panelBot, 90)
+	local s = Instance.new("UIStroke")
+	s.Color = CANDY.ink
+	s.Thickness = CANDY.stroke
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.LineJoinMode = Enum.LineJoinMode.Round
+	s.Parent = f
+	return f
+end
+
+function M.candyButton(b, c1, c2, radius)
+	b.BackgroundColor3 = c1
+	b.BorderSizePixel = 0
+	b.AutoButtonColor = true
+	b.TextColor3 = CANDY.onDark
+	b.Font = CANDY.font
+	M.corner(b, radius or 18)
+	M.gradient(b, c1, c2, 90)
+	local s = Instance.new("UIStroke")
+	s.Color = CANDY.ink
+	s.Thickness = CANDY.stroke
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.LineJoinMode = Enum.LineJoinMode.Round
+	s.Parent = b
+	-- a gradient multiplies TEXT as well as background and multiply can only
+	-- darken, so a light label needs its own ink outline to survive
+	M.inkText(b, 2.5)
+	return b
+end
+
 return M
