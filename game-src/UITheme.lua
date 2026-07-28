@@ -550,8 +550,15 @@ function M.candyButton(b, c1, c2, radius)
 	s.LineJoinMode = Enum.LineJoinMode.Round
 	s.Parent = b
 	-- a gradient multiplies TEXT as well as background and multiply can only
-	-- darken, so a light label needs its own ink outline to survive
-	M.inkText(b, 2.5)
+	-- darken, so a light label needs its own ink outline to survive. NOT
+	-- M.inkText -- that shared helper hardcodes Camp's warm-brown ink (CF.ink),
+	-- so a candy button's text outline would pick up the cafe's colour instead
+	-- of candy's own near-black. Built by hand here so it stays on CANDY.ink.
+	local ts = Instance.new("UIStroke")
+	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+	ts.Color = CANDY.ink
+	ts.Thickness = 2.5
+	ts.Parent = b
 	return b
 end
 
