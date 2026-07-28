@@ -119,8 +119,13 @@ end
 -- a caller raising btn.ZIndex after styling (IndexClient does, deliberately)
 -- would otherwise strand the bars at their old Z and let the button's own
 -- opaque fill repaint over them.
+--
+-- Public: styleClose calls this, but so does anything that builds its own
+-- close button by hand and can't go through styleClose (e.g. WheelClient's
+-- oversized 56px Daily Spin close button, whose size/position/color are
+-- deliberate and must not be reset to the 30px standard).
 local closeXSignals = setmetatable({}, { __mode = "k" })
-local function drawCloseX(btn)
+function M.closeGlyph(btn)
 	local oldConn = closeXSignals[btn]
 	if oldConn then oldConn:Disconnect() end
 	for _, c in ipairs(btn:GetChildren()) do
@@ -160,7 +165,7 @@ function M.styleClose(btn)
 	M.corner(btn, 15)
 	M.gradient(btn, P.red1, P.red2, 90)
 	if not btn:FindFirstChildOfClass("UIStroke") then M.stroke(btn, P.outline, 2) end
-	drawCloseX(btn)
+	M.closeGlyph(btn)
 end
 
 -- ===================================================================
