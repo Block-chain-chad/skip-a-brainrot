@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Nunito:ital,wght@0,700;0,900;1,900&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin:0; padding:0; background:#070a12; overflow:hidden; }
+  a { color:#7dffd6; } a:hover { color:#b6fff0; }
+  @keyframes bob { 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-8px) } }
+  @keyframes bobSlow { 0%,100%{ transform:translateY(0) rotate(-2deg) } 50%{ transform:translateY(-12px) rotate(2deg) } }
+  @keyframes popIn { 0%{ transform:scale(.7); opacity:0 } 60%{ transform:scale(1.06); opacity:1 } 100%{ transform:scale(1); opacity:1 } }
+  @keyframes toastIn { 0%{ transform:translateX(90px) scale(.8); opacity:0 } 100%{ transform:translateX(0) scale(1); opacity:1 } }
+  @keyframes floatUp { 0%{ transform:translate(-50%,0) scale(.6); opacity:0 } 20%{ transform:translate(-50%,-20px) scale(1.15); opacity:1 } 100%{ transform:translate(-50%,-140px) scale(1); opacity:0 } }
+  @keyframes shimmer { 0%{ background-position:-300% 0 } 100%{ background-position:300% 0 } }
+  @keyframes pulseGlow { 0%,100%{ box-shadow:0 0 0 0 rgba(163,255,79,.55) } 50%{ box-shadow:0 0 0 16px rgba(163,255,79,0) } }
+  @keyframes ripple { 0%{ transform:translate(-50%,-50%) scale(.3); opacity:.9 } 100%{ transform:translate(-50%,-50%) scale(2.6); opacity:0 } }
+  @keyframes sheen { 0%{ transform:translateX(-140%) skewX(-20deg) } 100%{ transform:translateX(340%) skewX(-20deg) } }
+</style>
+</helmet>
+
+<div style="position:relative; width:100%; height:100vh; min-height:720px; overflow:hidden; font-family:Nunito, sans-serif; color:#fff; user-select:none; background:radial-gradient(120% 90% at 50% 15%, #1c3b52 0%, #0d1b2c 55%, #070a12 100%);">
+
+  <div style="position:absolute; inset:0; background-image:repeating-linear-gradient(115deg, rgba(255,255,255,.045) 0 12px, rgba(255,255,255,0) 12px 26px); pointer-events:none;"></div>
+  <div style="position:absolute; left:0; right:0; bottom:0; height:46%; background:linear-gradient(180deg, rgba(56,189,248,.10), rgba(8,20,34,.85)); border-top:3px solid rgba(125,211,252,.25);"></div>
+  <div style="position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); font-family:'JetBrains Mono', monospace; font-size:13px; letter-spacing:.16em; color:rgba(190,225,255,.45); text-align:center; line-height:2;">GAME RENDER — POND / SKIP AREA<br />3D VIEWPORT GOES HERE</div>
+
+  <div style="position:absolute; left:50%; top:63%; width:340px; height:120px; transform:translate(-50%,-50%); pointer-events:none;">
+    <sc-for list="{{ ripples }}" as="r" hint-placeholder-count="0">
+      <div style="position:absolute; top:50%; width:120px; height:40px; border:4px solid rgba(160,230,255,.7); border-radius:50%; animation:ripple 900ms ease-out forwards; left: {{ r.left }};"></div>
+    </sc-for>
+  </div>
+
+  <sc-for list="{{ floaters }}" as="f" hint-placeholder-count="0">
+    <div style="position:absolute; left:50%; top:52%; font-family:'Luckiest Guy', cursive; font-size:44px; color:#ffd93b; -webkit-text-stroke:5px #10131f; paint-order:stroke fill; animation:floatUp 1.4s ease-out forwards; pointer-events:none; white-space:nowrap;">{{ f.text }}</div>
+  </sc-for>
+
+  <!-- ===== TOP LEFT: CURRENCIES ===== -->
+  <div style="position:absolute; top:22px; left:22px; display:flex; flex-direction:column; gap:10px; z-index:20;">
+    <div style="display:flex; align-items:center; gap:12px; background:linear-gradient(180deg,#2a3452,#161d31); border:4px solid #10131f; border-radius:18px; padding:9px 20px 9px 10px; box-shadow:0 6px 0 #0a0d16, 0 10px 22px rgba(0,0,0,.45);">
+      <div style="width:44px; height:44px; border-radius:12px; background:linear-gradient(160deg,#ffd93b,#e08c00); border:4px solid #10131f; display:grid; place-items:center; font-family:'Luckiest Guy',cursive; font-size:22px; color:#5a3400;">$</div>
+      <div style="display:flex; flex-direction:column; line-height:1;">
+        <span style="font-size:11px; font-weight:900; letter-spacing:.14em; color:#8fa2c4;">CASH</span>
+        <span style="font-family:'Luckiest Guy',cursive; font-size:26px; color:#ffd93b; -webkit-text-stroke:4px #10131f; paint-order:stroke fill; letter-spacing:.02em;">{{ cashLabel }}</span>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <div style="display:flex; align-items:center; gap:9px; background:linear-gradient(180deg,#2a3452,#161d31); border:4px solid #10131f; border-radius:16px; padding:7px 16px 7px 8px; box-shadow:0 5px 0 #0a0d16;">
+        <div style="width:32px; height:32px; border-radius:9px; background:linear-gradient(160deg,#7dffd6,#0f9e88); border:3px solid #10131f; display:grid; place-items:center; font-family:'Luckiest Guy',cursive; font-size:15px; color:#04382f;">◆</div>
+        <span style="font-family:'Luckiest Guy',cursive; font-size:19px; color:#7dffd6; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ gems }}</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:9px; background:linear-gradient(180deg,#2a3452,#161d31); border:4px solid #10131f; border-radius:16px; padding:7px 16px 7px 8px; box-shadow:0 5px 0 #0a0d16;">
+        <div style="width:32px; height:32px; border-radius:9px; background:linear-gradient(160deg,#ff8ac2,#a3247a); border:3px solid #10131f; display:grid; place-items:center; font-family:'Luckiest Guy',cursive; font-size:15px; color:#4a0a33;">R</div>
+        <span style="font-family:'Luckiest Guy',cursive; font-size:19px; color:#ff8ac2; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ rebirths }}</span>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; background:rgba(10,14,24,.72); border:3px solid rgba(163,255,79,.35); border-radius:14px; padding:7px 14px; width:fit-content;">
+      <span style="font-size:12px; font-weight:900; letter-spacing:.1em; color:#a3ff4f;">×{{ multiplierLabel }} EARNINGS</span>
+      <span style="font-size:12px; font-weight:900; color:#5f7396;">/</span>
+      <span style="font-size:12px; font-weight:900; letter-spacing:.1em; color:#8fa2c4;">{{ cpsLabel }}/SEC</span>
+    </div>
+  </div>
+
+  <!-- ===== TOP CENTER: WORLD + QUEST ===== -->
+  <div style="position:absolute; top:22px; left:50%; transform:translateX(-50%); width:430px; z-index:20;">
+    <div style="background:linear-gradient(180deg,#2a3452,#161d31); border:4px solid #10131f; border-radius:20px; box-shadow:0 6px 0 #0a0d16, 0 10px 22px rgba(0,0,0,.45); overflow:hidden;">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px; background:linear-gradient(90deg,#3a2a6b,#1d1740);">
+        <span style="font-family:'Luckiest Guy',cursive; font-size:17px; letter-spacing:.03em; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">WORLD 1 — PEBBLE POND</span>
+        <span style="font-size:11px; font-weight:900; letter-spacing:.12em; color:#c9b6ff;">NEXT: LAVA LAKE</span>
+      </div>
+      <sc-if value="{{ showQuests }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:12px 16px 14px; display:flex; flex-direction:column; gap:11px;">
+          <sc-for list="{{ quests }}" as="q" hint-placeholder-count="3">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; justify-content:space-between; align-items:baseline;">
+                <span style="font-size:13px; font-weight:900; letter-spacing:.04em; color:#e6eeff;">{{ q.label }}</span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#8fa2c4;">{{ q.count }}</span>
+              </div>
+              <div style="height:12px; border-radius:99px; background:#0c1120; border:3px solid #10131f; overflow:hidden;">
+                <div style="height:100%; border-radius:99px; background:linear-gradient(90deg,#a3ff4f,#3ecf5b); transition:width .35s cubic-bezier(.34,1.56,.64,1); width: {{ q.pct }};"></div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <!-- ===== TOP RIGHT: DAILY + PLAYERS ===== -->
+  <div style="position:absolute; top:22px; right:22px; display:flex; flex-direction:column; align-items:flex-end; gap:10px; z-index:20;">
+    <button onClick="{{ openDaily }}" style="display:flex; align-items:center; gap:12px; background:linear-gradient(180deg,#ff9f43,#d2600b); border:4px solid #10131f; border-radius:18px; padding:10px 18px; box-shadow:0 6px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:16px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill; animation:bob 2.4s ease-in-out infinite;" style-hover="filter:brightness(1.12); transform:translateY(-2px)">
+      FREE DAILY READY!
+    </button>
+    <div style="display:flex; gap:8px;">
+      <div style="background:rgba(10,14,24,.72); border:3px solid #263049; border-radius:14px; padding:7px 14px; font-size:12px; font-weight:900; letter-spacing:.1em; color:#8fa2c4;">SERVER 12/20</div>
+      <div style="background:rgba(10,14,24,.72); border:3px solid #263049; border-radius:14px; padding:7px 14px; font-size:12px; font-weight:900; letter-spacing:.1em; color:#8fa2c4;">PING 41ms</div>
+    </div>
+  </div>
+
+  <!-- ===== LEFT RAIL ===== -->
+  <div style="position:absolute; left:22px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:11px; z-index:20;">
+    <button onClick="{{ openShop }}" style="width:112px; padding:14px 0 12px; background:linear-gradient(180deg,#3ecf5b,#1d8a3a); border:4px solid #10131f; border-radius:18px; box-shadow:0 6px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:18px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill; transition:transform .12s;" style-hover="transform:translateX(6px) scale(1.04)" style-active="transform:translateY(4px); box-shadow:0 2px 0 #0a0d16">SHOP</button>
+    <button onClick="{{ openInv }}" style="width:112px; padding:14px 0 12px; background:linear-gradient(180deg,#4da3ff,#1a55b8); border:4px solid #10131f; border-radius:18px; box-shadow:0 6px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:18px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill; transition:transform .12s;" style-hover="transform:translateX(6px) scale(1.04)" style-active="transform:translateY(4px); box-shadow:0 2px 0 #0a0d16">BAG</button>
+    <button onClick="{{ openUpg }}" style="width:112px; padding:14px 0 12px; background:linear-gradient(180deg,#c07bff,#6b26c4); border:4px solid #10131f; border-radius:18px; box-shadow:0 6px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:16px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill; transition:transform .12s;" style-hover="transform:translateX(6px) scale(1.04)" style-active="transform:translateY(4px); box-shadow:0 2px 0 #0a0d16">UPGRADES</button>
+    <button onClick="{{ openReb }}" style="width:112px; padding:14px 0 12px; background:linear-gradient(180deg,#ff5c7a,#a3123a); border:4px solid #10131f; border-radius:18px; box-shadow:0 6px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:16px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill; transition:transform .12s;" style-hover="transform:translateX(6px) scale(1.04)" style-active="transform:translateY(4px); box-shadow:0 2px 0 #0a0d16">REBIRTH</button>
+    <button onClick="{{ openPass }}" style="position:relative; width:112px; padding:14px 0 12px; background:linear-gradient(180deg,#ffd93b,#c98800); border:4px solid #10131f; border-radius:18px; box-shadow:0 6px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:16px; color:#4a2f00; -webkit-text-stroke:3px #fff6d0; paint-order:stroke fill; overflow:hidden; transition:transform .12s;" style-hover="transform:translateX(6px) scale(1.04)" style-active="transform:translateY(4px); box-shadow:0 2px 0 #0a0d16">PASSES</button>
+  </div>
+
+  <!-- ===== BOTTOM CENTER: SKIP CONTROL ===== -->
+  <div style="position:absolute; bottom:26px; left:50%; transform:translateX(-50%); width:560px; display:flex; flex-direction:column; align-items:center; gap:12px; z-index:20;">
+    <div style="width:100%; height:34px; border-radius:99px; background:#0c1120; border:5px solid #10131f; box-shadow:0 6px 0 #0a0d16; overflow:hidden; position:relative;">
+      <div style="position:absolute; inset:0; background:repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0 3px, transparent 3px 34px);"></div>
+      <div style="height:100%; background:linear-gradient(90deg,#a3ff4f,#ffd93b,#ff8ac2); transition:width 40ms linear; width: {{ chargePct }};"></div>
+      <div style="position:absolute; left:70%; top:0; bottom:0; width:3px; background:rgba(255,255,255,.55);"></div>
+      <div style="position:absolute; left:70%; right:8%; top:0; bottom:0; background:rgba(163,255,79,.16);"></div>
+      <span style="position:absolute; inset:0; display:grid; place-items:center; font-family:'Luckiest Guy',cursive; font-size:15px; letter-spacing:.14em; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ chargeLabel }}</span>
+    </div>
+    <button onMouseDown="{{ startCharge }}" onMouseUp="{{ releaseCharge }}" onMouseLeave="{{ cancelCharge }}" style="width:100%; padding:20px 0 17px; background:linear-gradient(180deg,#a3ff4f,#3d9e18); border:5px solid #10131f; border-radius:24px; box-shadow:0 8px 0 #0a0d16, 0 14px 28px rgba(0,0,0,.5); cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:30px; letter-spacing:.04em; color:#fff; -webkit-text-stroke:5px #10131f; paint-order:stroke fill; animation:pulseGlow 2.6s ease-in-out infinite; transition:transform .1s;" style-hover="filter:brightness(1.08)" style-active="transform:translateY(6px); box-shadow:0 2px 0 #0a0d16">HOLD TO SKIP ROCK</button>
+    <span style="font-size:12px; font-weight:900; letter-spacing:.14em; color:#6b80a5;">HOLD [SPACE] OR CLICK — RELEASE IN THE GREEN ZONE FOR A PERFECT SKIP</span>
+  </div>
+
+  <!-- ===== BOTTOM RIGHT: EQUIPPED ===== -->
+  <div style="position:absolute; bottom:26px; right:22px; width:250px; background:linear-gradient(180deg,#2a3452,#161d31); border:4px solid #10131f; border-radius:20px; box-shadow:0 6px 0 #0a0d16; padding:12px; z-index:20;">
+    <div style="font-size:11px; font-weight:900; letter-spacing:.16em; color:#8fa2c4; margin-bottom:9px;">EQUIPPED BRAINROT</div>
+    <div style="display:flex; gap:11px; align-items:center;">
+      <div style="width:66px; height:66px; border-radius:14px; border:4px solid #10131f; display:grid; place-items:center; font-family:'JetBrains Mono',monospace; font-size:8px; color:rgba(255,255,255,.75); text-align:center; line-height:1.4; animation:bobSlow 3.2s ease-in-out infinite; background: {{ equipped.grad }};">MODEL<br />IMG</div>
+      <div style="display:flex; flex-direction:column; gap:3px; min-width:0;">
+        <span style="font-family:'Luckiest Guy',cursive; font-size:16px; line-height:1.15; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ equipped.name }}</span>
+        <span style="font-size:11px; font-weight:900; letter-spacing:.12em; color: {{ equipped.color }};">{{ equipped.rarity }}</span>
+        <span style="font-size:12px; font-weight:900; color:#ffd93b;">+{{ equipped.cps }}/sec</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== BOTTOM LEFT: FEED ===== -->
+  <div style="position:absolute; bottom:26px; left:22px; width:290px; display:flex; flex-direction:column; gap:6px; z-index:15;">
+    <sc-for list="{{ feed }}" as="ev" hint-placeholder-count="3">
+      <div style="background:rgba(10,14,24,.72); border-left:5px solid #3ecf5b; border-radius:10px; padding:7px 12px; font-size:12px; font-weight:700; color:#c6d5ee;">{{ ev.text }}</div>
+    </sc-for>
+  </div>
+
+  <!-- ===== TOASTS ===== -->
+  <div style="position:absolute; top:200px; right:22px; display:flex; flex-direction:column; gap:10px; z-index:60; pointer-events:none;">
+    <sc-for list="{{ toasts }}" as="t" hint-placeholder-count="0">
+      <div style="display:flex; align-items:center; gap:12px; background:linear-gradient(180deg,#2a3452,#12182a); border:4px solid #10131f; border-radius:16px; padding:10px 16px 10px 10px; box-shadow:0 6px 0 #0a0d16, 0 12px 24px rgba(0,0,0,.5); animation:toastIn .35s cubic-bezier(.34,1.56,.64,1);">
+        <div style="width:40px; height:40px; border-radius:11px; border:3px solid #10131f; background: {{ t.grad }};"></div>
+        <div style="display:flex; flex-direction:column; line-height:1.3;">
+          <span style="font-size:10px; font-weight:900; letter-spacing:.16em; color: {{ t.color }};">{{ t.kicker }}</span>
+          <span style="font-family:'Luckiest Guy',cursive; font-size:17px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ t.title }}</span>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <!-- ===== MODAL LAYER ===== -->
+  <sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closePanel }}" style="position:absolute; inset:0; background:rgba(4,7,14,.72); backdrop-filter:blur(3px); z-index:80;"></div>
+  </sc-if>
+
+  <!-- SHOP -->
+  <sc-if value="{{ isShop }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:1060px; max-width:94vw; max-height:88vh; background:linear-gradient(180deg,#232c46,#141a2b); border:5px solid #10131f; border-radius:28px; box-shadow:0 12px 0 #0a0d16, 0 28px 60px rgba(0,0,0,.6); z-index:90; display:flex; flex-direction:column; overflow:hidden; animation:popIn .28s cubic-bezier(.34,1.56,.64,1);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; background:linear-gradient(90deg,#1d8a3a,#0f5c26); border-bottom:5px solid #10131f;">
+        <div style="display:flex; align-items:baseline; gap:14px;">
+          <span style="font-family:'Luckiest Guy',cursive; font-size:30px; color:#fff; -webkit-text-stroke:5px #10131f; paint-order:stroke fill;">BRAINROT SHOP</span>
+          <span style="font-size:12px; font-weight:900; letter-spacing:.14em; color:#c9f5d4;">RESTOCK IN 04:12</span>
+        </div>
+        <button onClick="{{ closePanel }}" style="width:44px; height:44px; background:linear-gradient(180deg,#ff5c7a,#a3123a); border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:20px; color:#fff;" style-hover="filter:brightness(1.15)">X</button>
+      </div>
+      <div style="padding:20px 22px; overflow-y:auto; display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; align-content:start; grid-auto-rows:min-content;">
+        <sc-for list="{{ shop }}" as="it" hint-placeholder-count="8">
+          <div style="border:5px solid #10131f; border-radius:20px; overflow:hidden; box-shadow:0 6px 0 #0a0d16; display:flex; flex-direction:column; background:#1b2237;">
+            <div style="position:relative; flex:0 0 132px; min-height:132px; display:grid; place-items:center; font-family:'JetBrains Mono',monospace; font-size:9px; color:rgba(255,255,255,.7); text-align:center; line-height:1.6; border-bottom:5px solid #10131f; background: {{ it.grad }};">
+              CHARACTER<br />RENDER
+              <span style="position:absolute; top:8px; left:8px; font-family:Nunito,sans-serif; font-size:10px; font-weight:900; letter-spacing:.12em; padding:4px 9px; border-radius:8px; background:rgba(8,11,20,.7); color: {{ it.color }};">{{ it.rarity }}</span>
+              <span style="position:absolute; top:8px; right:8px; font-family:Nunito,sans-serif; font-size:10px; font-weight:900; letter-spacing:.1em; padding:4px 9px; border-radius:8px; background:rgba(8,11,20,.7); color:#a3ff4f;">{{ it.chance }}</span>
+            </div>
+            <div style="padding:12px; display:flex; flex-direction:column; gap:9px; flex:1;">
+              <span style="font-family:'Luckiest Guy',cursive; font-size:17px; line-height:1.15; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ it.name }}</span>
+              <span style="font-size:12px; font-weight:900; color:#ffd93b;">+{{ it.cps }} CASH/SEC</span>
+              <span style="font-size:11px; font-weight:700; color:#8fa2c4; line-height:1.4;">{{ it.flavor }}</span>
+              <button onClick="{{ it.buy }}" style="margin-top:auto; padding:11px 0 9px; border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:15px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill; transition:transform .1s; background: {{ it.btnBg }};" style-hover="filter:brightness(1.12)" style-active="transform:translateY(4px); box-shadow:0 1px 0 #0a0d16">{{ it.btnLabel }}</button>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- INVENTORY -->
+  <sc-if value="{{ isInv }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:1060px; max-width:94vw; max-height:88vh; background:linear-gradient(180deg,#232c46,#141a2b); border:5px solid #10131f; border-radius:28px; box-shadow:0 12px 0 #0a0d16, 0 28px 60px rgba(0,0,0,.6); z-index:90; display:flex; flex-direction:column; overflow:hidden; animation:popIn .28s cubic-bezier(.34,1.56,.64,1);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; background:linear-gradient(90deg,#1a55b8,#0e2f6b); border-bottom:5px solid #10131f;">
+        <div style="display:flex; align-items:baseline; gap:14px;">
+          <span style="font-family:'Luckiest Guy',cursive; font-size:30px; color:#fff; -webkit-text-stroke:5px #10131f; paint-order:stroke fill;">MY BRAINROTS</span>
+          <span style="font-size:12px; font-weight:900; letter-spacing:.14em; color:#b6d4ff;">{{ indexLabel }} COLLECTED</span>
+        </div>
+        <button onClick="{{ closePanel }}" style="width:44px; height:44px; background:linear-gradient(180deg,#ff5c7a,#a3123a); border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:20px; color:#fff;" style-hover="filter:brightness(1.15)">X</button>
+      </div>
+      <div style="padding:20px 22px; overflow-y:auto; display:grid; grid-template-columns:repeat(6, 1fr); gap:14px; align-content:start; grid-auto-rows:min-content;">
+        <sc-for list="{{ index }}" as="it" hint-placeholder-count="12">
+          <div onClick="{{ it.equip }}" style="position:relative; border:5px solid #10131f; border-radius:18px; overflow:hidden; box-shadow:0 5px 0 #0a0d16; cursor:pointer; background:#1b2237; transition:transform .12s;" style-hover="transform:translateY(-5px)">
+            <div style="flex:0 0 96px; min-height:96px; display:grid; place-items:center; font-family:'JetBrains Mono',monospace; font-size:8px; color:rgba(255,255,255,.65); border-bottom:4px solid #10131f; background: {{ it.grad }}; opacity: {{ it.dim }};">IMG</div>
+            <div style="padding:8px 9px 10px; display:flex; flex-direction:column; gap:3px;">
+              <span style="font-size:12px; font-weight:900; line-height:1.2; color:#e6eeff;">{{ it.name }}</span>
+              <span style="font-size:10px; font-weight:900; letter-spacing:.1em; color: {{ it.color }};">{{ it.rarity }}</span>
+            </div>
+            <span style="position:absolute; top:7px; right:7px; font-size:10px; font-weight:900; padding:3px 7px; border-radius:7px; background:rgba(8,11,20,.78); color:#fff;">{{ it.badge }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- UPGRADES -->
+  <sc-if value="{{ isUpg }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:760px; max-width:94vw; background:linear-gradient(180deg,#232c46,#141a2b); border:5px solid #10131f; border-radius:28px; box-shadow:0 12px 0 #0a0d16, 0 28px 60px rgba(0,0,0,.6); z-index:90; display:flex; flex-direction:column; overflow:hidden; animation:popIn .28s cubic-bezier(.34,1.56,.64,1);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; background:linear-gradient(90deg,#6b26c4,#3a1073); border-bottom:5px solid #10131f;">
+        <span style="font-family:'Luckiest Guy',cursive; font-size:30px; color:#fff; -webkit-text-stroke:5px #10131f; paint-order:stroke fill;">UPGRADES</span>
+        <button onClick="{{ closePanel }}" style="width:44px; height:44px; background:linear-gradient(180deg,#ff5c7a,#a3123a); border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:20px; color:#fff;" style-hover="filter:brightness(1.15)">X</button>
+      </div>
+      <div style="padding:18px 22px 22px; display:flex; flex-direction:column; gap:12px;">
+        <sc-for list="{{ upgrades }}" as="u" hint-placeholder-count="4">
+          <div style="display:flex; align-items:center; gap:16px; background:#1b2237; border:4px solid #10131f; border-radius:18px; padding:13px 16px; box-shadow:0 5px 0 #0a0d16;">
+            <div style="width:52px; height:52px; border-radius:13px; border:4px solid #10131f; display:grid; place-items:center; font-family:'Luckiest Guy',cursive; font-size:20px; color:#fff; background: {{ u.grad }};">{{ u.glyph }}</div>
+            <div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width:0;">
+              <div style="display:flex; align-items:baseline; gap:10px;">
+                <span style="font-family:'Luckiest Guy',cursive; font-size:18px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ u.name }}</span>
+                <span style="font-size:11px; font-weight:900; letter-spacing:.12em; color:#8fa2c4;">LVL {{ u.level }} / 25</span>
+                <span style="font-size:12px; font-weight:900; color:#a3ff4f;">{{ u.effect }}</span>
+              </div>
+              <div style="height:11px; border-radius:99px; background:#0c1120; border:3px solid #10131f; overflow:hidden;">
+                <div style="height:100%; background:linear-gradient(90deg,#c07bff,#7dffd6); transition:width .3s; width: {{ u.pct }};"></div>
+              </div>
+            </div>
+            <button onClick="{{ u.buy }}" style="min-width:150px; padding:12px 16px 10px; border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:15px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill; background: {{ u.btnBg }};" style-hover="filter:brightness(1.12)" style-active="transform:translateY(4px); box-shadow:0 1px 0 #0a0d16">{{ u.btnLabel }}</button>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- REBIRTH -->
+  <sc-if value="{{ isReb }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:640px; max-width:94vw; background:linear-gradient(180deg,#2c1830,#160b1c); border:5px solid #10131f; border-radius:28px; box-shadow:0 12px 0 #0a0d16, 0 28px 60px rgba(0,0,0,.6); z-index:90; overflow:hidden; animation:popIn .28s cubic-bezier(.34,1.56,.64,1);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; background:linear-gradient(90deg,#a3123a,#5c0a22); border-bottom:5px solid #10131f;">
+        <span style="font-family:'Luckiest Guy',cursive; font-size:30px; color:#fff; -webkit-text-stroke:5px #10131f; paint-order:stroke fill;">REBIRTH</span>
+        <button onClick="{{ closePanel }}" style="width:44px; height:44px; background:linear-gradient(180deg,#ff5c7a,#a3123a); border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:20px; color:#fff;" style-hover="filter:brightness(1.15)">X</button>
+      </div>
+      <div style="padding:26px 28px 28px; display:flex; flex-direction:column; align-items:center; gap:18px; text-align:center;">
+        <div style="font-family:'Luckiest Guy',cursive; font-size:22px; line-height:1.3; color:#ff8ac2; -webkit-text-stroke:4px #10131f; paint-order:stroke fill;">WIPE YOUR CASH.<br />KEEP THE RIZZ.</div>
+        <div style="display:flex; gap:14px; width:100%;">
+          <div style="flex:1; background:#1b1226; border:4px solid #10131f; border-radius:18px; padding:14px; display:flex; flex-direction:column; gap:4px;">
+            <span style="font-size:11px; font-weight:900; letter-spacing:.14em; color:#8fa2c4;">CURRENT</span>
+            <span style="font-family:'Luckiest Guy',cursive; font-size:28px; color:#fff; -webkit-text-stroke:4px #10131f; paint-order:stroke fill;">×{{ multiplierLabel }}</span>
+          </div>
+          <div style="flex:1; background:#1b1226; border:4px solid #ff8ac2; border-radius:18px; padding:14px; display:flex; flex-direction:column; gap:4px;">
+            <span style="font-size:11px; font-weight:900; letter-spacing:.14em; color:#ff8ac2;">AFTER REBIRTH</span>
+            <span style="font-family:'Luckiest Guy',cursive; font-size:28px; color:#ff8ac2; -webkit-text-stroke:4px #10131f; paint-order:stroke fill;">×{{ nextMultiplier }}</span>
+          </div>
+        </div>
+        <div style="font-size:13px; font-weight:700; color:#b8a6c8; line-height:1.6;">You lose all cash and upgrades. You keep every brainrot, your index, and a permanent earnings boost. Rebirth 5 unlocks <strong style="color:#ffd93b;">LAVA LAKE</strong>.</div>
+        <div style="width:100%; height:14px; border-radius:99px; background:#0c1120; border:4px solid #10131f; overflow:hidden;">
+          <div style="height:100%; background:linear-gradient(90deg,#ff5c7a,#ff8ac2); transition:width .4s; width: {{ rebirthPct }};"></div>
+        </div>
+        <button onClick="{{ doRebirth }}" style="width:100%; padding:17px 0 14px; border:5px solid #10131f; border-radius:20px; box-shadow:0 7px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:22px; color:#fff; -webkit-text-stroke:4px #10131f; paint-order:stroke fill; background: {{ rebirthBtnBg }};" style-hover="filter:brightness(1.12)" style-active="transform:translateY(5px); box-shadow:0 1px 0 #0a0d16">{{ rebirthBtnLabel }}</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- GAMEPASSES -->
+  <sc-if value="{{ isPass }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:960px; max-width:94vw; background:linear-gradient(180deg,#2b2410,#161206); border:5px solid #10131f; border-radius:28px; box-shadow:0 12px 0 #0a0d16, 0 28px 60px rgba(0,0,0,.6); z-index:90; overflow:hidden; animation:popIn .28s cubic-bezier(.34,1.56,.64,1);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; background:linear-gradient(90deg,#c98800,#8a5b00); border-bottom:5px solid #10131f;">
+        <div style="display:flex; align-items:baseline; gap:14px;">
+          <span style="font-family:'Luckiest Guy',cursive; font-size:30px; color:#fff; -webkit-text-stroke:5px #10131f; paint-order:stroke fill;">GAMEPASSES</span>
+          <span style="font-size:12px; font-weight:900; letter-spacing:.14em; color:#ffe9a8;">SALE ENDS IN 02:41:09</span>
+        </div>
+        <button onClick="{{ closePanel }}" style="width:44px; height:44px; background:linear-gradient(180deg,#ff5c7a,#a3123a); border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:20px; color:#fff;" style-hover="filter:brightness(1.15)">X</button>
+      </div>
+      <div style="padding:20px 22px; display:grid; grid-template-columns:repeat(4,1fr); gap:16px;">
+        <sc-for list="{{ passes }}" as="p" hint-placeholder-count="4">
+          <div style="position:relative; border:5px solid #10131f; border-radius:20px; overflow:hidden; box-shadow:0 6px 0 #0a0d16; background:#1e1a0e; display:flex; flex-direction:column;">
+            <div style="flex:0 0 110px; min-height:110px; display:grid; place-items:center; font-family:'JetBrains Mono',monospace; font-size:9px; color:rgba(255,255,255,.7); border-bottom:5px solid #10131f; text-align:center; line-height:1.6; background: {{ p.grad }};">PASS<br />ICON</div>
+            <div style="padding:13px; display:flex; flex-direction:column; gap:8px; flex:1;">
+              <span style="font-family:'Luckiest Guy',cursive; font-size:17px; line-height:1.15; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ p.name }}</span>
+              <span style="font-size:11px; font-weight:700; color:#c9b78a; line-height:1.5;">{{ p.desc }}</span>
+              <button onClick="{{ p.buy }}" style="margin-top:auto; display:flex; align-items:center; justify-content:center; gap:7px; padding:11px 0 9px; background:linear-gradient(180deg,#3ecf5b,#1d8a3a); border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:16px; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;" style-hover="filter:brightness(1.12)" style-active="transform:translateY(4px); box-shadow:0 1px 0 #0a0d16">R$ {{ p.price }}</button>
+            </div>
+            <span style="position:absolute; top:9px; right:9px; font-size:10px; font-weight:900; letter-spacing:.1em; padding:4px 9px; border-radius:8px; background:#ff5c7a; border:3px solid #10131f; color:#fff;">{{ p.tag }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- DAILY -->
+  <sc-if value="{{ isDaily }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:880px; max-width:94vw; background:linear-gradient(180deg,#2a2038,#150f22); border:5px solid #10131f; border-radius:28px; box-shadow:0 12px 0 #0a0d16, 0 28px 60px rgba(0,0,0,.6); z-index:90; overflow:hidden; animation:popIn .28s cubic-bezier(.34,1.56,.64,1);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; background:linear-gradient(90deg,#d2600b,#8a3c00); border-bottom:5px solid #10131f;">
+        <div style="display:flex; align-items:baseline; gap:14px;">
+          <span style="font-family:'Luckiest Guy',cursive; font-size:30px; color:#fff; -webkit-text-stroke:5px #10131f; paint-order:stroke fill;">DAILY REWARDS</span>
+          <span style="font-size:12px; font-weight:900; letter-spacing:.14em; color:#ffd9b0;">STREAK: {{ streakLabel }}</span>
+        </div>
+        <button onClick="{{ closePanel }}" style="width:44px; height:44px; background:linear-gradient(180deg,#ff5c7a,#a3123a); border:4px solid #10131f; border-radius:14px; box-shadow:0 5px 0 #0a0d16; cursor:pointer; font-family:'Luckiest Guy',cursive; font-size:20px; color:#fff;" style-hover="filter:brightness(1.15)">X</button>
+      </div>
+      <div style="padding:22px; display:grid; grid-template-columns:repeat(7,1fr); gap:12px;">
+        <sc-for list="{{ days }}" as="d" hint-placeholder-count="7">
+          <div onClick="{{ d.claim }}" style="border:5px solid #10131f; border-radius:18px; overflow:hidden; box-shadow:0 5px 0 #0a0d16; display:flex; flex-direction:column; cursor:pointer; background: {{ d.bg }}; opacity: {{ d.dim }};">
+            <div style="padding:7px 0; text-align:center; font-size:11px; font-weight:900; letter-spacing:.14em; background:rgba(8,11,20,.45); color:#fff;">DAY {{ d.n }}</div>
+            <div style="padding:16px 8px; display:flex; flex-direction:column; align-items:center; gap:7px;">
+              <div style="width:44px; height:44px; border-radius:12px; border:4px solid #10131f; background: {{ d.grad }};"></div>
+              <span style="font-family:'Luckiest Guy',cursive; font-size:14px; text-align:center; line-height:1.2; color:#fff; -webkit-text-stroke:3px #10131f; paint-order:stroke fill;">{{ d.reward }}</span>
+              <span style="font-size:10px; font-weight:900; letter-spacing:.1em; color: {{ d.stateColor }};">{{ d.state }}</span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="padding:0 22px 22px; font-size:12px; font-weight:900; letter-spacing:.06em; color:#a394bd; text-align:center;">MISS A DAY AND THE STREAK RESETS. NO EXCUSES.</div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showQuests&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;HUD&quot;}}">
+const RAR = {
+  Common:    { color:'#9fb0c9', grad:'linear-gradient(160deg,#6b7c96,#3a465f)' },
+  Rare:      { color:'#4da3ff', grad:'linear-gradient(160deg,#2b6ede,#132f72)' },
+  Epic:      { color:'#c07bff', grad:'linear-gradient(160deg,#8b3ff0,#43167a)' },
+  Legendary: { color:'#ffd93b', grad:'linear-gradient(160deg,#f5a90b,#7d4405)' },
+  Mythic:    { color:'#ff5c7a', grad:'linear-gradient(160deg,#ef4444,#6e0d26)' },
+  Secret:    { color:'#7dffd6', grad:'linear-gradient(160deg,#0f4a3d,#2a0f3d)' }
+};
+
+const ROSTER = [
+  { id:'froggo',  name:'Froggo Bloggo',      rarity:'Common',    cps:2,    price:120,      chance:'1 in 3',        flavor:'Just a guy. Skips fine. Smells like pond.' },
+  { id:'pebbles', name:'Mister Pebbles',     rarity:'Common',    cps:3,    price:340,      chance:'1 in 4',        flavor:'He IS the rock. Do not question it.' },
+  { id:'kablooky',name:'Ducky Kablooky',     rarity:'Rare',      cps:9,    price:1800,     chance:'1 in 25',       flavor:'Quacks in binary. Explodes politely.' },
+  { id:'splash',  name:'Sir Splashimus',     rarity:'Rare',      cps:14,   price:4200,     chance:'1 in 40',       flavor:'Knighted for excessive splashing.' },
+  { id:'gargle',  name:'Gargle McFlop',      rarity:'Epic',      cps:48,   price:26000,    chance:'1 in 250',      flavor:'Flops so hard the water apologizes.' },
+  { id:'noodle',  name:'Zoomer Noodle',      rarity:'Epic',      cps:66,   price:52000,    chance:'1 in 400',      flavor:'Speed: yes. Bones: no.' },
+  { id:'skipper', name:'Grandmaster Skipperoni', rarity:'Legendary', cps:240, price:410000, chance:'1 in 5,000',  flavor:'27-skip world record. Never verified.' },
+  { id:'chonko',  name:'Chonko Lilypad',     rarity:'Legendary', cps:310,  price:780000,   chance:'1 in 7,500',    flavor:'Sinks everything. Still counts.' },
+  { id:'rizzler', name:'Ultra Rizzler Rock', rarity:'Mythic',    cps:1400, price:6200000,  chance:'1 in 100,000',  flavor:'The pond flirts back.' },
+  { id:'quack',   name:'Quantum Quackers',   rarity:'Mythic',    cps:1900, price:11000000, chance:'1 in 250,000',  flavor:'Skips on every pond simultaneously.' },
+  { id:'unskip',  name:'THE UNSKIPPABLE',    rarity:'Secret',    cps:12000,price:0,        chance:'1 in 10,000,000', flavor:'Cannot be skipped. Only respected.' }
+];
+
+const UPGRADE_DEFS = [
+  { id:'power', name:'THROW POWER',  glyph:'P', grad:'linear-gradient(160deg,#a3ff4f,#3d9e18)', base:250,   per:'+8% cash per skip' },
+  { id:'luck',  name:'ROT LUCK',     glyph:'L', grad:'linear-gradient(160deg,#c07bff,#6b26c4)', base:900,   per:'+3% drop chance' },
+  { id:'wrist', name:'WRIST FLICK',  glyph:'W', grad:'linear-gradient(160deg,#4da3ff,#1a55b8)', base:1600,  per:'+1 bonus skip' },
+  { id:'greed', name:'POND GREED',   glyph:'G', grad:'linear-gradient(160deg,#ffd93b,#c98800)', base:5000,  per:'+5% idle income' }
+];
+
+const PASSES = [
+  { id:'x2',    name:'2× CASH',        price:199, tag:'HOT',   desc:'Double every dollar from skips and idle income. Forever.', grad:'linear-gradient(160deg,#ffd93b,#c98800)' },
+  { id:'auto',  name:'AUTO SKIPPER',   price:349, tag:'BEST',  desc:'A little guy throws rocks for you while you are AFK.',     grad:'linear-gradient(160deg,#4da3ff,#1a55b8)' },
+  { id:'luck',  name:'ULTRA LUCK',     price:299, tag:'NEW',   desc:'3× chance to pull Legendary and above from the pond.',     grad:'linear-gradient(160deg,#c07bff,#6b26c4)' },
+  { id:'slots', name:'+50 BAG SLOTS',  price:149, tag:'SALE',  desc:'Stop deleting your brainrots. Hoard them like a champion.',grad:'linear-gradient(160deg,#3ecf5b,#1d8a3a)' }
+];
+
+const DAYS = [
+  { n:1, reward:'500 CASH',   grad:'linear-gradient(160deg,#ffd93b,#c98800)' },
+  { n:2, reward:'5 GEMS',     grad:'linear-gradient(160deg,#7dffd6,#0f9e88)' },
+  { n:3, reward:'2× FOR 15M', grad:'linear-gradient(160deg,#a3ff4f,#3d9e18)' },
+  { n:4, reward:'25K CASH',   grad:'linear-gradient(160deg,#ffd93b,#c98800)' },
+  { n:5, reward:'RARE EGG',   grad:'linear-gradient(160deg,#4da3ff,#1a55b8)' },
+  { n:6, reward:'50 GEMS',    grad:'linear-gradient(160deg,#7dffd6,#0f9e88)' },
+  { n:7, reward:'MYTHIC PULL',grad:'linear-gradient(160deg,#ef4444,#6e0d26)' }
+];
+
+function fmt(n) {
+  n = Math.floor(n);
+  if (n >= 1e12) return (n/1e12).toFixed(1).replace(/\.0$/,'') + 'T';
+  if (n >= 1e9) return (n/1e9).toFixed(1).replace(/\.0$/,'') + 'B';
+  if (n >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1).replace(/\.0$/,'') + 'K';
+  return String(n);
+}
+
+class Component extends DCLogic {
+  state = {
+    cash: 1450, gems: 12, rebirths: 0,
+    owned: { froggo: 3, pebbles: 1, kablooky: 1 },
+    equippedId: 'kablooky',
+    levels: { power: 4, luck: 2, wrist: 1, greed: 0 },
+    panel: null,
+    charge: 0, charging: false, dir: 1,
+    skips: 142, perfects: 31, dayClaimed: 2,
+    toasts: [], floaters: [], ripples: [],
+    feed: [
+      { id:1, text:'zeeko_99 pulled QUANTUM QUACKERS (1 in 250K)' },
+      { id:2, text:'You skipped 7 times — nice wrist' },
+      { id:3, text:'Trade offer from bloxxywoxxy declined' }
+    ]
+  };
+  uid = 100;
+
+  componentDidMount() {
+    this.tick = setInterval(() => {
+      this.setState(s => ({ cash: s.cash + this.cps(s) }));
+    }, 1000);
+    this.onKey = (e) => {
+      if (e.code === 'Space' && !e.repeat) { e.preventDefault(); this.startCharge(); }
+    };
+    this.onKeyUp = (e) => { if (e.code === 'Space') { e.preventDefault(); this.releaseCharge(); } };
+    window.addEventListener('keydown', this.onKey);
+    window.addEventListener('keyup', this.onKeyUp);
+  }
+  componentWillUnmount() {
+    clearInterval(this.tick); clearInterval(this.chargeTimer);
+    window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('keyup', this.onKeyUp);
+  }
+
+  mult(s) { return 1 + s.rebirths * 0.5; }
+  cps(s) {
+    let base = 0;
+    Object.keys(s.owned).forEach(id => {
+      const r = ROSTER.find(x => x.id === id);
+      if (r) base += r.cps * s.owned[id];
+    });
+    return Math.floor(base * this.mult(s) * (1 + s.levels.greed * 0.05));
+  }
+
+  toast(kicker, title, rarity) {
+    const r = RAR[rarity] || RAR.Common;
+    const id = ++this.uid;
+    this.setState(s => ({ toasts: [...s.toasts, { id, kicker, title, color: r.color, grad: r.grad }] }));
+    setTimeout(() => this.setState(s => ({ toasts: s.toasts.filter(t => t.id !== id) })), 2800);
+  }
+  float(text) {
+    const id = ++this.uid;
+    this.setState(s => ({ floaters: [...s.floaters, { id, text }], ripples: [...s.ripples, { id }] }));
+    setTimeout(() => this.setState(s => ({ floaters: s.floaters.filter(f => f.id !== id), ripples: s.ripples.filter(r => r.id !== id) })), 1500);
+  }
+  log(text) {
+    const id = ++this.uid;
+    this.setState(s => ({ feed: [{ id, text }, ...s.feed].slice(0, 4) }));
+  }
+
+  startCharge = () => {
+    if (this.state.charging) return;
+    this.setState({ charging: true, charge: 0, dir: 1 });
+    this.chargeTimer = setInterval(() => {
+      this.setState(s => {
+        let c = s.charge + s.dir * 4, d = s.dir;
+        if (c >= 100) { c = 100; d = -1; }
+        if (c <= 0) { c = 0; d = 1; }
+        return { charge: c, dir: d };
+      });
+    }, 24);
+  };
+  cancelCharge = () => { if (this.state.charging) this.releaseCharge(); };
+  releaseCharge = () => {
+    if (!this.state.charging) return;
+    clearInterval(this.chargeTimer);
+    const s = this.state;
+    const c = s.charge;
+    const perfect = c >= 70 && c <= 92;
+    const skips = Math.max(1, Math.round(c / 12) + s.levels.wrist);
+    const gain = Math.floor(skips * 45 * (1 + s.levels.power * 0.08) * this.mult(s) * (perfect ? 2.5 : 1));
+    this.setState({ charging: false, charge: 0, cash: s.cash + gain, skips: s.skips + skips, perfects: s.perfects + (perfect ? 1 : 0) });
+    this.float((perfect ? 'PERFECT! +$' : '+$') + fmt(gain));
+    const dropChance = 0.10 + s.levels.luck * 0.03 + (perfect ? 0.12 : 0);
+    if (Math.random() < dropChance) {
+      const roll = Math.random();
+      const pool = roll > 0.985 ? ['rizzler','quack'] : roll > 0.9 ? ['skipper','chonko'] : roll > 0.65 ? ['gargle','noodle'] : roll > 0.35 ? ['kablooky','splash'] : ['froggo','pebbles'];
+      const pick = ROSTER.find(x => x.id === pool[Math.floor(Math.random() * pool.length)]);
+      this.setState(st => ({ owned: Object.assign({}, st.owned, { [pick.id]: (st.owned[pick.id] || 0) + 1 }) }));
+      this.toast('BRAINROT FOUND — ' + pick.rarity.toUpperCase(), pick.name, pick.rarity);
+      this.log('You pulled ' + pick.name + ' (' + pick.rarity + ')');
+    }
+  };
+
+  open = (p) => () => this.setState({ panel: p });
+  closePanel = () => this.setState({ panel: null });
+
+  buyItem = (item) => () => {
+    if (this.state.cash < item.price) { this.toast('NOT ENOUGH CASH', 'GO SKIP MORE ROCKS', 'Mythic'); return; }
+    this.setState(s => ({ cash: s.cash - item.price, owned: Object.assign({}, s.owned, { [item.id]: (s.owned[item.id] || 0) + 1 }) }));
+    this.toast('PURCHASED — ' + item.rarity.toUpperCase(), item.name, item.rarity);
+    this.log('You bought ' + item.name);
+  };
+  buyUpgrade = (def, cost) => () => {
+    if (this.state.cash < cost) { this.toast('NOT ENOUGH CASH', 'BROKE BEHAVIOR', 'Mythic'); return; }
+    this.setState(s => ({ cash: s.cash - cost, levels: Object.assign({}, s.levels, { [def.id]: s.levels[def.id] + 1 }) }));
+    this.toast('UPGRADED', def.name, 'Epic');
+  };
+  equip = (id) => () => {
+    if (!this.state.owned[id]) return;
+    this.setState({ equippedId: id });
+    const r = ROSTER.find(x => x.id === id);
+    this.toast('EQUIPPED', r.name, r.rarity);
+  };
+  doRebirth = () => {
+    if (this.state.cash < this.rebirthCost()) { this.toast('NOT YET', 'KEEP GRINDING', 'Mythic'); return; }
+    this.setState(s => ({ cash: 0, rebirths: s.rebirths + 1, levels: { power:0, luck:0, wrist:0, greed:0 }, panel: null }));
+    this.toast('REBIRTH COMPLETE', 'CERTIFIED COOKED', 'Secret');
+    this.log('You rebirthed. Everyone saw it.');
+  };
+  rebirthCost() { return Math.floor(50000 * Math.pow(3, this.state.rebirths)); }
+  claimDay = (n) => () => {
+    if (n !== this.state.dayClaimed + 1) return;
+    this.setState(s => ({ dayClaimed: n, gems: s.gems + 5, cash: s.cash + 500 * n }));
+    this.toast('DAY ' + n + ' CLAIMED', 'STREAK SECURED', 'Legendary');
+  };
+
+  renderVals() {
+    const s = this.state;
+    const eq = ROSTER.find(x => x.id === s.equippedId) || ROSTER[0];
+    const ownedCount = Object.keys(s.owned).filter(k => s.owned[k] > 0).length;
+    const rebCost = this.rebirthCost();
+    const canReb = s.cash >= rebCost;
+
+    return {
+      cashLabel: fmt(s.cash),
+      gems: s.gems,
+      rebirths: s.rebirths,
+      multiplierLabel: this.mult(s).toFixed(1),
+      nextMultiplier: (this.mult(s) + 0.5).toFixed(1),
+      cpsLabel: fmt(this.cps(s)),
+      showQuests: this.props.showQuests !== false,
+      chargePct: s.charge + '%',
+      chargeLabel: s.charging ? 'CHARGING… RELEASE!' : 'POWER METER',
+      floaters: s.floaters,
+      ripples: s.ripples.map((r, i) => ({ id: r.id, left: (20 + i * 30) + '%' })),
+      toasts: s.toasts,
+      feed: s.feed,
+
+      equipped: { name: eq.name, rarity: eq.rarity.toUpperCase(), cps: fmt(eq.cps), color: RAR[eq.rarity].color, grad: RAR[eq.rarity].grad },
+
+      quests: [
+        { label: 'SKIP 200 ROCKS', count: Math.min(s.skips,200) + ' / 200', pct: Math.min(100, s.skips/2) + '%' },
+        { label: 'LAND 50 PERFECT SKIPS', count: Math.min(s.perfects,50) + ' / 50', pct: Math.min(100, s.perfects*2) + '%' },
+        { label: 'COLLECT 8 BRAINROTS', count: ownedCount + ' / 8', pct: Math.min(100, ownedCount/8*100) + '%' }
+      ],
+
+      shop: ROSTER.filter(r => r.price > 0).map(r => ({
+        name: r.name, rarity: r.rarity.toUpperCase(), cps: fmt(r.cps), chance: r.chance, flavor: r.flavor,
+        color: RAR[r.rarity].color, grad: RAR[r.rarity].grad,
+        btnLabel: '$' + fmt(r.price),
+        btnBg: s.cash >= r.price ? 'linear-gradient(180deg,#3ecf5b,#1d8a3a)' : 'linear-gradient(180deg,#4a566f,#2b3348)',
+        buy: this.buyItem(r)
+      })),
+
+      index: ROSTER.map(r => {
+        const n = s.owned[r.id] || 0;
+        return {
+          name: n ? r.name : '???', rarity: n ? r.rarity.toUpperCase() : 'UNDISCOVERED',
+          color: n ? RAR[r.rarity].color : '#5f7396',
+          grad: n ? RAR[r.rarity].grad : 'linear-gradient(160deg,#2b3348,#171d2e)',
+          dim: n ? 1 : 0.45,
+          badge: n ? (s.equippedId === r.id ? 'ON' : '×' + n) : 'LOCKED',
+          equip: this.equip(r.id)
+        };
+      }),
+      indexLabel: ownedCount + '/' + ROSTER.length,
+
+      upgrades: UPGRADE_DEFS.map(u => {
+        const lvl = s.levels[u.id];
+        const cost = Math.floor(u.base * Math.pow(1.6, lvl));
+        return {
+          name: u.name, glyph: u.glyph, grad: u.grad, level: lvl, effect: u.per,
+          pct: (lvl / 25 * 100) + '%',
+          btnLabel: lvl >= 25 ? 'MAXED' : 'UPGRADE  $' + fmt(cost),
+          btnBg: lvl >= 25 ? 'linear-gradient(180deg,#4a566f,#2b3348)' : s.cash >= cost ? 'linear-gradient(180deg,#c07bff,#6b26c4)' : 'linear-gradient(180deg,#4a566f,#2b3348)',
+          buy: this.buyUpgrade(u, cost)
+        };
+      }),
+
+      rebirthPct: Math.min(100, s.cash / rebCost * 100) + '%',
+      rebirthBtnLabel: canReb ? 'REBIRTH NOW' : 'NEED $' + fmt(rebCost),
+      rebirthBtnBg: canReb ? 'linear-gradient(180deg,#ff5c7a,#a3123a)' : 'linear-gradient(180deg,#4a566f,#2b3348)',
+      doRebirth: this.doRebirth,
+
+      passes: PASSES.map(p => ({ name: p.name, desc: p.desc, price: p.price, tag: p.tag, grad: p.grad, buy: () => this.toast('ROBUX PROMPT', p.name, 'Legendary') })),
+
+      streakLabel: s.dayClaimed + ' DAYS',
+      days: DAYS.map(d => {
+        const claimed = d.n <= s.dayClaimed;
+        const ready = d.n === s.dayClaimed + 1;
+        return {
+          n: d.n, reward: d.reward, grad: d.grad,
+          bg: claimed ? 'linear-gradient(180deg,#2b3348,#1a2032)' : ready ? 'linear-gradient(180deg,#3ecf5b,#186b2c)' : 'linear-gradient(180deg,#241c33,#171126)',
+          dim: claimed ? 0.55 : 1,
+          state: claimed ? 'CLAIMED' : ready ? 'TAP TO CLAIM' : 'LOCKED',
+          stateColor: claimed ? '#6b80a5' : ready ? '#eaffdc' : '#6b5f85',
+          claim: this.claimDay(d.n)
+        };
+      }),
+
+      panelOpen: !!s.panel,
+      isShop: s.panel === 'shop', isInv: s.panel === 'inv', isUpg: s.panel === 'upg',
+      isReb: s.panel === 'reb', isPass: s.panel === 'pass', isDaily: s.panel === 'daily',
+      openShop: this.open('shop'), openInv: this.open('inv'), openUpg: this.open('upg'),
+      openReb: this.open('reb'), openPass: this.open('pass'), openDaily: this.open('daily'),
+      closePanel: this.closePanel,
+      startCharge: this.startCharge, releaseCharge: this.releaseCharge, cancelCharge: this.cancelCharge
+    };
+  }
+}
+
+</script>
+</body>
+</html>
