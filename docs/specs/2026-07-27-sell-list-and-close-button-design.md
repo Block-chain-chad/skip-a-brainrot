@@ -56,7 +56,9 @@ A second theory — that `M.gradient`'s `UIGradient` was multiplying the white g
 
 `SeasonClient` goes through **`UIStyle.styleClose`** — the collaborator's separate module, carrying its own copy of the same `"\u{2715}"` bug. The user approved fixing it too, as a self-contained one-function change. It gets its own copy of the bar-drawing rather than a cross-module dependency, because making the collaborator's module depend on ours is an architectural decision that needs their agreement, not a bug fix.
 
-⚠️ `IndexClient:244-245` sets `closeBtn.ZIndex = 18` *after* `styleClose` because `styleClose` forces ZIndex 6. The new bars must sit above the button at whatever ZIndex the caller later chooses — derive their ZIndex from the button's at draw time, and accept that a caller raising the button afterwards is an existing pattern that must keep working.
+⚠️ `IndexClient:244-245` and `DailyRewardClient` both set `closeBtn.ZIndex = 18` *after* calling `styleClose`, which forces ZIndex 6. The bars must sit above the button at whatever ZIndex the caller later chooses.
+
+**A one-time read of the button's ZIndex at draw time is NOT sufficient** — it would freeze the bars at 7 and strand them *under* the button once a caller raises it to 18, reproducing the exact invisibility being fixed. The bars must **track** the button's ZIndex, via `GetPropertyChangedSignal("ZIndex")`, with the connection cleaned up on redraw. (Corrected 2026-07-27: an earlier draft of this spec said "derive at draw time", which the implementation correctly did not take literally.)
 
 ---
 
