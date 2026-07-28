@@ -125,3 +125,22 @@ Verified against the real file (game.StarterPlayer.StarterPlayerScripts.IndexCli
 8. Eye whites — handled by tinting EVERY BasePart descendant to Color3.fromRGB(20,20,24) with no exemptions; whites go near-black along with everything else, which is what keeps them hidden. If the builder ever renders eyes as Decals or SurfaceGuis instead of primitive parts, the uniform part-tint won't hide them — but the stated contract is primitives only.
 
 9. The 42px viewport keeps default ViewportFrame lighting (Ambient 200,200,200) — fine for colored models, and it gives silhouettes a faint facet shading that keeps the shape readable against the dark locked sunburst (78,70,64 warm / 58,62,72 cold). No lighting code needed.
+
+=== ADDENDUM (2026-07-27, close-button X fix) ===
+One-line comment fix, unrelated to the thumbnail patches above. `UITheme.styleClose` no longer sets `btn.Text` at all (it draws the X as two rotated Frames now — see `game-src/UITheme.lua` and `game-src/README.md`), which made the comment immediately after the close-button block stale and actively misleading.
+
+REPLACE (true lines 265-266, right after `closeBtn.ZIndex = 18 -- set AFTER styleClose, which forces ZIndex 6`):
+
+```lua
+-- keep GothamBold from styleClose: FredokaOne has no U+2715 glyph
+```
+
+with:
+
+```lua
+-- styleClose draws the X as two rotated Frames now, not a glyph. An earlier
+-- version of this comment blamed FredokaOne and pinned GothamBold as a fix;
+-- a proof board rendered in GothamBold was still blank, so that never worked.
+```
+
+Nothing else in this 3-line region (`closeBtn.ZIndex = 18 ...` and `closeBtn.TextSize = 18`) changed, and nothing else in `IndexClient` changed. Anchor matched via `script_read`'s exact text after `script_grep` reported this same block at lines 243-245 — a 20-ish line drift from the true 262-268 range, another instance of the grep/read line-number mismatch this file's own notes already warn about. `blackRim(closeBtn, 3)` (unchanged, line 268) still runs after this and still only touches Border-mode `UIStroke`s on `closeBtn` itself, which has no effect on the new `CloseXBar` Frame children.

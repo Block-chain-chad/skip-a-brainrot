@@ -1,0 +1,89 @@
+PATCH 1 — require BrainrotThumb (insert immediately after the line matching `local UIStyle = require(ReplicatedStorage.Modules.UIStyle) -- Round 2: shared bubbly theme for the top bar`, true line 16):
+
+```lua
+local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb) -- shared 3D thumbnail helper (sell list icons)
+```
+
+PATCH 2 — sell list icon tile: real 3D model + tier colour on the border (REPLACE the icon/dot block inside buildSellList, true lines 309-332, right after `local card, row = UITheme.accentCard(sellList, acc[1], 14)` and its row sizing):
+
+```lua
+			-- icon tile: sunburst backdrop with the rarity swatch as the medallion dot
+			local icon = Instance.new("Frame")
+			icon.Size = UDim2.fromOffset(56, 56)
+			icon.Position = UDim2.new(0, 12, 0.5, -28)
+			icon.BackgroundColor3 = P.white
+			icon.BorderSizePixel = 0
+			icon.ClipsDescendants = true
+			icon.ZIndex = card.ZIndex + 1
+			icon.Parent = card
+			UITheme.corner(icon, 10)
+			UITheme.sunburst(icon, acc[1], 12)
+			UITheme.ink(icon, 3)
+
+			local dot = Instance.new("Frame")
+			dot.AnchorPoint = Vector2.new(0.5, 0.5)
+			dot.Position = UDim2.fromScale(0.5, 0.5)
+			dot.Size = UDim2.fromOffset(34, 34)
+			dot.BackgroundColor3 = tier and tier.Color or Color3.fromRGB(255, 255, 255)
+			dot.BorderSizePixel = 0
+			dot.ZIndex = icon.ZIndex + 3
+			dot.Parent = icon
+			UITheme.corner(dot, 17)
+			UITheme.ink(dot, 2.5)
+			UITheme.gloss(dot, 16, 0.55)
+```
+
+becomes:
+
+```lua
+			-- icon tile: sunburst backdrop, tier colour now on the tile's border
+			-- (matches the backpack grid), with the real 3D brainrot inside
+			local icon = Instance.new("Frame")
+			icon.Size = UDim2.fromOffset(56, 56)
+			icon.Position = UDim2.new(0, 12, 0.5, -28)
+			icon.BackgroundColor3 = P.white
+			icon.BorderSizePixel = 0
+			icon.ClipsDescendants = true
+			icon.ZIndex = card.ZIndex + 1
+			icon.Parent = card
+			UITheme.corner(icon, 10)
+			UITheme.sunburst(icon, acc[1], 12)
+			UITheme.stroke(icon, tier and tier.Color or CF.ink, 3)
+
+			-- the actual 3D brainrot, matching the backpack grid and catch reveal
+			local vp = BrainrotThumb.add(icon, name, {
+				size = UDim2.new(1, -8, 1, -8),
+				position = UDim2.new(0, 4, 0, 4),
+				zIndex = icon.ZIndex + 3,
+			})
+			if not vp then
+				-- no model for this name (Maxwell, at time of writing): keep the old
+				-- flat rarity swatch so the tile is never blank and selling still works
+				local dot = Instance.new("Frame")
+				dot.AnchorPoint = Vector2.new(0.5, 0.5)
+				dot.Position = UDim2.fromScale(0.5, 0.5)
+				dot.Size = UDim2.fromOffset(34, 34)
+				dot.BackgroundColor3 = tier and tier.Color or Color3.fromRGB(255, 255, 255)
+				dot.BorderSizePixel = 0
+				dot.ZIndex = icon.ZIndex + 3
+				dot.Parent = icon
+				UITheme.corner(dot, 17)
+				UITheme.ink(dot, 2.5)
+				UITheme.gloss(dot, 16, 0.55)
+			end
+```
+
+No other lines in `buildSellList` change: grouping/counting, sort order, the title/subtitle labels, and the SELL 1 / SELL ALL buttons and their remote calls are all untouched. `acc[1]` (the row's cycling accent — amber/pine/lake/ember/berry) still tints the sunburst and the title text exactly as before; only the flat medallion dot lost its job of carrying the rarity read, and that job moved to `icon`'s own border stroke.
+
+=== NOTES ===
+Verified against the live Studio place (`game.StarterPlayer.StarterPlayerScripts.ClientMain`), not the repo mirror — ClientMain has no full-file mirror in `game-src/` (a human collaborator, `yeep1234`, edits the live script directly; see `ClientMainCatchPatch.txt` for the same caveat on an earlier patch). `yeep1234` was confirmed present in the live editing session partway through this patch's verification sweep (console line: "yeep1234 joined live editing session"); neither anchor overlaps anything they were touching, and both scripts were re-read after the join to confirm no drift before mirroring.
+
+1. Anchors matched via `script_read`'s exact text, never a `script_grep` line number. `script_grep` reported `buildSellList` at line 242; `script_read` showed its real position at line 273 (a 31-line gap) — consistent with this project's now-standard warning that the two tools' line numbers disagree. Both edits were applied via `multi_edit`, which itself requires an exact `old_string` match and would have failed loudly on any drift; both succeeded on the first attempt.
+
+2. `BrainrotThumb.add(icon, name, opts)` returns `nil` when `BrainrotThumb.master(name)` has no model for that name — `Maxwell` is the only such case of 151 at patch time, confirmed live: forced a sell-list rebuild with a Maxwell copy in inventory, and `icon:FindFirstChildOfClass("ViewportFrame")` was absent while the fallback `dot` Frame (34x34, `tier.Color` fill) was present, matching the pre-patch look exactly. The border stroke on `icon` carried the same tier colour in that fallback case too, so the row's rarity read never blanks out even without a model.
+
+3. `UITheme.stroke(icon, color, thick)` (the older, non-Camp API already used elsewhere in this same file, e.g. `M.medallion`) was used instead of `UITheme.ink(icon, 3)` specifically because `ink` hardcodes its colour to `CF.ink` (dark brown) with no override parameter — `stroke` takes an explicit colour and otherwise matches `ink`'s Border ApplyStrokeMode / Round LineJoinMode, making it the natural way to keep the same visual weight while swapping in the tier colour.
+
+4. No idempotency concern here unlike `styleClose`: `buildSellList` destroys and rebuilds every child Frame of `sellList` at the top of the function on every call (pre-existing code, unchanged), so `icon`, its border stroke, and the viewport or fallback dot are all fresh instances every render. There is nothing to double-create.
+
+5. Verified live in Play mode against the real Sell panel (walked to the SellStall, pressed E, continued Marco the Buyer's dialogue so `buildSellList()` ran for real — not forced): a mixed inventory of 66 distinct names rendered real spinning-model-free static 3D thumbnails (e.g. Graipuss Medussi green-bordered, Extinct Tralalero cyan-bordered, Las Tralaleritas tan-bordered, La Grande Combinasion purple-bordered, Fragola La La La green-bordered, Gangster Footera blue-bordered) with the tier colour clearly readable on each tile's border, and the Maxwell row (gold/God tier) showed the flat gold circle fallback with a matching gold border. Console stayed clean through the whole sweep. Row height, counts (`x2`, `$560.00K each`, etc.), and the SELL 1 / SELL ALL buttons rendered unchanged.

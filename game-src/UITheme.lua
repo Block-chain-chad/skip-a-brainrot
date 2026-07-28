@@ -113,21 +113,54 @@ function M.styleHeader(titleLabel, accentTop, accentBot)
 	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual; ts.Color = Color3.fromRGB(20, 22, 28); ts.Thickness = 1.6; ts.Transparency = 0.3; ts.Parent = titleLabel
 end
 
+-- Bars are children of btn, so Position/Size stay relative to it for free.
+-- ZIndex needs live tracking: MainUI's Global ZIndexBehavior compares ZIndex
+-- across the WHOLE tree instead of cascading a parent's Z to its children, so
+-- a caller raising btn.ZIndex after styling (IndexClient does, deliberately)
+-- would otherwise strand the bars at their old Z and let the button's own
+-- opaque fill repaint over them.
+local closeXSignals = setmetatable({}, { __mode = "k" })
+local function drawCloseX(btn)
+	local oldConn = closeXSignals[btn]
+	if oldConn then oldConn:Disconnect() end
+	for _, c in ipairs(btn:GetChildren()) do
+		if c.Name == "CloseXBar" then c:Destroy() end
+	end
+
+	local bars = {}
+	for _, rot in ipairs({ 45, -45 }) do
+		local bar = Instance.new("Frame")
+		bar.Name = "CloseXBar"
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = UDim2.new(0.64, 0, 0.16, 0)
+		bar.Rotation = rot
+		bar.BackgroundColor3 = P.white
+		bar.BorderSizePixel = 0
+		bar.Parent = btn
+		bars[#bars + 1] = bar
+	end
+
+	local function sync()
+		for _, bar in ipairs(bars) do bar.ZIndex = btn.ZIndex + 1 end
+	end
+	sync()
+	closeXSignals[btn] = btn:GetPropertyChangedSignal("ZIndex"):Connect(sync)
+end
+
 function M.styleClose(btn)
 	btn.AnchorPoint = Vector2.new(1, 0)
 	btn.Position = UDim2.new(1, -13, 0, 13)
 	btn.Size = UDim2.fromOffset(30, 30)
 	btn.BackgroundColor3 = P.white
-	btn.Text = "\u{2715}"
-	btn.TextColor3 = P.white
-	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 16
+	btn.Text = ""
 	btn.AutoButtonColor = true
 	btn.BorderSizePixel = 0
 	btn.ZIndex = 6
 	M.corner(btn, 15)
 	M.gradient(btn, P.red1, P.red2, 90)
 	if not btn:FindFirstChildOfClass("UIStroke") then M.stroke(btn, P.outline, 2) end
+	drawCloseX(btn)
 end
 
 -- ===================================================================
