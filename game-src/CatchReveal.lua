@@ -73,7 +73,7 @@ local SPEC = {
 	--                3D scene), so the fallback earns its own, lower number.
 	-- halo/shimmer/sparkle here are unused placeholders -- M.play borrows band
 	-- 3's instead, so a fallen-back Secret never reads sparser than a Mythic.
-	{ size = 380, hold = 3.8, dark = 0.92, fallbackDark = 0.75, halo = false, shimmer = false, sparkle = 0, world = true },
+	{ size = 380, hold = 3.8, dark = 0.92, fallbackDark = 0.75, halo = false, shimmer = false, sparkle = 0 },
 }
 
 local SPIN = 70     -- degrees per second, identical in every band
@@ -190,6 +190,22 @@ local MIN_MODEL_DIST     = 3    -- floor so the model can never land behind or i
 local WORLD_HEIGHT       = 5    -- studs tall when dist == CHAR_DIST_FALLBACK - MODEL_CLEARANCE (6, the default-zoom case); scaled proportionally at other distances so the reveal reads the same size regardless of zoom. Lower than the old 7 because the model is now ~4x closer to the camera than before (6 studs vs ~23), so the same physical height reads much bigger on screen -- verified live: 7 filled the frame edge-to-edge and cropped the creature's own silhouette.
 local BACKDROP_SIZE      = 400  -- studs square; raised from 260 after a live screenshot showed sky peeking past the top-right corner at the closer ~10-stud backdrop distance -- the corner of a wide viewport reaches slightly further than a naive half-FOV estimate suggests
 
+-- Task 5 final fix wave -- CRITICAL: the model below used to be normalised by
+-- HEIGHT ALONE, but it spins continuously about world Y, so its real reach is
+-- the horizontal HALF-DIAGONAL of its footprint (0.5*sqrt(X^2+Z^2)) at every
+-- instant, not either axis extent alone. That distinction doesn't matter for
+-- a static display -- BrainrotSpawner and InventoryHandler both clamp
+-- min(height factor, width factor) and that is correct for THEM, because
+-- their models never turn -- but nothing here bounded the ROTATING reach at
+-- all: the same maths run over every Secret/God model found 6 of 12 sweeping
+-- past the backdrop, two of them (Tralalero Tralala and Los Tralaleritos --
+-- the tier's two heaviest catch weights) sweeping clean through the camera,
+-- at every zoom. These constants are the safety margin added on top of the
+-- two hard constraints (sweep < dist; dist + sweep < backdropAt).
+local SWEEP_CAM_GAP      = 0.5  -- studs the model's sweep must stay short of the camera
+local SWEEP_BACKDROP_GAP = 0.5  -- studs the model's sweep must stay short of the backdrop
+local MIN_SWEEP_BUDGET   = 1    -- studs; below this the world path isn't worth it -- bail to viewport (see the charDist guard below)
+
 local function stripScripts(model)
 	-- ReplicatedStorage.BrainrotModels is verified 0 scripts today, but this
 	-- pack has carried embedded free-model scripts before and they only run
@@ -199,7 +215,25 @@ local function stripScripts(model)
 	end
 end
 
-local function buildWorld(rec, spec, info)
+-- Rotation-only CFrame that points world -Z at `worldDir`, flattened to the
+-- horizontal plane first (Y dropped, then re-normalised). Every rotation
+-- buildWorld hands to PivotTo is composed from CFrames built by this
+-- function, so every one of them is a pure yaw about world Y -- which is
+-- what fixes BOTH the facing bug and the spin-axis bug below: neither the
+-- camera's pitch nor its roll can ever enter the model's rotation.
+local function flatYawCFrame(worldDir)
+	local flat = Vector3.new(worldDir.X, 0, worldDir.Z)
+	if flat.Magnitude < 1e-4 then flat = Vector3.new(0, 0, -1) end
+	return CFrame.lookAt(Vector3.new(), flat.Unit)
+end
+
+-- BrainrotThumb's own front-quarter offset, flattened to a pure yaw (its
+-- Y=0.45 "slightly above" component is dropped: this model has to stay
+-- UPRIGHT -- see the spin-axis fix below -- so only the horizontal twist can
+-- carry over). Computed once at require-time since DEFAULT_DIR never changes.
+local DEFAULT_YAW = flatYawCFrame(BrainrotThumb.DEFAULT_DIR)
+
+local function buildWorld(rec, spec, info, fades)
 	local cam = workspace.CurrentCamera
 	local folder = ReplicatedStorage:FindFirstChild("BrainrotModels")
 	local src = folder and folder:FindFirstChild(info.Name)
@@ -217,17 +251,50 @@ local function buildWorld(rec, spec, info)
 	-- near-plane floor), and never further out than the character itself even
 	-- at an extremely tight zoom -- "nearer than the character" must hold
 	-- REGARDLESS of charDist, not just at the default distance.
-	local dist = math.min(charDist - 1, math.max(MIN_MODEL_DIST, charDist - MODEL_CLEARANCE))
+	-- MIN_MODEL_DIST used to be a floor in name only: math.min(charDist - 1, ...)
+	-- was the OUTER call, so whenever charDist - 1 fell below MIN_MODEL_DIST
+	-- (charDist < 4) that ceiling silently overrode the floor -- live-recorded
+	-- at charDist ~1.8 (Roblox's own camera collision pulling the camera in),
+	-- which drove dist, and worldHeight below, both non-positive. Once the
+	-- character is this close there is no valid gap left to put a model in at
+	-- all, so that regime bails to nil instead of computing a nonsense
+	-- distance -- M.play already falls back to the viewport whenever
+	-- buildWorld returns nil, the same as a blocked sightline.
+	if charDist - 1 < MIN_MODEL_DIST then return nil end
+	local dist = math.clamp(charDist - MODEL_CLEARANCE, MIN_MODEL_DIST, charDist - 1)
+
+	-- A second, narrower bail: even once dist clears the floor above, the
+	-- backdrop's OWN ceiling (charDist - 0.5, so it never reaches the
+	-- character) can end up almost flush against dist, leaving no room for a
+	-- sweep budget worth animating -- verified charDist == 4 exactly crushes
+	-- every model in the roster to zero height even though neither hard
+	-- constraint below is technically violated. Below this, fall back too.
+	if (charDist - 0.5) - dist < SWEEP_BACKDROP_GAP + MIN_SWEEP_BUDGET then return nil end
 
 	local spot = origin * CFrame.new(0, 0, -dist)
-	-- WORLD_HEIGHT was tuned to read right when dist is CHAR_DIST_FALLBACK -
-	-- MODEL_CLEARANCE (the default-zoom case); scale proportionally at other
-	-- distances so the reveal is the same apparent size regardless of zoom.
-	local worldHeight = WORLD_HEIGHT * (dist / (CHAR_DIST_FALLBACK - MODEL_CLEARANCE))
-	-- Between the model and the character at every distance: always a little
-	-- further out than the model, always a little short of the character, so
-	-- one panel hides the avatar and the world beyond it at once.
-	local backdropAt = math.min(charDist - 0.5, math.max(dist + 2, charDist - BACKDROP_CLEARANCE))
+
+	-- Facing + spin axis (Task 5 final fix wave -- two review findings fixed
+	-- together since both live in this same rotation).
+	--   FACING: a bare `spot` inherits the CAMERA's rotation, and the models
+	--   are authored facing -Z, so at t=0 the model's front used to point the
+	--   same way the camera looks -- directly AWAY from the camera it's
+	--   sitting in front of (measured dot(front, toCamera) == -1.000).
+	--   dueCamera is the pure-yaw rotation that faces the model dead at the
+	--   camera instead; composing DEFAULT_YAW on top reproduces the SAME
+	--   front-quarter angle BrainrotThumb's orbiting camera opens bands 1-3
+	--   on (both are pure-Y rotations, so they commute -- only the SUM of the
+	--   two yaws matters, not the order).
+	--   SPIN AXIS: dueCamera, DEFAULT_YAW and the per-frame spin in poseAt
+	--   below are ALL built from flatYawCFrame, i.e. all pure yaw about world
+	--   Y -- never the camera's own up vector, which tilts with camera pitch
+	--   (measured 5.7 degrees of wobble at 10 degrees of pitch, worse
+	--   steeper) and is what the old `spot`-inherited rotation actually spun
+	--   the model around.
+	local dueCamera = flatYawCFrame(-origin.LookVector)
+	local baseRot = dueCamera * DEFAULT_YAW
+	local function poseAt(t)
+		return CFrame.new(spot.Position) * CFrame.Angles(0, math.rad(SPIN) * t, 0) * baseRot
+	end
 
 	-- If real, VISIBLE geometry sits between the camera and the reveal spot the
 	-- model would be hidden behind it. Rather than shove the camera somewhere it
@@ -306,10 +373,55 @@ local function buildWorld(rec, spec, info)
 	local preScale, ext = m:GetBoundingBox()
 	m.WorldPivot = CFrame.new(preScale.Position)
 
+	-- WORLD_HEIGHT was tuned to read right when dist is CHAR_DIST_FALLBACK -
+	-- MODEL_CLEARANCE (the default-zoom case); scale proportionally at other
+	-- distances so the reveal is the same apparent size regardless of zoom.
+	local worldHeight = WORLD_HEIGHT * (dist / (CHAR_DIST_FALLBACK - MODEL_CLEARANCE))
+	-- Between the model and the character at every distance: always a little
+	-- further out than the model, always a little short of the character, so
+	-- one panel hides the avatar and the world beyond it at once. Overridden
+	-- below, once the model's real footprint is known, if its sweep needs more
+	-- room than this default gives it.
+	local backdropAt = math.min(charDist - 0.5, math.max(dist + 2, charDist - BACKDROP_CLEARANCE))
+
 	-- ScaleTo is ABSOLUTE. Re-measuring an already-scaled model and calling it
 	-- again resets to authored size, so always multiply the CURRENT scale.
+	-- `factor` starts as the naive, HEIGHT-ONLY value -- the critical bug, on
+	-- its own -- and the sweep clamp below corrects it before it is ever
+	-- applied to the model.
 	if ext.Y > 0 then
-		m:ScaleTo(m:GetScale() * (worldHeight / ext.Y))
+		local factor = worldHeight / ext.Y
+
+		-- The model's real reach while it spins: the half-diagonal of its
+		-- horizontal footprint at whatever scale `factor` currently is. A
+		-- rotating rectangle's farthest point from its own centre is always its
+		-- corner, at every angle, so this bounds the sweep regardless of where
+		-- in the spin the model happens to be at any given instant.
+		local halfDiag = 0.5 * math.sqrt(ext.X * ext.X + ext.Z * ext.Z)
+		local sweep = halfDiag * factor
+
+		-- Reviewer's suggested order, because it costs far less height than
+		-- clamping the scale first: PUSH THE BACKDROP OUT to cover this sweep
+		-- before touching the scale at all -- ADDING a term to the existing
+		-- floor above rather than replacing it, so a model whose sweep already
+		-- fits (every "clean" Secret/God at the shipped defaults) gets the exact
+		-- same backdropAt as before. Still capped at charDist - 0.5 so the
+		-- backdrop can never reach or pass the character.
+		backdropAt = math.min(charDist - 0.5, math.max(dist + 2, charDist - BACKDROP_CLEARANCE, dist + sweep + SWEEP_BACKDROP_GAP))
+
+		-- Only NOW clamp the scale, and only if pushing the backdrop out
+		-- couldn't fully absorb the sweep (backdropAt hit its charDist - 0.5
+		-- ceiling short of what was needed) or the sweep alone already reaches
+		-- the camera regardless of the backdrop. maxSweep is always positive
+		-- here: dist >= MIN_MODEL_DIST and backdropAt >= dist + 2 by
+		-- construction, and the MIN_SWEEP_BUDGET guard above already turned away
+		-- the charDist range where that would leave no room at all.
+		local maxSweep = math.min(dist - SWEEP_CAM_GAP, backdropAt - dist - SWEEP_BACKDROP_GAP)
+		if sweep > maxSweep and halfDiag > 0 then
+			factor = math.min(factor, maxSweep / halfDiag)
+		end
+
+		m:ScaleTo(m:GetScale() * factor)
 	end
 
 	-- Re-measure rather than assume the centre held: cheap, and the per-frame
@@ -317,6 +429,12 @@ local function buildWorld(rec, spec, info)
 	-- ScaleTo has genuinely moved the parts in between.
 	local postScale = m:GetBoundingBox()
 	m.WorldPivot = CFrame.new(postScale.Position)
+
+	-- Pose it correctly BEFORE parenting: the spin function returned below
+	-- only runs on the next RenderStepped, so without this the clone would
+	-- render for one frame at whatever coordinates it was authored at in
+	-- BrainrotModels.
+	m:PivotTo(poseAt(0))
 	m.Parent = workspace          -- client-created: never replicates
 	rec.worldModel = m
 
@@ -339,8 +457,13 @@ local function buildWorld(rec, spec, info)
 	backdrop.Transparency = 1
 	backdrop.Parent = workspace
 	rec.backdrop = backdrop
-	TweenService:Create(backdrop, TweenInfo.new(FADE),
-		{ Transparency = 1 - spec.dark }):Play()
+	-- Fades in alongside everything else (M.play's own fade-in loop, right
+	-- after this function returns) and back OUT the same way at teardown --
+	-- this used to be tweened in directly, right here, and never registered in
+	-- `fades`, so nothing ever tweened it back out: the backdrop (and the
+	-- model behind it) snapped to gone in a single frame while the labels were
+	-- still mid-fade.
+	table.insert(fades, { backdrop, "Transparency", 1 - spec.dark })
 
 	-- Freeze the camera where it already is. rec.restore (above) already knows
 	-- how to undo this.
@@ -356,7 +479,7 @@ local function buildWorld(rec, spec, info)
 
 	return function(t)
 		if rec.worldModel and rec.worldModel.Parent then
-			rec.worldModel:PivotTo(spot * CFrame.Angles(0, math.rad(SPIN) * t, 0))
+			rec.worldModel:PivotTo(poseAt(t))
 		end
 	end
 end
@@ -393,7 +516,7 @@ function M.play(info)
 		if ok and typeof(mc) == "Color3" then haloColour = mc end
 	end
 
-	local rec = { dead = false, band = band, token = myToken }
+	local rec = { dead = false, token = myToken }
 
 	-- Everything below touches live Instances and third-party modules
 	-- (BrainrotThumb, UITheme). It all runs inside ONE pcall: rec is reachable
@@ -421,7 +544,7 @@ function M.play(info)
 		-- 4 didn't want it) is what makes that possible.
 		local spin
 		if band == 4 then
-			spin = buildWorld(rec, spec, info)
+			spin = buildWorld(rec, spec, info, fades)
 		end
 
 		-- effective is what the REST of this function actually builds from.
