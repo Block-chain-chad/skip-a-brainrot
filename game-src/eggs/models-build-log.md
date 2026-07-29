@@ -54,3 +54,51 @@ facing -Z.
 - Left-right mirroring of asymmetric features (e.g. the blob's offset eye) was not strictly
   matched against the sprite's exact side — build-time camera angles sometimes made the mirror
   image easier to verify. This has no gameplay or recognizability impact.
+
+# Forest Egg Shop — Task 6: Egg Meshes + Stall Display Build Log
+
+5 Models built from `docs/design-handoff/forest-eggs/luau_chunks/egg{6..10}_chunk*.lua` —
+real `MeshPart`s constructed per decorative group via `AssetService:CreateEditableMesh()` +
+`CreateMeshPartAsync`, built on `ServerStorage.EggMeshStaging` (deleted at end of task),
+then moved to `ReplicatedStorage.EggModels.Forest`. Each part: Anchored, CanCollide=false,
+CanQuery=false, SmoothPlastic. `PrimaryPart` = the model's `shell_body_1` part;
+`ScaleTo`'d to an absolute bbox height of 2.4 studs; pivoted to local origin.
+
+| # | Name | Model | Parts | Bbox (X,Y,Z) | Price |
+|---|---|---|---|---|---|
+| 1 | Shard Egg | ForestEgg1 | 26 | 2.51, 2.40, 2.47 | 60 |
+| 2 | Drip Egg | ForestEgg2 | 18 | 1.94, 2.40, 1.92 | 85 |
+| 3 | Horned Egg | ForestEgg3 | 20 | 2.38, 2.40, 2.33 | 115 |
+| 4 | Rune Egg | ForestEgg4 | 29 | 2.77, 2.40, 2.73 | 160 |
+| 5 | Crown Egg | ForestEgg5 | 97 | 2.11, 2.40, 2.14 | 220 |
+
+**Total groups built:** 190/190 expected (26+18+20+29+97), verified by census of each
+model's child count, with 0 blocking (`shell_body`) failures.
+
+## Build notes
+- Several source lines (full per-group vertex/triangle/color/position data) exceeded
+  14,000 characters and were built via a persistent `_G.buildFromLine(s)` text-parsing
+  helper rather than hand-typed Lua table literals, to avoid transcription errors on very
+  large numeric arrays.
+- `ForestEgg2` (Drip) and `ForestEgg3` (Horned) reuse `ForestEgg1`'s exact `shell_body`
+  mesh geometry with only color + position swapped, per the source data.
+- Stall display: cloned onto `Workspace.GameWorld.EggStall.CounterTop`, spread evenly
+  along the counter's long (Z) axis, ascending by price, each with a BillboardGui price
+  tag (cream text / ink stroke, `Enum.Font.Cartoon`). The 15 pre-existing `EggGood` display
+  cubes on the stall were not touched.
+
+## Step 7 verification
+- Probe (`ReplicatedStorage.EggModels.Forest:GetChildren()`): exactly 5 Models,
+  `ForestEgg1..5`, part counts and bboxes as tabulated above.
+- `EggConfig` cross-check: cloned the live module (kept alongside the original so its
+  relative `require`s still resolved), required the clone, and confirmed all 5 `Model`
+  fields (`ForestEgg1..5`) and matching `Name`/`Price` pairs — then destroyed the clone.
+
+## Notes / concerns for later tasks
+- **Not saved/published** (per task instructions) — EditableMesh-derived `MeshPart`
+  persistence across a real place save has not been verified in this task. Task 12 or the
+  user should confirm the 5 models and their 190 child parts survive a save/reload.
+- 3 of the 5 shells (Shard, Horned, and to a lesser extent Rune/Crown) render very
+  dark/near-black under Studio's default lighting — this is the color data as authored in
+  the source chunk files, transcribed verbatim; worth a design-intent confirmation pass
+  since it can read as solid black at a glance in a wide shot.
