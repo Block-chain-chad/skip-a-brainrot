@@ -102,3 +102,12 @@ model's child count, with 0 blocking (`shell_body`) failures.
   dark/near-black under Studio's default lighting — this is the color data as authored in
   the source chunk files, transcribed verbatim; worth a design-intent confirmation pass
   since it can read as solid black at a glance in a wide shot.
+
+## Fix 1 — Horned Egg spikes/horns brightened (post-review)
+Review flagged `ForestEgg3`'s 9 `spike_*`/`horn_*` parts as `V≈0.027` — darker than its
+own shell (`V≈0.07`), making the egg's signature feature invisible. Fixed on both the
+canonical model and its stall clone ("Horned Egg"): original color snapshotted to a
+`_EGG_Col` attribute, then `Color = Color3.fromHSV(h, s, 0.30)` applied (same hue/sat,
+`V` raised 0.027 → 0.298). 18 parts changed total (9 canonical + 9 clone); no other egg
+or the Horned shell touched. Screenshots confirm the horns/spikes now read as a legible
+lighter dark-bark tone against the black shell.
