@@ -119,11 +119,13 @@ DevWeather.Init()
 GianlucaQuest.Init()
 MaxwellQuest.Init()
 DarrelService.Init()
-EggHandler.Init()
 -- Server-side backstop behind Workspace.GameWorld.ValleyBarrier: the wall stops every
 -- reachable speed, but a client that sets its own velocity can punch a corner, and only
 -- the server can undo that. See the header in BoundsGuard.
 BoundsGuard.Init()
+-- After BoundsGuard: EggConfig.Validate() (called from EggHandler.Init) asserts on a bad
+-- egg-table typo, and that must not take the containment guard down with it.
+EggHandler.Init()
 
 -- Handle players already in-game (e.g. Studio test start)
 for _, player in ipairs(Players:GetPlayers()) do

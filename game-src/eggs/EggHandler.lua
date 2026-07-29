@@ -8,6 +8,7 @@ local RS = game:GetService("ReplicatedStorage")
 local PDM = require(script.Parent.PlayerDataManager)
 local DarrelService = require(script.Parent.DarrelService)
 local BrainrotMover = require(script.Parent.BrainrotMover)
+local InventoryHandler = require(script.Parent.InventoryHandler)
 local EggConfig = require(RS.Modules.EggConfig)
 local BrainrotConfig = require(RS.Modules.BrainrotConfig)
 local remotes = RS:WaitForChild("Remotes")
@@ -21,6 +22,7 @@ for _, e in ipairs(BrainrotConfig.List or BrainrotConfig) do rarityByName[e.Name
 
 -- Pure; exposed for the Task 12 odds simulation. Weights sum to 100 (EggConfig.Validate).
 function M.RollFor(egg, r)
+	if #egg.Table == 0 then return nil end
 	local roll = (r or rng):NextInteger(1, 100)
 	local acc = 0
 	for _, row in ipairs(egg.Table) do
@@ -45,6 +47,9 @@ function M.Init()
 		local data = PDM.Get(player)
 		if not data then return refuse(player, "Profile not loaded yet.") end
 		if data.__noSave then return refuse(player, "Your profile did not load \u{2014} rejoin before buying eggs.") end
+		-- Relies on `or` short-circuiting: GetEgg returns a single nil (not nil, nil) when
+		-- the egg isn't found, so `world` is nil too -- checking `not egg` first keeps
+		-- `not world.Active` from ever indexing a nil `world`.
 		local egg, world = EggConfig.GetEgg(worldId, eggId)
 		if not egg or not world.Active then return refuse(player, "That egg is not available.") end
 
@@ -71,7 +76,27 @@ function M.Init()
 		-- ok/err return; it unconditionally inserts. (The brief assumed a 2-arg
 		-- (data, record) -> ok, err shape; adapted here after reading BrainrotMover live,
 		-- per task instructions.)
-		BrainrotMover.Give(player, data, { Name = name })
+		-- Error boundary: anything throwing between the spend and the EggResult fire would
+		-- otherwise leave the player charged with no reply. CountOwned before/after gives a
+		-- deterministic outcome check -- if the item actually landed despite the throw (e.g.
+		-- Give succeeded but SyncBackpack blew up), treat it as a SUCCESS instead of
+		-- refunding a player who already has the brainrot.
+		local countBefore = BrainrotMover.CountOwned(data, name)
+		local ok2, err2 = pcall(function()
+			BrainrotMover.Give(player, data, { Name = name })
+			InventoryHandler.SyncBackpack(player)
+		end)
+		if not ok2 then
+			if BrainrotMover.CountOwned(data, name) > countBefore then
+				warn(("[EggHandler] non-fatal error after successful Give: %s uid=%d egg=%s got=%s err=%s")
+					:format(player.Name, player.UserId, eggId, name, tostring(err2)))
+			else
+				DarrelService.Award(player, egg.Price, "refund:" .. eggId)
+				warn(("[EggHandler] hatch failed before Give landed, refunded: %s uid=%d egg=%s rolled=%s err=%s")
+					:format(player.Name, player.UserId, eggId, name, tostring(err2)))
+				return refuse(player, "Hatch failed \u{2014} Darrels refunded.")
+			end
+		end
 
 		data.EggsOpened[eggId] = (data.EggsOpened[eggId] or 0) + 1
 		PDM.PushUpdate(player)
