@@ -31,6 +31,8 @@ local DevWeather = require(ServerScriptService.Modules.DevWeather)
 local GianlucaQuest = require(ServerScriptService.Modules.GianlucaQuest)
 local MaxwellQuest = require(ServerScriptService.Modules.MaxwellQuest)
 local DarrelService = require(ServerScriptService.Modules.DarrelService)
+local EggHandler = require(ServerScriptService.Modules.EggHandler)
+local BoundsGuard = require(ServerScriptService.Modules.BoundsGuard)
 
 local remotes = ReplicatedStorage.Remotes
 
@@ -117,6 +119,11 @@ DevWeather.Init()
 GianlucaQuest.Init()
 MaxwellQuest.Init()
 DarrelService.Init()
+EggHandler.Init()
+-- Server-side backstop behind Workspace.GameWorld.ValleyBarrier: the wall stops every
+-- reachable speed, but a client that sets its own velocity can punch a corner, and only
+-- the server can undo that. See the header in BoundsGuard.
+BoundsGuard.Init()
 
 -- Handle players already in-game (e.g. Studio test start)
 for _, player in ipairs(Players:GetPlayers()) do
