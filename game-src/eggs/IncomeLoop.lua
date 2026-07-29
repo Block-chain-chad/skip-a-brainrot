@@ -8,6 +8,7 @@ local Mutations = require(ReplicatedStorage.Modules.MutationConfig)
 local RebirthConfig = require(ReplicatedStorage.Modules.RebirthConfig)
 local UpgradeConfig = require(ReplicatedStorage.Modules.UpgradeConfig)
 local DarrelService = require(ServerScriptService.Modules.DarrelService)
+local PetHandler = require(ServerScriptService.Modules.PetHandler)
 
 local cashPerSecondByName = {}
 for _, entry in ipairs(BrainrotConfig) do
@@ -115,7 +116,7 @@ function IncomeLoop.Init()
 					-- accumulate pending for every placed brainrot
 					for _, e in ipairs(data.Brainrots) do
 						if e.PadIndex then
-							e.Pending = (e.Pending or 0) + (cashPerSecondByName[e.Name] or 0) * Mutations.Mult(e.Mutation) * rebirthMult * upMult * dt
+							e.Pending = (e.Pending or 0) + (cashPerSecondByName[e.Name] or 0) * Mutations.Mult(e.Mutation) * rebirthMult * upMult * PetHandler.IncomeMult(player) * dt
 						end
 					end
 

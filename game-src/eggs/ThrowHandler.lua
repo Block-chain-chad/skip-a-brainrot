@@ -25,6 +25,7 @@ local Waves = require(ReplicatedStorage.Modules.BrainrotWaves)
 local BrainrotConfig = require(ReplicatedStorage.Modules.BrainrotConfig)
 local RockDesign = require(ReplicatedStorage.Modules.RockDesign)
 local DarrelService = require(ServerScriptService.Modules.DarrelService)
+local PetHandler = require(ServerScriptService.Modules.PetHandler)
 
 local remotes = ReplicatedStorage.Remotes
 local THROW_Z = 15
@@ -591,7 +592,7 @@ function ThrowHandler.Init()
 		end
 
 		-- rebirth + weather luck overflow into MUTATION odds instead of tier access
-		weatherMut = weatherMut * math.clamp(rebirthLuck * weatherLuck, 1, 6)
+		weatherMut = weatherMut * math.clamp(rebirthLuck * weatherLuck * PetHandler.LuckMult(player), 1, 6)
 		-- the live event's own mutation gets first refusal, then the base table
 		local mutation = Mutations.Roll(weatherMut, ReplicatedStorage:GetAttribute("WeatherName"))
 

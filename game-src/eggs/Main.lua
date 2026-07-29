@@ -34,6 +34,7 @@ local DarrelService = require(ServerScriptService.Modules.DarrelService)
 local ProductRegistry = require(ServerScriptService.Modules.ProductRegistry)
 local EggHandler = require(ServerScriptService.Modules.EggHandler)
 local BoundsGuard = require(ServerScriptService.Modules.BoundsGuard)
+local PetHandler = require(ServerScriptService.Modules.PetHandler)
 
 local remotes = ReplicatedStorage.Remotes
 
@@ -130,6 +131,10 @@ BoundsGuard.Init()
 -- After BoundsGuard: EggConfig.Validate() (called from EggHandler.Init) asserts on a bad
 -- egg-table typo, and that must not take the containment guard down with it.
 EggHandler.Init()
+-- Task 11: pet system, shipped disabled (PetConfig.ENABLED=false). The LuckMult/IncomeMult
+-- seams in ThrowHandler/IncomeLoop are already wired live and neutral; Init() only wires
+-- the PetEquip remote and the CharacterAdded/Died follow-rig lifecycle.
+PetHandler.Init()
 
 -- Handle players already in-game (e.g. Studio test start)
 for _, player in ipairs(Players:GetPlayers()) do
