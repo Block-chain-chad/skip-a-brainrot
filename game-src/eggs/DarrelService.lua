@@ -43,7 +43,7 @@ end
 
 function M.Award(player, n, reason)
 	local data = PDM.Get(player); if not data then return end
-	n = math.floor(n); if n <= 0 then return end
+	n = math.floor(n); if n <= 0 or n ~= n then return end
 	data.Darrels += n
 	print(("[Darrels] +%d -> %d %s (%s)"):format(n, data.Darrels, player.Name, reason))
 	push(player, data); PDM.PushUpdate(player)
