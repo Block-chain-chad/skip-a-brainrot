@@ -31,8 +31,9 @@ User's stated economy goal: *"harder to progress but still keep players engaged.
 - `forest-brainrots-sprite.png` — extracted 5×2 render sheet (voxel style), build reference.
 - `eggs_forest_set.obj` — 10 egg meshes (~5k faces each). **Eggs #6–10 are the forest eggs**
   (Shard / Drip / Horned / Rune / Crown, by decoration groups); #1–5 reserved (likely pet eggs).
-- ⚠️ `eggs_forest_set.mtl` is MISSING (OBJ references it). Open item: user to locate it;
-  fallback = reconstruct colors from semantic material names (moss/bark/sap/glow/antler/…).
+- `eggs_forest_set.mtl` — found in Downloads root 2026-07-28, vendored beside the OBJ.
+  All 31 referenced materials defined with authored colors. (User also has candy / elemental /
+  goof / machine / vault egg sets staged for future worlds — not vendored, not in scope.)
 
 ## 1 · Player experience
 
@@ -164,10 +165,9 @@ Remotes (new, under `ReplicatedStorage.Remotes`): `EggShopState`, `EggBuy`, `Egg
 
 ## Open items
 
-1. `eggs_forest_set.mtl` — user to locate, else colors reconstructed from material names.
-2. Gamepass id (+3 pet slots) and 4 dev-product ids (darrel packs) — user creates when ready;
+1. Gamepass id (+3 pet slots) and 4 dev-product ids (darrel packs) — user creates when ready;
    placeholders keep both paths inert.
-3. Pet chart — user supplies later; `PetConfig.ENABLED` stays false until then.
+2. Pet chart — user supplies later; `PetConfig.ENABLED` stays false until then.
 
 ## Acceptance criteria
 
