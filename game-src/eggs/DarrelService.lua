@@ -83,6 +83,15 @@ function M.GetDailyState(player)
 end
 
 function M.Init()
+	-- Pull path for initial state: DarrelUpdate's join-time push (below) can race
+	-- a client listener that hasn't connected yet, so EggShopClient also INVOKES
+	-- this once at startup and once on panel open instead of relying on the push
+	-- alone (Task 3 -> Task 7 controller-approved extension).
+	local darrelState = remotes:WaitForChild("DarrelState")
+	darrelState.OnServerInvoke = function(player)
+		return { Darrels = M.Get(player), Daily = M.GetDailyState(player) }
+	end
+
 	Players.PlayerAdded:Connect(function(player)
 		task.defer(function()
 			local data = PDM.Get(player)
