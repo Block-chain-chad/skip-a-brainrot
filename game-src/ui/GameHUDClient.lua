@@ -348,25 +348,39 @@ task.spawn(function()
 	if ok and typeof(snap) == "table" then applyCash(snap.Cash) end
 end)
 
--- Bug C2 fix (gem seed redesign, round-2): the old latch flag is deleted
--- entirely -- it was unfixable by tighter guards, since a LEGITIMATE early
--- pull of 0 (server data genuinely not loaded yet) validly latched that
--- flag true and stopped all further retries, freezing the pill at 0
--- for the rest of the session (task-4-report.md Round-2 Check C). Redesign:
--- no flags, no cross-talk with the DarrelUpdate handler above -- just a
--- bounded retry loop that keeps pulling until a pull actually returns a
--- validated number (5 attempts, 2s apart -- wider than the old 3x/6s window
--- that lost the race), applying it and stopping the instant that happens.
--- DarrelUpdate pushes (above) apply independently whenever they carry a
--- number, whether or not this loop has succeeded yet -- last write wins.
+-- Bug C3 fix (gem seed, round-4 -- ACTUAL ROOT CAUSE). The previous two
+-- redesigns both tuned the RETRY logic (latch -> latch-free, 3x2s -> 5x2s),
+-- but the loop was never retrying at all: it "succeeded" on attempt 1, a
+-- fraction of a second after join, and returned for good.
+--
+-- DarrelService.M.Get is `local data = PDM.Get(player); return data and
+-- data.Darrels or 0`, and PlayerDataManager.Get is a plain
+-- `cache[player.UserId]` lookup that stays nil until the async DataStore
+-- load lands. So any pull that beats the profile load returns a PLACEHOLDER
+-- {Darrels = 0}, and `typeof(res.Darrels) == "number"` is perfectly true of
+-- 0 -- a "valid" result indistinguishable from this pill's own seed text,
+-- which is exactly why it always looked like the pull never landed. Nothing
+-- corrected it afterwards either: DarrelService.Init's join-time push is
+-- itself guarded by `if data then`, so it no-ops on the same unloaded
+-- profile and DarrelUpdate never fires at join at all.
+--
+-- The response already carries an unambiguous loaded/not-loaded
+-- discriminator: M.GetDailyState returns nil for an unloaded profile (`if
+-- not data then return nil end`) and a real table once loaded -- driven by
+-- the very same `data` nil-check that produces the placeholder 0. So keep
+-- pulling until `Daily` proves the profile is loaded, applying whatever came
+-- back on every pass (so a player whose real balance IS 0 still displays
+-- immediately), and stop the instant the value is known to be real.
 task.spawn(function()
-	for attempt = 1, 5 do
+	for attempt = 1, 20 do
 		local ok, res = pcall(function() return remotes.DarrelState:InvokeServer() end)
 		if ok and typeof(res) == "table" and typeof(res.Darrels) == "number" then
 			applyDarrels(res.Darrels)
-			return
+			if typeof(res.Daily) == "table" then
+				return -- profile is loaded; this value is real
+			end
 		end
-		if attempt < 5 then task.wait(2) end
+		task.wait(1)
 	end
 end)
 
