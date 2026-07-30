@@ -409,3 +409,97 @@ it will run for real once the game is actually played.
   Horned brighten/stripe/ring-tube fixes would need to be re-applied (same caveat
   already on record from earlier entries in this log).
 - Not save/reload-tested in this task (instructed not to save/publish).
+
+## The Darrel bust — currency-mascot voxel character (this task)
+
+Built "The Darrel" — a chunky-voxel character bust (face/shoulders only, no hands) as the
+mascot for the game's premium currency (darrels), matching the game's forest-creature
+construction conventions (stepped-width cube layers for a rounded head silhouette, flat
+`SmoothPlastic` colors, no meshes/unions). Referenced `darrel_preview.png` (palette +
+likeness: warm brown skin, round black-framed glasses, dark locs, mustache, backwards cap)
+and `forest-brainrots-sprite.png` (style), plus inspected
+`ReplicatedStorage.BrainrotModels["Strigolino Hootini"]` for its stacked-layer /
+flat-eye-plate construction trick.
+
+Built on a sky staging platform (`Workspace.DarrelStagingPlatform`, 12x1x12 Part at
+`(0,500,0)`) with all 65 parts positioned relative to a local origin at the base of the
+shoulders (world `(0,500.5,0)`), local +Z = face-forward. `PrimaryPart` = `HeadCore` (the
+widest/eye-level head layer, ~2.2 studs wide). Every part: `Anchored=true`,
+`CanCollide=false`, `CanQuery=false`, `Material=SmoothPlastic`.
+
+**65 parts, 3 build iterations** (screenshots from `[6,503,6]`→`[0,503,0]` plus a
+straight-front angle each pass):
+- **Iter 1**: full build — warm-brown stepped head (jaw/cheek/eye-level/forehead/crown),
+  charcoal cap dome + forehead strap band, round glasses (black frame + pale lens + bridge),
+  mustache, 2-cube white grin, chin beard, ear + gold stud, 6-column-per-side dark locs,
+  olive-grey crewneck shoulder stub. **Bugs found**: 4 corner-rounding nubs added to the cap
+  dome's *top* surface rendered as ugly horn/spike bumps (rounding nubs only work at a
+  boundary between two layers, not on an outermost exposed face); the locs' 6 columns had no
+  gap between them and read as one solid black slab from the side rather than distinct
+  twists; the ear/gold stud were fully hidden behind the loc column at the same X.
+- **Iter 2**: removed the cap-dome top corner nubs (kept the dome smooth); gapped the loc
+  columns (wider Z step, no more touching edges) with a small per-column X stagger so they
+  read as separate twists instead of a wall; pulled the ear + stud outward past the locs'
+  outer edge so the gold stud is visible from a 3/4 angle; lightened the cap-strap color for
+  contrast. Also enlarged the chin beard, which overcorrected — it read as a single oversized
+  black block dominating the lower face.
+- **Iter 3**: shrank the chin beard back down to a small proportionate chin patch. Front and
+  3/4 screenshots both confirmed: plain dark cap + visible forehead strap, big round pale-lens
+  glasses, mustache, white grin, gold ear stud visible at an angle, dark locs framing both
+  sides, warm-brown skin, olive-grey crewneck stub — reads clearly as "this person,
+  brainrot-ified" and matches the forest-creature chunky-cube/flat-color style. **PASS.**
+
+### Placement (incomplete — see Concerns)
+
+Canonical copy reparented to `ReplicatedStorage.DarrelBust` (65 parts, unchanged from the
+approved iter-3 build). A clone was mounted on `Workspace.GameWorld.EggStall.ShelfCap`
+(base resting on the cap's top surface, `y = ShelfCap.Position.Y + ShelfCap.Size.Y/2 =
+16.28`), rotated via a rigid `CFrame.fromMatrix` transform so the bust's local +Z (face)
+points world +X — the same outward-facing direction as the stall's `NPC`/`Counter` (verified
+`ShelfBack` sits at the most-negative X, `Counter` at the least-negative X, `NPC.LookVector`
+≈ `(1,0,0)`). A `BillboardGui` ("DARREL" / "he watches the gems", cream `rgb(247,235,216)`
+text with ink `rgb(62,34,19)` `UIStroke`, `Enum.Font.Cartoon`) was attached above
+`PrimaryPart`.
+
+First placement attempt (`Z=-250.9`, un-trimmed footprint) was checked against a full
+bounds dump of every `EggStall` part: the "EGGS" `Sign` board (`Z[-267.5,-252.5]`,
+`Y[16.23,18.83]`) is the only stall geometry at bust height (`ShelfPost`/`ShelfBoard`/
+`Counter` all top out at `Y≈15.63`, below the cap). The bust's un-trimmed local-X footprint
+(shoulders/locs/ear-stud, `-1.525` to `+1.60`) is ~3.13 studs wide, almost exactly filling
+the 3.25-stud clear pocket between the `Sign`'s right edge (`-252.5`) and the `ShelfCap`'s
+right edge (`-249.25`) — a wide-shot screenshot confirmed the bust visually overlapping the
+Sign board. A fix was computed (de-stagger the locs to a flat `±1.25`, pull the ear/stud in
+to `±1.25`/`1.34` with slightly smaller sizes, trimming the footprint to ~2.81 studs — giving
+~0.2-stud clearance on both the Sign and the cap edge at `Z=-250.9`) and queued as the next
+`execute_luau` call.
+
+**The Roblox Studio MCP connection dropped before that fix call executed**
+(`list_roblox_studios` returned zero connected instances afterward, and repeated
+reconnect attempts failed) — this is a tooling/connection loss, not a design decision. Work
+stopped here per the no-guessing-at-unrecoverable-state rule.
+
+### Current actual in-place state (as of the disconnect)
+- `ReplicatedStorage.DarrelBust` — canonical, approved 65-part build, **untrimmed**
+  (original iter-3 footprint, ear/stud/locs not yet pulled in).
+- `Workspace.GameWorld.EggStall.DarrelBust` — the **first** placement clone, at
+  `Z=-250.9`, base on the `ShelfCap`, facing outward, with the `DarrelLabel` `BillboardGui`
+  attached — **this clone's shoulders/locs/ear-stud overlap the "EGGS" `Sign` board**, per
+  the math above and the wide confirmation screenshot.
+- `Workspace.DarrelStagingPlatform` — **not deleted**; still present at `(0,500,0)`.
+- `workspace.CurrentCamera.CameraType` — **not reset to `Fixed`**; camera cleanup never ran.
+- Not saved/published (per instructions; also never reached that step).
+
+### Concerns / next steps for whoever resumes
+1. Re-open/reconnect Roblox Studio's MCP plugin, then re-run the queued fix: destroy
+   `Workspace.GameWorld.EggStall.DarrelBust`, apply the ear/stud/loc trim to
+   `ReplicatedStorage.DarrelBust` (see exact target values above), re-clone, re-place at the
+   same `Z=-250.9` transform, re-attach the billboard, and re-screenshot wide to confirm the
+   Sign no longer overlaps.
+2. Delete `Workspace.DarrelStagingPlatform`.
+3. Reset `workspace.CurrentCamera.CameraType = Enum.CameraType.Fixed`.
+4. The bust currently sits at the stall's right end, close to both the `Sign`'s edge and the
+   `ShelfCap`'s own edge — the available clear pocket is only ~3.25 studs against a ~2.8-3.1
+   stud bust footprint, so there is very little margin either way. If a future redesign
+   widens the bust (wider shoulders, longer locs stagger, etc.) it will not fit this pocket
+   without shrinking it back down or picking a different mounting spot (e.g. centered higher
+   above the Sign, or on the Counter instead of the ShelfCap).
