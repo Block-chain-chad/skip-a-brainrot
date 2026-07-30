@@ -503,3 +503,8 @@ stopped here per the no-guessing-at-unrecoverable-state rule.
    widens the bust (wider shoulders, longer locs stagger, etc.) it will not fit this pocket
    without shrinking it back down or picking a different mounting spot (e.g. centered higher
    above the Sign, or on the Counter instead of the ShelfCap).
+
+### DarrelBust placement completed (post-reconnect)
+Queued trim applied: 11 parts (locs de-staggered to +/-1.25, ear/stud inboard), footprint
+3.13 -> 2.80 studs; clone re-placed at the logged ShelfCap transform, clear of the Sign;
+DarrelLabel billboard re-attached to HeadCore; staging platform confirmed gone; camera Fixed.
