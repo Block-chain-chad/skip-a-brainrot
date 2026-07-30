@@ -210,8 +210,10 @@ function UI.artSlot(parent: Instance, size: UDim2, image: string?): ImageLabel
 	local i = Instance.new("ImageLabel")
 	i.Size = size
 	i.BackgroundColor3 = T.color.slotTop
-	i.BackgroundTransparency = if image then 1 else 0.15
-	i.Image = image or ""
+	-- kit deviation: "" (unuploaded icon) must render the placeholder, not an invisible slot
+	local has = image ~= nil and image ~= ""
+	i.BackgroundTransparency = if has then 1 else 0.15
+	i.Image = if has then image else ""
 	i.ScaleType = Enum.ScaleType.Fit
 	i.BorderSizePixel = 0
 	i.Parent = parent
@@ -362,8 +364,8 @@ end
 -- Small pill tag on a card corner. variant: "EQUIPPED" | "GRAND" | "NEW".
 local RIBBON_VARIANT = {
 	EQUIPPED = "green",
-	GRAND = "gold",
-	NEW = "blue",
+	GRAND = "purple",
+	NEW = "red",
 }
 
 function UI.ribbon(parent: Instance, text: string, variant: string): Frame

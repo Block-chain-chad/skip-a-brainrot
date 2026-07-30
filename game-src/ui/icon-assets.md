@@ -37,7 +37,7 @@ T.icons = {
 }
 ```
 
-`UI.artSlot(parent, size, image)` already degrades gracefully on `image == nil`/`""` (renders a plain coloured placeholder slot instead of an `Image`), so every panel that consumes `Tokens.icons[name]` works today and picks up real ids automatically once they're filled in — no call-site changes needed later.
+`UI.artSlot(parent, size, image)` originally only checked Lua truthiness (`if image then ...`), so an empty string (`""`) — truthy in Lua — was treated as a real image and rendered an invisible `Image` with `BackgroundTransparency = 1` instead of the placeholder. Fixed in the Task 2 fix pass (2026-07-30): `artSlot` now treats `""` the same as `nil` (`local has = image ~= nil and image ~= ""`), so it degrades gracefully on `image == nil`/`""` (renders a plain coloured placeholder slot instead of an `Image`). Every panel that consumes `Tokens.icons[name]` works today and picks up real ids automatically once they're filled in — no call-site changes needed later.
 
 ## USER STEP required to unblock
 
