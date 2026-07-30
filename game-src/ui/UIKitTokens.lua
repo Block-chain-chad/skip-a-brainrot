@@ -47,6 +47,7 @@ T.color = {
 
 	claimRing      = hex("#7CE04A"),
 	activeRing     = hex("#FFD84D"),
+	activeGlow     = hex("#FFE87A"), -- v2 NEW: nav rail active-state radial glow (README 3.7 "rgba(255,232,122,.75)") -- distinct from activeRing (#FFD84D), which other panels' tab/segment rings still use
 	scrollThumb    = hex("#9FAE8B"),
 
 	rarityCommon   = hex("#C9CCC2"),
@@ -105,10 +106,16 @@ T.size = {
 	headerHeight  = 92,
 	headerIcon    = 64,
 	closeButton   = Vector2.new(74, 66),
-	railItem      = Vector2.new(98, 88),
-	railIcon      = 42,
-	railGap       = 10,
-	railInset     = 16,
+	-- kit deviation: tokens.lua shipped stale v1 rail values; v2 README §3.7
+	-- + capture are authoritative (pixel-adjudicated). v1 was a 98x88
+	-- goldSmall button-plate rail with a 42px icon slot; v2 floats a bare
+	-- 66px icon in a 106px-wide column with a label underneath -- no plate.
+	railItem      = 106,  -- v2: item column width (was Vector2(98,88) plate size)
+	railIcon      = 66,   -- v2: floating icon size (was 42, sized for the old plate's icon slot)
+	railGap       = 6,    -- v2: vertical gap between rail items (was 10)
+	railInset     = 10,   -- v2: inset of the rail from its canvas edge, whichever edge that is (was 16, was described as "right" before the left-side move)
+	railGlow      = 88,   -- v2 NEW: diameter of the active-state radial gold glow behind the icon (v1 had no glow -- it used a stroked ring around the plate instead)
+	railSide      = "left", -- kit deviation: tokens.lua shipped stale v1 rail; v2 README §3.7 + capture authoritative (pixel-adjudicated); railSide = user decision 2026-07-30.
 	currencyPill  = 54,
 	rewardCard    = Vector2.new(178, 186),
 	tierBadge     = 58,
@@ -135,6 +142,7 @@ T.text = {
 	value      = { 26, 3.5 },
 	cardLabel  = { 20, 3 },
 	chip       = { 14, 2.5 },
+	railLabel  = { 20, 4 }, -- v2 NEW (README 3.7 "Fredoka One 20 / stroke 4") -- v1 rail labels reused the smaller "chip" style (14/2.5), sized for the button-plate design
 	meta       = { 14, 0 },   -- Nunito/Gotham, no stroke
 }
 

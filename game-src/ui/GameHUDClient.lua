@@ -1,6 +1,7 @@
 --[[ ==========================================================================
-GameHUDClient -- the new HUD shell: 1350x775 canvas, currency cluster, right
-nav rail, panel host + registration protocol, legacy retirements, ESC.
+GameHUDClient -- the new HUD shell: 1350x775 canvas, currency cluster, left
+nav rail (v2, moved 2026-07-30 per user decision), panel host + registration
+protocol, legacy retirements, ESC.
 ---------------------------------------------------------------------------
 This is the integration point five later tasks build against. The contract:
 
@@ -91,13 +92,14 @@ scrim.ZIndex = T.zindex.panel
 scrim.Parent = root
 
 ---------------------------------------------------------------- panel host
--- Common shell (kit README section 3): padding-right 132 reserves the nav
--- rail, padding-left 24. Panel Build(ctx) functions parent their own (e.g.
--- 960-wide) panel Frame into this host and centre themselves within it.
+-- Common shell (kit README section 3): padding-left 132 reserves the nav
+-- rail (now on the LEFT per the 2026-07-30 user decision), padding-right
+-- 24. Panel Build(ctx) functions parent their own (e.g. 960-wide) panel
+-- Frame into this host and centre themselves within it.
 local host = Instance.new("Frame")
 host.Name = "PanelHost"
-host.Position = UDim2.fromOffset(24, 0)
-host.Size = UDim2.new(1, -(24 + T.size.panelRightGutter), 1, 0)
+host.Position = UDim2.fromOffset(T.size.panelRightGutter, 0)
+host.Size = UDim2.new(1, -(T.size.panelRightGutter + 24), 1, 0)
 host.BackgroundTransparency = 1
 host.Visible = false
 host.ZIndex = T.zindex.panel + 1 -- 26: directly above the scrim, per brief Step 2
@@ -122,7 +124,7 @@ local state = {
 local panelModules = {}   -- id -> { Id, Build }
 local panelInstances = {} -- id -> built Frame
 local currentPanelId = nil
-local railItems = {}      -- id -> { frame, ring, scale }
+local railItems = {}      -- id -> { frame, glow, scale }
 local railBadges = {}     -- id -> badge Frame
 
 local openPanel, closePanel, setBadge, pillAnchor -- assigned below, exposed via ctx
@@ -273,9 +275,28 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------------- nav rail
--- Right inset / item size / gap all come straight off Tokens (T.size.rail*),
--- which is what the brief's own numbers (right 16, gap 10, item 98x88)
--- match -- the already-installed kit module, not the looser README prose.
+-- v2 spec (kit README 3.7, pixel-adjudicated against captures/hud.png):
+-- inset 10, vertically centred, gap 6 -- NO button plate, the icon
+-- floats bare. Item column width 106: 66x66 icon, label directly under it
+-- (T.text.railLabel: Fredoka One 20 / stroke 4). Active state = an 88px
+-- radial gold glow behind the icon (T.size.railGlow / T.color.activeGlow),
+-- not a ring around a plate that no longer exists. Notification badge:
+-- top -6 / right 12 relative to the item column. Hover translateY(-3) +
+-- scale(1.03), press translateY(+2) + scale(0.99) (kit README section 4).
+--
+-- ui(3-fix1) user decision (2026-07-30): the rail moves to the LEFT edge
+-- of the canvas -- the kit drew it on the right. Reading the Tokens side
+-- setting keeps the edge choice data-driven, so a future flip only touches
+-- Tokens.lua; T.size.railInset still supplies the inset distance either way.
+local RAIL_ON_LEFT = (T.size.railSide == "left")
+
+-- Vertically centred BELOW the currency cluster's band, not across the
+-- whole canvas: the cluster's pills occupy y 18-72, and with the rail now
+-- sharing the left edge its column must clear them -- centring within
+-- [96, canvas height] keeps the rail's top edge no higher than y 96.
+local RAIL_TOP_CLEARANCE = 96
+local RAIL_CENTER_Y = (RAIL_TOP_CLEARANCE + T.size.canvas.Y) / 2
+
 local RAIL_ORDER = {
 	{ id = "bag", label = "Bag" },
 	{ id = "pass", label = "Pass" },
@@ -287,9 +308,14 @@ local RAIL_ORDER = {
 
 local rail = Instance.new("Frame")
 rail.Name = "NavRail"
-rail.AnchorPoint = Vector2.new(1, 0.5)
-rail.Position = UDim2.new(1, -T.size.railInset, 0.5, 0)
-rail.Size = UDim2.fromOffset(T.size.railItem.X, 0)
+if RAIL_ON_LEFT then
+	rail.AnchorPoint = Vector2.new(0, 0.5)
+	rail.Position = UDim2.new(0, T.size.railInset, 0, RAIL_CENTER_Y)
+else
+	rail.AnchorPoint = Vector2.new(1, 0.5)
+	rail.Position = UDim2.new(1, -T.size.railInset, 0, RAIL_CENTER_Y)
+end
+rail.Size = UDim2.fromOffset(T.size.railItem, 0)
 rail.AutomaticSize = Enum.AutomaticSize.Y
 rail.BackgroundTransparency = 1
 rail.ZIndex = T.zindex.rail
@@ -306,7 +332,8 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	local item = Instance.new("Frame")
 	item.Name = cfg.id .. "Item"
 	item.LayoutOrder = order
-	item.Size = UDim2.fromOffset(T.size.railItem.X, T.size.railItem.Y)
+	item.Size = UDim2.new(0, T.size.railItem, 0, 0)
+	item.AutomaticSize = Enum.AutomaticSize.Y
 	item.BackgroundTransparency = 1
 	item.ZIndex = T.zindex.rail
 	item.Parent = rail
@@ -314,63 +341,100 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	local itemScale = Instance.new("UIScale")
 	itemScale.Parent = item
 
-	local plate = UI.surface(item, UDim2.fromScale(1, 1), "goldSmall", T.radius.control, T.stroke.control)
-	plate.Name = "Plate"
-	plate.ZIndex = item.ZIndex + 1
-	UI.gloss(plate, T.radius.control)
-	UI.hardShadow(plate, T.shadowOffset.control, T.radius.control)
-
-	local icon = UI.artSlot(plate, UDim2.fromOffset(T.size.railIcon, T.size.railIcon), T.icons[cfg.id])
+	-- v2: no button plate -- the icon floats directly on the item column,
+	-- top-aligned; the label sits directly under it.
+	local icon = UI.artSlot(item, UDim2.fromOffset(T.size.railIcon, T.size.railIcon), T.icons[cfg.id])
 	icon.Name = "IconSlot"
 	icon.AnchorPoint = Vector2.new(0.5, 0)
-	icon.Position = UDim2.new(0.5, 0, 0, 10)
-	icon.ZIndex = plate.ZIndex + 2
+	icon.Position = UDim2.new(0.5, 0, 0, 0)
+	icon.ZIndex = item.ZIndex + 2
 
-	local label = UI.label(plate, cfg.label, "chip", T.color.white)
+	local label = UI.label(item, cfg.label, "railLabel", T.color.white)
 	label.Name = "Label"
-	label.AnchorPoint = Vector2.new(0.5, 1)
-	label.Position = UDim2.new(0.5, 0, 1, -8)
-	label.Size = UDim2.new(1, -6, 0, 18)
+	label.AnchorPoint = Vector2.new(0.5, 0)
+	-- 6px: kit's smallest spacing-scale step -- README 3.7 gives no explicit
+	-- icon-label gap ("label directly under it").
+	label.Position = UDim2.new(0.5, 0, 0, T.size.railIcon + 6)
+	label.Size = UDim2.new(1, 0, 0, 26)
 	label.AutomaticSize = Enum.AutomaticSize.None
 	label.TextXAlignment = Enum.TextXAlignment.Center
 	label.TextYAlignment = Enum.TextYAlignment.Center
-	label.ZIndex = plate.ZIndex + 2
+	label.ZIndex = item.ZIndex + 2
 
-	-- active-panel ring: a separate overlay Frame (same convention as
-	-- UI.claimRing), not a 2nd UIStroke stacked on the plate's own outline.
-	local ring = Instance.new("Frame")
-	ring.Name = "ActiveRing"
-	ring.Size = UDim2.new(1, 8, 1, 8)
-	ring.Position = UDim2.fromOffset(-4, -4)
-	ring.BackgroundTransparency = 1
-	ring.Visible = false
-	ring.ZIndex = plate.ZIndex + 1
-	ring.Parent = item
-	UI.corner(ring, T.radius.control + 3)
-	local ringStroke = Instance.new("UIStroke")
-	ringStroke.Thickness = 4
-	ringStroke.Color = T.color.activeRing
-	ringStroke.Parent = ring
+	-- Active state (kit README 3.7): "88px radial gold glow behind the
+	-- icon, rgba(255,232,122,.75) centre -> transparent at 72%". Roblox's
+	-- UIGradient has no radial mode, so this approximates the falloff with
+	-- concentric circles (opaque centre, fading outward, capped ~72% of
+	-- the radius) instead of a texture asset -- same non-native-primitive
+	-- workaround convention as UI.rainbowRing above.
+	local glow = Instance.new("Frame")
+	glow.Name = "ActiveGlow"
+	glow.AnchorPoint = Vector2.new(0.5, 0.5)
+	glow.Position = UDim2.new(0.5, 0, 0, T.size.railIcon / 2)
+	glow.Size = UDim2.fromOffset(T.size.railGlow, T.size.railGlow)
+	glow.BackgroundTransparency = 1
+	glow.Visible = false
+	glow.ZIndex = item.ZIndex + 1 -- behind the icon (item.ZIndex+2), above the transparent item bg
+	glow.Parent = item
 
-	local hit = Instance.new("ImageButton")
+	local GLOW_RINGS = { -- {diameter fraction of railGlow, transparency} outer -> inner
+		{ 0.70, 0.90 },
+		{ 0.50, 0.72 },
+		{ 0.30, 0.50 },
+		{ 0.14, 0.25 }, -- innermost/most opaque, ~= rgba(255,232,122,.75)
+	}
+	for i, ringSpec in ipairs(GLOW_RINGS) do
+		local d = T.size.railGlow * ringSpec[1]
+		local glowRing = Instance.new("Frame")
+		glowRing.Name = "Ring" .. i
+		glowRing.AnchorPoint = Vector2.new(0.5, 0.5)
+		glowRing.Position = UDim2.fromScale(0.5, 0.5)
+		glowRing.Size = UDim2.fromOffset(d, d)
+		glowRing.BackgroundColor3 = T.color.activeGlow
+		glowRing.BackgroundTransparency = ringSpec[2]
+		glowRing.BorderSizePixel = 0
+		glowRing.ZIndex = glow.ZIndex
+		glowRing.Parent = glow
+		UI.corner(glowRing, d / 2)
+	end
+
+	-- Hit target: invisible button covering icon + label -- comfortably
+	-- above the 44px minimum touch target regardless of the 66px icon
+	-- alone (kit README section 2: "touch targets never below 44 px").
+	local hit = Instance.new("TextButton")
 	hit.Name = "Hit"
+	hit.Text = ""
 	hit.Size = UDim2.fromScale(1, 1)
 	hit.BackgroundTransparency = 1
 	hit.AutoButtonColor = false
-	hit.ZIndex = plate.ZIndex + 10
+	hit.ZIndex = item.ZIndex + 10
 	hit.Parent = item
+
+	-- Base position captured lazily on first use, not at build time: `item`
+	-- is a UIListLayout child and its list-computed Position isn't
+	-- guaranteed resolved yet in the same tick these instances are built,
+	-- but MouseEnter only ever fires after real rendering has happened.
+	local restPos = nil
+	local function basePos()
+		restPos = restPos or item.Position
+		return restPos
+	end
 
 	hit.MouseEnter:Connect(function()
 		TweenService:Create(itemScale, T.tween.hover, { Scale = 1.03 }):Play()
+		TweenService:Create(item, T.tween.hover, { Position = basePos() - UDim2.fromOffset(0, 3) }):Play()
 	end)
 	hit.MouseLeave:Connect(function()
 		TweenService:Create(itemScale, T.tween.hover, { Scale = 1.0 }):Play()
+		TweenService:Create(item, T.tween.hover, { Position = basePos() }):Play()
 	end)
 	hit.MouseButton1Down:Connect(function()
 		TweenService:Create(itemScale, T.tween.press, { Scale = 0.99 }):Play()
+		TweenService:Create(item, T.tween.press, { Position = basePos() + UDim2.fromOffset(0, 2) }):Play()
 	end)
 	hit.MouseButton1Up:Connect(function()
 		TweenService:Create(itemScale, T.tween.press, { Scale = 1.03 }):Play()
+		TweenService:Create(item, T.tween.press, { Position = basePos() - UDim2.fromOffset(0, 3) }):Play()
 	end)
 	hit.MouseButton1Click:Connect(function()
 		if currentPanelId == cfg.id then
@@ -380,13 +444,13 @@ for order, cfg in ipairs(RAIL_ORDER) do
 		end
 	end)
 
-	railItems[cfg.id] = { frame = item, ring = ring, scale = itemScale }
+	railItems[cfg.id] = { frame = item, glow = glow, scale = itemScale }
 end
 
 ---------------------------------------------------------------- panel control
-local function updateActiveRing()
+local function updateActiveGlow()
 	for id, item in pairs(railItems) do
-		item.ring.Visible = (id == currentPanelId)
+		item.glow.Visible = (id == currentPanelId)
 	end
 end
 
@@ -425,7 +489,7 @@ function openPanel(id)
 	scrim.BackgroundTransparency = 1
 	TweenService:Create(scrim, T.tween.scrim, { BackgroundTransparency = T.scrimAlpha }):Play()
 
-	updateActiveRing()
+	updateActiveGlow()
 end
 
 function closePanel()
@@ -435,7 +499,7 @@ function closePanel()
 	currentPanelId = nil
 	state.screen = "none"
 	currencyCluster.Visible = true
-	updateActiveRing()
+	updateActiveGlow()
 
 	if frame then
 		local scale = frame:FindFirstChildOfClass("UIScale")
@@ -469,10 +533,22 @@ function setBadge(id, n)
 		local label = railBadges[id]:FindFirstChild("Value")
 		if label then label.Text = text end
 	else
+		-- v2 (kit README 3.7): min-width 34, height 34, stroke 4, hard
+		-- shadow 0 3, value 19, at top -6 / right 12 relative to the item
+		-- column -- UI.badge ships the v1 defaults (30/30, stroke 3.5, no
+		-- shadow, text 16), overridden here rather than in the shared builder.
 		local b = UI.badge(item.frame, text)
+		b.Size = UDim2.fromOffset(0, 34)
+		local sizeConstraint = b:FindFirstChildOfClass("UISizeConstraint")
+		if sizeConstraint then sizeConstraint.MinSize = Vector2.new(34, 34) end
+		local badgeStroke = b:FindFirstChildOfClass("UIStroke")
+		if badgeStroke then badgeStroke.Thickness = 4 end
+		local valueLabel = b:FindFirstChild("Value")
+		if valueLabel then valueLabel.TextSize = 19 end
 		b.AnchorPoint = Vector2.new(1, 0)
-		b.Position = UDim2.new(1, 4, 0, -6)
+		b.Position = UDim2.new(1, -12, 0, -6)
 		b.ZIndex = T.zindex.rail + 15
+		UI.hardShadow(b, 3, T.radius.pill)
 		railBadges[id] = b
 	end
 end
@@ -522,7 +598,7 @@ SideRail.registerPanel(host)
 
 -- SideRail's own registerPanel watcher force-closes OTHER registered panels
 -- the instant one of them opens -- including this host. When that happens
--- our bookkeeping (currentPanelId, currency cluster, active ring) needs to
+-- our bookkeeping (currentPanelId, currency cluster, active glow) needs to
 -- resync even though it wasn't our own closePanel() that hid it.
 host:GetPropertyChangedSignal("Visible"):Connect(function()
 	if host.Visible or not currentPanelId then return end
@@ -532,7 +608,7 @@ host:GetPropertyChangedSignal("Visible"):Connect(function()
 	currentPanelId = nil
 	state.screen = "none"
 	currencyCluster.Visible = true
-	updateActiveRing()
+	updateActiveGlow()
 end)
 
 -- Hide SideRail's own visual rail PERMANENTLY: its tiles stay functional

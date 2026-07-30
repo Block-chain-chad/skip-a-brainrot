@@ -127,11 +127,13 @@ gui.Parent = playerGui
 
 local holder = Instance.new("ScrollingFrame")
 holder.Name = "Tracker"
--- ui(3): moved from the right edge (SideRail's visual rail retired there) to
--- the left edge, below the new GameHUD currency cluster -- was
--- AnchorPoint(1,0.5)/Position(1,-14,0.40,0).
-holder.AnchorPoint = Vector2.new(0, 0.5)
-holder.Position = UDim2.new(0, 14, 0.42, 0)
+-- ui(3-fix1): reverted to the original right-edge anchor, restored from
+-- ServerStorage.AuditBackups.QuestTrackerClient_pre_ui3. Task 3 moved this
+-- left to dodge the (then right-side) GameHUD nav rail; the v2 rail now
+-- lives on the LEFT per the 2026-07-30 user decision, so that reason no
+-- longer applies and the tracker returns to its original right-edge home.
+holder.AnchorPoint = Vector2.new(1, 0.5)
+holder.Position = UDim2.new(1, -14, 0.40, 0)
 holder.Size = UDim2.fromOffset(ENTRY_W + 10, 0)
 holder.BackgroundTransparency = 1
 holder.BorderSizePixel = 0
