@@ -181,7 +181,7 @@ new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new
 
 local questRows = {}
 for i = 1, 3 do
-	local row = new("Frame", { Size = UDim2.new(1, 0, 0, 64), LayoutOrder = i, ZIndex = 12 }, questList)
+	local row = new("Frame", { Size = UDim2.new(1, 0, 0, 64), Visible = false, LayoutOrder = i, ZIndex = 12 }, questList)
 	UITheme.corner(row, 10)
 	UITheme.gradient(row, CF.cardTop, CF.cardBot, 90)
 	UITheme.ink(row, 2.5)
