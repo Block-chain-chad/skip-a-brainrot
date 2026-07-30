@@ -11,6 +11,7 @@ Date: 2026-07-30 · Status: for user review · Visual authority: `docs/design-ha
 | Goals mapping | CONSOLIDATE all three quest systems into the one Goals panel |
 | Settings "Reset Data" | EXCLUDED — rebirth is the only reset mechanic |
 | PNG visual targets | Requested from the design tool; build proceeds from README numbers + interactive reference meanwhile |
+| Nav rail side (2026-07-30) | LEFT (user decision; kit drew it right) — currency stays top-left above it; quest tracker returns to the right edge |
 | Palette (2026-07-30) | Kit colors CONFIRMED as-is ("style kit" clarified: structure is law; user accepted the kit palette). Tokens still split structure-vs-theme for future re-theming |
 | Icons (2026-07-30) | Kit v2 ships 8 SVGs (`icons/`). Pipeline: browser-rasterize → PNG → CreateAssetAsync upload PILOT (real account assets — natively persistent, unlike EditableMesh place content); fallback = user bulk-import. Rail + currency use real icons Phase 1. Backpack tab icons (pet/charm/egg) + brainrot icon requested from the design tool |
 
