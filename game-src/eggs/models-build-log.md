@@ -199,3 +199,90 @@ of `(0.0070, 0.0296, 0.0130)`. Applied fix in Edit datamodel: canonical ForestEg
 stall "Horned Egg" clone (9 parts) both brightened via `Color3.fromHSV(h, s, 0.30)` and snapshots
 stored in `_EGG_Col` attributes (18 total). Source file edit ensures the fix survives future rebuilds
 from the chunk file.
+
+## Rerun — band/ring shape fixes (this task)
+
+Re-ran the primitive rebuild from a REGENERATED set of chunk files (same directory,
+`luau_chunks_prim/egg{6..10}_prim1.lua`) that changed the mid-shell "stripe" decoration
+geometry and added a `ringseg` shape (10-segment ring approximation) plus a `band` shape
+(shell-hugging ellipsoid), intended to fix a prior visual bug where wrap decorations
+rendered as egg-sized solid slabs and rings rendered as fat discs swallowing the egg.
+
+Destroyed and rebuilt from scratch: canonical `ReplicatedStorage.EggModels.Forest.ForestEgg1..5`
+and the 5 `Workspace.GameWorld.EggStall` display clones (pivots read off the old clones before
+destroying, preserved exactly: `(-51.925, 9.78/9.6759/9.4988, {-268,-264,-260,-256,-252})`).
+The 15 `EggGood` shelf cubes untouched. Ran all 5 regenerated chunk files verbatim via
+`execute_luau` — group counts matched the files' own expected totals exactly
+(26/18/20/29/97 = 190 total), expanding to 26/18/20/101/205 = 370 actual `Part`s once
+`ringseg` groups (8 in Rune, 12 in Crown) each fanned out into 10 sub-parts.
+
+**Visual loop finding: the regenerated chunks did NOT fully fix the bug as shipped.**
+First screenshot pass showed the "stripe" groups were still near-full-shell-height blocks
+(e.g. Shard's `stripe_2_3` was 0.74×2.37×0.63 against a 1.88×2.40×1.88 shell — 99% of the
+shell's own height) that tiled almost the entire circumference, visually reconstituting the
+"solid slab" bug. Separately, several `ringseg` groups had tube thickness nearly equal to
+their own ring radius (Rune's `ring_1_23`: radius 1.37, tube 1.32; Crown's `ring_1_55`:
+radius 0.97, tube 1.02) — i.e. still solid discs, not rings; even the small decorative
+`rune_ring_*` symbol loops had tube ≈ radius (near-solid dots instead of visible loops).
+
+**Fix applied directly to both the canonical models and stall clones** (28 `stripe_*` parts,
+200 ring-segment parts across all `*ring_*`-named groups): stripe `Size` scaled to
+(×0.65 X/Z, ×0.35 Y) around each part's existing center — turns full-height wrap panels into
+contained equatorial color patches; every ring segment's tube (`Size.Y`/`Size.Z`, always equal
+by construction) reduced to `clamp(tube * 0.3, 0.05, 0.35)`, leaving segment arc-length
+(`Size.X`) untouched — turns fat discs into thin bands/loops. `crown_ring_40` (already thin,
+tube 0.071) fell under the 0.05 floor and was left essentially unchanged, as intended.
+
+Fix applied to the canonical `ReplicatedStorage` models first, then the 5 stall clones were
+destroyed and re-cloned fresh from the fixed canonical models (rather than patching the
+first-pass clones separately) so the two stay byte-for-byte identical — avoids the kind of
+canonical/clone drift the source chunk files already carry for the Horned Egg brightening fix
+(see Concerns below). Re-screenshotted after the fix: wide stall shot plus individual
+close-ups on Rune and Crown per the pass bar.
+
+### Per-egg verdicts (screenshot review, 1 fix iteration)
+- **Shard Egg (60)** — PASS. Round/egg silhouette, small shard + stud decorations visible on
+  the surface, no slabs, tag legible.
+- **Drip Egg (85)** — PASS, cleanest of the five. Bright orange egg with visible drip-blob
+  decorations and the neck "tape" band; needed no fix (its only large-ish part, `tape_14`, was
+  already a properly proportioned thin band).
+- **Horned Egg (115)** — PASS. Clean tapered egg silhouette with the two horn nubs and 7 spike
+  nubs visible as small protrusions; stripes now blend into the (very dark) shell color rather
+  than reading as slabs.
+- **Rune Egg (160)** — PASS. Round egg silhouette; close-up confirms the small `rune_ring_*`
+  symbol reads clearly as a dashed ring/circle (not a solid dot) after the tube fix; the
+  equatorial stripe patches sit on the shell as blocky but contained accents.
+- **Crown Egg (220)** — PASS. Dome cap + 7 tan crown points + tan tip nubs read clearly;
+  close-up confirms the base collar ring (ex-`ring_1_55`/`ring_2_56`) now reads as a thin green
+  band/collar instead of a swallowing blob; hanging chain `link_*` segments visible as dark
+  vertical segmented rods near the crown top. The `halo_ring_65` band is present in the
+  geometry (tube shrunk 0.356→0.107, same tan hue as the crown points) but is hard to visually
+  distinguish from the points at normal viewing distance — stylized, acceptable per the brief's
+  "stylized ok" allowance for this egg, but flagged for a closer design pass.
+
+Camera reset to `Enum.CameraType.Fixed` at end of task. Not saved/published, per task
+instructions.
+
+### Compat checks
+- All 5 canonical models: `PrimaryPart` = a child literally named `shell_body_1`, bbox height
+  = 2.400, zero `MeshPart`s (all native `Part`s with `SpecialMesh`/`CylinderMesh` children, as
+  expected).
+- `EggConfig.WORLDS.Forest.Eggs[*].Model` fields (`ForestEgg1..5`) all resolve; `Name`/`Price`
+  pairs match the stall clone names/tags exactly (Shard 60 / Drip 85 / Horned 115 / Rune 160 /
+  Crown 220).
+- 15 `EggGood` shelf cubes on `Workspace.GameWorld.EggStall` untouched throughout.
+
+### Concerns
+- **The fix was applied to live instances only, not written back into the source chunk files**
+  (`luau_chunks_prim/egg{6,8,9,10}_prim1.lua` — egg7/Drip needed no fix). Per the pattern already
+  seen in this log (Fix 2, line 193), any future rebuild that re-runs these chunk files verbatim
+  will reintroduce the full-height stripe slabs and fat-disc rings. Whoever owns the next
+  rebuild should either bake the same `×0.65/×0.35` stripe scale and
+  `clamp(tube*0.3, 0.05, 0.35)` ring-tube formula into the generator/chunk files, or re-apply
+  this same live-instance fix afterward.
+- Several shells (Horned, Rune, Crown to a lesser extent) remain very dark by design (same
+  design-verbatim tradeoff noted after Task 6 and in Fix 1/2) — unchanged by this task, still
+  worth a design-intent confirmation pass.
+- Crown Egg's `halo_ring_65` is geometrically present and correctly thinned but visually blends
+  with the crown points' matching tan color at normal camera distance — a distinct color would
+  make it read more clearly as a separate "halo" element.
