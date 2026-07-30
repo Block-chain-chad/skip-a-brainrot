@@ -318,8 +318,10 @@ end)
 
 remotes.DarrelUpdate.OnClientEvent:Connect(function(payload)
 	if typeof(payload) ~= "table" then return end
-	darrelSeeded = true -- Bug C fix: a real push beats the startup retry loop to it
-	applyDarrels(payload.Darrels)
+	if typeof(payload.Darrels) == "number" then
+		darrelSeeded = true -- Bug C fix: a real push beats the startup retry loop to it
+		applyDarrels(payload.Darrels)
+	end
 end)
 
 -- Startup pulls, mirroring DarrelHUDClient/EggShopClient's own join-time
