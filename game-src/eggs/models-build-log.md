@@ -189,3 +189,13 @@ each got a freshly-built `BillboardGui` price tag matching the original spec exa
   updating the source chunk file so it survives the next rebuild) before ship.
 - Several other shells/details remain intentionally very dark by design (Horned shell,
   Rune shell/stripes) — same design-verbatim tradeoff noted after Task 6, unchanged here.
+
+### Fix 2 — Horned Egg spike/horn brightening baked into source (rebuild-proof)
+
+Re-applied the `V=0.30` spike/horn brightening fix (see Fix 1, line 106) by updating the source
+chunk file `luau_chunks_prim/egg8_prim1.lua` directly: all 9 spike_* and horn_* `prim(...)` calls
+now pass RGB `(0.208, 0.169, 0.128)` (V≈0.208, same hue/sat as original V≈0.027 dark green) instead
+of `(0.0070, 0.0296, 0.0130)`. Applied fix in Edit datamodel: canonical ForestEgg3 (9 parts) and
+stall "Horned Egg" clone (9 parts) both brightened via `Color3.fromHSV(h, s, 0.30)` and snapshots
+stored in `_EGG_Col` attributes (18 total). Source file edit ensures the fix survives future rebuilds
+from the chunk file.
