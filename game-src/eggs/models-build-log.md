@@ -286,3 +286,126 @@ instructions.
 - Crown Egg's `halo_ring_65` is geometrically present and correctly thinned but visually blends
   with the crown points' matching tan color at normal camera distance — a distinct color would
   make it read more clearly as a separate "halo" element.
+
+## Design-match pass — video-matched palette + idle animation (this task)
+
+Matched the 5 display models (`Workspace.GameWorld.EggStall` clones + canonical
+`ReplicatedStorage.EggModels.Forest.ForestEgg1..5`) against the user's animated design
+reference video (49 extracted frames, `f_001.png` front view + `f_010/011/012.png`
+overhead ring-angle views). Two parts: **A)** recolor to the design's lit palette,
+**B)** a new idle-animation script reproducing the video's ring precession, floating
+shards, and hovering crown.
+
+### Part A — recolor
+
+Every changed part's pre-existing color was snapshotted to a `_EGG_Col2` attribute
+before overwriting (skipped if the attribute already existed), applied identically to
+both the stall clone and the canonical `ForestEgg*` model. 738 parts changed total.
+
+| Egg | Family | New Color | Material |
+|---|---|---|---|
+| Shard (1) | shell_body | rgb(96,144,78) | SmoothPlastic |
+| Shard | stripe | rgb(198,220,180) | SmoothPlastic |
+| Shard | stud, shard | rgb(222,236,150) | SmoothPlastic |
+| Drip (2) | shell_body | rgb(228,158,64) | SmoothPlastic |
+| Drip | drip, shard | rgb(190,120,40) | SmoothPlastic |
+| Drip | tape | unchanged (not in design spec) | — |
+| Horned (3) | shell_body | rgb(76,116,62) | SmoothPlastic |
+| Horned | stripe | rgb(48,84,44) | SmoothPlastic |
+| Horned | spike, horn | rgb(28,26,24) | SmoothPlastic |
+| Horned | shard | rgb(110,190,70) | SmoothPlastic |
+| Rune (4) | shell_body | rgb(62,46,36) | SmoothPlastic |
+| Rune | stripe | rgb(40,30,23) | SmoothPlastic |
+| Rune | rune_ring, rune_bar, ring, shard | rgb(110,235,205) | **Neon** |
+| Crown (5) | shell_body | rgb(88,62,42) | SmoothPlastic |
+| Crown | cap, cap_drip | rgb(96,150,80) | SmoothPlastic |
+| Crown | stripe | rgb(58,42,30) | SmoothPlastic |
+| Crown | rune_ring, rune_bar, ring | rgb(120,220,110) | **Neon** |
+| Crown | crown_ring, crown_point, crown_tip, halo_ring, link | rgb(226,210,170) | SmoothPlastic |
+| Crown | shard | rgb(96,150,80) | SmoothPlastic |
+
+One deliberate deviation from the initial target list: Shard Egg's `stud_*`/`shard_*`
+parts were pixel-sampled directly from `f_001.png` (Python/PIL, not eyeballed) at the
+floating dots to the egg's left — sampled RGB clustered around (240-255, 245-255,
+165-185), a pale yellow-lime, not the originally-suggested saturated bright green
+(120,200,90). Used rgb(222,236,150) instead, close to the parts' pre-existing authored
+color. All other families matched their initial target well within the ±20%-read
+tolerance on direct visual comparison against the reference frames.
+
+### Part B — idle animation
+
+New `Script` at `game.ServerScriptService.EggStallIdle` (source snapshotted to
+`game-src/eggs/EggStallIdle.lua`). Server-authoritative, `RunService.Heartbeat`-driven,
+touches only `CFrame` (no geometry/size changes). Animates the 5 stall display models
+only — the canonical `ForestEgg*` models are not touched by this script.
+
+- **Body bob**: every egg's shell + attached shell decorations bob vertically
+  (amplitude 0.1 stud, no yaw), desynced periods 3.8-5.2s across the 5 eggs.
+- **Ring precession**: Rune's single `ring_*` loop and Crown's two `ring_*` loops (the
+  two concentric bands) precess — tilted 22° off horizontal, tilt-axis azimuth rotating
+  around world Y. Rune period 10s; Crown's two rings 9s/12s in opposite directions.
+  Each ring's 10 segment parts keep their original relative position/orientation
+  (cached as a local `CFrame` inside the ring's own flat frame at setup), so precession
+  only changes orientation, never the ring's true radius.
+- **Crown halo+crown assembly**: `crown_ring`/`crown_point`/`crown_tip`/`halo_ring`/
+  `link` parts move as one rigid unit — hovers 0.35 studs above its authored spot with
+  a slow (8s) ±0.1 stud bob and a slow (14s) yaw.
+- **Floating shards**: for Shard/Drip/Horned only, the smallest 3-4 parts (preferring
+  the `shard_*` family — literally "floating shards" in the design — falling back to
+  `stud_*` only if an egg doesn't have enough `shard_*` parts on its own; in practice
+  all 3 eggs already had enough `shard_*` parts, so no `stud_*` was ever pulled) orbit
+  the shell at `shellHalfWidth + 0.35` studs, heights staggered around mid-shell,
+  periods 6-9s desynced, with a small continuous self-spin. Rune/Crown's `shard_*`
+  parts are not floated (per spec, they stay attached and bob with the body).
+- **Price tags**: each `PriceTag` `BillboardGui`'s `Adornee` was originally the shell
+  part itself (which now bobs); at setup a small invisible `PriceTagAnchor` part is
+  created at the tag's original world position and the `Adornee` is repointed to it, so
+  tags never move even though the body does.
+- **Perf/robustness**: base pivots/offsets cached once at setup, not re-read per frame;
+  a 60-stud player-proximity gate is checked every 10th frame (animation pauses for
+  eggs with no player nearby); a `stall.ChildAdded` listener re-resolves and re-caches
+  any display model that gets replaced (e.g. a future restock/purchase swap), so the
+  animation survives model replacement.
+
+### Verification
+
+Since `Script`s under `ServerScriptService` don't execute in Studio's Edit mode (only
+during actual Play/server runtime), and the task's tooling contract forbade using
+`start_stop_play` (Edit-only workflow, `get_studio_state` gate), the same driver logic
+was additionally run live as ad-hoc `execute_luau` code (not saved, `_G`-scoped) so
+`RunService.Heartbeat` would actually fire during this Edit session for verification.
+The real `EggStallIdle` Script instance was left untouched in `ServerScriptService` —
+it will run for real once the game is actually played.
+
+- Two screenshots ~1.5s apart from the spec camera (`[-45,10,-260]` → `[-62,8,-260]`):
+  Rune's ring visibly changed angle, Drip/Horned/Crown's floating shards visibly moved
+  to different positions, all 5 price tags stayed pixel-identical between frames.
+- Zero console errors/warnings across the whole live-preview run.
+- After verification: preview `Heartbeat` connection disconnected, all animated parts
+  restored to their authored resting `CFrame` (367 parts), `workspace.CurrentCamera.
+  CameraType` reset to `Enum.CameraType.Fixed`.
+- Not saved/published, per task instructions.
+
+### Per-egg palette verdict (screenshot review vs. `f_001.png`)
+- **Shard** — PASS. Mid-green shell + pale mint stripes read correctly; floating
+  bits/shell dots corrected to pale yellow-lime after pixel-sampling (see above).
+- **Drip** — PASS. Warm amber shell + darker-orange drip/shard accents, clean match.
+- **Horned** — PASS. Green shell, darker-green stripes, near-black spikes/horns read
+  as the intended dark-on-green silhouette (supersedes the old V=0.30 brighten fix).
+- **Rune** — PASS. Dark brown shell, teal Neon rings/runes glow clearly against it.
+- **Crown** — PASS. Brown-to-green shell, cream crown/halo/link assembly, green Neon
+  rings; close-up confirms the cream crown_tip unification (was green) reads as one
+  cohesive cream crown structure rather than two competing accent colors.
+
+### Concerns
+- The Rune/Crown ring radius (~1.37 studs) is nearly as wide as the shell itself
+  (authored geometry, unchanged by this task) — at some precession phases the ring can
+  visually flare out past the shell's silhouette more than a first glance at the
+  reference frame suggests. Confirmed this matches the authored radius from the prior
+  rebuild task's own log, not a bug introduced here.
+- The recolor + `_EGG_Col2` snapshots and the `EggStallIdle` script are live-instance
+  edits only (standard for this project's workflow); if a future rebuild re-runs the
+  `luau_chunks_prim/*.lua` source chunks verbatim, both this recolor and the prior
+  Horned brighten/stripe/ring-tube fixes would need to be re-applied (same caveat
+  already on record from earlier entries in this log).
+- Not save/reload-tested in this task (instructed not to save/publish).
