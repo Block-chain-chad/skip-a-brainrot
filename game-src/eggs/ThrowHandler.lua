@@ -26,6 +26,7 @@ local BrainrotConfig = require(ReplicatedStorage.Modules.BrainrotConfig)
 local RockDesign = require(ReplicatedStorage.Modules.RockDesign)
 local DarrelService = require(ServerScriptService.Modules.DarrelService)
 local PetHandler = require(ServerScriptService.Modules.PetHandler)
+local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
 
 local remotes = ReplicatedStorage.Remotes
 local THROW_Z = 15
@@ -69,9 +70,16 @@ local WATER_Y = 1.5
 -- BY THIS SERVER (GetSweetSpot, single-use, aged) and judged here against the
 -- power the throw actually uses -- the client only draws it. Its second
 -- ThrowRequest argument is ignored: it was client-authoritative once, and
--- FireServer(0.01, true) was accepted in playtest. Judging power-vs-band server
--- side makes spoofing self-defeating: to be "perfect" a hacked client must move
--- its power INTO the band, paying the same strength trade-off honest players pay.
+-- FireServer(0.01, true) was accepted in playtest.
+--
+-- NOTE ON SPOOFING: this used to be self-defeating, because the band could land
+-- anywhere in 0.22-0.90 and a client faking "perfect" had to drop its power into
+-- the band to get it. The band is now PINNED to the top of the bar by design (see
+-- GetSweetSpot below), so power = 1 is both the strongest throw and always inside
+-- the band -- there is no longer a trade-off to pay. Perfect is therefore now
+-- effectively available to everyone on every throw, honest or not, which makes
+-- PERFECT_DISTANCE_MULT and PERFECT_LUCK_MULT de facto baseline rather than a
+-- reward for precision. That is a deliberate design call, not an oversight.
 local PERFECT_DISTANCE_MULT = 1.1
 local PERFECT_LUCK_MULT = 1.075
 local BAND_WIDTH = 0.07     -- mirrors the client's strip width
@@ -95,9 +103,11 @@ local function getThrowOrigin(player)
 	return Vector3.new(0, 4, THROW_Z), Vector3.new(0, 0, 1)
 end
 
--- Built-in client asset: nothing to upload, nothing to moderate, and it is already
--- on disk so the first skip of a session does not play silently while a stream loads.
-local SPLASH_SOUND = "rbxassetid://9117946641" -- SFX2 (was rbxasset impact_water.mp3)
+-- Ids come from SoundKit rather than living here, per the note at the top of that
+-- module. TWO samples, not one pitched two ways: the skip tap is 0.39s and simply
+-- cannot read as heavy, so the landing uses a 3.51s large-splash sample instead.
+local SPLASH_SOUND = SoundKit.Ids.splash        -- 0.39s, the skips
+local SPLASH_BIG_SOUND = SoundKit.Ids.splashBig -- 3.51s, the landing only
 
 -- One splash sound per water contact. Created server-side so every player at the dock
 -- hears each other's skips positionally, which is most of the charm.
@@ -117,14 +127,19 @@ local function playSplashSound(pos, big, index, total)
 	host.Parent = Workspace
 
 	local sound = Instance.new("Sound")
-	sound.SoundId = SPLASH_SOUND
-	-- Deliberately quiet. This fires up to 8 times per throw, and several players share
-	-- the dock, so anything louder turns the lake into a washing machine.
-	sound.Volume = big and 0.45 or 0.22
-	-- The asset is a 2.4s wash. Pitching it up brightens the transient AND shortens the
-	-- audible tail, which is what makes a skip read as a skip rather than a belly-flop.
+	sound.SoundId = big and SPLASH_BIG_SOUND or SPLASH_SOUND
+	-- Still restrained -- this fires up to 8 times per throw and several players share
+	-- the dock -- but 0.22 was under the music bed and the skips were getting lost.
+	-- Raised to 0.32; the rolloff below is what keeps other people's throws in check,
+	-- not the raw level.
+	sound.Volume = big and 0.68 or 0.32
+	-- The skip asset is 0.39s (an earlier comment here claimed 2.4s -- it was wrong).
+	-- Pitching it UP brightens the transient and shortens the tail further, which is
+	-- what makes a skip read as a skip rather than a belly-flop.
 	local progress = (total and total > 1) and ((index - 1) / (total - 1)) or 0
 	local jitter = (math.random() - 0.5) * 0.08   -- so repeated skips are not identical
+	-- The landing only eases DOWN to 0.95 -- its sample is already a heavy wash, and
+	-- pitching a 3.51s file much lower just turns the tail to mud.
 	sound.PlaybackSpeed = (big and 0.95 or (1.45 + progress * 0.35)) + jitter
 	sound.RollOffMode = Enum.RollOffMode.InverseTapered
 	sound.RollOffMinDistance = 14
@@ -132,8 +147,10 @@ local function playSplashSound(pos, big, index, total)
 	sound.Parent = host
 	sound:Play()
 
-	-- Fade before removing the part: cutting a 2.4s wash dead mid-tail clicks.
-	local hold = big and 1.15 or 0.42
+	-- Fade before removing the part: cutting a wash dead mid-tail clicks. The landing
+	-- holds 1.8s and is faded out from 1.66s -- deliberately SHORTER than its 3.7s
+	-- sample, so the lake gets a big front end without a tail that outlasts the throw.
+	local hold = big and 1.80 or 0.42
 	task.delay(math.max(hold - 0.14, 0.05), function()
 		if sound.Parent then
 			game:GetService("TweenService"):Create(sound, TweenInfo.new(0.14), { Volume = 0 }):Play()
@@ -155,9 +172,14 @@ end
 --             droplets that arc under gravity -- by far the biggest visual win per byte.
 --   COLUMN    a quick vertical spout, BIG LANDINGS ONLY, for the heavier "plunk".
 --
+-- The final landing was scaled up across all five layers (ripples, droplets,
+-- light, column, sound): it is the payoff of the whole throw and it was reading
+-- as just one more skip. It fires ONCE per throw, so the extra third ripple is
+-- one additional part on one contact -- the per-skip cost is unchanged.
+--
 -- Part budget matters: this fires up to 8 times per throw and it is SERVER-created, so
 -- every part replicates to every client at the dock. Measured on a real 8-contact throw:
--- 16 ripples + 8 droplet hosts + 1 column = 25 parts, against 16 for the old version.
+-- 17 ripples + 8 droplet hosts + 1 column = 26 parts, against 16 for the old version.
 -- So it is ~1.5x the parts, not free -- but they are 0.12-stud anchored non-colliding
 -- decor with sub-second Debris lifetimes, and the droplet emitter buys dozens of visible
 -- droplets for ONE part, which is where the fidelity actually comes from.
@@ -206,12 +228,15 @@ end
 
 local function spawnSplash(pos, big)
 	local TweenService = game:GetService("TweenService")
-	local scale = big and 1.8 or 1
+	local scale = big and 2.6 or 1
 
-	-- lead ripple, plus a trailing one that chases it
-	ripple(pos, 0, 1.6, 12 * scale, 0.62, 0.35)
+	-- lead ripple, plus a trailing one that chases it. The landing sheds a THIRD,
+	-- slowest, widest ring -- a big impact pushes out a longer train than a skip,
+	-- and the late wide ring is what makes the lake look like it took the hit.
+	ripple(pos, 0, 1.6, 12 * scale, big and 0.80 or 0.62, 0.35)
 	if big then
-		ripple(pos, 0.10, 1.2, 18, 0.85, 0.62)
+		ripple(pos, 0.10, 1.2, 28, 1.05, 0.58)
+		ripple(pos, 0.26, 1.0, 40, 1.45, 0.72)
 	else
 		ripple(pos, 0.09, 1.0, 6.5, 0.44, 0.68)
 	end
@@ -227,15 +252,15 @@ local function spawnSplash(pos, big)
 	local e = Instance.new("ParticleEmitter")
 	e.Texture = SPLASH_TEX
 	e.Rate = 0                                  -- burst only, via :Emit below
-	e.Lifetime = NumberRange.new(0.30, 0.62)
-	e.Speed = NumberRange.new(9, 20 + 10 * scale)
+	e.Lifetime = NumberRange.new(0.30, big and 0.92 or 0.62)
+	e.Speed = NumberRange.new(big and 16 or 9, 20 + 10 * scale)
 	e.EmissionDirection = Enum.NormalId.Top
 	-- narrow-ish cone: water leaves the surface upward and outward, not spherically
 	e.SpreadAngle = Vector2.new(46, 46)
 	e.Acceleration = Vector3.new(0, -95, 0)     -- gravity, so droplets ARC instead of drifting
 	e.Drag = 1.2
 	e.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.42 * scale, 0.18),
+		NumberSequenceKeypoint.new(0, big and 0.85 or 0.42, 0.18),
 		NumberSequenceKeypoint.new(1, 0.06),
 	})
 	e.Color = ColorSequence.new(Color3.fromRGB(236, 250, 255))
@@ -249,7 +274,7 @@ local function spawnSplash(pos, big)
 	e.Rotation = NumberRange.new(0, 360)
 	e.RotSpeed = NumberRange.new(-140, 140)
 	e.Parent = host
-	e:Emit(big and 34 or 14)
+	e:Emit(big and 70 or 14)
 
 	-- ACTUAL LIGHT, not just a glowing part. Neon is emissive but illuminates nothing, so
 	-- on a dark night the skips were invisible past a few hundred studs. This flashes real
@@ -263,37 +288,38 @@ local function spawnSplash(pos, big)
 	local nightBoost = NIGHT_EVENTS[weather] and 2.4 or 1
 	local light = Instance.new("PointLight")
 	light.Color = Color3.fromRGB(198, 232, 255)   -- cool white, matching the droplets
-	light.Range = (big and 34 or 20) * (nightBoost > 1 and 1.35 or 1)
-	light.Brightness = (big and 3.2 or 1.7) * nightBoost
+	light.Range = (big and 48 or 20) * (nightBoost > 1 and 1.35 or 1)
+	light.Brightness = (big and 4.6 or 1.7) * nightBoost
 	light.Shadows = false
 	light.Parent = host
 	-- Fade rather than cut: a light that vanishes mid-brightness pops. Short on a skip so
 	-- eight of them never overlap into one continuous glow; longer on the landing.
-	TweenService:Create(light, TweenInfo.new(big and 0.55 or 0.26,
+	TweenService:Create(light, TweenInfo.new(big and 0.80 or 0.26,
 		Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Brightness = 0 }):Play()
 
-	Debris:AddItem(host, 1.0)
+	-- must outlast the droplet Lifetime above or the burst is cut mid-arc
+	Debris:AddItem(host, big and 1.60 or 1.0)
 
 	-- vertical spout, only worth the part on the landing
 	if big then
 		local col = Instance.new("Part")
 		col.Name = "SkipColumn"
 		col.Shape = Enum.PartType.Cylinder
-		col.Size = Vector3.new(0.6, 1.5, 1.5)
+		col.Size = Vector3.new(0.6, 2.4, 2.4)
 		col.Material = Enum.Material.Neon
 		col.Color = Color3.fromRGB(240, 251, 255)
 		col.Transparency = 0.28
 		col.CFrame = CFrame.new(pos.X, WATER_Y + 0.3, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
 		decorPart(col)
-		TweenService:Create(col, TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-			{ Size = Vector3.new(4.6, 1.1, 1.1) }):Play()
-		task.delay(0.17, function()
+		TweenService:Create(col, TweenInfo.new(0.20, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+			{ Size = Vector3.new(10.5, 2.0, 2.0) }):Play()
+		task.delay(0.21, function()
 			if col.Parent then
-				TweenService:Create(col, TweenInfo.new(0.26, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+				TweenService:Create(col, TweenInfo.new(0.36, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 					{ Size = Vector3.new(0.5, 0.5, 0.5), Transparency = 1 }):Play()
 			end
 		end)
-		Debris:AddItem(col, 0.55)
+		Debris:AddItem(col, 0.80)
 	end
 end
 
@@ -416,11 +442,17 @@ function ThrowHandler.Init()
 		sweetSpot.Parent = remotes
 	end
 	sweetSpot.OnServerInvoke = function(player)
-		-- same reachable range the client used to roll locally: never hugging an end
-		local center = math.random(22, 90) / 100
+		-- FIXED at the top of the bar. It used to roll anywhere in 0.22-0.90, so the
+		-- perfect release and the full-power release pulled against each other and you
+		-- had to pick one. The band is now always the last BAND_WIDTH of the charge, so
+		-- the perfect release IS the full-power release and the strip never moves.
+		--
+		-- Still issued and judged server-side, still single-use and aged: the value of
+		-- the handshake was never the randomness, it was that the client does not get
+		-- to declare its own throws perfect.
 		local band = {
-			min = math.clamp(center - BAND_WIDTH / 2, 0, 1),
-			max = math.clamp(center + BAND_WIDTH / 2, 0, 1),
+			min = 1 - BAND_WIDTH,
+			max = 1,
 			issuedAt = os.clock(),
 		}
 		pendingBand[player.UserId] = band
@@ -633,7 +665,7 @@ function ThrowHandler.Init()
 			-- entries the schedule says are unobtainable (Chim is questline-only),
 			-- so re-checking here would silently swap it for an ordinary catch.
 			if not forcedCatch and not Waves.IsObtainable(brainrotEntry.Name) then
-				local fallback, fallbackTier = RarityRoll.PickInTier(baseTier + promotions, true)
+				local fallback, fallbackTier = RarityRoll.PickInTier(pickIndex, true)
 				if not fallback then return end
 				brainrotEntry, tier = fallback, fallbackTier
 				tracked = MintRegistry.IsTracked(tier.Name, mutation)
@@ -641,7 +673,7 @@ function ThrowHandler.Init()
 
 			if LimitedStock.IsLimited(brainrotEntry.Name) then
 				if not LimitedStock.TryClaim(brainrotEntry.Name) then
-					local fallback, fallbackTier = RarityRoll.PickInTier(baseTier + promotions, true)
+					local fallback, fallbackTier = RarityRoll.PickInTier(pickIndex, true)
 					if not fallback then return end
 					brainrotEntry, tier = fallback, fallbackTier
 					-- re-evaluated because the fallback may sit in a different tier; its serial

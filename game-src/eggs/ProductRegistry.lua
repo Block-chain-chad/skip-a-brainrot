@@ -33,7 +33,13 @@ function M.ProcessReceipt(info)
 
 	local key = tostring(info.PurchaseId)
 	if table.find(data.ReceiptLog, key) then
-		return Enum.ProductPurchaseDecision.PurchaseGranted  -- already delivered
+		-- grant already in memory; only confirm once it has persisted at least once
+		local saved = PDM.Save(player)
+		if saved then
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		else
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		end
 	end
 	local def = PRODUCTS[info.ProductId]
 	if not def then

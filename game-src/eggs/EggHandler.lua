@@ -38,6 +38,12 @@ end
 
 function M.Init()
 	EggConfig.Validate()  -- fail loudly at boot, not at first purchase
+
+	-- Self-heal for unsnapshotted Studio state: the prompt was found disabled once;
+	-- server asserts it on every boot.
+	local prompt = workspace:FindFirstChild("GameWorld") and workspace.GameWorld:FindFirstChild("EggStall") and workspace.GameWorld.EggStall:FindFirstChild("PromptPart") and workspace.GameWorld.EggStall.PromptPart:FindFirstChild("EggPrompt")
+	if prompt then prompt.Enabled = true end
+
 	remotes.EggBuy.OnServerEvent:Connect(function(player, worldId, eggId)
 		if typeof(worldId) ~= "string" or typeof(eggId) ~= "string" then return end
 		local now = os.clock()
