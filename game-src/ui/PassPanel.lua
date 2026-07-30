@@ -41,6 +41,9 @@
 -- both columns render that tier's Cash value; the Season Pass column is a
 -- locked preview of the same number until a real premium reward table and
 -- gamepass exist.
+--
+-- SeasonConfig rewards are scalar cash -> quantity chip renders x1;
+-- revisit when itemized rewards exist.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local modules = ReplicatedStorage:WaitForChild("Modules")
@@ -493,6 +496,19 @@ function PassPanel.Build(ctx)
 		art.Position = UDim2.new(0.5, 0, 0, 34)
 		art.ZIndex = card.ZIndex + 1
 
+		-- Quantity chip (kit README §3.1): SeasonConfig rewards are scalar
+		-- cash -> quantity chip renders x1; revisit when itemized rewards
+		-- exist. Visible in LOCKED/CLAIMED; hidden in CLAIMABLE (state
+		-- machine below toggles it).
+		local qty = UI.label(card, "x1", "value", textColor)
+		qty.Name = "QtyChip"
+		qty.AnchorPoint = Vector2.new(1, 1)
+		qty.Position = UDim2.new(1, -8, 1, -6)
+		qty.Size = UDim2.fromOffset(36, 18)
+		qty.AutomaticSize = Enum.AutomaticSize.None
+		qty.TextXAlignment = Enum.TextXAlignment.Right
+		qty.ZIndex = card.ZIndex + 2
+
 		-- state machine (README §5): LOCKED / CLAIMABLE / CLAIMED. The pass
 		-- (gold) column is always LOCKED -- see the module header note on why
 		-- passOwned has no backing data in this build.
@@ -504,6 +520,7 @@ function PassPanel.Build(ctx)
 		elseif not claimed then
 			UI.claimRing(card)
 			buildClaimPill(card, tier)
+			qty.Visible = false -- CLAIMABLE: hide qty chip to give CLAIM pill room
 		else
 			buildClaimedOverlay(card)
 		end
