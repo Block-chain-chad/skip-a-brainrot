@@ -111,3 +111,81 @@ canonical model and its stall clone ("Horned Egg"): original color snapshotted t
 `V` raised 0.027 → 0.298). 18 parts changed total (9 canonical + 9 clone); no other egg
 or the Horned shell touched. Screenshots confirm the horns/spikes now read as a legible
 lighter dark-bark tone against the black shell.
+
+## EditableMesh save failure — full native-primitive rebuild (this task)
+
+**Root cause found:** the Task 6 `MeshPart`s (built via `AssetService:CreateEditableMesh()`
++ `CreateMeshPartAsync`, see above) did **not** survive a real cloud save/Studio-restart
+cycle. After reopening, all 190 `MeshPart`s across the 5 canonical models and their 5 stall
+clones still existed with correct names/positions/`PrimaryPart`/parenting, but every one
+rendered as a checkerboard error texture — the editable-mesh geometry itself was gone,
+only the container `MeshPart` + transform survived. This confirms the open risk flagged
+at the end of Task 6/7 ("EditableMesh persistence across a real place save has not been
+verified") landed: **`CreateEditableMesh`/`CreateMeshPartAsync` output is not safe for
+anything that needs to survive a save.**
+
+**Fix:** rebuilt all 5 models from scratch as plain native `Part`s — no `EditableMesh`,
+no `MeshPart`, no asset upload at all. Each decorative group is now a `Part` with, at
+most, a `SpecialMesh` (`MeshType.Sphere`, for "egg"/"ball" groups) or a `CylinderMesh`
+(for "rod"/"disc" groups, oriented via `CFrame.Angles` so the mesh's Y-axis follows the
+group's longest extent for rods / shortest extent for discs); "block" groups are left as
+plain unmeshed `Part`s. `SpecialMesh`/`CylinderMesh` are core built-in Roblox geometry
+(not asset-uploaded, not editable-mesh-derived) and do not carry the same save-loss risk.
+
+Built from `docs/design-handoff/forest-eggs/luau_chunks_prim/egg{6..10}_prim1.lua` (one
+`execute_luau` call per file, verbatim), staged on `ServerStorage.EggPrimStaging`
+(deleted at end of task), normalized (`PrimaryPart` = `shell_body_1`, `ScaleTo`'d to an
+absolute bbox height of 2.4 studs, `PivotTo`'d to local origin), then swapped into
+`ReplicatedStorage.EggModels.Forest` in place of the broken `MeshPart` models (same
+`ForestEgg1..5` names, so `EggShopClient`'s `EggModels.Forest[egg.Model]` lookup and
+`EggConfig`'s `Model` fields needed no changes). The 5 broken stall clones on
+`Workspace.GameWorld.EggStall.CounterTop` ("Shard Egg" / "Drip Egg" / "Horned Egg" /
+"Rune Egg" / "Crown Egg") were destroyed and rebuilt as fresh clones of the new
+canonical models at the exact pivots read off the old clones before destroying them;
+each got a freshly-built `BillboardGui` price tag matching the original spec exactly
+(cream `rgb(247,235,216)` text, ink `rgb(62,34,19)` stroke, `Enum.Font.Cartoon`,
+`"<Name>"` / `"<price>💎"`, same `Size`/`StudsOffset`/`AlwaysOnTop` as the originals).
+
+| # | Name | Model | Parts | Height | Price |
+|---|---|---|---|---|---|
+| 1 | Shard Egg | ForestEgg1 | 26 | 2.40 | 60 |
+| 2 | Drip Egg | ForestEgg2 | 18 | 2.40 | 85 |
+| 3 | Horned Egg | ForestEgg3 | 20 | 2.40 | 115 |
+| 4 | Rune Egg | ForestEgg4 | 29 | 2.40 | 160 |
+| 5 | Crown Egg | ForestEgg5 | 97 | 2.40 | 220 |
+
+**Total: 190/190 parts built (26+18+20+29+97), matching the original Task 6 census exactly.**
+
+### Verification
+- Probe on `ReplicatedStorage.EggModels.Forest`: 5 `Model`s, part counts 26/18/20/29/97,
+  every model has `PrimaryPart` = a child literally named `shell_body_1`, every model's
+  bbox height = 2.400, **zero `MeshPart`s** anywhere in any of the 5 models (all native
+  `Part`s now) — same probe repeated on the 5 stall clones, identical results.
+- Every part checked: `Anchored = true`, `CanCollide = false`, `CanQuery = false`, 0
+  `Script`/`LocalScript`/`ModuleScript` instances under any of the 5 models.
+- Screenshots from the stall camera spot (`[-45,10,-260]` → `[-62,8,-260]`) plus several
+  supplementary close/top-down angles: 5 distinct, correctly-colored shapes (bright green
+  studded egg, orange drip egg, near-black spiked/horned egg, dark-bark rune egg with a
+  mint-green halo ring, and a large crown/halo/chain-link egg), all 5 price tags legible.
+  No checkerboards, no default-gray boxes anywhere.
+- `EggShopClient.lua` grep-confirmed: still reads `ReplicatedStorage.EggModels.Forest`
+  and looks eggs up by `modelName` (`ForestEgg1..5`, unchanged) — no code changes needed.
+- Hatch-reveal exclusion (`EggShopClient.lua:529`, `eggClone:FindFirstChild("shell_body_1")`)
+  confirmed working against all 5 new models — each has exactly one child named
+  `shell_body_1`, so the "everything except the shell bursts outward" logic is unaffected.
+- `ServerStorage.EggPrimStaging` deleted at end of task. Not saved/published, per task
+  instructions — a future save/reload should be spot-checked once, but native `Part` +
+  built-in `SpecialMesh`/`CylinderMesh` geometry is standard, long-supported Roblox
+  functionality (unlike `CreateEditableMesh`), so this is expected to be safe.
+
+### Concerns
+- The `luau_chunks_prim/*.lua` source files encode the **pre-Fix-1** `ForestEgg3`
+  spike/horn colors (`V≈0.027`, e.g. `spike_1_7` = `(0.0070, 0.0296, 0.0130)`), not the
+  brightened `V≈0.30` values applied directly to the live instances by Fix 1 above (which
+  was never written back into the source chunk files). This rebuild used the chunk files
+  verbatim as instructed, so **the Horned Egg spike/horn brightening fix from Fix 1 has
+  been unintentionally reverted** — the spikes/horns are once again nearly indistinguishable
+  from the shell. Worth re-applying the same `Color3.fromHSV(h, s, 0.30)` treatment (or
+  updating the source chunk file so it survives the next rebuild) before ship.
+- Several other shells/details remain intentionally very dark by design (Horned shell,
+  Rune shell/stripes) — same design-verbatim tradeoff noted after Task 6, unchanged here.
