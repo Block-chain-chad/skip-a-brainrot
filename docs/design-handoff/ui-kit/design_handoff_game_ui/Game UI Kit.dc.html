@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;padding:0;background:#12150E;}
+  *{box-sizing:border-box;}
+  a{color:#FFC531;text-decoration:none;}
+  a:hover{color:#FFE066;}
+  @keyframes omGlow{0%,100%{box-shadow:0 0 0 0 rgba(124,224,74,.85),0 0 18px 2px rgba(124,224,74,.45)}50%{box-shadow:0 0 0 6px rgba(124,224,74,0),0 0 26px 6px rgba(124,224,74,.6)}}
+  @keyframes omSpin{to{transform:rotate(360deg)}}
+  @keyframes omBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+</style>
+<template id="__bundler_thumbnail">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#3E4A34"/><rect x="30" y="30" width="40" height="40" rx="9" fill="#FFC531" stroke="#16170F" stroke-width="4"/><text x="50" y="59" font-family="Verdana" font-size="18" font-weight="bold" text-anchor="middle" fill="#16170F">UI</text></svg>
+</template>
+</helmet>
+
+<div style="position:relative;width:1350px;height:775px;overflow:hidden;font-family:Nunito,system-ui,sans-serif;background:#43512F;user-select:none">
+
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg,#4B5A36 0 14px,#44532F 14px 28px)"></div>
+  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;opacity:.5">
+    <div style="font-family:ui-monospace,Menlo,monospace;font-size:14px;color:#1B2113;letter-spacing:.06em">GAME WORLD RENDER — 1350 × 775</div>
+    <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#1B2113">HUD draws above the 3D viewport</div>
+  </div>
+
+  <sc-if value="{{ hudIdle }}" hint-placeholder-val="{{ false }}">
+  <div style="position:absolute;top:18px;left:18px;display:flex;gap:12px;z-index:20">
+    <div style="display:flex;align-items:center;gap:10px;height:54px;padding:0 18px 0 6px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.5),inset 0 -5px 0 rgba(0,0,0,.16),0 5px 0 #16170F">
+      <div style="width:38px;height:38px;border-radius:999px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#FFF3C4 0 5px,#F3DE96 5px 10px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12">coin</div>
+      <div style="font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">12,480</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;height:54px;padding:0 18px 0 6px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#D98BFF 0%,#A93FE6 52%,#7A1CB8 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.4),inset 0 -5px 0 rgba(0,0,0,.2),0 5px 0 #16170F">
+      <div style="width:38px;height:38px;border-radius:999px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#F0D2FF 0 5px,#DDB2F6 5px 10px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#54176F">gem</div>
+      <div style="font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">340</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="position:absolute;right:16px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:10px;z-index:30">
+    <sc-for list="{{ rail }}" as="item" hint-placeholder-count="6">
+      <div onClick="{{ item.open }}" style="position:relative;width:98px;height:88px;border-radius:18px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.55),inset 0 -6px 0 rgba(0,0,0,.18),0 5px 0 #16170F,0 9px 12px rgba(0,0,0,.3);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;transition:transform .12s ease,filter .12s ease" style-hover="transform:translateY(-3px) scale(1.03);filter:brightness(1.05)" style-active="transform:translateY(2px) scale(.99)">
+        <div style="width:42px;height:42px;border-radius:11px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 5px,#F2E0A0 5px 10px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:8px;color:#5A4A12;text-align:center;line-height:1">{{ item.slot }}</div>
+        <div style="font-family:'Fredoka One',cursive;font-size:14px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ item.label }}</div>
+        <sc-if value="{{ item.active }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:-6px;border-radius:22px;border:4px solid #FFFFFF;box-shadow:0 0 14px 3px rgba(255,255,255,.6);pointer-events:none"></div>
+        </sc-if>
+        <sc-if value="{{ item.badge }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:-9px;right:-9px;min-width:30px;height:30px;padding:0 6px;border-radius:999px;border:3.5px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 60%,#B41C16 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:16px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">{{ item.badge }}</div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="position:absolute;left:18px;bottom:16px;display:flex;align-items:center;gap:10px;z-index:40">
+    <div onClick="{{ openKit }}" style="height:40px;padding:0 16px;border-radius:12px;border:3px solid #16170F;background:linear-gradient(180deg,#7A8A66 0%,#4E5C3B 100%);display:flex;align-items:center;font-family:Nunito;font-weight:900;font-size:13px;letter-spacing:.04em;color:#F2F5E8;cursor:pointer;box-shadow:0 4px 0 #16170F" style-hover="filter:brightness(1.12)">STYLE KIT ↗</div>
+    <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:rgba(255,255,255,.5)">design ref only</div>
+  </div>
+
+  <sc-if value="{{ showPass }}" hint-placeholder-val="{{ true }}">
+    <div data-screen-label="Season Pass" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;gap:14px;padding:0 132px 0 24px">
+
+      <div style="display:flex;flex-direction:column;width:960px">
+        <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
+          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">pass<br>icon</div>
+          <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Season Pass</div>
+          <div style="flex:1"></div>
+          <div onClick="{{ openGoals }}" style="height:66px;padding:0 30px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#DE93FF 0%,#B04CEC 52%,#7C1CC0 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),inset 0 -6px 0 rgba(0,0,0,.22),0 5px 0 #16170F;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-2px);filter:brightness(1.07)" style-active="transform:translateY(2px)">
+            <div style="font-family:'Fredoka One',cursive;font-size:30px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">Quests</div>
+          </div>
+          <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),inset 0 -6px 0 rgba(0,0,0,.24),0 5px 0 #16170F;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-2px);filter:brightness(1.07)" style-active="transform:translateY(2px)">
+            <div style="font-family:'Fredoka One',cursive;font-size:32px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">X</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;padding:16px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#414E36 0%,#2B3423 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.08),0 6px 0 #16170F,0 16px 26px rgba(0,0,0,.4)">
+
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:62px;height:56px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#E8930F 100%);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;box-shadow:inset 0 4px 0 rgba(255,255,255,.45)">ticket</div>
+            <div style="position:relative;flex:1;height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#1B2114 0%,#26301C 100%);overflow:hidden;box-shadow:inset 0 4px 8px rgba(0,0,0,.55)">
+              <div style="position:absolute;left:0;top:0;bottom:0;width:{{ xpPct }}%;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.5)"></div>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:26px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">{{ xpLabel }}</div>
+            </div>
+            <div style="width:58px;height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:28px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;box-shadow:inset 0 4px 0 rgba(255,255,255,.5),0 4px 0 #16170F">{{ level }}</div>
+            <div style="height:56px;padding:0 18px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;gap:8px;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),inset 0 -5px 0 rgba(0,0,0,.2),0 5px 0 #16170F;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-2px);filter:brightness(1.06)" style-active="transform:translateY(2px)">
+              <div style="font-family:'Fredoka One',cursive;font-size:26px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Skip {{ skipCost }}</div>
+              <div style="width:26px;height:26px;border-radius:6px;border:3px solid #16170F;background:linear-gradient(180deg,#D98BFF,#8B2FD6)"></div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:14px">
+            <div style="display:flex;flex-direction:column;gap:8px;width:40px;flex:0 0 40px">
+              <div style="height:186px;border-radius:12px;border:3px solid #16170F;background:linear-gradient(180deg,#7A8A66 0%,#55643F 100%);display:flex;align-items:center;justify-content:center">
+                <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">Free</div>
+              </div>
+              <div style="height:252px;border-radius:12px;border:3px solid #16170F;background:linear-gradient(180deg,#FFD84D 0%,#E0912A 100%);display:flex;align-items:center;justify-content:center">
+                <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">Season Pass</div>
+              </div>
+            </div>
+
+            <div style="flex:1;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding-bottom:2px">
+              <div style="display:flex;flex-direction:column;gap:8px;width:max-content">
+
+                <div style="display:flex;gap:12px">
+                  <sc-for list="{{ freeTiers }}" as="r" hint-placeholder-count="6">
+                    <div style="position:relative;width:178px;height:186px;flex:0 0 178px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#F7F7F1 0%,#DEDED4 55%,#B2B4A8 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.7),inset 0 -6px 0 rgba(0,0,0,.14),0 5px 0 #16170F;display:flex;flex-direction:column;align-items:center;padding:7px 8px 6px;overflow:hidden">
+                      <div style="font-family:'Fredoka One',cursive;font-size:20px;line-height:1.05;text-align:center;color:#1E2317;-webkit-text-stroke:3px #FFFFFF;paint-order:stroke fill">{{ r.name }}</div>
+                      <div style="flex:1;align-self:stretch;margin-top:4px;border-radius:10px;background:repeating-linear-gradient(135deg,#CCD0C1 0 6px,#BEC3B2 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:rgba(20,22,15,.62)">{{ r.slot }}</div>
+                      <sc-if value="{{ r.showQty }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;right:8px;bottom:6px;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">{{ r.qty }}</div></sc-if>
+                      <sc-if value="{{ r.isLocked }}" hint-placeholder-val="{{ true }}">
+                        <div style="position:absolute;top:-8px;right:-8px;width:46px;height:46px;border-radius:13px;border:4px solid #16170F;background:linear-gradient(180deg,#F2F2EC 0%,#C2C4B8 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.7),0 4px 0 #16170F;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0">
+                          <div style="width:15px;height:10px;border:3.5px solid #3A3A32;border-bottom:none;border-radius:9px 9px 0 0"></div>
+                          <div style="width:22px;height:15px;border-radius:4px;background:#3A3A32"></div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ r.isClaimable }}" hint-placeholder-val="{{ false }}">
+                        <div style="position:absolute;inset:-4px;border-radius:19px;border:5px solid #7CE04A;animation:omGlow 1.6s ease-in-out infinite;pointer-events:none"></div>
+                        <div onClick="{{ r.claim }}" style="position:absolute;left:8px;right:8px;bottom:8px;justify-content:center;height:38px;border-radius:11px;border:3.5px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;box-shadow:inset 0 4px 0 rgba(255,255,255,.45),0 4px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.08)">CLAIM</div>
+                      </sc-if>
+                      <sc-if value="{{ r.isClaimed }}" hint-placeholder-val="{{ false }}">
+                        <div style="position:absolute;inset:0;background:rgba(12,18,8,.58);display:flex;align-items:center;justify-content:center">
+                          <div style="width:62px;height:62px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#3E9E22 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:34px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;box-shadow:0 4px 0 #16170F">✓</div>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="display:flex;gap:12px">
+                  <sc-for list="{{ tierNums }}" as="t" hint-placeholder-count="6">
+                    <div style="width:178px;flex:0 0 178px;display:flex;justify-content:center">
+                      <div style="width:58px;height:58px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:28px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;box-shadow:inset 0 4px 0 rgba(255,255,255,.5),0 4px 0 #16170F">{{ t.n }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="display:flex;gap:12px">
+                  <sc-for list="{{ passTiers }}" as="r" hint-placeholder-count="6">
+                    <div style="position:relative;width:178px;height:186px;flex:0 0 178px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#F7B62C 55%,#D8860E 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.5),inset 0 -6px 0 rgba(0,0,0,.18),0 5px 0 #16170F;display:flex;flex-direction:column;align-items:center;padding:7px 8px 6px;overflow:hidden">
+                      <div style="font-family:'Fredoka One',cursive;font-size:20px;line-height:1.05;text-align:center;color:#3A2A05;-webkit-text-stroke:3px #FFE9A8;paint-order:stroke fill">{{ r.name }}</div>
+                      <div style="flex:1;align-self:stretch;margin-top:4px;border-radius:10px;background:repeating-linear-gradient(135deg,#F0CE76 0 6px,#E3BC5E 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:rgba(58,42,5,.66)">{{ r.slot }}</div>
+                      <sc-if value="{{ r.showQty }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;right:8px;bottom:6px;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">{{ r.qty }}</div></sc-if>
+                      <sc-if value="{{ r.isLocked }}" hint-placeholder-val="{{ true }}">
+                        <div style="position:absolute;top:-8px;right:-8px;width:46px;height:46px;border-radius:13px;border:4px solid #16170F;background:linear-gradient(180deg,#F2F2EC 0%,#C2C4B8 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.7),0 4px 0 #16170F;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                          <div style="width:15px;height:10px;border:3.5px solid #3A3A32;border-bottom:none;border-radius:9px 9px 0 0"></div>
+                          <div style="width:22px;height:15px;border-radius:4px;background:#3A3A32"></div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ r.isClaimable }}" hint-placeholder-val="{{ false }}">
+                        <div style="position:absolute;inset:-4px;border-radius:19px;border:5px solid #7CE04A;animation:omGlow 1.6s ease-in-out infinite;pointer-events:none"></div>
+                        <div onClick="{{ r.claim }}" style="position:absolute;left:8px;right:8px;bottom:8px;justify-content:center;height:38px;border-radius:11px;border:3.5px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;box-shadow:inset 0 4px 0 rgba(255,255,255,.45),0 4px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.08)">CLAIM</div>
+                      </sc-if>
+                      <sc-if value="{{ r.isClaimed }}" hint-placeholder-val="{{ false }}">
+                        <div style="position:absolute;inset:0;background:rgba(12,18,8,.58);display:flex;align-items:center;justify-content:center">
+                          <div style="width:62px;height:62px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#3E9E22 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:34px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;box-shadow:0 4px 0 #16170F">✓</div>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <div style="margin:10px 0 0 50px;height:10px;border-radius:999px;background:rgba(0,0,0,.45)">
+            <div style="width:190px;height:10px;border-radius:999px;background:#9FAE8B"></div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:center;margin-top:-14px">
+          <sc-if value="{{ passOwned }}" hint-placeholder-val="{{ false }}">
+            <div style="height:74px;padding:0 40px;border-radius:18px;border:5px solid #16170F;background:linear-gradient(180deg,#8FA378 0%,#54643C 100%);display:flex;align-items:center;gap:10px;box-shadow:inset 0 5px 0 rgba(255,255,255,.2),0 6px 0 #16170F,0 12px 18px rgba(0,0,0,.35)">
+              <div style="font-family:'Fredoka One',cursive;font-size:30px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">Pass Active ✓</div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ passNotOwned }}" hint-placeholder-val="{{ true }}">
+            <div style="height:74px;padding:0 36px;border-radius:18px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);display:flex;align-items:center;gap:12px;box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 12px 18px rgba(0,0,0,.35);cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-3px);filter:brightness(1.05)" style-active="transform:translateY(2px)">
+              <div style="font-family:'Fredoka One',cursive;font-size:34px;color:#fff;-webkit-text-stroke:4.5px #16170F;paint-order:stroke fill">Buy Pass 799</div>
+              <div style="width:30px;height:30px;border-radius:7px;border:3px solid #16170F;background:linear-gradient(180deg,#D98BFF,#8B2FD6)"></div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;width:196px;flex:0 0 196px;align-self:center">
+        <div style="text-align:center;font-family:'Fredoka One',cursive;font-size:26px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">Max Rewards</div>
+        <div style="padding:5px;border-radius:20px;background:conic-gradient(from 0deg,#FF5E5E,#FFD84D,#7CE04A,#4FD8FF,#B06BFF,#FF5E5E);box-shadow:0 5px 0 #16170F">
+          <div style="position:relative;height:212px;border-radius:15px;border:4px solid #16170F;background:linear-gradient(180deg,#3B4731 0%,#26301F 100%);display:flex;flex-direction:column;align-items:center;padding:10px 8px 8px">
+            <div style="flex:1;align-self:stretch;border-radius:10px;background:repeating-linear-gradient(135deg,#33402A 0 6px,#2C3724 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:rgba(255,255,255,.45);text-align:center">tier50_free<br>reward art</div>
+            <div style="position:absolute;top:-12px;right:-12px;width:54px;height:54px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#E8930F 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:26px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;box-shadow:0 4px 0 #16170F">50</div>
+            <div style="position:absolute;right:12px;bottom:44px;font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">x1</div>
+            <div style="margin-top:6px;font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Free</div>
+          </div>
+        </div>
+        <div style="padding:5px;border-radius:20px;background:conic-gradient(from 180deg,#FF5E5E,#FFD84D,#7CE04A,#4FD8FF,#B06BFF,#FF5E5E);box-shadow:0 5px 0 #16170F">
+          <div style="position:relative;height:212px;border-radius:15px;border:4px solid #16170F;background:linear-gradient(180deg,#3B4731 0%,#26301F 100%);display:flex;flex-direction:column;align-items:center;padding:10px 8px 8px">
+            <div style="flex:1;align-self:stretch;border-radius:10px;background:repeating-linear-gradient(135deg,#33402A 0 6px,#2C3724 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:rgba(255,255,255,.45);text-align:center">tier50_pass<br>reward art</div>
+            <div style="position:absolute;top:-12px;right:-12px;width:54px;height:54px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#E8930F 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:26px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;box-shadow:0 4px 0 #16170F">50</div>
+            <div style="position:absolute;right:12px;bottom:44px;font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">x1</div>
+            <div style="margin-top:6px;font-family:'Fredoka One',cursive;font-size:20px;color:#FFD84D;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Season Pass</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showBackpack }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Backpack" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
+      <div style="display:flex;flex-direction:column;width:960px">
+        <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
+          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">bag<br>icon</div>
+          <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Backpack</div>
+          <div style="align-self:center;margin-top:6px;font-family:'Fredoka One',cursive;font-size:22px;color:#5A4A12">28 / 60 slots</div>
+          <div style="flex:1"></div>
+          <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),inset 0 -6px 0 rgba(0,0,0,.24),0 5px 0 #16170F;cursor:pointer" style-hover="filter:brightness(1.07)">
+            <div style="font-family:'Fredoka One',cursive;font-size:32px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">X</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;height:566px;padding:16px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#414E36 0%,#2B3423 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.08),0 6px 0 #16170F,0 16px 26px rgba(0,0,0,.4);display:flex;gap:14px">
+
+          <div style="width:152px;flex:0 0 152px;display:flex;flex-direction:column;gap:9px">
+            <sc-for list="{{ bagTabs }}" as="tab" hint-placeholder-count="5">
+              <div onClick="{{ tab.pick }}" style="position:relative;height:60px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#7A8A66 0%,#4E5C3B 100%);display:flex;align-items:center;padding:0 12px;gap:9px;cursor:pointer;box-shadow:0 4px 0 #16170F;transition:transform .1s ease" style-hover="transform:translateX(3px)">
+                <div style="width:34px;height:34px;border-radius:9px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#9FAE8B 0 5px,#8D9C79 5px 10px)"></div>
+                <div style="font-family:'Fredoka One',cursive;font-size:19px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ tab.label }}</div>
+                <sc-if value="{{ tab.active }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0;border-radius:10px;border:4px solid #FFD84D;box-shadow:inset 0 0 0 3px rgba(255,216,77,.35);pointer-events:none"></div>
+                </sc-if>
+              </div>
+            </sc-for>
+            <div style="flex:1"></div>
+            <div style="height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),0 5px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.07)">+ Slots</div>
+          </div>
+
+          <div style="flex:1;display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:118px;gap:11px;align-content:start;overflow-y:auto;scrollbar-width:none">
+            <sc-for list="{{ bagItems }}" as="it" hint-placeholder-count="15">
+              <div onClick="{{ it.pick }}" style="position:relative;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#37432D 0%,#232C1C 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.1);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .1s ease" style-hover="transform:translateY(-3px)">
+                <div style="position:absolute;inset:6px;border-radius:9px;background:repeating-linear-gradient(135deg,#3E4A34 0 6px,#354028 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:rgba(255,255,255,.5);text-align:center;padding:4px">{{ it.slot }}</div>
+                <sc-if value="{{ it.isCommon }}" hint-placeholder-val="{{ true }}">
+                  <div style="position:absolute;inset:0;border-radius:10px;border:4px solid #C9CCC2;pointer-events:none"></div>
+                </sc-if>
+                <sc-if value="{{ it.isRare }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0;border-radius:10px;border:4px solid #3FA9F5;box-shadow:inset 0 0 12px rgba(63,169,245,.5);pointer-events:none"></div>
+                </sc-if>
+                <sc-if value="{{ it.isEpic }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0;border-radius:10px;border:4px solid #A855F7;box-shadow:inset 0 0 12px rgba(168,85,247,.55);pointer-events:none"></div>
+                </sc-if>
+                <sc-if value="{{ it.isLegend }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0;border-radius:10px;border:4px solid #FFB200;box-shadow:inset 0 0 14px rgba(255,178,0,.6);pointer-events:none"></div>
+                </sc-if>
+                <div style="position:absolute;right:5px;bottom:3px;font-family:'Fredoka One',cursive;font-size:17px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ it.qty }}</div>
+                <sc-if value="{{ it.equipped }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;left:-3px;top:-9px;height:24px;padding:0 8px;border-radius:8px;border:3px solid #16170F;background:linear-gradient(180deg,#A6EE72,#3E9E22);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:12px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">EQUIPPED</div>
+                </sc-if>
+              </div>
+            </sc-for>
+            <sc-for list="{{ emptySlots }}" as="es" hint-placeholder-count="5">
+              <div style="border-radius:14px;border:4px dashed rgba(255,255,255,.13);background:rgba(0,0,0,.18)"></div>
+            </sc-for>
+          </div>
+
+          <div style="width:224px;flex:0 0 224px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#4A5840 0%,#2E3825 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.1);padding:12px;display:flex;flex-direction:column;gap:10px">
+            <div style="height:150px;border-radius:12px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#3E4A34 0 7px,#354028 7px 14px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:rgba(255,255,255,.5);text-align:center">selected_item<br>hero art</div>
+            <div style="font-family:'Fredoka One',cursive;font-size:26px;line-height:1.05;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">{{ sel.name }}</div>
+            <sc-if value="{{ sel.isCommon }}" hint-placeholder-val="{{ true }}">
+              <div style="align-self:flex-start;height:28px;padding:0 12px;border-radius:8px;border:3px solid #16170F;background:linear-gradient(180deg,#E4E7DD,#A9AE9E);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:15px;color:#2A2F22;-webkit-text-stroke:2.5px #F2F4EA;paint-order:stroke fill">COMMON</div>
+            </sc-if>
+            <sc-if value="{{ sel.isRare }}" hint-placeholder-val="{{ false }}">
+              <div style="align-self:flex-start;height:28px;padding:0 12px;border-radius:8px;border:3px solid #16170F;background:linear-gradient(180deg,#8FE0FF,#1E7BD8);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:15px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">RARE</div>
+            </sc-if>
+            <sc-if value="{{ sel.isEpic }}" hint-placeholder-val="{{ false }}">
+              <div style="align-self:flex-start;height:28px;padding:0 12px;border-radius:8px;border:3px solid #16170F;background:linear-gradient(180deg,#C77BFF,#8B2FD6);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:15px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">EPIC</div>
+            </sc-if>
+            <sc-if value="{{ sel.isLegend }}" hint-placeholder-val="{{ false }}">
+              <div style="align-self:flex-start;height:28px;padding:0 12px;border-radius:8px;border:3px solid #16170F;background:linear-gradient(180deg,#FFE066,#E8930F);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:15px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">LEGENDARY</div>
+            </sc-if>
+            <sc-for list="{{ sel.stats }}" as="s" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;justify-content:space-between;height:34px;padding:0 10px;border-radius:10px;background:rgba(0,0,0,.3);border:3px solid rgba(0,0,0,.4)">
+                <div style="font-family:Nunito;font-weight:900;font-size:14px;letter-spacing:.03em;color:#C9D6B4">{{ s.k }}</div>
+                <div style="font-family:'Fredoka One',cursive;font-size:18px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">{{ s.v }}</div>
+              </div>
+            </sc-for>
+            <div style="flex:1"></div>
+            <div style="height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),inset 0 -5px 0 rgba(0,0,0,.2),0 5px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;transition:transform .12s ease" style-hover="transform:translateY(-2px)" style-active="transform:translateY(2px)">Equip</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showSettings }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Settings" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
+      <div style="display:flex;flex-direction:column;width:700px">
+        <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
+          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">gear<br>icon</div>
+          <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Settings</div>
+          <div style="flex:1"></div>
+          <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),inset 0 -6px 0 rgba(0,0,0,.24),0 5px 0 #16170F;cursor:pointer" style-hover="filter:brightness(1.07)">
+            <div style="font-family:'Fredoka One',cursive;font-size:32px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">X</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;padding:16px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#414E36 0%,#2B3423 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.08),0 6px 0 #16170F,0 16px 26px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:8px">
+
+          <div style="font-family:'Fredoka One',cursive;font-size:18px;color:#FFD84D;-webkit-text-stroke:3px #16170F;paint-order:stroke fill;letter-spacing:.02em">AUDIO</div>
+          <sc-for list="{{ sliders }}" as="s" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:12px;height:54px;padding:0 14px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#4E5C3B 0%,#39452C 100%)">
+              <div style="width:150px;font-family:'Fredoka One',cursive;font-size:21px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ s.label }}</div>
+              <div onClick="{{ s.set }}" style="position:relative;flex:1;height:26px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#1B2114,#26301C);cursor:pointer">
+                <div style="position:absolute;left:0;top:0;bottom:0;width:{{ s.pct }}%;border-radius:999px;background:linear-gradient(180deg,#A6EE72,#3E9E22)"></div>
+                <div style="position:absolute;top:-11px;left:{{ s.pct }}%;transform:translateX(-50%);width:34px;height:34px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#FFF0A8,#FFC531);box-shadow:0 3px 0 #16170F"></div>
+              </div>
+              <div style="width:56px;text-align:right;font-family:'Fredoka One',cursive;font-size:21px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ s.pct }}%</div>
+            </div>
+          </sc-for>
+
+          <div style="font-family:'Fredoka One',cursive;font-size:18px;color:#FFD84D;-webkit-text-stroke:3px #16170F;paint-order:stroke fill;margin-top:2px">GRAPHICS</div>
+          <div style="display:flex;gap:10px">
+            <sc-for list="{{ quality }}" as="q" hint-placeholder-count="3">
+              <div onClick="{{ q.pick }}" style="position:relative;flex:1;height:54px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#7A8A66 0%,#4E5C3B 100%);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 0 #16170F;font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.1)">
+                {{ q.label }}
+                <sc-if value="{{ q.active }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:-4px;border-radius:16px;border:4px solid #FFD84D;box-shadow:0 0 12px rgba(255,216,77,.55);pointer-events:none"></div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font-family:'Fredoka One',cursive;font-size:18px;color:#FFD84D;-webkit-text-stroke:3px #16170F;paint-order:stroke fill;margin-top:2px">GAMEPLAY</div>
+          <sc-for list="{{ toggles }}" as="t" hint-placeholder-count="4">
+            <div onClick="{{ t.flip }}" style="display:flex;align-items:center;height:52px;padding:0 14px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#4E5C3B 0%,#39452C 100%);cursor:pointer">
+              <div style="flex:1;font-family:'Fredoka One',cursive;font-size:21px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ t.label }}</div>
+              <sc-if value="{{ t.on }}" hint-placeholder-val="{{ true }}">
+                <div style="position:relative;width:86px;height:38px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72,#3E9E22);box-shadow:inset 0 4px 0 rgba(255,255,255,.35)">
+                  <div style="position:absolute;top:-1px;right:-1px;width:36px;height:36px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#FFFFFF,#DCDCD3)"></div>
+                  <div style="position:absolute;left:11px;top:6px;font-family:'Fredoka One',cursive;font-size:14px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">ON</div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ t.off }}" hint-placeholder-val="{{ false }}">
+                <div style="position:relative;width:86px;height:38px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#5A6748,#3A452C);box-shadow:inset 0 4px 6px rgba(0,0,0,.45)">
+                  <div style="position:absolute;top:-1px;left:-1px;width:36px;height:36px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#C9CCC2,#9AA28E)"></div>
+                  <div style="position:absolute;right:11px;top:6px;font-family:'Fredoka One',cursive;font-size:14px;color:#C9D6B4;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">OFF</div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+
+          <div style="display:flex;gap:10px;margin-top:4px">
+            <div style="flex:1;height:58px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#6FD8FF 0%,#2A93E0 52%,#125FA8 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),0 5px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:23px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.07)">Redeem Code</div>
+            <div style="flex:1;height:58px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),0 5px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:23px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.07)">Reset Data</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showDaily }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Daily Rewards" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
+      <div style="display:flex;flex-direction:column;width:900px">
+        <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
+          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">cal<br>icon</div>
+          <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Daily Rewards</div>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:8px;height:58px;padding:0 16px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#3B4731,#26301F)">
+            <div style="font-family:Nunito;font-weight:900;font-size:14px;color:#C9D6B4;letter-spacing:.04em">RESETS IN</div>
+            <div style="font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">11:42:07</div>
+          </div>
+          <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),0 5px 0 #16170F;cursor:pointer" style-hover="filter:brightness(1.07)">
+            <div style="font-family:'Fredoka One',cursive;font-size:32px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">X</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;padding:18px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#414E36 0%,#2B3423 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.08),0 6px 0 #16170F,0 16px 26px rgba(0,0,0,.4)">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <div style="font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Login streak</div>
+            <div style="height:44px;padding:0 16px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066,#E8930F);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill;box-shadow:0 4px 0 #16170F">Day 4</div>
+            <div style="flex:1"></div>
+            <div style="font-family:Nunito;font-weight:900;font-size:15px;color:#C9D6B4">Miss a day and the streak restarts at Day 1</div>
+          </div>
+
+          <div style="display:flex;gap:12px">
+            <sc-for list="{{ days }}" as="d" hint-placeholder-count="6">
+              <div style="position:relative;flex:1;height:196px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#4E5C3B 0%,#333E24 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.12),0 5px 0 #16170F;display:flex;flex-direction:column;align-items:center;padding:8px;gap:6px">
+                <div style="font-family:'Fredoka One',cursive;font-size:19px;white-space:nowrap;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">Day {{ d.day }}</div>
+                <div style="flex:1;align-self:stretch;border-radius:10px;background:repeating-linear-gradient(135deg,#3E4A34 0 6px,#354028 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:rgba(255,255,255,.5);text-align:center;padding:4px">{{ d.slot }}</div>
+                <div style="font-family:'Fredoka One',cursive;font-size:14px;line-height:1.1;text-align:center;color:#FFD84D;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">{{ d.reward }}</div>
+                <sc-if value="{{ d.isClaimed }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0;border-radius:12px;background:rgba(12,18,8,.62);display:flex;align-items:center;justify-content:center">
+                    <div style="width:56px;height:56px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72,#3E9E22);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:30px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">✓</div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ d.isToday }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:-4px;border-radius:20px;border:5px solid #7CE04A;animation:omGlow 1.6s ease-in-out infinite;pointer-events:none"></div>
+                  <div onClick="{{ d.claim }}" style="position:absolute;left:50%;bottom:-16px;transform:translateX(-50%);height:44px;padding:0 20px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;box-shadow:inset 0 4px 0 rgba(255,255,255,.45),0 4px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.08)">CLAIM</div>
+                </sc-if>
+                <sc-if value="{{ d.isLocked }}" hint-placeholder-val="{{ true }}">
+                  <div style="position:absolute;inset:0;border-radius:12px;background:rgba(8,12,5,.42);display:flex;align-items:center;justify-content:center;pointer-events:none">
+                    <div style="width:44px;height:44px;border-radius:13px;border:4px solid #16170F;background:linear-gradient(180deg,#F2F2EC,#C2C4B8);box-shadow:0 4px 0 #16170F;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                      <div style="width:14px;height:10px;border:3.5px solid #3A3A32;border-bottom:none;border-radius:8px 8px 0 0"></div>
+                      <div style="width:21px;height:14px;border-radius:4px;background:#3A3A32"></div>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+
+            <div style="position:relative;flex:1.45;height:196px;padding:5px;border-radius:20px;background:conic-gradient(from 40deg,#FF5E5E,#FFD84D,#7CE04A,#4FD8FF,#B06BFF,#FF5E5E);box-shadow:0 5px 0 #16170F">
+              <div style="height:100%;border-radius:15px;border:4px solid #16170F;background:linear-gradient(180deg,#4E5C3B 0%,#333E24 100%);display:flex;flex-direction:column;align-items:center;padding:8px;gap:6px">
+                <div style="font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">Day 7</div>
+                <div style="flex:1;align-self:stretch;border-radius:10px;background:repeating-linear-gradient(135deg,#3E4A34 0 6px,#354028 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:rgba(255,255,255,.5);text-align:center">day7_grand<br>reward art</div>
+                <div style="font-family:'Fredoka One',cursive;font-size:18px;color:#FFD84D;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">Legendary Crate</div>
+              </div>
+              <div style="position:absolute;top:-10px;left:-6px;height:28px;padding:0 10px;border-radius:9px;border:3px solid #16170F;background:linear-gradient(180deg,#D98BFF,#8B2FD6);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:14px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">GRAND</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showIndex }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Index" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
+      <div style="display:flex;flex-direction:column;width:940px">
+        <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
+          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">book<br>icon</div>
+          <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Index</div>
+          <div style="flex:1"></div>
+          <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),0 5px 0 #16170F;cursor:pointer" style-hover="filter:brightness(1.07)">
+            <div style="font-family:'Fredoka One',cursive;font-size:32px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">X</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;padding:16px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#414E36 0%,#2B3423 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.08),0 6px 0 #16170F,0 16px 26px rgba(0,0,0,.4)">
+
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="position:relative;flex:1;height:48px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#1B2114,#26301C);overflow:hidden;box-shadow:inset 0 4px 8px rgba(0,0,0,.5)">
+              <div style="position:absolute;left:0;top:0;bottom:0;width:38%;background:linear-gradient(180deg,#6FD8FF 0%,#2A93E0 60%,#125FA8 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.4)"></div>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">19 / 50 discovered</div>
+            </div>
+            <div style="height:48px;padding:0 14px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#3B4731,#26301F);display:flex;align-items:center;gap:8px">
+              <div style="font-family:Nunito;font-weight:900;font-size:13px;color:#C9D6B4">100% REWARD</div>
+              <div style="width:30px;height:30px;border-radius:8px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#FFE066 0 5px,#E8930F 5px 10px)"></div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:9px;margin:14px 0">
+            <sc-for list="{{ indexFilters }}" as="f" hint-placeholder-count="4">
+              <div onClick="{{ f.pick }}" style="position:relative;height:44px;padding:0 18px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#7A8A66 0%,#4E5C3B 100%);display:flex;align-items:center;cursor:pointer;box-shadow:0 4px 0 #16170F;font-family:'Fredoka One',cursive;font-size:18px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.1)">
+                {{ f.label }}
+                <sc-if value="{{ f.active }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:-4px;border-radius:14px;border:4px solid #FFD84D;box-shadow:0 0 10px rgba(255,216,77,.5);pointer-events:none"></div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:11px;height:392px;overflow-y:auto;scrollbar-width:none;align-content:start">
+            <sc-for list="{{ indexEntries }}" as="e" hint-placeholder-count="18">
+              <div style="position:relative;height:122px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#4A5840 0%,#2E3825 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.1),0 4px 0 #16170F;display:flex;flex-direction:column;align-items:center;padding:6px;gap:4px;cursor:pointer;transition:transform .1s ease" style-hover="transform:translateY(-3px)">
+                <div style="flex:1;align-self:stretch;border-radius:9px;background:repeating-linear-gradient(135deg,#3E4A34 0 6px,#354028 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:rgba(255,255,255,.5);text-align:center;padding:3px">{{ e.slot }}</div>
+                <sc-if value="{{ e.found }}" hint-placeholder-val="{{ true }}">
+                  <div style="font-family:'Fredoka One',cursive;font-size:14px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill;line-height:1;text-align:center">{{ e.name }}</div>
+                </sc-if>
+                <sc-if value="{{ e.hidden }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0;border-radius:10px;background:rgba(8,12,5,.72);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:40px;color:#7A8A66;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">?</div>
+                </sc-if>
+                <sc-if value="{{ e.isNew }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;top:-8px;left:-6px;height:24px;padding:0 8px;border-radius:8px;border:3px solid #16170F;background:linear-gradient(180deg,#FF8A7A,#E23A2C);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:12px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">NEW</div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showGoals }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Goals / Quests" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
+      <div style="display:flex;flex-direction:column;width:860px">
+        <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#DE93FF 0%,#B04CEC 55%,#7C1CC0 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.45),inset 0 -7px 0 rgba(0,0,0,.2),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
+          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#F0D2FF 0 6px,#DDB2F6 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#54176F;text-align:center">goal<br>icon</div>
+          <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Goals</div>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:8px;height:58px;padding:0 16px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#5B1D8C,#3A0F5C)">
+            <div style="font-family:Nunito;font-weight:900;font-size:14px;color:#E7C8FF;letter-spacing:.04em">REFRESH</div>
+            <div style="font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">02:15:33</div>
+          </div>
+          <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),0 5px 0 #16170F;cursor:pointer" style-hover="filter:brightness(1.07)">
+            <div style="font-family:'Fredoka One',cursive;font-size:32px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">X</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;padding:16px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#414E36 0%,#2B3423 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.08),0 6px 0 #16170F,0 16px 26px rgba(0,0,0,.4)">
+          <div style="display:flex;gap:10px;margin-bottom:14px">
+            <sc-for list="{{ goalTabs }}" as="g" hint-placeholder-count="3">
+              <div onClick="{{ g.pick }}" style="position:relative;flex:1;height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#7A8A66 0%,#4E5C3B 100%);display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;box-shadow:0 4px 0 #16170F;font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.1)">
+                {{ g.label }}
+                <sc-if value="{{ g.active }}" hint-placeholder-val="{{ true }}">
+                  <div style="position:absolute;inset:-4px;border-radius:16px;border:4px solid #FFD84D;box-shadow:0 0 12px rgba(255,216,77,.55);pointer-events:none"></div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <sc-for list="{{ goals }}" as="q" hint-placeholder-count="5">
+              <div style="position:relative;display:flex;align-items:center;gap:12px;height:88px;padding:0 12px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#4E5C3B 0%,#333E24 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.1),0 5px 0 #16170F">
+                <div style="width:60px;height:60px;flex:0 0 60px;border-radius:12px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#3E4A34 0 6px,#354028 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:8px;color:rgba(255,255,255,.5);text-align:center">quest<br>ico</div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+                  <div style="font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill;line-height:1">{{ q.title }}</div>
+                  <div style="position:relative;height:24px;border-radius:999px;border:3.5px solid #16170F;background:linear-gradient(180deg,#1B2114,#26301C);overflow:hidden">
+                    <div style="position:absolute;left:0;top:0;bottom:0;width:{{ q.pct }}%;background:linear-gradient(180deg,#A6EE72,#3E9E22)"></div>
+                    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:Nunito;font-weight:900;font-size:14px;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.6)">{{ q.progress }}</div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:7px;height:52px;padding:0 12px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#3B4731,#26301F)">
+                  <div style="width:30px;height:30px;border-radius:8px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#FFE066 0 5px,#E8930F 5px 10px)"></div>
+                  <div style="font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ q.reward }}</div>
+                </div>
+                <sc-if value="{{ q.isClaimable }}" hint-placeholder-val="{{ true }}">
+                  <div onClick="{{ q.claim }}" style="width:136px;flex:0 0 136px;height:60px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),0 5px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;animation:omBob 1.4s ease-in-out infinite" style-hover="filter:brightness(1.08)">Claim</div>
+                </sc-if>
+                <sc-if value="{{ q.isLocked }}" hint-placeholder-val="{{ false }}">
+                  <div style="width:136px;flex:0 0 136px;height:60px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#6A7757,#454F33);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 4px 6px rgba(0,0,0,.35);font-family:'Fredoka One',cursive;font-size:20px;color:#B8C4A4;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">In progress</div>
+                </sc-if>
+                <sc-if value="{{ q.isClaimed }}" hint-placeholder-val="{{ false }}">
+                  <div style="width:136px;flex:0 0 136px;height:60px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#4A5840,#2E3825);display:flex;align-items:center;justify-content:center;gap:7px;font-family:'Fredoka One',cursive;font-size:20px;color:#9FAE8B;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">Claimed ✓</div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showKit }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Style Kit" style="position:absolute;inset:0;z-index:50;background:#1B2114;overflow-y:auto;padding:22px 26px 40px">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
+        <div style="font-family:'Fredoka One',cursive;font-size:34px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">Style Kit — chunky cartoon HUD</div>
+        <div style="flex:1"></div>
+        <div onClick="{{ closeKit }}" style="height:50px;padding:0 20px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A,#C8231C);display:flex;align-items:center;font-family:'Fredoka One',cursive;font-size:22px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill;cursor:pointer;box-shadow:0 5px 0 #16170F">Back to HUD</div>
+      </div>
+
+      <div style="font-family:Nunito;font-weight:900;font-size:14px;letter-spacing:.1em;color:#9FAE8B;margin-bottom:10px">PALETTE</div>
+      <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:26px">
+        <sc-for list="{{ swatches }}" as="c" hint-placeholder-count="16">
+          <div style="border-radius:12px;border:4px solid #16170F;overflow:hidden;background:#2B3423">
+            <div style="height:56px;background:{{ c.css }}"></div>
+            <div style="padding:6px 8px 8px">
+              <div style="font-family:Nunito;font-weight:900;font-size:12px;color:#EAF0DC">{{ c.name }}</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:10px;color:#9FAE8B">{{ c.hex }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:flex;gap:22px;flex-wrap:wrap">
+        <div style="flex:1;min-width:420px">
+          <div style="font-family:Nunito;font-weight:900;font-size:14px;letter-spacing:.1em;color:#9FAE8B;margin-bottom:10px">BUTTONS — 4px stroke, 16px radius, 5px hard bottom edge</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:22px">
+            <div style="height:62px;padding:0 22px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);display:flex;align-items:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.55),inset 0 -6px 0 rgba(0,0,0,.18),0 5px 0 #16170F;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Primary</div>
+            <div style="height:62px;padding:0 22px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),inset 0 -6px 0 rgba(0,0,0,.2),0 5px 0 #16170F;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Confirm</div>
+            <div style="height:62px;padding:0 22px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#DE93FF 0%,#B04CEC 52%,#7C1CC0 100%);display:flex;align-items:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),inset 0 -6px 0 rgba(0,0,0,.22),0 5px 0 #16170F;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Feature</div>
+            <div style="height:62px;padding:0 22px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),inset 0 -6px 0 rgba(0,0,0,.24),0 5px 0 #16170F;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Danger</div>
+            <div style="height:62px;padding:0 22px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#6A7757,#454F33);display:flex;align-items:center;box-shadow:inset 0 4px 6px rgba(0,0,0,.35);font-family:'Fredoka One',cursive;font-size:24px;color:#B8C4A4;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Disabled</div>
+          </div>
+
+          <div style="font-family:Nunito;font-weight:900;font-size:14px;letter-spacing:.1em;color:#9FAE8B;margin-bottom:10px">TYPE SCALE — Fredoka One display / Nunito 900 UI</div>
+          <div style="display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:14px;border:4px solid #16170F;background:#2B3423">
+            <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill">Panel title 44 / stroke 5</div>
+            <div style="font-family:'Fredoka One',cursive;font-size:30px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">Button 30 / stroke 4</div>
+            <div style="font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Value 24 / stroke 3.5</div>
+            <div style="font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">Card label 20 / stroke 3</div>
+            <div style="font-family:Nunito;font-weight:900;font-size:15px;letter-spacing:.04em;color:#C9D6B4">Nunito 900 · 15px · meta / helper copy</div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9FAE8B">ui-monospace · 11px · asset slot labels only (design ref)</div>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:420px">
+          <div style="font-family:Nunito;font-weight:900;font-size:14px;letter-spacing:.1em;color:#9FAE8B;margin-bottom:10px">REWARD CARD STATES — 178 × 186, radius 16</div>
+          <div style="display:flex;gap:12px;margin-bottom:22px">
+            <div style="position:relative;width:150px;height:158px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#F7F7F1 0%,#DEDED4 55%,#B2B4A8 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.7),0 5px 0 #16170F">
+              <div style="position:absolute;top:-8px;right:-8px;width:42px;height:42px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#F2F2EC,#C2C4B8);box-shadow:0 4px 0 #16170F;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                <div style="width:13px;height:9px;border:3.5px solid #3A3A32;border-bottom:none;border-radius:8px 8px 0 0"></div>
+                <div style="width:20px;height:13px;border-radius:4px;background:#3A3A32"></div>
+              </div>
+              <div style="position:absolute;left:0;right:0;bottom:8px;text-align:center;font-family:Nunito;font-weight:900;font-size:13px;color:#3A4030">LOCKED</div>
+            </div>
+            <div style="position:relative;width:150px;height:158px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#F7F7F1 0%,#DEDED4 55%,#B2B4A8 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.7),0 5px 0 #16170F">
+              <div style="position:absolute;inset:-4px;border-radius:19px;border:5px solid #7CE04A;animation:omGlow 1.6s ease-in-out infinite;pointer-events:none"></div>
+              <div style="position:absolute;left:0;right:0;bottom:8px;text-align:center;font-family:Nunito;font-weight:900;font-size:13px;color:#3A4030">CLAIMABLE</div>
+            </div>
+            <div style="position:relative;width:150px;height:158px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#F7F7F1 0%,#DEDED4 55%,#B2B4A8 100%);box-shadow:0 5px 0 #16170F;overflow:hidden">
+              <div style="position:absolute;inset:0;background:rgba(12,18,8,.58);display:flex;align-items:center;justify-content:center">
+                <div style="width:56px;height:56px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72,#3E9E22);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:30px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">✓</div>
+              </div>
+              <div style="position:absolute;left:0;right:0;bottom:8px;text-align:center;font-family:Nunito;font-weight:900;font-size:13px;color:#EAF0DC">CLAIMED</div>
+            </div>
+          </div>
+
+          <div style="font-family:Nunito;font-weight:900;font-size:14px;letter-spacing:.1em;color:#9FAE8B;margin-bottom:10px">RARITY FRAMES — 4px inner stroke + inner glow</div>
+          <div style="display:flex;gap:10px;margin-bottom:22px">
+            <sc-for list="{{ rarities }}" as="r" hint-placeholder-count="5">
+              <div style="width:96px">
+                <div style="position:relative;height:96px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#37432D,#232C1C)">
+                  <div style="position:absolute;inset:0;border-radius:10px;border:4px solid {{ r.color }};box-shadow:inset 0 0 12px {{ r.glow }}"></div>
+                </div>
+                <div style="margin-top:5px;font-family:Nunito;font-weight:900;font-size:12px;color:#EAF0DC">{{ r.name }}</div>
+                <div style="font-family:ui-monospace,Menlo,monospace;font-size:10px;color:#9FAE8B">{{ r.color }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font-family:Nunito;font-weight:900;font-size:14px;letter-spacing:.1em;color:#9FAE8B;margin-bottom:10px">GEOMETRY RULES</div>
+          <div style="display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:14px;border:4px solid #16170F;background:#2B3423;font-family:Nunito;font-weight:800;font-size:14px;color:#C9D6B4;line-height:1.5">
+            <div>Outline #16170F — 5px on panels, 4px on controls/cards, 3px on chips ≤ 44px</div>
+            <div>Radius — panel 22 · control 16 · card 14 · chip 8–12 · pill 999</div>
+            <div>Drop shadow — hard offset 0 Xpx 0 #16170F (X = stroke + 1), plus 0 14px 22px rgba(0,0,0,.35) on modals only</div>
+            <div>Gloss — inset 0 5px 0 rgba(255,255,255,.45–.7) top, inset 0 -6px 0 rgba(0,0,0,.18) bottom</div>
+            <div>Press — translateY(+2px) and drop the hard shadow to 0 2px; hover — translateY(−2px) + brightness 1.06</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1350,&quot;height&quot;:775},&quot;passOwned&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;State&quot;},&quot;initialScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;pass&quot;,&quot;backpack&quot;,&quot;settings&quot;,&quot;daily&quot;,&quot;index&quot;,&quot;goals&quot;],&quot;default&quot;:&quot;pass&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;State&quot;}}">
+class Component extends DCLogic {
+  state = {
+    screen: "pass",
+    kit: false,
+    level: 4,
+    xp: 12,
+    xpNeed: 25,
+    claimedFree: { 1: true, 2: true },
+    claimedPass: {},
+    bagTab: 0,
+    bagSel: 6,
+    quality: 1,
+    music: 70,
+    sfx: 85,
+    toggles: [true, true, false, true],
+    dailyClaimed: { 1: true, 2: true, 3: true },
+    goalTab: 0,
+    goalClaimed: {},
+    indexFilter: 0
+  };
+
+  componentDidMount() {
+    if (this.props.initialScreen) this.setState({ screen: this.props.initialScreen });
+  }
+
+  FREE = [
+    { name: "25 Gems", qty: "x25", slot: "gem_small.png" },
+    { name: "Recruit Tag", qty: "x1", slot: "tag_recruit.png" },
+    { name: "Supply Crate", qty: "x1", slot: "crate_supply.png" },
+    { name: "25 Gems", qty: "x25", slot: "gem_small.png" },
+    { name: "Banner Flag", qty: "x1", slot: "banner_01.png" },
+    { name: "500 Coins", qty: "x1", slot: "coin_stack.png" }
+  ];
+  PASS = [
+    { name: "50 Gems", qty: "x50", slot: "gem_large.png" },
+    { name: "Warlord Tag", qty: "x1", slot: "tag_warlord.png" },
+    { name: "Elite Crate", qty: "x1", slot: "crate_elite.png" },
+    { name: "50 Gems", qty: "x50", slot: "gem_large.png" },
+    { name: "x2 Coin Boost", qty: "x1", slot: "boost_coin2x.png" },
+    { name: "Base Skin", qty: "x1", slot: "skin_base_01.png" }
+  ];
+
+  go(s) { return () => this.setState({ screen: s, kit: false }); }
+
+  tierState(tier, track) {
+    const owned = this.props.passOwned ?? false;
+    const claimed = track === "free" ? this.state.claimedFree : this.state.claimedPass;
+    if (claimed[tier]) return "claimed";
+    if (tier > this.state.level) return "locked";
+    if (track === "pass" && !owned) return "locked";
+    return "claimable";
+  }
+
+  claim(tier, track) {
+    return () => this.setState(s => {
+      const key = track === "free" ? "claimedFree" : "claimedPass";
+      return { [key]: Object.assign({}, s[key], { [tier]: true }) };
+    });
+  }
+
+  buildTrack(src, track) {
+    return src.map((r, i) => {
+      const tier = i + 1;
+      const st = this.tierState(tier, track);
+      return Object.assign({}, r, {
+        tier,
+        isLocked: st === "locked",
+        isClaimable: st === "claimable",
+        isClaimed: st === "claimed",
+        showQty: st !== "claimable",
+        claim: this.claim(tier, track)
+      });
+    });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const screen = s.screen;
+    const owned = this.props.passOwned ?? false;
+
+    const bagNames = ["Rusty Rifle", "Scout Boots", "Field Radio", "Frag Kit", "Medic Pack", "Storm Cannon", "Iron Helm", "Recon Drone", "Supply Truck", "Flare Gun", "Camo Cloak", "Range Finder", "Barbed Coil", "Fuel Cell", "Signal Horn"];
+    const rar = ["common", "rare", "epic", "legend", "common", "epic", "common", "rare", "legend", "common", "rare", "epic", "common", "common", "rare"];
+    const bagItems = bagNames.map((n, i) => ({
+      name: n,
+      slot: "item_" + String(i + 1).padStart(2, "0") + ".png",
+      qty: i % 4 === 0 ? "x2" : "x1",
+      equipped: i === 0 || i === 5,
+      isCommon: rar[i] === "common",
+      isRare: rar[i] === "rare",
+      isEpic: rar[i] === "epic",
+      isLegend: rar[i] === "legend",
+      pick: () => this.setState({ bagSel: i })
+    }));
+    const selIdx = s.bagSel;
+    const selRarity = { common: "COMMON", rare: "RARE", epic: "EPIC", legend: "LEGENDARY" }[rar[selIdx]];
+    const sel = {
+      name: bagNames[selIdx],
+      rarity: selRarity,
+      isCommon: rar[selIdx] === "common",
+      isRare: rar[selIdx] === "rare",
+      isEpic: rar[selIdx] === "epic",
+      isLegend: rar[selIdx] === "legend",
+      stats: [{ k: "DAMAGE", v: "148" }, { k: "RANGE", v: "22m" }, { k: "RELOAD", v: "1.4s" }, { k: "UPGRADE", v: "Lv 3" }]
+    };
+    const emptySlots = [1, 2, 3, 4, 5].map(i => ({ i }));
+
+    const dayRewards = ["100 Coins", "10 Gems", "Supply Crate", "250 Coins", "25 Gems", "Boost x2"];
+    const days = dayRewards.map((rw, i) => {
+      const day = i + 1;
+      const claimedDay = !!s.dailyClaimed[day];
+      const today = !claimedDay && day === 4;
+      return {
+        day,
+        reward: rw,
+        slot: "day" + day + ".png",
+        isClaimed: claimedDay,
+        isToday: today,
+        isLocked: !claimedDay && !today,
+        claim: () => this.setState(st => ({ dailyClaimed: Object.assign({}, st.dailyClaimed, { [day]: true }) }))
+      };
+    });
+
+    const goalSets = [
+      [
+        { title: "Win 3 skirmishes", cur: 2, goal: 3, reward: "150" },
+        { title: "Deploy 25 units", cur: 25, goal: 25, reward: "200" },
+        { title: "Collect 2,000 coins", cur: 900, goal: 2000, reward: "120" },
+        { title: "Open 2 supply crates", cur: 2, goal: 2, reward: "250" },
+        { title: "Upgrade any building", cur: 0, goal: 1, reward: "180" }
+      ],
+      [
+        { title: "Win 20 skirmishes", cur: 11, goal: 20, reward: "900" },
+        { title: "Reach army power 5,000", cur: 3400, goal: 5000, reward: "1200" },
+        { title: "Complete 15 daily goals", cur: 15, goal: 15, reward: "800" },
+        { title: "Discover 5 index entries", cur: 2, goal: 5, reward: "650" }
+      ],
+      [
+        { title: "Reach pass tier 25", cur: 7, goal: 25, reward: "3000" },
+        { title: "Claim every free reward", cur: 2, goal: 25, reward: "2500" },
+        { title: "Finish the index", cur: 19, goal: 50, reward: "5000" }
+      ]
+    ];
+    const goals = goalSets[s.goalTab].map((q, i) => {
+      const key = s.goalTab + ":" + i;
+      const done = q.cur >= q.goal;
+      const isClaimed = !!s.goalClaimed[key];
+      return {
+        title: q.title,
+        reward: q.reward,
+        pct: Math.round(Math.min(1, q.cur / q.goal) * 100),
+        progress: q.cur.toLocaleString() + " / " + q.goal.toLocaleString(),
+        isClaimable: done && !isClaimed,
+        isLocked: !done,
+        isClaimed: isClaimed,
+        claim: () => this.setState(st => ({ goalClaimed: Object.assign({}, st.goalClaimed, { [key]: true }) }))
+      };
+    });
+
+    const idxNames = ["Grunt", "Scout", "Sniper", "Medic", "Engineer", "Tank", "Jeep", "Chopper", "Bunker", "Radar", "Depot", "Cannon", "Mortar", "Drone", "Shield", "Warlord", "Titan", "Colossus"];
+    const indexEntries = idxNames.map((n, i) => ({
+      name: n,
+      slot: "idx_" + String(i + 1).padStart(2, "0") + ".png",
+      found: i < 11,
+      hidden: i >= 11,
+      isNew: i === 9 || i === 10
+    }));
+
+    const swatchDefs = [
+      ["Outline", "#16170F"], ["Panel top", "#414E36"], ["Panel bottom", "#2B3423"], ["Inset track", "#1B2114"],
+      ["Row top", "#4E5C3B"], ["Row bottom", "#333E24"], ["Gold light", "#FFE87A"], ["Gold", "#FFC531"],
+      ["Gold deep", "#E08A0C"], ["Green light", "#A6EE72"], ["Green", "#5FC22F"], ["Green deep", "#317F16"],
+      ["Purple light", "#DE93FF"], ["Purple", "#B04CEC"], ["Red", "#E23A2C"], ["Blue", "#2A93E0"],
+      ["Card light", "#F7F7F1"], ["Card mid", "#DEDED4"], ["Card shade", "#B2B4A8"], ["Text muted", "#C9D6B4"]
+    ];
+
+    return {
+      showPass: screen === "pass" && !s.kit,
+      showBackpack: screen === "backpack" && !s.kit,
+      showSettings: screen === "settings" && !s.kit,
+      showDaily: screen === "daily" && !s.kit,
+      showIndex: screen === "index" && !s.kit,
+      showGoals: screen === "goals" && !s.kit,
+      showKit: s.kit,
+      hudIdle: !s.kit && !["pass", "backpack", "settings", "daily", "index", "goals"].includes(screen),
+      openKit: () => this.setState({ kit: true }),
+      closeKit: () => this.setState({ kit: false }),
+      closePanel: () => this.setState({ screen: "none" }),
+      openGoals: this.go("goals"),
+
+      rail: [
+        { label: "Bag", slot: "bag", active: screen === "backpack", badge: null, open: this.go("backpack") },
+        { label: "Pass", slot: "pass", active: screen === "pass", badge: "1", open: this.go("pass") },
+        { label: "Daily", slot: "cal", active: screen === "daily", badge: "1", open: this.go("daily") },
+        { label: "Goals", slot: "goal", active: screen === "goals", badge: "2", open: this.go("goals") },
+        { label: "Index", slot: "book", active: screen === "index", badge: null, open: this.go("index") },
+        { label: "Settings", slot: "gear", active: screen === "settings", badge: null, open: this.go("settings") }
+      ],
+
+      level: s.level,
+      xpPct: Math.round((s.xp / s.xpNeed) * 100),
+      xpLabel: s.xp + " / " + s.xpNeed,
+      skipCost: (s.xpNeed - s.xp) * 5,
+      passOwned: owned,
+      passNotOwned: !owned,
+      freeTiers: this.buildTrack(this.FREE, "free"),
+      passTiers: this.buildTrack(this.PASS, "pass"),
+      tierNums: this.FREE.map((_, i) => ({ n: i + 1 })),
+
+      bagTabs: ["All", "Weapons", "Units", "Boosts", "Skins"].map((l, i) => ({
+        label: l, active: s.bagTab === i, pick: () => this.setState({ bagTab: i })
+      })),
+      bagItems,
+      emptySlots,
+      sel,
+
+      sliders: [
+        { label: "Music", pct: s.music, set: e => this.setSlider(e, "music") },
+        { label: "Sound FX", pct: s.sfx, set: e => this.setSlider(e, "sfx") }
+      ],
+      quality: ["Low", "Medium", "High"].map((l, i) => ({
+        label: l, active: s.quality === i, pick: () => this.setState({ quality: i })
+      })),
+      toggles: ["Screen shake", "Damage numbers", "Auto-claim rewards", "Show other players"].map((l, i) => ({
+        label: l,
+        on: s.toggles[i],
+        off: !s.toggles[i],
+        flip: () => this.setState(st => {
+          const t = st.toggles.slice(); t[i] = !t[i]; return { toggles: t };
+        })
+      })),
+
+      days,
+      goalTabs: ["Daily", "Weekly", "Season"].map((l, i) => ({
+        label: l, active: s.goalTab === i, pick: () => this.setState({ goalTab: i })
+      })),
+      goals,
+
+      indexFilters: ["All", "Units", "Vehicles", "Buildings"].map((l, i) => ({
+        label: l, active: s.indexFilter === i, pick: () => this.setState({ indexFilter: i })
+      })),
+      indexEntries,
+
+      swatches: swatchDefs.map(d => ({ name: d[0], hex: d[1], css: d[1] })),
+      rarities: [
+        { name: "Common", color: "#C9CCC2", glow: "rgba(201,204,194,.35)" },
+        { name: "Rare", color: "#3FA9F5", glow: "rgba(63,169,245,.5)" },
+        { name: "Epic", color: "#A855F7", glow: "rgba(168,85,247,.55)" },
+        { name: "Legendary", color: "#FFB200", glow: "rgba(255,178,0,.6)" }
+      ]
+    };
+  }
+
+  setSlider(e, key) {
+    const box = e.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(100, Math.round(((e.clientX - box.left) / box.width) * 100)));
+    this.setState({ [key]: pct });
+  }
+}
+
+</script>
+</body>
+</html>
