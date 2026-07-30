@@ -11,6 +11,8 @@ Date: 2026-07-30 · Status: for user review · Visual authority: `docs/design-ha
 | Goals mapping | CONSOLIDATE all three quest systems into the one Goals panel |
 | Settings "Reset Data" | EXCLUDED — rebirth is the only reset mechanic |
 | PNG visual targets | Requested from the design tool; build proceeds from README numbers + interactive reference meanwhile |
+| Palette (2026-07-30) | Kit colors CONFIRMED as-is ("style kit" clarified: structure is law; user accepted the kit palette). Tokens still split structure-vs-theme for future re-theming |
+| Icons (2026-07-30) | Kit v2 ships 8 SVGs (`icons/`). Pipeline: browser-rasterize → PNG → CreateAssetAsync upload PILOT (real account assets — natively persistent, unlike EditableMesh place content); fallback = user bulk-import. Rail + currency use real icons Phase 1. Backpack tab icons (pet/charm/egg) + brainrot icon requested from the design tool |
 
 ## What ships (Phase 1)
 
@@ -43,7 +45,7 @@ New ScreenGui `GameHUD` (kit's 1350×775 UIScale canvas) containing: currency cl
 
 **Season Pass** — Free track = existing free tiers. "Buy Pass 799◆" CTA = the premium gamepass (ID placeholder; button shows "COMING SOON" disabled variant until the user creates it). "Skip N" tier-skip = dev product via ProductRegistry (placeholder id, hidden until real). XP/level = SeasonXP pipeline unchanged. Two-track claimed state maps to SeasonClaimed (free) + new SeasonClaimedPass table (schema add + migration, inert until pass exists).
 
-**Backpack** — kit's Equip = existing hold system (EquipBrainrot). Category tabs = All / by-tier bands (Common–Rare / Epic–Legendary / Mythic+ / Held). "28/60 slots" counter maps to NOTHING (no slot cap exists) → replaced by "N brainrots · M/6 held" counter in the same header slot. "+ Slots" button omitted. Rarity frames = existing RarityConfig colors mapped to kit rarity tokens (8 tiers > kit's 5: Common/Uncommon→common, Rare→rare, Epic→epic, Legendary→legendary, Mythic/Secret/God→mythic rainbow ring).
+**Backpack** — kit's Equip = existing hold system (EquipBrainrot). Category tabs (USER DECISION 2026-07-30): **Brainrots / Pets / Charms / Eggs**. Brainrots = current inventory grid (richest-first, held ribbons, tier sub-filter chips above the grid). Pets = the dormant pet system: while `PetConfig.ENABLED == false`, a friendly empty state ("Pets hatch soon!" + art slot); when enabled, `data.Pets` grid + equip through PetEquip. Charms = owned upgrade/charm items (read UpgradeHandler's data shape at build time; if the game stores no discrete charm items yet, empty state "Visit Enzo the Upgrader!"). Eggs = empty-state teaser pointing at Gino's stall (eggs are open-on-purchase today, not held items). "28/60 slots" counter → "N brainrots · M/6 held". "+ Slots" omitted. Rarity mapping: Common/Uncommon→common, Rare→rare, Epic→epic, Legendary→legendary, Mythic/Secret/God→mythic rainbow ring. Tab icons: bag.svg for Brainrots now; pet/charm/egg icons REQUESTED from the design tool per the README §6.1 construction rule (placeholder slots until then).
 
 **Daily Rewards** — direct 1:1 (existing 7-day streak). Reward art slots show existing reward amounts as coin-stack text until art exists.
 

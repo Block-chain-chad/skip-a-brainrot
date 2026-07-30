@@ -146,7 +146,7 @@ Never below 13 px; touch targets never below 44 px.
 ## 3. Screens
 
 Common shell for all six panels: full-canvas scrim → centred column, `padding-right: 132` (reserves the nav rail) and `padding-left: 24`.
-**Header bar:** height 92, radius 22, stroke 5, gold gradient, padding 0 12, gap 14 — icon slot 64×64 (radius 14, stroke 4) · title 44 · flexible spacer · optional action button · close button 74×66 (radius 16, red).
+**Header bar:** height 92, radius 22, stroke 5, gold gradient, padding 0 12, gap 14 — section icon 62×62 (no plate, `drop-shadow(0 3px 2px rgba(0,0,0,.35))`) · title 44 · flexible spacer · optional action button · close button 74×66 (radius 16, red).
 **Body:** `margin-top: 12`, radius 22, stroke 5, panel gradient, padding 16 (18 on Daily).
 
 ### 3.1 Season Pass — panel width 960 (+ 196 side column, gap 14)
@@ -204,7 +204,7 @@ icon slot 60×60 (radius 12, stroke 4) · centre column (title 22 + progress bar
 
 ### 3.7 HUD
 - **Currency cluster** top 18 / left 18, gap 12. Pill height 54, radius 999, stroke 4, padding 0 18 0 6 — 38 px circular icon slot (stroke 3) + value 24. Coin pill = goldSmall, gem pill = `#D98BFF`→`#A93FE6`→`#7A1CB8`. Hidden while a panel is open.
-- **Nav rail** right 16, vertically centred, gap 10. Item 98×88, radius 18, stroke 4, goldSmall, hard shadow 0 5 + soft 0 9 12 — icon slot 42×42 (radius 11) + label 14. Order: **Bag · Pass · Daily · Goals · Index · Settings**. Active = 4 px white ring inset −6 (radius 22) + 14 px white glow. Notification badge = red pill, min-width 30, height 30, stroke 3.5, at top −9 / right −9, value 16.
+- **Nav rail** right 10, vertically centred, gap 6. No button plate — the icon floats on the world (matches the reference). Item column width 106: icon 66×66 with `drop-shadow(0 5px 4px rgba(0,0,0,.5))` · label directly under it, Fredoka One 20 / stroke 4 / white + `text-shadow 0 3px 0 rgba(0,0,0,.3)`. Order: **Bag · Pass · Daily · Goals · Index · Settings**. Active = 88 px radial gold glow behind the icon (`rgba(255,232,122,.75)` centre → transparent at 72%). Notification badge = red circle, min-width 34, height 34, stroke 4, hard shadow 0 3, at top −6 / right 12, value 19. Hover: `translateY(-3) scale(1.05)`; press: `translateY(+2) scale(.99)`.
 
 ---
 
@@ -265,14 +265,31 @@ All reward-bearing mutations are **server-authoritative**: the client sends inte
 
 ## 6. Assets
 
-No production art is included — every image position is an explicit, labelled slot (diagonal-stripe fill + monospace filename in the reference). Replace each with an `ImageLabel` (`ScaleType = Fit`).
+### 6.1 Icon set — shipped, ready to use (`icons/`)
+Eight original icons are included as clean SVG (128×128 export, `viewBox="-5 -5 74 74"`, no external refs, no fonts):
+
+| File | Used for | Silhouette | Fill (top → bottom) |
+|---|---|---|---|
+| `bag.svg` | Backpack section | rounded body + flap + carry loop + gold buckle | `#FF7F5F`→`#C22B18`, flap `#E8543A`→`#A02010` |
+| `pass.svg` | Season Pass section, XP row | ticket rotated −7° + 5-point star | ticket `#DE93FF`→`#7C1CC0`, star `#FFE066`→`#E8930F` |
+| `daily.svg` | Daily Rewards section | calendar, red header, two rings, 6 cells (one gold = today) | body `#FAFAF4`→`#BFC1B5`, header `#FF6B5A`→`#C8231C` |
+| `goals.svg` | Goals section | clipboard + purple clip + green check | board `#F7F7F1`→`#B4B6AC`, clip `#DE93FF`→`#8B2FD6`, check `#4FBE28` |
+| `index.svg` | Index section | book: cover, cream pages, spine, red bookmark | cover `#6FD8FF`→`#125FA8`, spine `#3AA7E8`→`#0D4A85` |
+| `settings.svg` | Settings section | 8-tooth gear + hub hole | `#FCFCF6`→`#9AA28E`, hole `#5A6350` |
+| `coin.svg` | coin currency, quest rewards | outer disc + inner face + small star | `#FFE87A`→`#E8930F`, face `#FFF3C4`→`#F5C13A` |
+| `gem.svg` | gem currency, prices | 4-point diamond + facet split + gloss wedge | `#E9B4FF`→`#7A1CB8` |
+
+**Construction rule — use it for any new icon.** Build the silhouette from rects / circles / polygons only, then draw it **twice**: pass 1 filled *and* stroked `#16170F` at width 9 with round joins (this fuses the parts into one fat union outline), pass 2 the real gradient fills on top, with inner detail edges getting a 2.5–4 px `#16170F` stroke. Finish with one white gloss shape at 22–55% opacity in the top-left. That is the entire style, and it holds from 28 px to 128 px.
+
+Rendered sizes in the UI: nav rail 66 · panel header 62 · pass XP row 58 · currency pill 40–42 · price / reward chip 30–34.
+
+**In Roblox:** rasterise each SVG to a 256×256 transparent PNG, upload as an Image asset, and use `ImageLabel` with `ScaleType = Fit`. If you later want the fully-lit 3D look, treat these SVGs as the modelling brief — same silhouette, same palette, add a soft contact shadow — and swap the PNGs 1:1 without touching layout code. Keep the file names.
+
+### 6.2 Still placeholders (studio art required)
+Every remaining image position is an explicit labelled slot (diagonal stripes + monospace filename in the reference). Replace each with an `ImageLabel` (`ScaleType = Fit`).
 
 | Slot label | Where | Rendered size |
 |---|---|---|
-| `pass/bag/cal/goal/book/gear icon` | panel header icons | 64×64 |
-| `bag/pass/cal/goal/book/gear` | nav rail icons | 42×42 |
-| `coin`, `gem` | currency pills, price chips | 38×38 / 26–30 |
-| `ticket` | pass XP row | 62×56 |
 | `gem_small/gem_large/crate_supply/crate_elite/tag_*/boost_coin2x/banner_01/skin_base_01/coin_stack` | reward cards | 162×120 |
 | `tier50_free`, `tier50_pass` | Max Rewards previews | 180×150 |
 | `item_01…15` | backpack slots | 106×106 |
@@ -291,6 +308,7 @@ Delete every monospace slot label in production — it exists only to mark inten
 | `tokens.lua` | Palette, gradients, geometry, type scale, tween presets as a Luau module |
 | `ui_builders.lua` | Helper constructors: stroke, corner, gradient, gloss, hard shadow, panel, button, display text, inset track |
 | `data_schema.lua` | Reward / tier / quest / daily / index / item table shapes, default season data, remote contract |
+| `icons/*.svg` | The eight section / currency icons, production-ready vector |
 | `states.md` | State machines and motion timings in checklist form |
 
 Suggested implementation order: `tokens.lua` + `ui_builders.lua` → HUD shell (root scaling, rail, currency) → Season Pass (the most component-dense panel) → Goals → Daily → Backpack → Index → Settings.

@@ -36,26 +36,31 @@
   <sc-if value="{{ hudIdle }}" hint-placeholder-val="{{ false }}">
   <div style="position:absolute;top:18px;left:18px;display:flex;gap:12px;z-index:20">
     <div style="display:flex;align-items:center;gap:10px;height:54px;padding:0 18px 0 6px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.5),inset 0 -5px 0 rgba(0,0,0,.16),0 5px 0 #16170F">
-      <div style="width:38px;height:38px;border-radius:999px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#FFF3C4 0 5px,#F3DE96 5px 10px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12">coin</div>
+      <img src="icons/coin.svg" alt="" width="42" height="42" style="display:block">
       <div style="font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">12,480</div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;height:54px;padding:0 18px 0 6px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#D98BFF 0%,#A93FE6 52%,#7A1CB8 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.4),inset 0 -5px 0 rgba(0,0,0,.2),0 5px 0 #16170F">
-      <div style="width:38px;height:38px;border-radius:999px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#F0D2FF 0 5px,#DDB2F6 5px 10px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#54176F">gem</div>
+      <img src="icons/gem.svg" alt="" width="40" height="40" style="display:block">
       <div style="font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">340</div>
     </div>
   </div>
   </sc-if>
 
-  <div style="position:absolute;right:16px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:10px;z-index:30">
+  <div style="position:absolute;right:10px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;z-index:30">
     <sc-for list="{{ rail }}" as="item" hint-placeholder-count="6">
-      <div onClick="{{ item.open }}" style="position:relative;width:98px;height:88px;border-radius:18px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.55),inset 0 -6px 0 rgba(0,0,0,.18),0 5px 0 #16170F,0 9px 12px rgba(0,0,0,.3);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;transition:transform .12s ease,filter .12s ease" style-hover="transform:translateY(-3px) scale(1.03);filter:brightness(1.05)" style-active="transform:translateY(2px) scale(.99)">
-        <div style="width:42px;height:42px;border-radius:11px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 5px,#F2E0A0 5px 10px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:8px;color:#5A4A12;text-align:center;line-height:1">{{ item.slot }}</div>
-        <div style="font-family:'Fredoka One',cursive;font-size:14px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ item.label }}</div>
+      <div onClick="{{ item.open }}" style="position:relative;width:106px;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-3px) scale(1.05)" style-active="transform:translateY(2px) scale(.99)">
         <sc-if value="{{ item.active }}" hint-placeholder-val="{{ false }}">
-          <div style="position:absolute;inset:-6px;border-radius:22px;border:4px solid #FFFFFF;box-shadow:0 0 14px 3px rgba(255,255,255,.6);pointer-events:none"></div>
+          <div style="position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:88px;height:88px;border-radius:999px;background:radial-gradient(circle,rgba(255,232,122,.75) 0%,rgba(255,232,122,.28) 45%,rgba(255,232,122,0) 72%);pointer-events:none"></div>
         </sc-if>
+        <sc-if value="{{ item.is_bag }}" hint-placeholder-val="{{ true }}"><img src="icons/bag.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
+        <sc-if value="{{ item.is_pass }}" hint-placeholder-val="{{ false }}"><img src="icons/pass.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
+        <sc-if value="{{ item.is_daily }}" hint-placeholder-val="{{ false }}"><img src="icons/daily.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
+        <sc-if value="{{ item.is_goals }}" hint-placeholder-val="{{ false }}"><img src="icons/goals.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
+        <sc-if value="{{ item.is_index }}" hint-placeholder-val="{{ false }}"><img src="icons/index.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
+        <sc-if value="{{ item.is_settings }}" hint-placeholder-val="{{ false }}"><img src="icons/settings.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
+        <div style="font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill;text-shadow:0 3px 0 rgba(0,0,0,.3)">{{ item.label }}</div>
         <sc-if value="{{ item.badge }}" hint-placeholder-val="{{ false }}">
-          <div style="position:absolute;top:-9px;right:-9px;min-width:30px;height:30px;padding:0 6px;border-radius:999px;border:3.5px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 60%,#B41C16 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:16px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">{{ item.badge }}</div>
+          <div style="position:absolute;top:-6px;right:12px;min-width:34px;height:34px;padding:0 7px;border-radius:999px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 60%,#B41C16 100%);box-shadow:0 3px 0 #16170F;display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:19px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ item.badge }}</div>
         </sc-if>
       </div>
     </sc-for>
@@ -71,7 +76,7 @@
 
       <div style="display:flex;flex-direction:column;width:960px">
         <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
-          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">pass<br>icon</div>
+          <img src="icons/pass.svg" alt="" width="62" height="62" style="display:block;filter:drop-shadow(0 3px 2px rgba(0,0,0,.35))">
           <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Season Pass</div>
           <div style="flex:1"></div>
           <div onClick="{{ openGoals }}" style="height:66px;padding:0 30px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#DE93FF 0%,#B04CEC 52%,#7C1CC0 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),inset 0 -6px 0 rgba(0,0,0,.22),0 5px 0 #16170F;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-2px);filter:brightness(1.07)" style-active="transform:translateY(2px)">
@@ -85,7 +90,7 @@
         <div style="margin-top:12px;padding:16px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#414E36 0%,#2B3423 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.08),0 6px 0 #16170F,0 16px 26px rgba(0,0,0,.4)">
 
           <div style="display:flex;align-items:center;gap:12px">
-            <div style="width:62px;height:56px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#E8930F 100%);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;box-shadow:inset 0 4px 0 rgba(255,255,255,.45)">ticket</div>
+            <img src="icons/pass.svg" alt="" width="58" height="58" style="display:block;flex:0 0 auto;filter:drop-shadow(0 3px 2px rgba(0,0,0,.35))">
             <div style="position:relative;flex:1;height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#1B2114 0%,#26301C 100%);overflow:hidden;box-shadow:inset 0 4px 8px rgba(0,0,0,.55)">
               <div style="position:absolute;left:0;top:0;bottom:0;width:{{ xpPct }}%;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.5)"></div>
               <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:26px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">{{ xpLabel }}</div>
@@ -93,7 +98,7 @@
             <div style="width:58px;height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:28px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;box-shadow:inset 0 4px 0 rgba(255,255,255,.5),0 4px 0 #16170F">{{ level }}</div>
             <div style="height:56px;padding:0 18px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;gap:8px;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),inset 0 -5px 0 rgba(0,0,0,.2),0 5px 0 #16170F;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-2px);filter:brightness(1.06)" style-active="transform:translateY(2px)">
               <div style="font-family:'Fredoka One',cursive;font-size:26px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">Skip {{ skipCost }}</div>
-              <div style="width:26px;height:26px;border-radius:6px;border:3px solid #16170F;background:linear-gradient(180deg,#D98BFF,#8B2FD6)"></div>
+              <img src="icons/gem.svg" alt="" width="30" height="30" style="display:block;flex:0 0 auto">
             </div>
           </div>
 
@@ -186,7 +191,7 @@
           <sc-if value="{{ passNotOwned }}" hint-placeholder-val="{{ true }}">
             <div style="height:74px;padding:0 36px;border-radius:18px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);display:flex;align-items:center;gap:12px;box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 12px 18px rgba(0,0,0,.35);cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-3px);filter:brightness(1.05)" style-active="transform:translateY(2px)">
               <div style="font-family:'Fredoka One',cursive;font-size:34px;color:#fff;-webkit-text-stroke:4.5px #16170F;paint-order:stroke fill">Buy Pass 799</div>
-              <div style="width:30px;height:30px;border-radius:7px;border:3px solid #16170F;background:linear-gradient(180deg,#D98BFF,#8B2FD6)"></div>
+              <img src="icons/gem.svg" alt="" width="34" height="34" style="display:block;flex:0 0 auto">
             </div>
           </sc-if>
         </div>
@@ -218,7 +223,7 @@
     <div data-screen-label="Backpack" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
       <div style="display:flex;flex-direction:column;width:960px">
         <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
-          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">bag<br>icon</div>
+          <img src="icons/bag.svg" alt="" width="62" height="62" style="display:block;filter:drop-shadow(0 3px 2px rgba(0,0,0,.35))">
           <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Backpack</div>
           <div style="align-self:center;margin-top:6px;font-family:'Fredoka One',cursive;font-size:22px;color:#5A4A12">28 / 60 slots</div>
           <div style="flex:1"></div>
@@ -303,7 +308,7 @@
     <div data-screen-label="Settings" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
       <div style="display:flex;flex-direction:column;width:700px">
         <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
-          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">gear<br>icon</div>
+          <img src="icons/settings.svg" alt="" width="62" height="62" style="display:block;filter:drop-shadow(0 3px 2px rgba(0,0,0,.35))">
           <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Settings</div>
           <div style="flex:1"></div>
           <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),inset 0 -6px 0 rgba(0,0,0,.24),0 5px 0 #16170F;cursor:pointer" style-hover="filter:brightness(1.07)">
@@ -369,7 +374,7 @@
     <div data-screen-label="Daily Rewards" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
       <div style="display:flex;flex-direction:column;width:900px">
         <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
-          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">cal<br>icon</div>
+          <img src="icons/daily.svg" alt="" width="62" height="62" style="display:block;filter:drop-shadow(0 3px 2px rgba(0,0,0,.35))">
           <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Daily Rewards</div>
           <div style="flex:1"></div>
           <div style="display:flex;align-items:center;gap:8px;height:58px;padding:0 16px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#3B4731,#26301F)">
@@ -433,7 +438,7 @@
     <div data-screen-label="Index" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
       <div style="display:flex;flex-direction:column;width:940px">
         <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
-          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#FFF6D2 0 6px,#F2E0A0 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#5A4A12;text-align:center">book<br>icon</div>
+          <img src="icons/index.svg" alt="" width="62" height="62" style="display:block;filter:drop-shadow(0 3px 2px rgba(0,0,0,.35))">
           <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Index</div>
           <div style="flex:1"></div>
           <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),0 5px 0 #16170F;cursor:pointer" style-hover="filter:brightness(1.07)">
@@ -450,7 +455,7 @@
             </div>
             <div style="height:48px;padding:0 14px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#3B4731,#26301F);display:flex;align-items:center;gap:8px">
               <div style="font-family:Nunito;font-weight:900;font-size:13px;color:#C9D6B4">100% REWARD</div>
-              <div style="width:30px;height:30px;border-radius:8px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#FFE066 0 5px,#E8930F 5px 10px)"></div>
+              <img src="icons/coin.svg" alt="" width="34" height="34" style="display:block;flex:0 0 auto">
             </div>
           </div>
 
@@ -490,7 +495,7 @@
     <div data-screen-label="Goals / Quests" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
       <div style="display:flex;flex-direction:column;width:860px">
         <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#DE93FF 0%,#B04CEC 55%,#7C1CC0 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.45),inset 0 -7px 0 rgba(0,0,0,.2),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
-          <div style="width:64px;height:64px;border-radius:14px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#F0D2FF 0 6px,#DDB2F6 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:9px;color:#54176F;text-align:center">goal<br>icon</div>
+          <img src="icons/goals.svg" alt="" width="62" height="62" style="display:block;filter:drop-shadow(0 3px 2px rgba(0,0,0,.35))">
           <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Goals</div>
           <div style="flex:1"></div>
           <div style="display:flex;align-items:center;gap:8px;height:58px;padding:0 16px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#5B1D8C,#3A0F5C)">
@@ -526,7 +531,7 @@
                   </div>
                 </div>
                 <div style="display:flex;align-items:center;gap:7px;height:52px;padding:0 12px;border-radius:12px;border:4px solid #16170F;background:linear-gradient(180deg,#3B4731,#26301F)">
-                  <div style="width:30px;height:30px;border-radius:8px;border:3px solid #16170F;background:repeating-linear-gradient(135deg,#FFE066 0 5px,#E8930F 5px 10px)"></div>
+                  <img src="icons/coin.svg" alt="" width="34" height="34" style="display:block;flex:0 0 auto">
                   <div style="font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ q.reward }}</div>
                 </div>
                 <sc-if value="{{ q.isClaimable }}" hint-placeholder-val="{{ true }}">
@@ -831,12 +836,12 @@ class Component extends DCLogic {
       openGoals: this.go("goals"),
 
       rail: [
-        { label: "Bag", slot: "bag", active: screen === "backpack", badge: null, open: this.go("backpack") },
-        { label: "Pass", slot: "pass", active: screen === "pass", badge: "1", open: this.go("pass") },
-        { label: "Daily", slot: "cal", active: screen === "daily", badge: "1", open: this.go("daily") },
-        { label: "Goals", slot: "goal", active: screen === "goals", badge: "2", open: this.go("goals") },
-        { label: "Index", slot: "book", active: screen === "index", badge: null, open: this.go("index") },
-        { label: "Settings", slot: "gear", active: screen === "settings", badge: null, open: this.go("settings") }
+        { label: "Bag", is_bag: true, active: screen === "backpack", badge: null, open: this.go("backpack") },
+        { label: "Pass", is_pass: true, active: screen === "pass", badge: "1", open: this.go("pass") },
+        { label: "Daily", is_daily: true, active: screen === "daily", badge: "1", open: this.go("daily") },
+        { label: "Goals", is_goals: true, active: screen === "goals", badge: "2", open: this.go("goals") },
+        { label: "Index", is_index: true, active: screen === "index", badge: null, open: this.go("index") },
+        { label: "Settings", is_settings: true, active: screen === "settings", badge: null, open: this.go("settings") }
       ],
 
       level: s.level,
