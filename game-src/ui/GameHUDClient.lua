@@ -32,6 +32,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService") -- Bug B fix: GetGuiInset() compensation, see Canvas below
+local TextService = game:GetService("TextService") -- Bug A fix: measures pill text width, see buildPill below
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -55,7 +57,23 @@ gui.Parent = playerGui
 local root = Instance.new("Frame")
 root.Name = "Canvas"
 root.AnchorPoint = Vector2.new(0.5, 0.5)
-root.Position = UDim2.fromScale(0.5, 0.5)
+-- Bug B fix (ui-overhaul checkpoint-1 fix wave): same class of IgnoreGuiInset
+-- gotcha WheelClient's own Task 4 fix documents (StarterPlayerScripts.
+-- WheelClient, search "IgnoreGuiInset", ~lines 79-89) -- but this canvas needs
+-- to truly span the FULL screen (the kit is edge-to-edge), so unlike Wheel's
+-- fix (set IgnoreGuiInset=false, hand-correct positions elsewhere) this keeps
+-- IgnoreGuiInset=true and compensates the centring instead. Measured live
+-- (task-4-report.md Check 2): Canvas.AbsolutePosition was (0,-57.3) in a
+-- 1379x793 viewport against AbsoluteSize (1379,791.6) -- solving
+-- (V-2I)/2 - S/2 = -57.3 for I gives exactly 58, matching Wheel's own
+-- measured GuiInset for this build. That means the shortfall is a FULL
+-- GuiInset().Y, not half of one: Scale(0.5,0.5) here resolves against a
+-- parent height that's already net the inset on top of AnchorPoint's own
+-- centring. Adding the inset back as a raw Y offset (unaffected by
+-- canvasScale, since UIScale below scales root's own rendered SIZE, not the
+-- Position offset computed against root's parent) restores true (0,0)
+-- full-screen centring.
+root.Position = UDim2.new(0.5, 0, 0.5, GuiService:GetGuiInset().Y)
 root.Size = UDim2.fromOffset(T.size.canvas.X, T.size.canvas.Y)
 root.BackgroundTransparency = 1
 root.Parent = gui
@@ -181,12 +199,38 @@ clusterList.Parent = currencyCluster
 
 -- Pill height 54, radius 999, stroke 4, padding 0 18 0 6, 38px circular icon
 -- slot (stroke 3) + value 24 (kit README 3.7).
+--
+-- Bug A fix (ui-overhaul checkpoint-1 fix wave): UI.gloss's Gloss/Shade
+-- frames are Scale=1-of-parent decorative overlays, not flex items -- they
+-- used to sit directly on `pill` alongside a horizontal UIListLayout that
+-- swept them into the same row as IconSlot/Value (an undefined layout combo
+-- once `pill` also carried AutomaticSize.X -- measured AbsoluteSize.X ~5700
+-- in Play, see task-4-report.md). Builders' UI.gloss() itself is untouched
+-- (panels depend on its current behaviour); instead the padding + list
+-- layout + icon/value now live in a `Content` wrapper Frame that fills
+-- `pill`, so Gloss/Shade stay untouched full-bleed siblings on `pill` and
+-- never enter anyone's layout. `pill` itself is now explicitly sized --
+-- icon + list gaps + measured text width + the kit's own padding --
+-- recomputed via sizePillToValue() every time the value label's text
+-- changes, with NO AutomaticSize anywhere on the pill.
+local PILL_ICON_W = 38
+local PILL_GAP = 8
+local PILL_PAD_LEFT, PILL_PAD_RIGHT = 6, 18
+
+local function sizePillToValue(pill, value)
+	local spec = T.text.value
+	local textWidth = TextService:GetTextSize(
+		value.Text, spec[1], Enum.Font.FredokaOne, Vector2.new(1000, spec[1] + 24)
+	).X
+	local width = PILL_PAD_LEFT + PILL_ICON_W + PILL_GAP + textWidth + PILL_PAD_RIGHT
+	pill.Size = UDim2.fromOffset(width, T.size.currencyPill)
+end
+
 local function buildPill(order, gradientKey, iconKey)
 	local pill = Instance.new("Frame")
 	pill.Name = iconKey:sub(1, 1):upper() .. iconKey:sub(2) .. "Pill"
 	pill.LayoutOrder = order
-	pill.Size = UDim2.new(0, 0, 0, T.size.currencyPill)
-	pill.AutomaticSize = Enum.AutomaticSize.X
+	pill.Size = UDim2.new(0, 0, 0, T.size.currencyPill) -- real width set below by sizePillToValue
 	pill.BackgroundColor3 = T.color.white
 	pill.BorderSizePixel = 0
 	pill.ZIndex = T.zindex.currency
@@ -194,36 +238,45 @@ local function buildPill(order, gradientKey, iconKey)
 	UI.corner(pill, T.radius.pill)
 	UI.gradient(pill, T.gradient[gradientKey])
 	UI.stroke(pill, T.stroke.control)
-	UI.gloss(pill, T.radius.pill)
+	UI.gloss(pill, T.radius.pill) -- Gloss/Shade land directly on `pill`, outside Content's layout
+
+	local content = Instance.new("Frame")
+	content.Name = "Content"
+	content.Size = UDim2.fromScale(1, 1)
+	content.BackgroundTransparency = 1
+	content.ZIndex = pill.ZIndex + 2 -- above Gloss/Shade (frame.ZIndex+1 in UI.gloss)
+	content.Parent = pill
 
 	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, 6)
-	pad.PaddingRight = UDim.new(0, 18)
-	pad.Parent = pill
+	pad.PaddingLeft = UDim.new(0, PILL_PAD_LEFT)
+	pad.PaddingRight = UDim.new(0, PILL_PAD_RIGHT)
+	pad.Parent = content
 
 	local list = Instance.new("UIListLayout")
 	list.FillDirection = Enum.FillDirection.Horizontal
 	list.VerticalAlignment = Enum.VerticalAlignment.Center
 	list.SortOrder = Enum.SortOrder.LayoutOrder
-	list.Padding = UDim.new(0, 8)
-	list.Parent = pill
+	list.Padding = UDim.new(0, PILL_GAP)
+	list.Parent = content
 
-	local icon = UI.artSlot(pill, UDim2.fromOffset(38, 38), T.icons[iconKey])
+	local icon = UI.artSlot(content, UDim2.fromOffset(PILL_ICON_W, PILL_ICON_W), T.icons[iconKey])
 	icon.Name = "IconSlot"
 	icon.LayoutOrder = 1
-	icon.ZIndex = pill.ZIndex + 2
+	icon.ZIndex = content.ZIndex + 1
 	local iconCorner = icon:FindFirstChildOfClass("UICorner")
 	if iconCorner then iconCorner.CornerRadius = UDim.new(1, 0) end -- circular, not the art-slot default
 	UI.stroke(icon, 3)
 
-	local value = UI.label(pill, "0", "value", T.color.white)
+	local value = UI.label(content, "0", "value", T.color.white)
 	value.Name = "Value"
 	value.LayoutOrder = 2
-	value.ZIndex = pill.ZIndex + 2
+	value.ZIndex = content.ZIndex + 1
 	value.TextYAlignment = Enum.TextYAlignment.Center
 
 	local popScale = Instance.new("UIScale")
 	popScale.Parent = pill
+
+	sizePillToValue(pill, value)
 
 	return pill, value, popScale
 end
@@ -233,12 +286,17 @@ local gemPill, gemValueLabel, gemPop = buildPill(2, "gem", "gem")
 
 local cash, darrels = 0, 0
 local hasCashLoaded, hasDarrelsLoaded = false, false
+-- Bug C fix: guards the startup retry below against a race with
+-- DarrelUpdate -- set true the instant EITHER path lands a real value so the
+-- other stops touching gemPill.
+local darrelSeeded = false
 
 local function applyCash(n)
 	if typeof(n) ~= "number" then return end
 	local prev = cash
 	cash = n
 	coinValueLabel.Text = shortNumber(n)
+	sizePillToValue(coinPill, coinValueLabel) -- Bug A fix: pill has no AutomaticSize, recompute on every value change
 	if hasCashLoaded and n > prev then playPop(coinPop) end
 	hasCashLoaded = true
 end
@@ -248,6 +306,7 @@ local function applyDarrels(n)
 	local prev = darrels
 	darrels = n
 	gemValueLabel.Text = shortNumber(n)
+	sizePillToValue(gemPill, gemValueLabel) -- Bug A fix: pill has no AutomaticSize, recompute on every value change
 	if hasDarrelsLoaded and n > prev then playPop(gemPop) end
 	hasDarrelsLoaded = true
 end
@@ -259,6 +318,7 @@ end)
 
 remotes.DarrelUpdate.OnClientEvent:Connect(function(payload)
 	if typeof(payload) ~= "table" then return end
+	darrelSeeded = true -- Bug C fix: a real push beats the startup retry loop to it
 	applyDarrels(payload.Darrels)
 end)
 
@@ -269,9 +329,24 @@ task.spawn(function()
 	if ok and typeof(snap) == "table" then applyCash(snap.Cash) end
 end)
 
+-- Bug C fix: DarrelState's startup pull returned nil once in Play testing --
+-- pcall swallows a server-side "data not loaded yet" failure with no retry,
+-- leaving GemPill stuck at the seed value ("0") for the rest of the session
+-- unless a real balance change later fires DarrelUpdate (task-4-report.md).
+-- Bounded retry: up to 3 attempts, 2s apart, bailing out the instant a value
+-- lands here OR DarrelUpdate wins the race (darrelSeeded guards both).
 task.spawn(function()
-	local ok, res = pcall(function() return remotes.DarrelState:InvokeServer() end)
-	if ok and typeof(res) == "table" then applyDarrels(res.Darrels) end
+	for attempt = 1, 3 do
+		if darrelSeeded then return end
+		local ok, res = pcall(function() return remotes.DarrelState:InvokeServer() end)
+		if darrelSeeded then return end
+		if ok and typeof(res) == "table" and typeof(res.Darrels) == "number" then
+			darrelSeeded = true
+			applyDarrels(res.Darrels)
+			return
+		end
+		if attempt < 3 then task.wait(2) end
+	end
 end)
 
 ---------------------------------------------------------------- nav rail
@@ -454,20 +529,88 @@ local function updateActiveGlow()
 	end
 end
 
+-- Bug D fix (ui-overhaul checkpoint-1 fix wave): kit-styled "COMING SOON"
+-- placeholder mounted into `host` when openPanel(id) is called for an id
+-- with no registered module yet (GameHUDPanels is empty this checkpoint --
+-- panels arrive in later tasks). Destroyed on close (closePanel) or the
+-- instant a later openPanel call swaps to a different id -- never left
+-- orphaned in host.
+local placeholderFrame = nil
+local placeholderForId = nil
+
+local function destroyPlaceholder()
+	if placeholderFrame then
+		placeholderFrame:Destroy()
+		placeholderFrame = nil
+		placeholderForId = nil
+	end
+end
+
+local function buildPlaceholder(id)
+	local screenName = ID_TO_SCREEN[id] or id
+	local width = T.size.panelWidth[screenName] or 700
+	local panel = UI.panel(host, UDim2.fromOffset(width, 566))
+	panel.Name = "PlaceholderPanel"
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.fromScale(0.5, 0.5)
+
+	local list = Instance.new("UIListLayout")
+	list.FillDirection = Enum.FillDirection.Vertical
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	list.VerticalAlignment = Enum.VerticalAlignment.Center
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Padding = UDim.new(0, 16)
+	list.Parent = panel
+
+	local title = UI.label(panel, id, "panelTitle", T.color.white)
+	title.Name = "PanelTitleLabel"
+	title.LayoutOrder = 1
+	title.TextXAlignment = Enum.TextXAlignment.Center
+
+	local comingSoon = UI.label(panel, "COMING SOON", "buttonL", T.color.white)
+	comingSoon.Name = "ComingSoonLabel"
+	comingSoon.LayoutOrder = 2
+	comingSoon.TextXAlignment = Enum.TextXAlignment.Center
+
+	return panel
+end
+
 function openPanel(id)
 	local mod = panelModules[id]
-	if not mod then return end -- not registered yet -- panels arrive in later tasks
 
-	if not panelInstances[id] then
-		local ok, frame = pcall(mod.Build, ctx)
-		if not ok or typeof(frame) ~= "Instance" then return end
-		frame.Parent = host
-		frame.Visible = false
-		panelInstances[id] = frame
+	-- Bug D fix: the shell (host/scrim/currency-hide/single-open) must engage
+	-- even when no panel module is registered for `id` yet -- every id used to
+	-- early-return before ANY of this ran, silently disabling both this
+	-- checkpoint's expected "empty shell opens" feedback and SideRail's
+	-- legacy-closing behaviour (both hang off host's Visible transition -- see
+	-- the watcher near the bottom of this file). Only the panel CONTENT is
+	-- conditional now; the shell state changes below are unconditional.
+	if currentPanelId and currentPanelId ~= id then
+		if panelInstances[currentPanelId] then
+			panelInstances[currentPanelId].Visible = false
+		end
+		if placeholderForId == currentPanelId then
+			destroyPlaceholder()
+		end
 	end
 
-	if currentPanelId and currentPanelId ~= id and panelInstances[currentPanelId] then
-		panelInstances[currentPanelId].Visible = false
+	local frame
+	if mod then
+		if not panelInstances[id] then
+			local ok, built = pcall(mod.Build, ctx)
+			if not ok or typeof(built) ~= "Instance" then return end
+			built.Parent = host
+			built.Visible = false
+			panelInstances[id] = built
+		end
+		frame = panelInstances[id]
+	else
+		if placeholderForId ~= id then
+			destroyPlaceholder()
+			placeholderFrame = buildPlaceholder(id)
+			placeholderForId = id
+		end
+		frame = placeholderFrame
 	end
 
 	currentPanelId = id
@@ -475,7 +618,6 @@ function openPanel(id)
 	host.Visible = true
 	currencyCluster.Visible = false
 
-	local frame = panelInstances[id]
 	frame.Visible = true
 	local scale = frame:FindFirstChildOfClass("UIScale")
 	if not scale then
@@ -496,6 +638,9 @@ function closePanel()
 	if not currentPanelId then return end
 	local id = currentPanelId
 	local frame = panelInstances[id]
+	if not frame and placeholderForId == id then
+		frame = placeholderFrame
+	end
 	currentPanelId = nil
 	state.screen = "none"
 	currencyCluster.Visible = true
@@ -511,6 +656,9 @@ function closePanel()
 
 	task.delay(T.tween.panelClose.Time, function()
 		if frame then frame.Visible = false end
+		if placeholderForId == id then
+			destroyPlaceholder()
+		end
 		if not currentPanelId then
 			scrim.Visible = false
 			host.Visible = false
@@ -602,8 +750,16 @@ SideRail.registerPanel(host)
 -- resync even though it wasn't our own closePanel() that hid it.
 host:GetPropertyChangedSignal("Visible"):Connect(function()
 	if host.Visible or not currentPanelId then return end
-	local frame = panelInstances[currentPanelId]
+	local id = currentPanelId
+	local frame = panelInstances[id]
 	if frame then frame.Visible = false end
+	-- Bug D fix: SideRail's registry can force-close `host` (e.g. legacy egg
+	-- shop opening) without ever going through closePanel() -- the placeholder
+	-- needs the same cleanup here so it never survives host being hidden out
+	-- from under it.
+	if placeholderForId == id then
+		destroyPlaceholder()
+	end
 	scrim.Visible = false
 	currentPanelId = nil
 	state.screen = "none"
