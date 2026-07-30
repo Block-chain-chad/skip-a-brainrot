@@ -7,14 +7,15 @@
 -- from those exact same rows (EggHandler.RollFor), so shown odds can never
 -- drift from real odds (Roblox requires published odds for paid random items).
 --
--- playReveal(result) is a STUB in this task -- Task 8 replaces its body with
--- the real hatch animation. Everything around it (buy -> disable -> result ->
--- reopen) is final.
+-- playReveal(result), further down, plays the hatch animation (Task 8):
+-- shake -> crack -> tier-lit creature spin -> skip/fade. Everything around it
+-- (buy -> disable -> result -> reopen) is unrelated and untouched by that task.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local ProximityPromptService = game:GetService("ProximityPromptService")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -26,6 +27,8 @@ local RarityConfig = require(ReplicatedStorage.Modules.RarityConfig)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local SideRail = require(ReplicatedStorage.Modules.SideRail)
 local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb)
+local RarityFX = require(ReplicatedStorage.Modules.RarityFX)
+local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
 
 local CF = UITheme.Camp
 local FONT = UITheme.Font
@@ -375,9 +378,262 @@ local function showToast(message)
 	end)
 end
 
----------------------------------------------------------------- hatch reveal (Task 8 stub)
+---------------------------------------------------------------- hatch reveal
+-- Full-screen dim + a single ViewportFrame carried through three phases:
+-- SHAKE (egg jitters in place), CRACK (every non-shell part bursts outward
+-- while the shell fades), CREATURE (viewport swaps to the hatched brainrot,
+-- tier-lit tile, slow spin). "Non-shell part" rather than a fixed name-prefix
+-- whitelist: the five egg models carry a `ring_*`/`tape_*` family alongside
+-- the documented shard/drip/spike/horn/stripe/stud/rune/crown/link/cap/halo
+-- ones, so matching everything except shell_body_* is what actually covers
+-- every decoration on every egg instead of silently stranding a family that
+-- was never on the list.
+--
+-- ONE RenderStepped connection drives every per-frame animation in this
+-- reveal -- the egg shake AND the later creature spin both read the same
+-- `elapsed` accumulator -- stored in `conn` and disconnected in `skip()`, so
+-- a reveal can never leak a per-frame cost after it ends.
+--
+-- Every phase transition is a task.delay chained off the one before. Each
+-- callback checks its captured `myGen` against the shared `revealGen`
+-- counter before doing anything: skip() and a fresh playReveal() both bump
+-- `revealGen`, so a stale callback from an already-skipped reveal is a no-op
+-- instead of reaching into whatever reveal (or nothing) is live by then.
+local revealGui
+local function ensureRevealGui()
+	if revealGui and revealGui.Parent then return revealGui end
+	revealGui = new("ScreenGui", {
+		Name = "EggRevealUI", DisplayOrder = 10, IgnoreGuiInset = true, ResetOnSpawn = false,
+	}, playerGui)
+	return revealGui
+end
+
+local VP_SIZE = 320
+local SHAKE_TIME, SHAKE_HZ, SHAKE_DEG = 1.2, 20, 4
+local CRACK_TIME, CRACK_DIST_MULT, MAX_EXPLODE = 0.4, 2.5, 60
+local SPIN_TIME = 2.0     -- seconds per creature revolution
+local CREATURE_HOLD = 3.5 -- seconds the creature sits before auto-skip
+local FADE_TIME = 0.3
+local DIM_TARGET = 0.35
+
+local revealGen = 0    -- bumped by skip() and by every new playReveal()
+local revealSkip = nil -- the live reveal's skip(), or nil
+
+local function volumeOf(part)
+	local s = part.Size
+	return s.X * s.Y * s.Z
+end
+
 local function playReveal(result)
-	print("[EggShop] hatched:", result.Name)
+	-- Back-to-back safety: a second EggResult while a reveal is live skips
+	-- the current one, then plays the new one straight after (simplest
+	-- correct behaviour -- no queue to get stuck).
+	if revealSkip then revealSkip() end
+
+	revealGen += 1
+	local myGen = revealGen
+
+	local eggDef = EggConfig.GetEgg(WORLD_ID, result.EggId)
+	local eggModelName = eggDef and eggDef.Model
+	local tier = tierByName[result.Rarity]
+	local accent = (tier and tier.Color) or CF.ink
+
+	local root = new("Frame", {
+		Name = "Reveal", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 1,
+	}, ensureRevealGui())
+
+	local dim = new("Frame", {
+		Name = "Dim", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1,
+	}, root)
+	TweenService:Create(dim, TweenInfo.new(FADE_TIME), { BackgroundTransparency = 1 - DIM_TARGET }):Play()
+
+	local holder = new("Frame", {
+		Name = "Holder", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.46),
+		Size = UDim2.fromOffset(VP_SIZE, VP_SIZE + 96), BackgroundTransparency = 1, ZIndex = 2,
+	}, root)
+
+	local clickCatcher = new("TextButton", {
+		Name = "ClickCatcher", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 20,
+	}, root)
+
+	frame.Visible = false -- hide the shop panel behind the reveal overlay
+
+	-- {inst, prop} pairs to hide (tween to transparency 1) on skip; every
+	-- element that should visibly fade rather than snap registers itself here.
+	local fades = { { dim, "BackgroundTransparency" } }
+
+	local conn -- the ONE RenderStepped connection for this reveal
+	local dead = false
+	local elapsed = 0
+	local spinFn -- set once the creature phase starts
+
+	local function skip()
+		if dead then return end
+		dead = true
+		revealGen += 1 -- invalidate any pending task.delay for THIS reveal too
+		if revealSkip == skip then revealSkip = nil end
+		if conn then conn:Disconnect(); conn = nil end
+		clickCatcher.Active = false
+		for _, f in ipairs(fades) do
+			TweenService:Create(f[1], TweenInfo.new(FADE_TIME), { [f[2]] = 1 }):Play()
+		end
+		frame.Visible = true -- restore the shop panel
+		task.delay(FADE_TIME, function()
+			if root then root:Destroy(); root = nil end
+		end)
+	end
+	revealSkip = skip
+	clickCatcher.Activated:Connect(skip)
+
+	---------------------------------------------------- SHAKE
+	local eggClone, basePivot, eggVp
+	local eggMasterModel = eggModelName and eggMaster(eggModelName)
+	if eggMasterModel then
+		eggVp = new("ViewportFrame", {
+			Name = "EggViewport", Size = UDim2.fromOffset(VP_SIZE, VP_SIZE), BackgroundTransparency = 1, ZIndex = 3,
+		}, holder)
+		local eggCam = new("Camera", { FieldOfView = 32 }, eggVp)
+		eggVp.CurrentCamera = eggCam
+		eggClone = eggMasterModel:Clone()
+		eggClone.Parent = eggVp
+		basePivot = eggClone:GetPivot()
+		local centre, dist = BrainrotThumb.framing(eggClone, 32)
+		eggCam.CFrame = CFrame.lookAt(centre + BrainrotThumb.DEFAULT_DIR * dist, centre)
+	end
+
+	local crackPhase, creaturePhase
+
+	conn = RunService.RenderStepped:Connect(function(dt)
+		elapsed += dt
+		if eggClone and elapsed <= SHAKE_TIME then
+			local w = elapsed * SHAKE_HZ * (2 * math.pi)
+			local rx = math.rad(SHAKE_DEG) * math.sin(w)
+			local ry = math.rad(SHAKE_DEG) * math.sin(w * 1.31 + 1.7)
+			local rz = math.rad(SHAKE_DEG) * math.sin(w * 0.77 + 0.4)
+			eggClone:PivotTo(basePivot * CFrame.Angles(rx, ry, rz))
+		end
+		if spinFn then spinFn(elapsed) end
+	end)
+
+	task.delay(SHAKE_TIME, function()
+		if myGen ~= revealGen then return end
+		crackPhase()
+	end)
+
+	---------------------------------------------------- CRACK
+	crackPhase = function()
+		SoundKit.play("panelOpen", nil, { volume = 0.2 })
+
+		if eggClone then
+			local shellPart = eggClone:FindFirstChild("shell_body_1")
+			local centre = (shellPart and shellPart.Position) or basePivot.Position
+
+			-- everything except the shell is a decoration to burst outward --
+			-- see the header note on why this beats a fixed prefix whitelist.
+			local decorations = {}
+			for _, d in ipairs(eggClone:GetDescendants()) do
+				if d:IsA("BasePart") and d ~= shellPart then
+					decorations[#decorations + 1] = d
+				end
+			end
+			-- cap the tween count: the biggest MAX_EXPLODE pieces fly outward,
+			-- the rest (barely visible slivers on a 97-part Crown egg) just
+			-- vanish instantly instead of paying for a tween nobody would see
+			table.sort(decorations, function(a, b) return volumeOf(a) > volumeOf(b) end)
+			for i, part in ipairs(decorations) do
+				if i <= MAX_EXPLODE then
+					local targetPos = centre + (part.Position - centre) * CRACK_DIST_MULT
+					local targetCFrame = CFrame.new(targetPos) * (part.CFrame - part.CFrame.Position)
+					TweenService:Create(part, TweenInfo.new(CRACK_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						CFrame = targetCFrame, Transparency = 1,
+					}):Play()
+				else
+					part.Transparency = 1
+				end
+			end
+
+			if shellPart then
+				TweenService:Create(shellPart, TweenInfo.new(CRACK_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Transparency = 1,
+				}):Play()
+			end
+		end
+
+		task.delay(CRACK_TIME, function()
+			if myGen ~= revealGen then return end
+			creaturePhase()
+		end)
+	end
+
+	---------------------------------------------------- CREATURE
+	creaturePhase = function()
+		if eggVp then eggVp:Destroy(); eggVp = nil end
+		eggClone = nil
+
+		local card, outer = UITheme.accentCard(holder, accent, 20)
+		outer.Name = "RevealTile"
+		outer.Size = UDim2.fromOffset(VP_SIZE + 20, VP_SIZE + 20)
+		outer.Position = UDim2.fromOffset(-10, -10)
+		outer.ZIndex = 12
+		card.ZIndex = 13
+		-- Rare and up get glow / shimmer / sparkles / a cycling border, same
+		-- ladder as every other tile in the game (RarityFX itself decides
+		-- Common/Uncommon get nothing).
+		RarityFX.attach(outer, card, result.Rarity, accent, 0)
+		table.insert(fades, { outer, "BackgroundTransparency" })
+		table.insert(fades, { card, "BackgroundTransparency" })
+
+		local creatureVp = new("ViewportFrame", {
+			Name = "CreatureViewport", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 14,
+		}, card)
+		local ccam = new("Camera", { FieldOfView = 30 }, creatureVp)
+		creatureVp.CurrentCamera = ccam
+		table.insert(fades, { creatureVp, "ImageTransparency" })
+
+		local master = BrainrotThumb.master(result.Name)
+		if master then
+			local m = master:Clone()
+			m.Parent = creatureVp
+			local centre, dist = BrainrotThumb.framing(m, 30)
+			local creatureStart = elapsed
+			spinFn = function(t)
+				local ang = ((t - creatureStart) / SPIN_TIME) * (2 * math.pi)
+				local dir = CFrame.Angles(0, ang, 0) * BrainrotThumb.DEFAULT_DIR
+				ccam.CFrame = CFrame.lookAt(centre + dir * dist, centre)
+			end
+		else
+			-- no model for this name: a flat rarity swatch keeps the tile
+			-- readable instead of leaving a hole (same fallback BackpackClient uses)
+			local sw = new("Frame", {
+				Size = UDim2.fromScale(1, 1), BackgroundColor3 = accent, BackgroundTransparency = 0.5, ZIndex = 14,
+			}, card)
+			UITheme.corner(sw, 12)
+		end
+
+		local nameLabel = new("TextLabel", {
+			Name = "CreatureName", Position = UDim2.fromOffset(-90, VP_SIZE + 14),
+			Size = UDim2.fromOffset(VP_SIZE + 180, 34), BackgroundTransparency = 1, Font = FONT, TextSize = 24,
+			TextColor3 = CF.onDark, TextTruncate = Enum.TextTruncate.AtEnd, Text = result.Name, ZIndex = 16,
+		}, holder)
+		local nameInk = UITheme.inkText(nameLabel, 2.8)
+		table.insert(fades, { nameLabel, "TextTransparency" })
+		table.insert(fades, { nameInk, "Transparency" })
+
+		local tierLabel = new("TextLabel", {
+			Name = "CreatureTier", Position = UDim2.fromOffset(-90, VP_SIZE + 50),
+			Size = UDim2.fromOffset(VP_SIZE + 180, 26), BackgroundTransparency = 1, Font = FONT, TextSize = 18,
+			TextColor3 = accent, Text = string.upper(tostring(result.Rarity or "?")), ZIndex = 16,
+		}, holder)
+		local tierInk = UITheme.inkText(tierLabel, 2.2)
+		table.insert(fades, { tierLabel, "TextTransparency" })
+		table.insert(fades, { tierInk, "Transparency" })
+
+		task.delay(CREATURE_HOLD, function()
+			if myGen ~= revealGen then return end
+			skip()
+		end)
+	end
 end
 
 ---------------------------------------------------------------- darrel state pull
@@ -419,10 +675,11 @@ remotes.EggResult.OnClientEvent:Connect(function(result)
 		showToast(result.Message)
 		return
 	end
-	playReveal(result)
-	-- Task 8's real hatch overlay may hide this panel while it plays; this stub
-	-- doesn't, but reopening here keeps the contract stable either way.
+	-- setOpen first so darrel/quest state refreshes and the panel is the one
+	-- playReveal hides behind its own overlay; playReveal restores
+	-- frame.Visible itself when the reveal ends or is skipped.
 	setOpen(true)
+	playReveal(result)
 end)
 
 ---------------------------------------------------------------- stall prompt
