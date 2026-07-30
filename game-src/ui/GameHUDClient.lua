@@ -73,7 +73,16 @@ root.AnchorPoint = Vector2.new(0.5, 0.5)
 -- canvasScale, since UIScale below scales root's own rendered SIZE, not the
 -- Position offset computed against root's parent) restores true (0,0)
 -- full-screen centring.
-root.Position = UDim2.new(0.5, 0, 0.5, GuiService:GetGuiInset().Y)
+--
+-- Bug B2 fix (round-2 re-verification): the one-shot GetGuiInset() read that
+-- used to sit right here raced Roblox's own topbar-inset population --
+-- confirmed live (task-4-report.md Round-2 Check B): GuiInset().Y read 58
+-- moments later, but Position's baked-in offset came back 0, meaning
+-- GetGuiInset() returned 0 at the exact instant this script first ran. The
+-- position assignment now lives inside fit() below (identical math, just
+-- re-evaluated every time fit() runs) instead of a one-shot here, plus a
+-- delayed one-shot recompute queued after boot so the first post-boot pass
+-- corrects the race even if ViewportSize itself never changes again.
 root.Size = UDim2.fromOffset(T.size.canvas.X, T.size.canvas.Y)
 root.BackgroundTransparency = 1
 root.Parent = gui
@@ -89,6 +98,11 @@ local function fit()
 	if not camera then return end
 	local vp = camera.ViewportSize
 	canvasScale.Scale = math.min(vp.X / T.size.canvas.X, vp.Y / T.size.canvas.Y)
+	-- Bug B2 fix: recomputed every fit() call (not just once at construction)
+	-- so a raced GetGuiInset() read self-corrects on the next ViewportSize
+	-- change instead of sticking wrong for the rest of the session. Math is
+	-- identical to the original one-shot assignment this replaced.
+	root.Position = UDim2.new(0.5, 0, 0.5, GuiService:GetGuiInset().Y)
 end
 fit()
 do
@@ -97,6 +111,10 @@ do
 		camera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 	end
 end
+-- Bug B2 fix: one-shot delayed recompute -- covers the case where
+-- GetGuiInset() raced boot AND ViewportSize never changes again this
+-- session (e.g. a fixed window), so nothing else would re-trigger fit().
+task.delay(1, fit)
 
 ---------------------------------------------------------------- scrim
 local scrim = Instance.new("Frame")
@@ -286,10 +304,6 @@ local gemPill, gemValueLabel, gemPop = buildPill(2, "gem", "gem")
 
 local cash, darrels = 0, 0
 local hasCashLoaded, hasDarrelsLoaded = false, false
--- Bug C fix: guards the startup retry below against a race with
--- DarrelUpdate -- set true the instant EITHER path lands a real value so the
--- other stops touching gemPill.
-local darrelSeeded = false
 
 local function applyCash(n)
 	if typeof(n) ~= "number" then return end
@@ -316,10 +330,13 @@ remotes.DataUpdated.OnClientEvent:Connect(function(payload)
 	if payload.Cash ~= nil then applyCash(payload.Cash) end
 end)
 
+-- Bug C2 fix (gem seed redesign, round-2): applies unconditionally whenever
+-- the payload carries a real number -- no latch/flag coordinating this with
+-- the startup retry loop below. Whichever lands last (this push, or a
+-- successful retry-loop pull) simply overwrites gemPill; last write wins.
 remotes.DarrelUpdate.OnClientEvent:Connect(function(payload)
 	if typeof(payload) ~= "table" then return end
 	if typeof(payload.Darrels) == "number" then
-		darrelSeeded = true -- Bug C fix: a real push beats the startup retry loop to it
 		applyDarrels(payload.Darrels)
 	end
 end)
@@ -331,23 +348,25 @@ task.spawn(function()
 	if ok and typeof(snap) == "table" then applyCash(snap.Cash) end
 end)
 
--- Bug C fix: DarrelState's startup pull returned nil once in Play testing --
--- pcall swallows a server-side "data not loaded yet" failure with no retry,
--- leaving GemPill stuck at the seed value ("0") for the rest of the session
--- unless a real balance change later fires DarrelUpdate (task-4-report.md).
--- Bounded retry: up to 3 attempts, 2s apart, bailing out the instant a value
--- lands here OR DarrelUpdate wins the race (darrelSeeded guards both).
+-- Bug C2 fix (gem seed redesign, round-2): the old latch flag is deleted
+-- entirely -- it was unfixable by tighter guards, since a LEGITIMATE early
+-- pull of 0 (server data genuinely not loaded yet) validly latched that
+-- flag true and stopped all further retries, freezing the pill at 0
+-- for the rest of the session (task-4-report.md Round-2 Check C). Redesign:
+-- no flags, no cross-talk with the DarrelUpdate handler above -- just a
+-- bounded retry loop that keeps pulling until a pull actually returns a
+-- validated number (5 attempts, 2s apart -- wider than the old 3x/6s window
+-- that lost the race), applying it and stopping the instant that happens.
+-- DarrelUpdate pushes (above) apply independently whenever they carry a
+-- number, whether or not this loop has succeeded yet -- last write wins.
 task.spawn(function()
-	for attempt = 1, 3 do
-		if darrelSeeded then return end
+	for attempt = 1, 5 do
 		local ok, res = pcall(function() return remotes.DarrelState:InvokeServer() end)
-		if darrelSeeded then return end
 		if ok and typeof(res) == "table" and typeof(res.Darrels) == "number" then
-			darrelSeeded = true
 			applyDarrels(res.Darrels)
 			return
 		end
-		if attempt < 3 then task.wait(2) end
+		if attempt < 5 then task.wait(2) end
 	end
 end)
 
@@ -537,12 +556,24 @@ end
 -- panels arrive in later tasks). Destroyed on close (closePanel) or the
 -- instant a later openPanel call swaps to a different id -- never left
 -- orphaned in host.
+local placeholderWrapper = nil
 local placeholderFrame = nil
 local placeholderForId = nil
 
+-- Bug D2 fix (placeholder shadow leak, round-2): UI.panel() parents its
+-- HardShadow as a SIBLING of the panel Frame (into whatever `parent`
+-- UI.panel was called with -- see UIKit.Builders' UI.hardShadow:
+-- `sh.Parent = frame.Parent`), not as a child of the panel.
+-- destroyPlaceholder() used to destroy only placeholderFrame (the panel),
+-- leaving that sibling shadow behind every time -- one orphaned
+-- `HardShadow` accumulating in `host` per open/close cycle
+-- (task-4-report.md Round-2 Check D). Fix: destroy the wrapper Frame that
+-- now hosts both (see buildPlaceholder below), taking panel + shadow
+-- together in one call.
 local function destroyPlaceholder()
-	if placeholderFrame then
-		placeholderFrame:Destroy()
+	if placeholderWrapper then
+		placeholderWrapper:Destroy()
+		placeholderWrapper = nil
 		placeholderFrame = nil
 		placeholderForId = nil
 	end
@@ -551,7 +582,22 @@ end
 local function buildPlaceholder(id)
 	local screenName = ID_TO_SCREEN[id] or id
 	local width = T.size.panelWidth[screenName] or 700
-	local panel = UI.panel(host, UDim2.fromOffset(width, 566))
+
+	-- Bug D2 fix: mount the placeholder inside a transparent, full-size
+	-- wrapper Frame parented into `host`, and build UI.panel() INSIDE that
+	-- wrapper instead of directly into `host` -- the panel and its sibling
+	-- HardShadow (see UI.panel/UI.hardShadow in UIKit.Builders) both land
+	-- inside the wrapper this way, so destroyPlaceholder() destroying the
+	-- wrapper takes both with it.
+	local wrapper = Instance.new("Frame")
+	wrapper.Name = "PlaceholderWrapper"
+	wrapper.Size = UDim2.fromScale(1, 1)
+	wrapper.BackgroundTransparency = 1
+	wrapper.ZIndex = host.ZIndex
+	wrapper.Parent = host
+	placeholderWrapper = wrapper
+
+	local panel = UI.panel(wrapper, UDim2.fromOffset(width, 566))
 	panel.Name = "PlaceholderPanel"
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
