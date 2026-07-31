@@ -164,23 +164,29 @@ T.tween = {
 T.zindex = { world = 0, currency = 20, panel = 25, rail = 30, kit = 50, toast = 80 }
 
 ------------------------------------------------------------------ icons
--- Rasterized icon uploads (Step 2b pilot). AssetService:CreateAssetAsync is not
--- available in this Studio session ("CreateAssetAsync and CreateAssetVersionAsync
--- are not available yet" -- confirmed via pcall, independent of arguments), so
--- these ship empty. Panels read T.icons[name] and degrade to labelled placeholder
--- slots (UI.artSlot with image=nil) until ids are filled in by hand.
--- USER STEP: Asset Manager -> Bulk Import the 8 PNGs from
--- docs/design-handoff/ui-kit/captures/icons/*_512.png, then paste the resulting
--- rbxassetid://... strings in here.
+-- IMPORTED 2026-08-01. These are the kit's own 512px PNGs
+-- (docs/design-handoff/ui-kit/captures/icons/*_512.png), uploaded from the
+-- prohacks_sorry account and now live.
+--
+-- How, for whenever they need re-uploading: AssetService:CreateAssetAsync is
+-- still unavailable in this Studio session, and the Studio MCP's upload_image
+-- rejects local file paths -- it only accepts http/https. The route that works
+-- is to serve the folder locally (`python -m http.server 8731 --bind
+-- 127.0.0.1` inside the icons directory) and hand it the resulting
+-- http://127.0.0.1:8731/<name>_512.png URLs. No Asset Manager step needed.
+--
+-- Every consumer treats a non-empty string here as authoritative and only
+-- falls back to UIKit.IconArt's hand-drawn vector versions when it is empty,
+-- so clearing an entry cleanly reverts that one icon to the drawn art.
 T.icons = {
-	coin = "",
-	gem = "",
-	bag = "",
-	pass = "",
-	daily = "",
-	goals = "",
-	index = "",
-	settings = "",
+	coin     = "rbxassetid://120939757686142",
+	gem      = "rbxassetid://74999666659461",
+	bag      = "rbxassetid://77577521462882",
+	pass     = "rbxassetid://130523141580395",
+	daily    = "rbxassetid://83042393142430",
+	goals    = "rbxassetid://108696772678645",
+	index    = "rbxassetid://111712046264165",
+	settings = "rbxassetid://85088540596145",
 }
 
 return T

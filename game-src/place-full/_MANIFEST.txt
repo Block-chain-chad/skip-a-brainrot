@@ -29,7 +29,7 @@ b2ebfa04|12171|ModuleScript|ReplicatedStorage.Modules.SoundKit
 2f42bbcc|1437|ModuleScript|ReplicatedStorage.Modules.TungQuestConfig
 e8de64e0|15793|ModuleScript|ReplicatedStorage.Modules.UIKit.Builders
 6dcc7291|24400|ModuleScript|ReplicatedStorage.Modules.UIKit.IconArt
-0504ee66|8361|ModuleScript|ReplicatedStorage.Modules.UIKit.Tokens
+66c84190|8891|ModuleScript|ReplicatedStorage.Modules.UIKit.Tokens
 d0ea9cd2|22471|ModuleScript|ReplicatedStorage.Modules.UIStyle
 940611c0|23651|ModuleScript|ReplicatedStorage.Modules.UITheme
 55b56b74|3819|ModuleScript|ReplicatedStorage.Modules.UpgradeConfig
