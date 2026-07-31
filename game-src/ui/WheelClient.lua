@@ -637,7 +637,18 @@ holder:GetPropertyChangedSignal("AbsolutePosition"):Connect(layoutDetails)
 -- a shared file. spin() reads `fastSpin` once at the start of each spin, not
 -- live, so toggling mid-flight can't change the timing of a spin already
 -- underway.
-local fastSpin = false
+--
+-- UIKIT (Task 10): the Settings panel now ALSO offers this same preference
+-- (GameHUDPanels.SettingsPanel, GAMEPLAY section) and persists it into
+-- data.Settings.fastSpin server-side. Since this script is a LocalScript
+-- (returns nothing -- nothing can require() it to reach `fastSpin`
+-- directly), the bridge is a client-local Instance Attribute on the
+-- player: `FastSpinPref`. This toggle button and the Settings row both
+-- read/write the SAME attribute now, so whichever one the player uses stays
+-- in sync with the other -- `fastSpin` is just a cached mirror of the
+-- attribute, updated exclusively through the listener below (single write
+-- path, no drift between the two controls).
+local fastSpin = player:GetAttribute("FastSpinPref") == true
 local FAST_OFF_1, FAST_OFF_2 = Color3.fromRGB(150, 154, 164), Color3.fromRGB(110, 114, 124)
 local FAST_ON_1,  FAST_ON_2  = UITheme.Candy.gold1, UITheme.Candy.gold2
 
@@ -663,15 +674,30 @@ local fastToggle = new("TextButton", {
 new("UITextSizeConstraint", { MaxTextSize = 20 }, fastToggle)
 UITheme.candyButton(fastToggle, FAST_OFF_1, FAST_OFF_2, 14)
 
-fastToggle.Activated:Connect(function()
-	fastSpin = not fastSpin
-	if fastSpin then
+-- UIKIT (Task 10): single render function, shared by the click handler AND
+-- the attribute listener below, so a change from EITHER source (this
+-- button, or the Settings panel) repaints the same way.
+local function applyFastSpinVisual(on)
+	if on then
 		fastToggle.Text = "FAST SPIN: ON"
 		UITheme.setColors(fastToggle, FAST_ON_1, FAST_ON_2)
 	else
 		fastToggle.Text = "FAST SPIN: OFF"
 		UITheme.setColors(fastToggle, FAST_OFF_1, FAST_OFF_2)
 	end
+end
+applyFastSpinVisual(fastSpin)
+
+fastToggle.Activated:Connect(function()
+	player:SetAttribute("FastSpinPref", not fastSpin)
+end)
+
+-- Single write path for `fastSpin`: BOTH this button and SettingsPanel only
+-- ever set the attribute, never this local directly -- this listener is the
+-- one place `fastSpin` itself changes.
+player:GetAttributeChangedSignal("FastSpinPref"):Connect(function()
+	fastSpin = player:GetAttribute("FastSpinPref") == true
+	applyFastSpinVisual(fastSpin)
 end)
 
 --================================== sounds =================================--
