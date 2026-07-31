@@ -561,6 +561,17 @@ function DailyPanel.Build(ctx)
 
 	local function render()
 		dayChipLabel.Text = "Day " .. tostring(state.NextDay)
+		-- USER DECISION (task 11): show the raw, uncapped streak count in the
+		-- streak row's right-aligned hint slot (kit §3.4 "right-aligned hint
+		-- Nunito 15 #C9D6B4" -- hintLabel above), replacing the kit's static
+		-- "Miss a day..." copy. state.Streak is captured in applyServerState
+		-- but was never rendered anywhere until now. Guarded against nil for
+		-- safety even though applyServerState currently normalises it to 0.
+		if state.Streak then
+			hintLabel.Text = tostring(state.Streak) .. " day streak!"
+		else
+			hintLabel.Text = ""
+		end
 		renderCards()
 	end
 
