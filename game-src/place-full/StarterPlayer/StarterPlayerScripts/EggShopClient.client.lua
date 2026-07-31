@@ -296,13 +296,61 @@ new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new
 -- carries .Daily; applyDarrel below simply ignores it now.
 
 ---------------------------------------------------------------- egg rows
-local ACCENTS = {
-	{ CF.amber1, CF.amber2 }, { CF.pine1, CF.pine2 }, { CF.lake1, CF.lake2 },
-	{ CF.ember1, CF.ember2 }, { CF.berry1, CF.berry2 },
-}
+-- Kit README 3.1: "Egg row -- height 80, radius 16, stroke 4, rowTop/rowBottom".
+-- The pastel per-egg ACCENTS this replaces tinted the whole card, which made
+-- five rows read as five unrelated screens and left the art slot fighting its
+-- own background. In the kit the card is neutral and the COLOUR comes from the
+-- rarity frame on the art -- "rarity is the egg's tier, so value reads before
+-- the price does".
+local ROW_H, ART = 80, 64
+
+-- An egg's tier is the rarest pet it can produce. Derived from egg.Table rather
+-- than authored, so it can never disagree with what the egg actually rolls.
+local RARITY_RANK = { Rare = 1, Epic = 2, Legendary = 3, Mythic = 4, Secret = 5 }
+local function eggTier(egg)
+	local best, bestRank = nil, -1
+	for _, tableRow in ipairs(egg.Table) do
+		local r = rarityOf(tableRow[1])
+		local rank = r and RARITY_RANK[r] or 0
+		if rank > bestRank then best, bestRank = tableRow[1], rank end
+	end
+	return best
+end
+
+-- UI.button hardcodes its caption label to ZIndex 3 (Builders ~line 174). Every
+-- kit panel lives in a ScreenGui set to ZIndexBehavior.Sibling, where a child
+-- always draws above its parent and that 3 never matters. THIS ScreenGui is
+-- Global (it predates the kit), so a caption at 3 renders UNDERNEATH its own
+-- button at 15 and the button comes out blank -- which is exactly what happened.
+-- Lifting the caption is the surgical fix; flipping the whole ScreenGui to
+-- Sibling would also re-layer the hatch reveal, which is not ours to disturb.
+--
+-- The z argument is not optional sugar: the caption's ZIndex has to be derived
+-- from the button's FINAL one, and callers set that after UI.button returns. A
+-- first cut read b.ZIndex inside here and got the default 1, so captions ended
+-- up at 2 and stayed buried under a button later moved to 15. Same eager-capture
+-- trap Builders documents for the hover rest-position, one field over.
+local function kitButton(parent, text, variant, size, z)
+	local b = UI.button(parent, text, variant, size)
+	b.ZIndex = z
+	local cap = b:FindFirstChildWhichIsA("TextLabel")
+	if cap then cap.ZIndex = z + 1 end
+	return b, cap
+end
 
 local openButtons = {}
 local buyLocked = false
+-- Live balance, so a row can show whether it is affordable. applyDarrel feeds
+-- this; refreshAffordability re-runs on every balance change.
+--
+-- darrelsKnown matters: DarrelState answers a pull that beats the DataStore load
+-- with a PLACEHOLDER {Darrels = 0} (the same lying-zero GameHUDClient documents
+-- at length), and a 0 we have not confirmed would paint every egg "too poor" on
+-- open. Until a payload proves the profile is loaded, rows stay in the neutral
+-- affordable look rather than asserting something we cannot back up.
+local currentDarrels = 0
+local darrelsKnown = false
+local priceRows = {}   -- { chip, value, button, price }
 
 local function fireBuy(egg)
 	if buyLocked then return end
@@ -322,115 +370,177 @@ local function fireBuy(egg)
 end
 
 for i, egg in ipairs(world.Eggs) do
-	local acc = ACCENTS[((i - 1) % #ACCENTS) + 1]
-	local fillTop, fillBot = UITheme.accentFill(acc[1])
+	local tint = tierColor(eggTier(egg))
 
+	-- Wrapper carries the expansion; the CARD stays a fixed 80 so the collapsed
+	-- list keeps the kit's even rhythm rather than five different heights.
 	local row = new("Frame", {
 		Name = "EggRow_" .. egg.Id,
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 1,
 		LayoutOrder = i,
 		ZIndex = 12,
 	}, list)
-	UITheme.corner(row, 14)
-	UITheme.ink(row, 3)
-	UITheme.gradient(row, fillTop, fillBot, 90)
-	new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, row)
+	new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, row)
 
-	local header = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 92), BackgroundTransparency = 1, LayoutOrder = 1, ZIndex = 13,
-	}, row)
+	local card = UI.surface(row, UDim2.new(1, 0, 0, ROW_H), "row", T.radius.control, T.stroke.control)
+	card.Name = "Card"
+	card.LayoutOrder = 1
+	card.ZIndex = 13
+	UI.gloss(card, T.radius.control)
 
-	local iconHolder = new("Frame", {
-		Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(72, 72),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255), ZIndex = 14,
-	}, header)
-	UITheme.corner(iconHolder, 10)
-	UITheme.ink(iconHolder, 2.5)
+	-- art slot 64x64; the rarity frame is what carries the egg's colour
+	local iconHolder = UI.surface(card, UDim2.fromOffset(ART, ART), "slot", T.radius.small, T.stroke.chip)
+	iconHolder.Name = "Art"
+	iconHolder.AnchorPoint = Vector2.new(0, 0.5)
+	iconHolder.Position = UDim2.new(0, 12, 0.5, 0)
+	iconHolder.ZIndex = card.ZIndex + 1
+	local tierRing = Instance.new("UIStroke")
+	tierRing.Color = tint
+	tierRing.Thickness = 4
+	tierRing.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	tierRing.Parent = iconHolder
+
 	local vp = addEggViewport(iconHolder, egg.Model, {
-		size = UDim2.new(1, -6, 1, -6), position = UDim2.fromOffset(3, 3), zIndex = 15,
+		size = UDim2.new(1, -8, 1, -8), position = UDim2.fromOffset(4, 4), zIndex = card.ZIndex + 2,
 	})
 	if not vp then
 		local sw = new("Frame", {
-			Size = UDim2.new(1, -6, 1, -6), Position = UDim2.fromOffset(3, 3),
-			BackgroundColor3 = acc[1], ZIndex = 15,
+			Size = UDim2.new(1, -8, 1, -8), Position = UDim2.fromOffset(4, 4),
+			BackgroundColor3 = tint, ZIndex = card.ZIndex + 2,
 		}, iconHolder)
-		UITheme.corner(sw, 8)
+		UI.corner(sw, T.radius.art)
 	end
 
-	local nameLabel = new("TextLabel", {
-		Position = UDim2.fromOffset(90, 12), Size = UDim2.new(1, -220, 0, 24),
-		BackgroundTransparency = 1, Font = FONT, TextSize = 18, TextColor3 = acc[1],
-		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
-		Text = egg.Name, ZIndex = 14,
-	}, header)
-	UITheme.inkText(nameLabel, 2.6)
+	local nameLabel = UI.label(card, egg.Name, "cardLabel", T.color.white)
+	nameLabel.Name = "EggName"
+	nameLabel.Position = UDim2.new(0, 12 + ART + 12, 0, 14)
+	nameLabel.Size = UDim2.fromOffset(240, 26)
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	nameLabel.ZIndex = card.ZIndex + 1
 
-	-- Price reads "<face> 25" rather than "25<diamond emoji>": Darrel's face
-	-- leads, the same order the balance chip and the HUD pill use, so a player
-	-- scanning prices against their balance sees the same mark in both places.
-	local PRICE_ICON = 18
+	-- price chip (kit: height 30, radius 9, icon + value). Darrel's face leads
+	-- the number, the same order the balance pill uses, so a player comparing
+	-- price against balance sees the same mark in both places.
+	local PRICE_ICON = 24
+	local priceChip = new("Frame", {
+		Name = "PriceChip",
+		Position = UDim2.new(0, 12 + ART + 12, 0, 44),
+		Size = UDim2.fromOffset(PRICE_ICON + 16 + 46, 30),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.68,
+		ZIndex = card.ZIndex + 1,
+	}, card)
+	UI.corner(priceChip, T.radius.art)
+	UI.stroke(priceChip, T.stroke.hairline)
+
 	local priceIcon = new("Frame", {
 		Name = "PriceIcon",
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 90, 0, 48),
+		Position = UDim2.new(0, 4, 0.5, 0),
 		Size = UDim2.fromOffset(PRICE_ICON, PRICE_ICON),
-		BackgroundTransparency = 1, ZIndex = 14,
-	}, header)
+		BackgroundTransparency = 1, ZIndex = priceChip.ZIndex + 1,
+	}, priceChip)
 	if IconArt and IconArt.has("darrel") then
-		IconArt.draw(priceIcon, "darrel", PRICE_ICON, 14)
+		IconArt.draw(priceIcon, "darrel", PRICE_ICON, priceChip.ZIndex + 1)
 	end
 
-	local priceLabel = new("TextLabel", {
-		Position = UDim2.fromOffset(90 + PRICE_ICON + 6, 38), Size = UDim2.new(1, -(220 + PRICE_ICON + 6), 0, 20),
-		BackgroundTransparency = 1, Font = FONT, TextSize = 15, TextColor3 = CF.muted,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Text = (IconArt and "" or "") .. tostring(egg.Price) .. (IconArt and "" or "\u{1F48E}"), ZIndex = 14,
-	}, header)
-	UITheme.inkText(priceLabel, 1.6)
+	local priceValue = UI.label(priceChip, tostring(egg.Price), "chip", T.color.white)
+	priceValue.Name = "Value"
+	priceValue.AnchorPoint = Vector2.new(0, 0.5)
+	priceValue.Position = UDim2.new(0, 4 + PRICE_ICON + 6, 0.5, 0)
+	priceValue.Size = UDim2.fromOffset(44, 20)
+	priceValue.TextXAlignment = Enum.TextXAlignment.Left
+	priceValue.ZIndex = priceChip.ZIndex + 1
 
-	local chevron = new("TextButton", {
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -100, 0.5, 0), Size = UDim2.fromOffset(30, 30),
-		Text = "\u{25BC}", Font = FONT, TextSize = 16, ZIndex = 14,
-	}, header)
-	UITheme.campButton(chevron, CF.locked1, CF.locked2)
-
-	local openBtn = new("TextButton", {
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(78, 36),
-		Text = "OPEN", Font = FONT, TextSize = 15, ZIndex = 14,
-	}, header)
-	UITheme.campButton(openBtn, CF.pine1, CF.pine2)
+	local openBtn = kitButton(card, "OPEN", "green", UDim2.fromOffset(112, 44), card.ZIndex + 2)
+	openBtn.Name = "Open"
+	openBtn.AnchorPoint = Vector2.new(1, 0.5)
+	openBtn.Position = UDim2.new(1, -12, 0.5, 0)
 	openBtn.Activated:Connect(function() fireBuy(egg) end)
 	openButtons[#openButtons + 1] = openBtn
+
+	local chevron, chevronCap = kitButton(card, "\u{25BC}", "tab", UDim2.fromOffset(44, 44), card.ZIndex + 2)
+	chevron.Name = "OddsToggle"
+	chevron.AnchorPoint = Vector2.new(1, 0.5)
+	chevron.Position = UDim2.new(1, -132, 0.5, 0)
+
+	priceRows[#priceRows + 1] = { chip = priceChip, value = priceValue, button = openBtn, price = egg.Price }
 
 	-- ODDS ARE DATA-DRIVEN: every line below reads straight from egg.Table
 	-- (EggConfig), the exact table EggHandler.RollFor rolls against server-side.
 	-- No percentage is ever authored a second time in this file.
-	local oddsHolder = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundTransparency = 1, Visible = false, LayoutOrder = 2, ZIndex = 13,
-	}, row)
-	new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) }, oddsHolder)
+	local oddsHolder = UI.surface(row, UDim2.new(1, 0, 0, 0), "subPanel", T.radius.control, T.stroke.chip)
+	oddsHolder.Name = "OddsPanel"
+	oddsHolder.AutomaticSize = Enum.AutomaticSize.Y
+	oddsHolder.Visible = false
+	oddsHolder.LayoutOrder = 2
+	oddsHolder.ZIndex = 13
+	local oddsPad = Instance.new("UIPadding")
+	oddsPad.PaddingTop = UDim.new(0, 10)
+	oddsPad.PaddingBottom = UDim.new(0, 10)
+	oddsPad.PaddingLeft = UDim.new(0, 12)
+	oddsPad.PaddingRight = UDim.new(0, 12)
+	oddsPad.Parent = oddsHolder
+	new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, oddsHolder)
+
+	local oddsHead = UI.label(oddsHolder, "INSIDE THE " .. egg.Name:upper(), "chip", T.color.textAccent)
+	oddsHead.LayoutOrder = 0
+	oddsHead.Size = UDim2.new(1, 0, 0, 20)
+	oddsHead.TextXAlignment = Enum.TextXAlignment.Left
+	oddsHead.ZIndex = oddsHolder.ZIndex + 1
+
 	for j, tableRow in ipairs(egg.Table) do
 		local creature, weight = tableRow[1], tableRow[2]
-		local oddsLine = new("TextLabel", {
-			Position = UDim2.new(0, 14, 0, 0), Size = UDim2.new(1, -28, 0, 18),
-			BackgroundTransparency = 1, Font = Enum.Font.GothamMedium, TextSize = 13,
-			TextColor3 = tierColor(creature), TextXAlignment = Enum.TextXAlignment.Left,
-			Text = creature .. " \u{2014} " .. tostring(weight) .. "%",
-			LayoutOrder = j, ZIndex = 14,
+		local line = new("Frame", {
+			Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1,
+			LayoutOrder = j, ZIndex = oddsHolder.ZIndex + 1,
 		}, oddsHolder)
-		if j == #egg.Table then
-			-- bottom breathing room before the row's rounded corner
-			oddsLine.Size = UDim2.new(1, -28, 0, 24)
-		end
+		-- rarity pip, so the tier reads without parsing the name
+		local pip = new("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
+			Size = UDim2.fromOffset(10, 10), BackgroundColor3 = tierColor(creature),
+			ZIndex = line.ZIndex + 1,
+		}, line)
+		UI.corner(pip, 5)
+		local nameL = UI.label(line, creature, "meta", T.color.white)
+		nameL.AnchorPoint = Vector2.new(0, 0.5)
+		nameL.Position = UDim2.new(0, 20, 0.5, 0)
+		nameL.Size = UDim2.new(1, -100, 0, 20)
+		nameL.TextXAlignment = Enum.TextXAlignment.Left
+		nameL.ZIndex = line.ZIndex + 1
+		-- ODDS ARE DATA-DRIVEN: straight from egg.Table, the exact table
+		-- EggHandler.RollFor rolls against. Never authored twice.
+		local pct = UI.label(line, tostring(weight) .. "%", "meta", T.color.textAccent)
+		pct.AnchorPoint = Vector2.new(1, 0.5)
+		pct.Position = UDim2.new(1, 0, 0.5, 0)
+		pct.Size = UDim2.fromOffset(70, 20)
+		pct.TextXAlignment = Enum.TextXAlignment.Right
+		pct.ZIndex = line.ZIndex + 1
 	end
 
 	chevron.Activated:Connect(function()
 		oddsHolder.Visible = not oddsHolder.Visible
-		chevron.Text = oddsHolder.Visible and "\u{25B2}" or "\u{25BC}"
+		-- UI.button puts the caption in a child Label, so setting .Text on the
+		-- button itself would write to an empty string nobody renders.
+		if chevronCap then chevronCap.Text = oddsHolder.Visible and "\u{25B2}" or "\u{25BC}" end
 	end)
+end
+
+-- Kit README 5, egg-shop state machine: too_poor -> buyable. The price chip goes
+-- red and OPEN dims when the balance will not cover the egg. The server still
+-- re-checks and refunds -- this only stops the player finding out the hard way.
+local function refreshAffordability()
+	for _, r in ipairs(priceRows) do
+		local ok = (not darrelsKnown) or currentDarrels >= r.price
+		r.chip.BackgroundColor3 = ok and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(200, 35, 28)
+		r.chip.BackgroundTransparency = ok and 0.68 or 0.05
+		r.value.TextColor3 = ok and T.color.white or Color3.fromRGB(255, 210, 204)
+		local grad = r.button:FindFirstChildOfClass("UIGradient")
+		if grad then grad.Color = ok and T.gradient.green or T.gradient.disabled end
+	end
 end
 
 ---------------------------------------------------------------- local toast
@@ -1097,7 +1207,12 @@ local darrelStateRF = remotes:WaitForChild("DarrelState")
 local function applyDarrel(payload)
 	if type(payload) ~= "table" then return end
 	if payload.Darrels then
-		darrelLabel.Text = (IconArt and "" or "\u{1F48E} ") .. tostring(math.floor(payload.Darrels))
+		currentDarrels = math.floor(payload.Darrels)
+		darrelLabel.Text = tostring(currentDarrels)
+		-- .Daily is only a table once the profile has actually loaded, so it is the
+		-- discriminator that tells a real 0 from a placeholder 0.
+		if typeof(payload.Daily) == "table" then darrelsKnown = true end
+		refreshAffordability()
 	end
 	-- payload.Daily is deliberately unused: quests render in the Goals panel now.
 end
