@@ -142,6 +142,31 @@ local function addEggViewport(parent, modelName, opts)
 	return vp
 end
 
+-- UI.button hardcodes its caption label to ZIndex 3 (Builders ~line 174). Every
+-- kit panel lives in a ScreenGui set to ZIndexBehavior.Sibling, where a child
+-- always draws above its parent and that 3 never matters. THIS ScreenGui is
+-- Global (it predates the kit), so a caption at 3 renders UNDERNEATH its own
+-- button and the button comes out blank -- which is exactly what happened.
+-- Lifting the caption is the surgical fix; flipping the whole ScreenGui to
+-- Sibling would also re-layer the hatch reveal, which is not ours to disturb.
+--
+-- The z argument is not optional sugar: the caption's ZIndex has to be derived
+-- from the button's FINAL one, and callers set that after UI.button returns. A
+-- first cut read b.ZIndex inside here and got the default 1, so captions ended
+-- up at 2 and stayed buried. Same eager-capture trap Builders documents for the
+-- hover rest-position, one field over.
+--
+-- Declared HERE, above the panel, because the header's close button is its
+-- first caller -- it used to live down in the egg-row section and was nil by
+-- the time the header ran, which killed the script mid-build.
+local function kitButton(parent, text, variant, size, z)
+	local b = UI.button(parent, text, variant, size)
+	b.ZIndex = z
+	local cap = b:FindFirstChildWhichIsA("TextLabel")
+	if cap then cap.ZIndex = z + 1 end
+	return b, cap
+end
+
 ---------------------------------------------------------------- ScreenGui + panel
 local gui = new("ScreenGui", {
 	Name = "EggShopUI", DisplayOrder = 9, IgnoreGuiInset = false, ResetOnSpawn = false,
@@ -158,15 +183,28 @@ local gui = new("ScreenGui", {
 --     Daily tab, so the copy here was a duplicate. Its column is gone and the
 --     egg list takes the width back.
 -- Everything below the reveal banner is untouched by this restyle.
-local FRAME_W = T.size.panelWidth.eggs   -- 1080
-local FRAME_H = 620
+-- STRUCTURE, read off the rendered reference: the panel is TWO stacked slabs,
+-- not one. A header bar (92 tall, its own 5px outline, radius 22), then
+-- margin-top:12, then a separate body slab. Building it as a single panel with
+-- a gold strip inside is what kept it looking wrong regardless of colour --
+-- the silhouette was one box where the design is two.
+local FRAME_W  = T.size.panelWidth.eggs   -- 860
+local HEADER_H = 92
+local GAP      = 12
+local BODY_H   = 606
+local FRAME_H  = HEADER_H + GAP + BODY_H
 
-local frame = UI.panel(gui, UDim2.fromOffset(FRAME_W, FRAME_H))
-frame.Name = "EggShopFrame"
-frame.AnchorPoint = Vector2.new(0.5, 0.5)
-frame.Position = UDim2.new(0.5, 0, 0.5, 0)
-frame.Visible = false
-frame.ZIndex = 10
+-- The registered frame is a transparent COLUMN holding both slabs, so toggling
+-- its Visible still means "the shop is open" for setOpen and for the reveal.
+local frame = new("Frame", {
+	Name = "EggShopFrame",
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, 0, 0.5, 0),
+	Size = UDim2.fromOffset(FRAME_W, FRAME_H),
+	BackgroundTransparency = 1,
+	Visible = false,
+	ZIndex = 10,
+}, gui)
 SideRail.registerPanel(frame)
 
 -- UI.panel drops a hard shadow as a SIBLING of the panel, not a child (see
@@ -179,13 +217,8 @@ SideRail.registerPanel(frame)
 -- AND what the hatch reveal restores when it finishes, so it has to stay the
 -- thing whose Visible means "the shop is open"; and moving the shadow inside
 -- the frame would put it under UI.panel's own UIPadding and inset it.
-local panelShadow = frame.Parent:FindFirstChild("HardShadow")
-if panelShadow then
-	panelShadow.Visible = frame.Visible
-	frame:GetPropertyChangedSignal("Visible"):Connect(function()
-		panelShadow.Visible = frame.Visible
-	end)
-end
+-- The sibling-shadow trap is gone with UI.panel: both slabs are UI.surface, and
+-- any shadow we add lands as a child, so it inherits Visible.
 -- The fit was hard-capped at 1x, so on any normal monitor the panel stopped dead at
 -- its design 640x520 and read small -- there was headroom it simply refused to use.
 -- Allow a modest upscale instead; still capped, because the UIScale magnifies the ink
@@ -227,26 +260,37 @@ local BODY_PAD = 16
 -- pill, with the title sitting on it. Building from the written spec alone is
 -- how the first two passes ended up with a dark header that looked nothing
 -- like the picture.
-local headerBar = UI.surface(frame, UDim2.new(1, 0, 0, HEADER_H - 8), "gold", T.radius.control, T.stroke.control)
+local headerBar = UI.surface(frame, UDim2.new(1, 0, 0, HEADER_H), "gold", T.radius.panel, T.stroke.panel)
 headerBar.Name = "HeaderBar"
 headerBar.Position = UDim2.fromOffset(0, 0)
 headerBar.ZIndex = frame.ZIndex + 2
-UI.gloss(headerBar, T.radius.control)
+UI.gloss(headerBar, T.radius.panel)
 
-local headerTitle = UI.label(frame, "Forest Eggs", "panelTitle", T.color.white)
+local body = UI.surface(frame, UDim2.new(1, 0, 0, BODY_H), "panel", T.radius.panel, T.stroke.panel)
+body.Name = "Body"
+body.Position = UDim2.fromOffset(0, HEADER_H + GAP)
+body.ZIndex = frame.ZIndex + 2
+local bodyPad = Instance.new("UIPadding")
+bodyPad.PaddingTop = UDim.new(0, 16)
+bodyPad.PaddingBottom = UDim.new(0, 16)
+bodyPad.PaddingLeft = UDim.new(0, 16)
+bodyPad.PaddingRight = UDim.new(0, 16)
+bodyPad.Parent = body
+
+local headerTitle = UI.label(headerBar, "Forest Eggs", "panelTitle", T.color.white)
 headerTitle.Name = "Title"
 headerTitle.AnchorPoint = Vector2.new(0, 0.5)
-headerTitle.Position = UDim2.new(0, 18, 0, (HEADER_H - 8) / 2)
+headerTitle.Position = UDim2.new(0, 18, 0.5, 0)
 headerTitle.Size = UDim2.fromOffset(420, 40)
 headerTitle.TextXAlignment = Enum.TextXAlignment.Left
 headerTitle.ZIndex = frame.ZIndex + 4
 
 -- balance pill (README 3.1 side column: height 66, radius 16, goldSmall)
 local BAL_W, BAL_H, BAL_ICON = 208, 66, 46
-local balPill = UI.surface(frame, UDim2.fromOffset(BAL_W, BAL_H), "goldSmall", T.radius.control, T.stroke.control)
+local balPill = UI.surface(headerBar, UDim2.fromOffset(BAL_W, BAL_H), "goldSmall", T.radius.control, T.stroke.control)
 balPill.Name = "BalancePill"
 balPill.AnchorPoint = Vector2.new(1, 0.5)
-balPill.Position = UDim2.new(1, -(T.size.closeButton.X + 18), 0, (HEADER_H - 8) / 2)
+balPill.Position = UDim2.new(1, -(T.size.closeButton.X + 22), 0.5, 0)
 balPill.ZIndex = frame.ZIndex + 4
 UI.gloss(balPill, T.radius.control)
 
@@ -273,12 +317,11 @@ darrelLabel.ZIndex = balPill.ZIndex + 2
 -- UI.button(parent, text, variant, size) -- text and size are NOT interchangeable
 -- with each other's positions; passing them the other way round assigns a string
 -- to Size and the panel dies half-built.
-local closeBtn = UI.button(frame, "\u{2715}", "red",
-	UDim2.fromOffset(T.size.closeButton.X, T.size.closeButton.Y))
+local closeBtn = kitButton(headerBar, "\u{2715}", "red",
+	UDim2.fromOffset(T.size.closeButton.X, T.size.closeButton.Y), headerBar.ZIndex + 3)
 closeBtn.Name = "Close"
 closeBtn.AnchorPoint = Vector2.new(1, 0.5)
-closeBtn.Position = UDim2.new(1, 0, 0, (HEADER_H - 8) / 2)
-closeBtn.ZIndex = frame.ZIndex + 5
+closeBtn.Position = UDim2.new(1, -10, 0.5, 0)
 
 ---------------------------------------------------------------- egg list
 -- Full width now. The old layout split 640 into a 392 list and a 176 side
@@ -293,17 +336,17 @@ closeBtn.ZIndex = frame.ZIndex + 5
 local ODDS_H = 158
 local list = new("ScrollingFrame", {
 	Name = "EggList",
-	Position = UDim2.fromOffset(0, HEADER_H),
-	Size = UDim2.new(1, 0, 1, -(HEADER_H + ODDS_H + 12)),
+	Position = UDim2.fromOffset(0, 0),
+	Size = UDim2.new(1, 0, 1, -(ODDS_H + 12)),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	ScrollBarThickness = 6,
 	ScrollBarImageColor3 = T.color.scrollThumb,
 	CanvasSize = UDim2.new(),
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
-	ZIndex = frame.ZIndex + 3,
-}, frame)
-new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 12) }, list)
+	ZIndex = body.ZIndex + 1,
+}, body)
+new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, list)
 
 -- The three rotating darrel dailies used to live here in a 176px side column.
 -- They are GONE from this panel (user, 2026-08-01): the Goals panel's Daily tab
@@ -331,27 +374,6 @@ local function eggTier(egg)
 		if rank > bestRank then best, bestRank = tableRow[1], rank end
 	end
 	return best
-end
-
--- UI.button hardcodes its caption label to ZIndex 3 (Builders ~line 174). Every
--- kit panel lives in a ScreenGui set to ZIndexBehavior.Sibling, where a child
--- always draws above its parent and that 3 never matters. THIS ScreenGui is
--- Global (it predates the kit), so a caption at 3 renders UNDERNEATH its own
--- button at 15 and the button comes out blank -- which is exactly what happened.
--- Lifting the caption is the surgical fix; flipping the whole ScreenGui to
--- Sibling would also re-layer the hatch reveal, which is not ours to disturb.
---
--- The z argument is not optional sugar: the caption's ZIndex has to be derived
--- from the button's FINAL one, and callers set that after UI.button returns. A
--- first cut read b.ZIndex inside here and got the default 1, so captions ended
--- up at 2 and stayed buried under a button later moved to 15. Same eager-capture
--- trap Builders documents for the hover rest-position, one field over.
-local function kitButton(parent, text, variant, size, z)
-	local b = UI.button(parent, text, variant, size)
-	b.ZIndex = z
-	local cap = b:FindFirstChildWhichIsA("TextLabel")
-	if cap then cap.ZIndex = z + 1 end
-	return b, cap
 end
 
 -- Rarity colours are the reference's own, not RarityConfig's: the kit ships a
@@ -523,11 +545,11 @@ end
 -- -- same information, but each entry gets a rarity frame, a real drop rate,
 -- and enough room to read." Values still come straight from egg.Table, so the
 -- published odds cannot drift from what EggHandler.RollFor actually uses.
-local oddsStrip = UI.surface(frame, UDim2.new(1, 0, 0, ODDS_H), "subPanel", T.radius.control, T.stroke.control)
+local oddsStrip = UI.surface(body, UDim2.new(1, 0, 0, ODDS_H), "subPanel", T.radius.control, T.stroke.control)
 oddsStrip.Name = "OddsStrip"
 oddsStrip.AnchorPoint = Vector2.new(0, 1)
 oddsStrip.Position = UDim2.new(0, 0, 1, 0)
-oddsStrip.ZIndex = frame.ZIndex + 3
+oddsStrip.ZIndex = body.ZIndex + 1
 
 local oddsTitle = UI.label(oddsStrip, "", "cardLabel", T.color.white)
 oddsTitle.Name = "OddsTitle"
