@@ -63,6 +63,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService") -- FIX F4 (2026-07-30 fix wave): shared slider-release watcher, see buildSliderRow
 
 local player = Players.LocalPlayer
 local modules = ReplicatedStorage:WaitForChild("Modules")
@@ -312,6 +313,33 @@ function SettingsPanel.Build(ctx)
 		l.ZIndex = 15
 	end
 
+	----------------------------------------------------------- FIX F4 shared drag-end watcher
+	-- (2026-07-30 fix wave) track.InputEnded (used inside buildSliderRow below)
+	-- only fires while the release happens over the track itself -- releasing
+	-- off-track (drag the knob out past the row's edge, then let go) never
+	-- fires it, leaving that row's local `dragging` stuck true and the slider
+	-- visually "stuck" to the mouse/touch forever after. ONE shared
+	-- UserInputService.InputEnded connection (preferred over a connection per
+	-- row -- a global-service connection per row would leak across Build()
+	-- calls with nothing to unwind) watches for the release everywhere; each
+	-- row registers/unregisters its own end-drag closure in
+	-- `activeDragEnders` for exactly as long as it's the one being dragged.
+	-- Disconnected via the panel wrapper's Destroying -- `wrapper` is this
+	-- module's one root Instance (per its own header comment, "this module
+	-- never sets its own Parent"), created above.
+	local activeDragEnders = {} -- row key -> function() ends that row's drag + fires the save
+	local uisInputEndedConn = UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		for _, endDrag in pairs(activeDragEnders) do
+			endDrag()
+		end
+	end)
+	wrapper.Destroying:Connect(function()
+		uisInputEndedConn:Disconnect()
+	end)
+
 	----------------------------------------------------------- slider row (AUDIO)
 	local function buildSliderRow(labelText, key, initialValue)
 		local slot = listSlot(SLIDER_ROW_H)
@@ -397,10 +425,23 @@ function SettingsPanel.Build(ctx)
 		-- Click-to-set + drag, per kit §3.3 ("Click-to-set on the track; drag =
 		-- same math on InputChanged"): InputBegan both starts the drag AND
 		-- previews the click position; InputEnded fires the save even with
-		-- zero movement (a plain click).
+		-- zero movement (a plain click). endDrag is shared between the on-track
+		-- InputEnded below and the module-level shared UIS.InputEnded watcher
+		-- (FIX F4) that catches an off-track release this row's own track would
+		-- otherwise never see.
+		local function endDrag()
+			if not dragging then
+				return
+			end
+			dragging = false
+			activeDragEnders[key] = nil
+			fireSave({ [key] = pct })
+		end
+
 		track.InputBegan:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 				dragging = true
+				activeDragEnders[key] = endDrag
 				updateFromInput(input)
 			end
 		end)
@@ -411,8 +452,7 @@ function SettingsPanel.Build(ctx)
 		end)
 		track.InputEnded:Connect(function(input)
 			if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-				dragging = false
-				fireSave({ [key] = pct })
+				endDrag()
 			end
 		end)
 

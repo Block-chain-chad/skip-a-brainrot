@@ -74,6 +74,28 @@ function UI.hardShadow(frame: GuiObject, offsetY: number, radius: number): Frame
 	sh.ZIndex = frame.ZIndex - 1
 	sh.Parent = frame.Parent
 	UI.corner(sh, radius)
+
+	-- FIX F2 (2026-07-30 fix wave): shadow FOLLOWS its frame. UI.button (and
+	-- every panel) calls UI.hardShadow at creation time, before the caller
+	-- repositions the frame (the mandatory two-step pattern: `local f = ...;
+	-- f.Position = ...` set AFTER construction) -- so the shadow captured
+	-- above at the frame's creation-time Position/AnchorPoint would otherwise
+	-- be stranded wherever `frame` originally sat, visible as a dark offset
+	-- block under every panel's close button, the Pass quests button, and the
+	-- Goals/Settings segment buttons. Three connections per shadow is fine --
+	-- shadows are few. No double-offset risk: sh.Position is already set to
+	-- frame.Position + offset above, so if Position never changes these
+	-- handlers simply never fire and the initial value stands untouched.
+	frame:GetPropertyChangedSignal("Position"):Connect(function()
+		sh.Position = frame.Position + UDim2.fromOffset(0, offsetY)
+	end)
+	frame:GetPropertyChangedSignal("AnchorPoint"):Connect(function()
+		sh.AnchorPoint = frame.AnchorPoint
+	end)
+	frame.Destroying:Connect(function()
+		sh:Destroy()
+	end)
+
 	return sh
 end
 

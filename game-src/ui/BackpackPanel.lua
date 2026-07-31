@@ -838,10 +838,25 @@ function BackpackPanel.Build(ctx)
 				worn = true
 			end
 		end
-		local btn = UI.button(detailContent, worn and "Unequip" or "Equip", "green", UDim2.new(1, 0, 0, 56), "buttonM")
+		-- FIX F1 (2026-07-30 fix wave): EquipButton wrapped in a non-list-managed
+		-- slot Frame -- same pattern as PassPanel's buildRewardCard / GoalsPanel's
+		-- buildQuestRow (see either file's "HardShadow-in-UIListLayout trap"
+		-- comment). detailContent is UIListLayout-managed; UI.button's own
+		-- UI.hardShadow call parents the shadow as a SIBLING of the button
+		-- (sh.Parent = frame.Parent, UIKit.Builders), so without this wrapper the
+		-- shadow becomes an extra list item -- a phantom dark 56px block rendered
+		-- above the hero art.
+		local equipSlot = Instance.new("Frame")
+		equipSlot.Name = "EquipSlot"
+		equipSlot.LayoutOrder = 7
+		equipSlot.Size = UDim2.new(1, 0, 0, 56)
+		equipSlot.BackgroundTransparency = 1
+		equipSlot.ZIndex = detailContent.ZIndex + 1
+		equipSlot.Parent = detailContent
+
+		local btn = UI.button(equipSlot, worn and "Unequip" or "Equip", "green", UDim2.fromScale(1, 1), "buttonM")
 		btn.Name = "EquipButton"
-		btn.LayoutOrder = 7
-		btn.ZIndex = detailContent.ZIndex + 1
+		btn.ZIndex = equipSlot.ZIndex
 		btn.MouseButton1Click:Connect(function()
 			toggleHold(group.uids[1])
 			renderBrainrotDetail(group) -- worn flips synchronously; ribbon/counter follow the container watcher
@@ -1156,10 +1171,21 @@ function BackpackPanel.Build(ctx)
 		local cap = PetConfig.SLOTS_FREE
 		local blocked = (not isEquipped) and #petSlots >= cap
 		local label = blocked and ("SLOTS FULL (" .. #petSlots .. "/" .. cap .. ")") or (isEquipped and "Unequip" or "Equip")
-		local btn = UI.button(detailContent, label, blocked and "disabled" or "green", UDim2.new(1, 0, 0, 56), "buttonM")
+		-- FIX F1: same EquipSlot wrapper as renderBrainrotDetail's EquipButton
+		-- above -- detailContent is UIListLayout-managed; see that comment for
+		-- why the raw UI.button(detailContent, ...) call used to strand a
+		-- phantom HardShadow list item.
+		local equipSlot = Instance.new("Frame")
+		equipSlot.Name = "EquipSlot"
+		equipSlot.LayoutOrder = 6
+		equipSlot.Size = UDim2.new(1, 0, 0, 56)
+		equipSlot.BackgroundTransparency = 1
+		equipSlot.ZIndex = detailContent.ZIndex + 1
+		equipSlot.Parent = detailContent
+
+		local btn = UI.button(equipSlot, label, blocked and "disabled" or "green", UDim2.fromScale(1, 1), "buttonM")
 		btn.Name = "EquipButton"
-		btn.LayoutOrder = 6
-		btn.ZIndex = detailContent.ZIndex + 1
+		btn.ZIndex = equipSlot.ZIndex
 		if not blocked then
 			btn.MouseButton1Click:Connect(function()
 				-- Server-authoritative (BackpackClient's own documented rule for

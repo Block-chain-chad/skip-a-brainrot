@@ -122,6 +122,7 @@
 -- card.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService") -- FIX F6 (2026-07-30 fix wave): GetGuiInset() compensation for the fly-to-pill coin, see playClaimResolveMotion
 
 local DailyPanel = { Id = "daily" }
 
@@ -646,17 +647,29 @@ function DailyPanel.Build(ctx)
 				-- with no scale-factor conversion needed.
 				local screenGui = ctx.host:FindFirstAncestorOfClass("ScreenGui")
 				if screenGui then
+					-- FIX F6 (2026-07-30 fix wave, Task-4 canvas measurements): both
+					-- endpoints below are AbsolutePosition reads written straight back
+					-- as raw Position offsets into `screenGui`, which is GameHUD's own
+					-- ScreenGui (IgnoreGuiInset = true, see GameHUDClient's Canvas
+					-- setup). AbsolutePosition itself does not carry the topbar inset
+					-- baked in, but a raw offset placed into an IgnoreGuiInset=true
+					-- ScreenGui IS measured from the true top of the physical screen
+					-- -- so both fromCenter and target used to render ~58px too high
+					-- (GameHUDClient's own Bug B fix hit the identical skew on the
+					-- Canvas root and fixed it the same way: add the inset back).
+					-- Read once here, at flight time, not cached module-wide.
+					local insetY = GuiService:GetGuiInset().Y
 					local fromCenter = card.AbsolutePosition + card.AbsoluteSize / 2
 					local coin = UI.artSlot(screenGui, UDim2.fromOffset(40, 40), T.icons.coin)
 					coin.Name = "DailyClaimFlyCoin"
 					coin.AnchorPoint = Vector2.new(0.5, 0.5)
-					coin.Position = UDim2.fromOffset(fromCenter.X, fromCenter.Y)
+					coin.Position = UDim2.fromOffset(fromCenter.X, fromCenter.Y + insetY)
 					coin.ZIndex = T.zindex.toast
 					coin.Parent = screenGui
 					table.insert(myInstances, coin) -- FIX 2: parented to the ScreenGui, NOT under card/wrapper -- the one instance not hidden by wrapper.Visible = false on its own, so it must be tracked + force-destroyed on close
 					local target = ctx.pillAnchor("coin")
 					local flyTween = TweenService:Create(coin, T.tween.fly, {
-						Position = UDim2.fromOffset(target.X, target.Y),
+						Position = UDim2.fromOffset(target.X, target.Y + insetY),
 						Size = UDim2.fromOffset(16, 16),
 					})
 					-- generation-guarded (EggShopClient's skip() pattern):

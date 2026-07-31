@@ -163,6 +163,13 @@ local currentPanelId = nil
 local railItems = {}      -- id -> { frame, glow, scale }
 local railBadges = {}     -- id -> badge Frame
 
+-- FIX F3 (2026-07-30 fix wave): generation counter guarding closePanel's
+-- delayed hide callback -- same claimMotionGen idiom DailyPanel's claim-
+-- resolve motion uses. Bumped on EVERY openPanel and closePanel call; the
+-- task.delay(panelClose.Time, ...) callback below captures its own gen and
+-- no-ops unless it's still current when it fires.
+local closeGen = 0
+
 local openPanel, closePanel, setBadge, pillAnchor -- assigned below, exposed via ctx
 
 local ID_TO_SCREEN = {
@@ -638,6 +645,7 @@ local function buildPlaceholder(id)
 end
 
 function openPanel(id)
+	closeGen += 1 -- FIX F3: invalidate any in-flight closePanel hide callback
 	local mod = panelModules[id]
 
 	-- Bug D fix: the shell (host/scrim/currency-hide/single-open) must engage
@@ -698,6 +706,9 @@ end
 
 function closePanel()
 	if not currentPanelId then return end
+	closeGen += 1 -- FIX F3: bump on every close too, so a close->reopen->close
+	-- sequence never lets an earlier close's delayed callback act on a later state
+	local myCloseGen = closeGen
 	local id = currentPanelId
 	local frame = panelInstances[id]
 	if not frame and placeholderForId == id then
@@ -716,7 +727,14 @@ function closePanel()
 	end
 	TweenService:Create(scrim, T.tween.panelClose, { BackgroundTransparency = 1 }):Play()
 
+	-- FIX F3 (2026-07-30 fix wave): this callback used to run unconditionally,
+	-- so a close->reopen within panelClose.Time (e.g. a rail double-click) hid
+	-- the freshly reopened panel out from under the player -- openPanel bumps
+	-- closeGen too, so myCloseGen goes stale the instant any open/close call
+	-- happens after this one, and the callback no-ops instead of touching
+	-- state that no longer belongs to it.
 	task.delay(T.tween.panelClose.Time, function()
+		if myCloseGen ~= closeGen then return end
 		if frame then frame.Visible = false end
 		if placeholderForId == id then
 			destroyPlaceholder()
