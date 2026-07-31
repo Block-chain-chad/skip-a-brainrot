@@ -16,7 +16,7 @@
 -- derivation this module ports is cited against IndexClient's own line
 -- numbers (live read at authoring time):
 --
---   discovered (line 35, 808) -- [name]=true, replaced WHOLESALE from
+--   discovered (line 35, 886) -- [name]=true, replaced WHOLESALE from
 --     remotes.GetInitialData / remotes.DataUpdated's `Discovered` field
 --     (ServerScriptService.Modules.PlayerDataManager.Snapshot). NEVER
 --     written per-key anywhere else in this module -- the ONE assignment
@@ -860,6 +860,7 @@ function IndexPanel.Build(ctx)
 		chip.Parent = filterRow
 		UI.hardShadow(chip, T.shadowOffset.control, T.radius.small)
 
+		-- kit "label 18" -- no exact token, documented gap (matches BackpackPanel precedent)
 		local label = UI.label(chip, def.label, "cardLabel", T.color.white)
 		label.Size = UDim2.fromScale(1, 1)
 		label.AutomaticSize = Enum.AutomaticSize.None

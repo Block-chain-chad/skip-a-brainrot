@@ -346,7 +346,73 @@ local function computeHeldSet(): { [any]: boolean }
 	return held
 end
 
------------------------------------------------------------ Build
+----------------------------------------------------------- server-confirmed data (require-time wiring, correctly outside Build)
+-- Real "module-top-level capture race fix" this time (the comment that
+-- used to sit inside Build claimed this same thing, but traced indentation
+-- showed the listener was actually wired ONE LEVEL INSIDE Build -- i.e. it
+-- only started listening after the panel's first open, guaranteeing a
+-- stale/empty first paint every session; see IndexPanel's own header note
+-- on this exact mismatch, which is what this fix now matches).
+-- GameHUDPanels modules are require()d once, early, at GameHUDClient's own
+-- script top level; Build(ctx) only runs lazily on first open. The
+-- server's join-time DataUpdated push (or the one-shot GetInitialData pull
+-- below) can land well before this module's Build() ever runs, so
+-- `ownedBrainrots`/`ownedPets`/`petSlots` + the listener that fills them
+-- are wired here at TRUE module top-level (this code runs once,
+-- immediately, at require -- NOT inside Build()), matching BackpackClient's
+-- own two-source wiring (initial pull + live push) and mirroring
+-- IndexPanel's `discovered` capture exactly. Build() below renders from
+-- whatever this capture already holds instead of racing it.
+-- `onSnapshotChanged` is forward-declared here and assigned inside Build
+-- once `scheduleRender` exists (same forward-declare-then-assign idiom
+-- IndexPanel uses for `onDiscoveredChanged`, and GameHUDClient itself uses
+-- for openPanel/closePanel) -- scheduleRender needs `wrapper`/
+-- `renderActiveTab`, both of which only exist once Build() has actually run.
+local ownedBrainrots: { { Name: string, Mutation: string?, Uid: any } } = {}
+local ownedPets: { { Uid: string, Id: string } } = {}
+local petSlots: { string } = {}
+local onSnapshotChanged: (() -> ())? = nil
+
+local function applySnapshot(snap)
+	if typeof(snap) ~= "table" or not snap.Brainrots then
+		return
+	end
+	ownedBrainrots = {}
+	for _, e in ipairs(snap.Brainrots) do
+		if not e.PadIndex and e.Uid then
+			ownedBrainrots[#ownedBrainrots + 1] = { Name = e.Name, Mutation = e.Mutation, Uid = e.Uid }
+		end
+	end
+	ownedPets = {}
+	for _, p in ipairs(snap.Pets or {}) do
+		if p.Uid and p.Id then
+			ownedPets[#ownedPets + 1] = { Uid = p.Uid, Id = p.Id }
+		end
+	end
+	petSlots = {}
+	for _, u in ipairs(snap.PetSlots or {}) do
+		petSlots[#petSlots + 1] = u
+	end
+end
+
+remotes.DataUpdated.OnClientEvent:Connect(function(payload)
+	applySnapshot(payload)
+	if onSnapshotChanged then
+		onSnapshotChanged()
+	end
+end)
+task.spawn(function()
+	local ok, snap = pcall(function()
+		return remotes.GetInitialData:InvokeServer()
+	end)
+	if ok then
+		applySnapshot(snap)
+		if onSnapshotChanged then
+			onSnapshotChanged()
+		end
+	end
+end)
+
 function BackpackPanel.Build(ctx)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
@@ -378,11 +444,8 @@ function BackpackPanel.Build(ctx)
 
 	local GRID_VIEWPORT_H = CONTENT_H - CHIP_H - CHIP_TO_GRID_GAP
 
-	----------------------------------------------------------- module-local state (server-confirmed data, ephemeral UI selection)
+	----------------------------------------------------------- module-local state (ephemeral UI selection only; server-confirmed ownedBrainrots/ownedPets/petSlots now live at module top-level, see applySnapshot above)
 	local activeTab = ctx.state.backpack.tab or "Brainrots"
-	local ownedBrainrots: { { Name: string, Mutation: string?, Uid: any } } = {}
-	local ownedPets: { { Uid: string, Id: string } } = {}
-	local petSlots: { string } = {}
 
 	local tierFilter = "All" -- panel-local only: kit README §5's documented
 	-- backpack client-state shape is { tab, selectedUid, items }, with no
@@ -439,7 +502,7 @@ function BackpackPanel.Build(ctx)
 	local counterLabel = Instance.new("TextLabel")
 	counterLabel.Name = "Counter"
 	counterLabel.BackgroundTransparency = 1
-	counterLabel.Font = T.font.display
+	counterLabel.FontFace = T.font.display
 	counterLabel.TextSize = 22
 	counterLabel.TextColor3 = T.color.textOnGoldChrome
 	counterLabel.Text = "0 brainrots \u{00B7} 0/6 held"
@@ -671,7 +734,7 @@ function BackpackPanel.Build(ctx)
 		local valueLabel = Instance.new("TextLabel")
 		valueLabel.Name = "Value"
 		valueLabel.BackgroundTransparency = 1
-		valueLabel.Font = T.font.display
+		valueLabel.FontFace = T.font.display
 		valueLabel.TextSize = 18
 		valueLabel.TextColor3 = T.color.white
 		valueLabel.Text = value
@@ -831,7 +894,7 @@ function BackpackPanel.Build(ctx)
 		local qty = Instance.new("TextLabel")
 		qty.Name = "Quantity"
 		qty.BackgroundTransparency = 1
-		qty.Font = T.font.display
+		qty.FontFace = T.font.display
 		qty.TextSize = 17
 		qty.TextColor3 = T.color.white
 		qty.Text = "x" .. tostring(group.count)
@@ -1308,29 +1371,6 @@ function BackpackPanel.Build(ctx)
 	end
 	updateTabVisuals()
 
-	----------------------------------------------------------- data wiring (server-confirmed only)
-	local function applySnapshot(snap)
-		if typeof(snap) ~= "table" or not snap.Brainrots then
-			return
-		end
-		ownedBrainrots = {}
-		for _, e in ipairs(snap.Brainrots) do
-			if not e.PadIndex and e.Uid then
-				ownedBrainrots[#ownedBrainrots + 1] = { Name = e.Name, Mutation = e.Mutation, Uid = e.Uid }
-			end
-		end
-		ownedPets = {}
-		for _, p in ipairs(snap.Pets or {}) do
-			if p.Uid and p.Id then
-				ownedPets[#ownedPets + 1] = { Uid = p.Uid, Id = p.Id }
-			end
-		end
-		petSlots = {}
-		for _, u in ipairs(snap.PetSlots or {}) do
-			petSlots[#petSlots + 1] = u
-		end
-	end
-
 	----------------------------------------------------------- debounced rebuild (0.25s, one pending at a time)
 	local pendingRender = false
 	local function scheduleRender()
@@ -1346,27 +1386,13 @@ function BackpackPanel.Build(ctx)
 		end)
 	end
 
-	-- Module-top-level capture race fix (same convention DailyPanel documents):
-	-- GameHUDPanels modules are require()d once, early, at GameHUDClient's own
-	-- script top level; Build(ctx) only runs lazily on first open. The
-	-- server's join-time DataUpdated push could plausibly land before this
-	-- module's Build() ever runs, so the listener + the one-shot GetInitialData
-	-- pull are wired here at require-time (this code path executes once,
-	-- immediately, at require -- NOT inside Build()), matching
-	-- BackpackClient's own two-source wiring (initial pull + live push).
-	remotes.DataUpdated.OnClientEvent:Connect(function(payload)
-		applySnapshot(payload)
-		scheduleRender()
-	end)
-	task.spawn(function()
-		local ok, snap = pcall(function()
-			return remotes.GetInitialData:InvokeServer()
-		end)
-		if ok then
-			applySnapshot(snap)
-			scheduleRender()
-		end
-	end)
+	-- Wire the render-trigger half of the top-level capture (see
+	-- `onSnapshotChanged` / applySnapshot / the DataUpdated listener at true
+	-- module top-level, above BackpackPanel.Build) now that scheduleRender
+	-- actually exists -- scheduleRender itself checks wrapper.Visible, so no
+	-- extra wrapper closure is needed here, same as IndexPanel's
+	-- onDiscoveredChanged assignment.
+	onSnapshotChanged = scheduleRender
 
 	----------------------------------------------------------- held-set live watchers (Tool add/remove -> re-render ribbon/header)
 	local heldWatchConns: { RBXScriptConnection } = {}
@@ -1441,5 +1467,13 @@ end
 -- this module's own top-level requires, so it is exposed here instead of
 -- re-derived standalone in the probe.
 BackpackPanel._groupBrainrots = groupBrainrots
+
+-- Same spirit, for the module-top-level snapshot capture (fix round 1):
+-- lets a probe drive a fabricated inventory through the REAL applySnapshot
+-- function (populating the real ownedBrainrots/ownedPets/petSlots upvalues)
+-- before calling Build(ctx), instead of Build() only ever seeing the
+-- zero/empty state Edit-mode leaves it in (no live server to answer
+-- GetInitialData/push DataUpdated here).
+BackpackPanel._applySnapshot = applySnapshot
 
 return BackpackPanel
