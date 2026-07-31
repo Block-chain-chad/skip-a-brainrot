@@ -40,6 +40,7 @@
 -- directly -- nothing added here. Documented deviation; see
 -- task-10-report.md.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local PlayerDataManager = require(ServerScriptService.Modules.PlayerDataManager)
@@ -49,6 +50,7 @@ local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local QUALITY_VALUES = { Low = true, Medium = true, High = true }
 
 local SettingsService = {}
+local lastBuy = {}  -- [player] = clock, 0.5s debounce
 
 local function clamp01(n)
 	if type(n) ~= "number" or n ~= n then
@@ -113,6 +115,10 @@ function SettingsService._Apply(data, tbl)
 end
 
 local function onSettingsSave(player, tbl)
+	local now = os.clock()
+	if lastBuy[player] and now - lastBuy[player] < 0.5 then return end
+	lastBuy[player] = now
+
 	local data = PlayerDataManager.Get(player)
 	if not data then
 		return
@@ -133,6 +139,7 @@ function SettingsService.Init()
 		save.Parent = remotes
 	end
 	save.OnServerEvent:Connect(onSettingsSave)
+	Players.PlayerRemoving:Connect(function(p) lastBuy[p] = nil end)
 	print("SettingsService online")
 end
 
