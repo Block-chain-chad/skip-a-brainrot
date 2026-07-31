@@ -168,6 +168,24 @@ frame.Position = UDim2.new(0.5, 0, 0.5, 0)
 frame.Visible = false
 frame.ZIndex = 10
 SideRail.registerPanel(frame)
+
+-- UI.panel drops a hard shadow as a SIBLING of the panel, not a child (see
+-- UIKit.Builders' UI.hardShadow: `sh.Parent = frame.Parent`), so it does NOT
+-- inherit frame.Visible. Left alone that is an opaque 860x620 slab parked in
+-- this ScreenGui at DisplayOrder 9 for the whole session, covering the game
+-- while the shop is CLOSED -- which is exactly what it did.
+--
+-- Mirrored rather than re-parented on purpose: `frame` is what setOpen toggles
+-- AND what the hatch reveal restores when it finishes, so it has to stay the
+-- thing whose Visible means "the shop is open"; and moving the shadow inside
+-- the frame would put it under UI.panel's own UIPadding and inset it.
+local panelShadow = frame.Parent:FindFirstChild("HardShadow")
+if panelShadow then
+	panelShadow.Visible = frame.Visible
+	frame:GetPropertyChangedSignal("Visible"):Connect(function()
+		panelShadow.Visible = frame.Visible
+	end)
+end
 -- The fit was hard-capped at 1x, so on any normal monitor the panel stopped dead at
 -- its design 640x520 and read small -- there was headroom it simply refused to use.
 -- Allow a modest upscale instead; still capped, because the UIScale magnifies the ink
