@@ -5,13 +5,14 @@ A complete, original HUD/menu system in the "chunky cartoon" arcade style: thick
 
 | Panel | Purpose |
 |---|---|
+| Eggs Shop | Biome egg shop: egg list with rarity frames, multi-open quantity, affordability + unlock states, side quests, hatch-odds strip |
 | Season Pass | Two-track (Free / Season Pass) tier reward ladder with XP progress, tier skip, purchase CTA |
 | Backpack | Inventory grid with rarity frames, category tabs, item detail + equip |
 | Settings | Audio sliders, graphics quality segmented control, gameplay toggles, code redeem / reset |
 | Daily Rewards | 7-day login streak with claimed / today / locked states and a "grand" day 7 |
 | Index | Collection/discovery grid with completion progress and a 100% reward |
 | Goals (Quests) | Daily / Weekly / Season objective rows with progress bars and claim buttons |
-| HUD | Currency cluster (top-left) + right-side vertical nav rail with notification badges |
+| HUD | Currency cluster (top-left), SKIP / SHOPS / PLOT plate buttons (top-centre), right-side vertical nav rail with notification badges |
 
 **This is an original design, not a copy of any existing game's assets, artwork, wordmarks, or icons.** All artwork positions are labelled empty slots for the studio's own art.
 
@@ -149,7 +150,22 @@ Common shell for all six panels: full-canvas scrim → centred column, `padding-
 **Header bar:** height 92, radius 22, stroke 5, gold gradient, padding 0 12, gap 14 — section icon 62×62 (no plate, `drop-shadow(0 3px 2px rgba(0,0,0,.35))`) · title 44 · flexible spacer · optional action button · close button 74×66 (radius 16, red).
 **Body:** `margin-top: 12`, radius 22, stroke 5, panel gradient, padding 16 (18 on Daily).
 
-### 3.1 Season Pass — panel width 960 (+ 196 side column, gap 14)
+### 3.1 Eggs Shop — panel width 1080
+Header: egg icon · title "Forest Eggs" · biome chips (height 56, padding 0 18, radius 13, `tabTop/tabBottom`, label 19; active = 4 px white ring inset −4; locked = `rgba(8,12,5,.42)` dim + a 34 px corner lock badge at top −9 / right −9, so the biome name stays readable) · close.
+
+Body padding 16, gap 14. Top area height 432 = egg list (`flex:1`, scroll-y) + side column 296.
+
+**Egg row** — height 80, radius 16, stroke 4, `rowTop/rowBottom`, padding 0 12, gap 12, row gap 8. Selected row wears a 4 px `#FFD84D` ring (inset −4) and drives the odds strip below.
+- art slot 64×64, radius 12, stroke 4, plus the 4 px rarity frame (inset 0, radius 8) — rarity is the egg's tier, so value reads before the price does
+- name column width 196: name Fredoka One 22 · price chip height 30, radius 9 (coin icon 24 + value 19). Affordable = `rgba(0,0,0,.32)` on a `rgba(0,0,0,.45)` edge; unaffordable = `#C8231C`→`#8E120D` with `#7A1710` edge and `#FFD2CC` value
+- quantity segment: three chips 46×38, radius 10, stroke 3.5, hard shadow 0 3; active = `#FFD84D` ring inset −4. **This replaces the old triangle dropdown** — x1 / x3 / x10 is one tap instead of two and shows the multiplier at a glance
+- action 132×56, radius 14: **Open** (green) · **Need N** (disabled gradient, 15 px two-line label — states the exact shortfall) · **lock + unlock condition** (disabled gradient, 20 px lock glyph + `#DDE3D2` label)
+
+**Side column** (296): balance pill height 66, radius 16, goldSmall (coin icon 46 + value 28 + 38 px green `+` button that routes to the currency shop) · quests card `flex:1`, radius 16, `subPanel`, padding 12 — heading row (goals icon 30 + "DAILY QUESTS" 19 `#FFD84D`) then compact quest rows: radius 12, stroke 3.5, title 16, reward chip inline (coin 22 + value 15), progress bar height 20 radius 999 with a Nunito 12 centred label, and a CLAIM pill (height 28) or ✓ badge (28 px) sitting **beside** the bar on the progress row — the bar takes `flex:1`. Never overlay the badge on the title row: it would cover the reward value.
+
+**Hatch-odds strip** — radius 16, `subPanel`, padding 12. Heading "Inside the {egg name}" 20 + purple LUCK chip height 32 + right-aligned Nunito 13 note. Six tiles `flex:1`, height 94, radius 14, stroke 4, `slot` gradient: art slot fills, chance label 14 `#FFD84D`, rarity frame overlay, and an undiscovered variant (`rgba(8,12,5,.72)` + 34 px "?") so the chase pet stays a mystery. **This replaces the cramped numbered pet row at the bottom of the old screen** — same information, but each entry gets a rarity frame, a real drop rate, and enough room to read.
+
+### 3.2 Season Pass — panel width 960 (+ 196 side column, gap 14)
 Header: pass icon · title "Season Pass" · **Quests** button (height 66, padding 0 30, radius 16, purple) · close.
 
 Progress row (height 56, gap 12):
@@ -171,39 +187,40 @@ Bottom CTA (`margin-top: -14`, i.e. overlapping the panel edge): height 74, padd
 
 Side column (width 196, "Max Rewards" label 26): two tier-50 preview cards — 5 px rainbow ring, inner height 212, radius 15, stroke 4, panel gradient; art slot; tier badge 54×54 at top −12 / right −12; `x1` above the footer label ("Free" white / "Season Pass" `#FFD84D`).
 
-### 3.2 Backpack — panel width 960, body height 566
+### 3.3 Backpack — panel width 960, body height 566
 Header adds "28 / 60 slots" (Fredoka One 22, `#5A4A12`) after the title.
 Three columns, gap 14:
 - **Tabs** width 152, rows height 60, radius 14, gap 9, `tabTop/tabBottom`, icon 34 + label 19; active = 4 px `#FFD84D` inner ring (inset 0, radius 10). "+ Slots" green button height 56 pinned to the bottom.
 - **Grid** `flex:1`, 5 columns, row height 118, gap 11, scroll-y. Slot: radius 14, stroke 4, `#37432D`→`#232C1C`; art slot inset 6, radius 9; rarity frame overlay (see Rarity); quantity bottom-right 17; "EQUIPPED" ribbon height 24 at left −3 / top −9 (green, chip type). Unowned capacity = dashed `rgba(255,255,255,.13)` slots, no fill.
 - **Detail** width 224, radius 16, stroke 4, `subPanel` gradient, padding 12, gap 10: hero art 150 tall (radius 12, stroke 4) · name 26 · rarity chip height 28 (colour per rarity, label COMMON/RARE/EPIC/LEGENDARY) · stat rows height 34, radius 10, `rgba(0,0,0,.3)`, key Nunito 14 `#C9D6B4` / value 18 · **Equip** green button height 56, label 24.
 
-### 3.3 Settings — panel width 700
+### 3.4 Settings — panel width 700
 Body padding 16, gap 8. Section headers: Fredoka One 18, `#FFD84D`, stroke 3 ("AUDIO", "GRAPHICS", "GAMEPLAY").
 - **Slider row** height 54, radius 14, `rowTop/rowBottom`, stroke 4: label column 150 at 21 · track `flex:1` height 26, radius 999, stroke 4, inset; fill green; knob 34×34 circle, stroke 4, `#FFF0A8`→`#FFC531`, hard shadow 0 3 · value column 56, right-aligned, 21. Click-to-set on the track; drag = same math on `InputChanged`.
 - **Segmented quality**: three equal buttons height 54, radius 14, `tabTop/tabBottom`; active = 4 px `#FFD84D` ring inset −4 (radius 16) + 12 px glow.
 - **Toggle row** height 52: label 21 left, switch 86×38 right. ON = green gradient, 36 px white knob at the right, "ON" chip label at left inset 11. OFF = `#5A6748`→`#3A452C` with inset shadow, `#C9CCC2`→`#9AA28E` knob at the left, "OFF" label right, colour `#C9D6B4`.
 - Footer: **Redeem Code** (blue) and **Reset Data** (red), each `flex:1`, height 58, label 23.
 
-### 3.4 Daily Rewards — panel width 900
+### 3.5 Daily Rewards — panel width 900
 Header adds a timer chip (height 58, radius 14, `#3B4731`→`#26301F`): "RESETS IN" Nunito 14 `#C9D6B4` + value 24.
 Body padding 18. Streak row: "Login streak" 24 · "Day 4" chip height 44 goldSmall · right-aligned hint Nunito 15 `#C9D6B4`.
 Row of cards, gap 12: days 1–6 `flex:1`, day 7 `flex:1.45`. Card height 196, radius 16, stroke 4, `rowTop/rowBottom`, padding 8, gap 6 — "Day N" 19 (nowrap) · art slot fills · reward label 14, `#FFD84D`, centred.
 Day 7 is wrapped in the 5 px rainbow ring (radius 20) with a "GRAND" purple ribbon at top −10 / left −6.
 
-### 3.5 Index — panel width 940
+### 3.6 Index — panel width 940
 Body padding 16. Discovery bar height 48, radius 14, stroke 4, inset track, **blue** fill, centred label "19 / 50 discovered" at 22. Beside it a 100%-reward chip (height 48, radius 12, `#3B4731`→`#26301F`, Nunito 13 label + 30 px art slot).
 Filter chips height 44, radius 12, gap 9, `tabTop/tabBottom`, label 18; active = `#FFD84D` ring inset −4.
 Grid: 6 columns, gap 11, tile height 122 (radius 14, stroke 4, `subPanel`), art slot fills, name 14. Undiscovered = overlay `rgba(8,12,5,.72)` + "?" 40 px in `#7A8A66`. "NEW" red ribbon height 24 at top −8 / left −6. Viewport height 392, scroll-y.
 
-### 3.6 Goals — panel width 860
+### 3.7 Goals — panel width 860
 Header uses the **purple** gradient (this is the quests surface) with icon slot on `#F0D2FF`→`#DDB2F6`, plus a refresh timer chip (`#5B1D8C`→`#3A0F5C`, label `#E7C8FF`).
 Tabs: Daily / Weekly / Season — three equal buttons height 56, radius 14, active gold ring.
 Quest rows height 88, radius 16, stroke 4, `rowTop/rowBottom`, gap 10, padding 0 12:
 icon slot 60×60 (radius 12, stroke 4) · centre column (title 22 + progress bar height 24, radius 999, stroke 3.5, green fill, centred Nunito 14 label `2 / 3`) · reward chip height 52, radius 12 (30 px currency icon + value 20) · action button 136×60: **Claim** (green, label 24, idle bob animation) / **In progress** (disabled gradient, label 20 `#B8C4A4`) / **Claimed ✓** (`#4A5840`→`#2E3825`, label 20 `#9FAE8B`).
 
-### 3.7 HUD
+### 3.8 HUD
 - **Currency cluster** top 18 / left 18, gap 12. Pill height 54, radius 999, stroke 4, padding 0 18 0 6 — 38 px circular icon slot (stroke 3) + value 24. Coin pill = goldSmall, gem pill = `#D98BFF`→`#A93FE6`→`#7A1CB8`. Hidden while a panel is open.
+- **Action buttons (SKIP · SHOPS · PLOT)** top 16, horizontally centred, gap 20. No plate — the icon floats on the world, same as the nav rail: icon 82×82 with `drop-shadow(0 6px 5px rgba(0,0,0,.5))`, label pill directly under it (gap 2). Pill min-width 96, height 38, padding 0 14, radius 11, stroke 4, gloss `inset 0 4px 0 rgba(255,255,255,.45)`, hard shadow `0 4px 0`, label Fredoka One 21 / stroke 3.5 white. Pill gradients: SKIP `#FFB44D`→`#F0850E`→`#C25A05` · SHOPS `#FF7FB2`→`#E31C6B`→`#A80B47` · PLOT `#7FDBFF`→`#2A93E0`→`#125FA8`. Hover `translateY(-3)`, press `translateY(+2)`. Hidden while a panel is open (same rule as the currency cluster). **Their panels are not designed yet** — the buttons and icons are ready, so say the word and Skip / Shops / Plot panels can be added in this same system.
 - **Nav rail** right 10, vertically centred, gap 6. No button plate — the icon floats on the world (matches the reference). Item column width 106: icon 66×66 with `drop-shadow(0 5px 4px rgba(0,0,0,.5))` · label directly under it, Fredoka One 20 / stroke 4 / white + `text-shadow 0 3px 0 rgba(0,0,0,.3)`. Order: **Bag · Pass · Daily · Goals · Index · Settings**. Active = 88 px radial gold glow behind the icon (`rgba(255,232,122,.75)` centre → transparent at 72%). Notification badge = red circle, min-width 34, height 34, stroke 4, hard shadow 0 3, at top −6 / right 12, value 19. Hover: `translateY(-3) scale(1.05)`; press: `translateY(+2) scale(.99)`.
 
 ---
@@ -249,9 +266,15 @@ Visuals: LOCKED = lock badge 46×46 (radius 13) at top −8 / right −8 · CLAI
 ### Index entry
 HIDDEN → (discovered) NEW → (panel opened & seen) FOUND. Completion % drives the blue bar; 100% grants the milestone reward once.
 
-### Client state shape
+#### Egg shop
+Per egg row: `locked` (biome level or unlock flag not met — action shows the condition) → `too_poor` (`coins < price` — price chip turns red, action reads "Need N") → `buyable` (green Open). Quantity is per-row client state and never changes the row's state; the server re-checks `coins >= price * qty` on open and returns the hatch result. Biome chips: `active` / `available` / `locked`.
+
+Opening an egg: press → server validates and debits → hatch animation (egg pops 220 ms `Back/Out`, shake ±4 px for 400 ms, burst, then the pet card scales 0.6 → 1 with the rarity frame's glow) → balance counter tweens down → the odds strip clears the "?" if the pet was undiscovered and flags it NEW in the Index. On x3 / x10, show the results as a row of cards, staggered 90 ms, with a Skip button.
+
+## Client state shape
 ```
-screen: "none" | "pass" | "backpack" | "settings" | "daily" | "index" | "goals"
+screen: "none" | "eggs" | "pass" | "backpack" | "settings" | "daily" | "index" | "goals"
+eggs:      { biome, selectedEgg, qtyByEgg = {}, coins }
 pass:      { level, xp, xpNeed, passOwned, claimedFree = {}, claimedPass = {} }
 backpack:  { tab, selectedUid, items = {} }
 settings:  { music, sfx, quality, toggles = {} }
@@ -270,6 +293,7 @@ Eight original icons are included as clean SVG (128×128 export, `viewBox="-5 -5
 
 | File | Used for | Silhouette | Fill (top → bottom) |
 |---|---|---|---|
+| `eggs.svg` | Eggs Shop section | speckled forest egg, 3 green spots + gloss | shell `#F7FBE6`→`#BFCF8E`, spots `#A6EE72`→`#3E9E22` |
 | `bag.svg` | Backpack section | rounded body + flap + carry loop + gold buckle | `#FF7F5F`→`#C22B18`, flap `#E8543A`→`#A02010` |
 | `pass.svg` | Season Pass section, XP row | ticket rotated −7° + 5-point star | ticket `#DE93FF`→`#7C1CC0`, star `#FFE066`→`#E8930F` |
 | `daily.svg` | Daily Rewards section | calendar, red header, two rings, 6 cells (one gold = today) | body `#FAFAF4`→`#BFC1B5`, header `#FF6B5A`→`#C8231C` |
@@ -278,10 +302,17 @@ Eight original icons are included as clean SVG (128×128 export, `viewBox="-5 -5
 | `settings.svg` | Settings section | 8-tooth gear + hub hole | `#FCFCF6`→`#9AA28E`, hole `#5A6350` |
 | `coin.svg` | coin currency, quest rewards | outer disc + inner face + small star | `#FFE87A`→`#E8930F`, face `#FFF3C4`→`#F5C13A` |
 | `gem.svg` | gem currency, prices | 4-point diamond + facet split + gloss wedge | `#E9B4FF`→`#7A1CB8` |
+| `skip.svg` | SKIP button | dartboard, 4 concentric rings + dart at lower-left | rings `#6FD8FF`→`#125FA8` / `#FAFAF4` / `#3AA7E8`→`#0D4A85`, bullseye + fletching `#FF8A7A`→`#C8231C` |
+| `shops.svg` | SHOPS button | cart: hooked handle, trapezoid basket, grid detail, 2 wheels | basket `#FCFCF6`→`#9AA28E`, grid `#7C8570`, wheels `#FFE066`→`#E8930F` |
+| `plot.svg` | PLOT button | cottage on a green plot: pitched roof (roofline flush with the wall top so the wall band stays readable), chimney through the right slope, 2 windows, arched door | ground `#A6EE72`→`#3E9E22`, walls `#FFF6DF`→`#E0CFA6`, roof `#FF8A7A`→`#B4241A`, chimney + door `#8C5F3A`→`#4A2F1A`, windows `#7FDBFF` |
 
 **Construction rule — use it for any new icon.** Build the silhouette from rects / circles / polygons only, then draw it **twice**: pass 1 filled *and* stroked `#16170F` at width 9 with round joins (this fuses the parts into one fat union outline), pass 2 the real gradient fills on top, with inner detail edges getting a 2.5–4 px `#16170F` stroke. Finish with one white gloss shape at 22–55% opacity in the top-left. That is the entire style, and it holds from 28 px to 128 px.
 
-Rendered sizes in the UI: nav rail 66 · panel header 62 · pass XP row 58 · currency pill 40–42 · price / reward chip 30–34.
+**Exception — nested shapes.** Concentric or inset details (dartboard rings, cart grid, house door and windows) must be **left out of the union pass** or the 9 px outline swallows them; give those shapes a 2.5–3.5 px `#16170F` edge on the fill pass instead. In the SVG source they are simply the shapes drawn after the union outline.
+
+Rendered sizes in the UI: nav rail 66 · action button 82 · panel header 62 · pass XP row 58 · currency pill 40–42 · price / reward chip 30–34.
+
+A browsable contact sheet of all eleven sits at `icons/contact-sheet.html`.
 
 **In Roblox:** rasterise each SVG to a 256×256 transparent PNG, upload as an Image asset, and use `ImageLabel` with `ScaleType = Fit`. If you later want the fully-lit 3D look, treat these SVGs as the modelling brief — same silhouette, same palette, add a soft contact shadow — and swap the PNGs 1:1 without touching layout code. Keep the file names.
 
@@ -290,6 +321,8 @@ Every remaining image position is an explicit labelled slot (diagonal stripes + 
 
 | Slot label | Where | Rendered size |
 |---|---|---|
+| `egg_shard/horned/rune/prism/void.png` | egg rows | 56×56 |
+| `pet_*.png` | hatch-odds tiles | 130×60 |
 | `gem_small/gem_large/crate_supply/crate_elite/tag_*/boost_coin2x/banner_01/skin_base_01/coin_stack` | reward cards | 162×120 |
 | `tier50_free`, `tier50_pass` | Max Rewards previews | 180×150 |
 | `item_01…15` | backpack slots | 106×106 |
@@ -308,7 +341,8 @@ Delete every monospace slot label in production — it exists only to mark inten
 | `tokens.lua` | Palette, gradients, geometry, type scale, tween presets as a Luau module |
 | `ui_builders.lua` | Helper constructors: stroke, corner, gradient, gloss, hard shadow, panel, button, display text, inset track |
 | `data_schema.lua` | Reward / tier / quest / daily / index / item table shapes, default season data, remote contract |
-| `icons/*.svg` | The eight section / currency icons, production-ready vector |
+| `icons/*.svg` | Eleven section / currency / button icons, production-ready vector |
+| `icons/contact-sheet.html` | All eleven icons on one page for review |
 | `states.md` | State machines and motion timings in checklist form |
 
-Suggested implementation order: `tokens.lua` + `ui_builders.lua` → HUD shell (root scaling, rail, currency) → Season Pass (the most component-dense panel) → Goals → Daily → Backpack → Index → Settings.
+Suggested implementation order: `tokens.lua` + `ui_builders.lua` → HUD shell (root scaling, rail, currency) → Eggs Shop (it reuses every primitive: rows, rarity frames, segmented control, three action states) → Season Pass (the most component-dense panel) → Goals → Daily → Backpack → Index → Settings.

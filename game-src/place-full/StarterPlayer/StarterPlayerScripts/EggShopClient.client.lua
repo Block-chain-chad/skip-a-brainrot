@@ -285,19 +285,26 @@ headerTitle.Size = UDim2.fromOffset(420, 40)
 headerTitle.TextXAlignment = Enum.TextXAlignment.Left
 headerTitle.ZIndex = frame.ZIndex + 4
 
--- balance pill (README 3.1 side column: height 66, radius 16, goldSmall)
-local BAL_W, BAL_H, BAL_ICON = 208, 66, 46
-local balPill = UI.surface(headerBar, UDim2.fromOffset(BAL_W, BAL_H), "goldSmall", T.radius.control, T.stroke.control)
+-- BALANCE PILL -- DARK, not gold. The reference puts it on the gold header as
+-- `linear-gradient(180deg,#3B4731,#26301F)` with a 4px outline: height 62,
+-- radius 15, icon 42, value 26, then a 36px green + button. I had it goldSmall,
+-- which vanished into the header it sits on.
+local BAL_W, BAL_H, BAL_ICON = 196, 62, 42
+local balPill = UI.surface(headerBar, UDim2.fromOffset(BAL_W, BAL_H), "slot", 15, T.stroke.control)
 balPill.Name = "BalancePill"
 balPill.AnchorPoint = Vector2.new(1, 0.5)
 balPill.Position = UDim2.new(1, -(T.size.closeButton.X + 22), 0.5, 0)
-balPill.ZIndex = frame.ZIndex + 4
-UI.gloss(balPill, T.radius.control)
+balPill.ZIndex = headerBar.ZIndex + 3
+balPill.BackgroundColor3 = Color3.fromRGB(59, 71, 49)
+local balGrad = balPill:FindFirstChildOfClass("UIGradient")
+if balGrad then
+	balGrad.Color = ColorSequence.new(Color3.fromRGB(59, 71, 49), Color3.fromRGB(38, 48, 31))
+end
 
 local darrelIcon = new("Frame", {
 	Name = "DarrelIcon",
 	AnchorPoint = Vector2.new(0, 0.5),
-	Position = UDim2.new(0, 10, 0.5, 0),
+	Position = UDim2.new(0, 6, 0.5, 0),
 	Size = UDim2.fromOffset(BAL_ICON, BAL_ICON),
 	BackgroundTransparency = 1,
 	ZIndex = balPill.ZIndex + 2,
@@ -306,13 +313,20 @@ if IconArt and IconArt.has("darrel") then
 	IconArt.draw(darrelIcon, "darrel", BAL_ICON, balPill.ZIndex + 2)
 end
 
-local darrelLabel = UI.label(balPill, "0", "value", T.color.textOnGoldChrome)
+local darrelLabel = UI.label(balPill, "0", "value", T.color.white)
 darrelLabel.Name = "Value"
 darrelLabel.AnchorPoint = Vector2.new(0, 0.5)
-darrelLabel.Position = UDim2.new(0, 10 + BAL_ICON + 10, 0.5, 0)
-darrelLabel.Size = UDim2.fromOffset(BAL_W - (10 + BAL_ICON + 20), 30)
+darrelLabel.Position = UDim2.new(0, 6 + BAL_ICON + 9, 0.5, 0)
+darrelLabel.Size = UDim2.fromOffset(BAL_W - (6 + BAL_ICON + 9 + 36 + 20), 30)
 darrelLabel.TextXAlignment = Enum.TextXAlignment.Left
 darrelLabel.ZIndex = balPill.ZIndex + 2
+
+-- the reference's green "+" that routes to the currency shop; no darrel pack
+-- products exist yet, so it says so instead of opening nothing
+local plusBtn = kitButton(balPill, "+", "green", UDim2.fromOffset(36, 36), balPill.ZIndex + 2)
+plusBtn.Name = "Plus"
+plusBtn.AnchorPoint = Vector2.new(1, 0.5)
+plusBtn.Position = UDim2.new(1, -8, 0.5, 0)
 
 -- UI.button(parent, text, variant, size) -- text and size are NOT interchangeable
 -- with each other's positions; passing them the other way round assigns a string
@@ -467,10 +481,13 @@ for i, egg in ipairs(world.Eggs) do
 		UI.corner(sw, T.radius.art)
 	end
 
+	-- NAME COLUMN -- fixed 196 wide (reference: width:196px;flex:0 0 196px),
+	-- name stacked over the price chip.
+	local NAME_X = 12 + ART + 12
 	local nameLabel = UI.label(card, egg.Name, "cardLabel", T.color.white)
 	nameLabel.Name = "EggName"
-	nameLabel.Position = UDim2.new(0, 12 + ART + 12, 0, 14)
-	nameLabel.Size = UDim2.fromOffset(240, 26)
+	nameLabel.Position = UDim2.new(0, NAME_X, 0, 12)
+	nameLabel.Size = UDim2.fromOffset(196, 26)
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLabel.ZIndex = card.ZIndex + 1
@@ -481,19 +498,24 @@ for i, egg in ipairs(world.Eggs) do
 	local PRICE_ICON = 24
 	local priceChip = new("Frame", {
 		Name = "PriceChip",
-		Position = UDim2.new(0, 12 + ART + 12, 0, 44),
-		Size = UDim2.fromOffset(PRICE_ICON + 16 + 46, 30),
+		Position = UDim2.new(0, NAME_X, 0, 44),
+		Size = UDim2.fromOffset(PRICE_ICON + 15 + 52, 30),
 		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
 		BackgroundTransparency = 0.68,
 		ZIndex = card.ZIndex + 1,
 	}, card)
-	UI.corner(priceChip, T.radius.art)
-	UI.stroke(priceChip, T.stroke.hairline)
+	UI.corner(priceChip, 9)
+	local priceEdge = Instance.new("UIStroke")
+	priceEdge.Thickness = 3
+	priceEdge.Color = Color3.fromRGB(0, 0, 0)
+	priceEdge.Transparency = 0.55
+	priceEdge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	priceEdge.Parent = priceChip
 
 	local priceIcon = new("Frame", {
 		Name = "PriceIcon",
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 4, 0.5, 0),
+		Position = UDim2.new(0, 5, 0.5, 0),
 		Size = UDim2.fromOffset(PRICE_ICON, PRICE_ICON),
 		BackgroundTransparency = 1, ZIndex = priceChip.ZIndex + 1,
 	}, priceChip)
@@ -504,17 +526,69 @@ for i, egg in ipairs(world.Eggs) do
 	local priceValue = UI.label(priceChip, tostring(egg.Price), "chip", T.color.white)
 	priceValue.Name = "Value"
 	priceValue.AnchorPoint = Vector2.new(0, 0.5)
-	priceValue.Position = UDim2.new(0, 4 + PRICE_ICON + 6, 0.5, 0)
-	priceValue.Size = UDim2.fromOffset(44, 20)
+	priceValue.Position = UDim2.new(0, 5 + PRICE_ICON + 6, 0.5, 0)
+	priceValue.Size = UDim2.fromOffset(52, 22)
 	priceValue.TextXAlignment = Enum.TextXAlignment.Left
 	priceValue.ZIndex = priceChip.ZIndex + 1
 
-	local openBtn = kitButton(card, "OPEN", "green", UDim2.fromOffset(112, 44), card.ZIndex + 2)
+	-- ACTION -- 132x56, radius 14, stroke 4. The reference's grey state names
+	-- the SHORTFALL ("Need 1,160") rather than just refusing.
+	local ACT_W, ACT_H = 132, 56
+	local QTY_W, QTY_H, QTY_GAP = 46, 38, 6
+	local openBtn = kitButton(card, "Open", "green", UDim2.fromOffset(ACT_W, ACT_H), card.ZIndex + 2)
 	openBtn.Name = "Open"
 	openBtn.AnchorPoint = Vector2.new(1, 0.5)
 	openBtn.Position = UDim2.new(1, -12, 0.5, 0)
 	openBtn.Activated:Connect(function() fireBuy(egg) end)
 	openButtons[#openButtons + 1] = openBtn
+	local openCap = openBtn:FindFirstChildWhichIsA("TextLabel")
+
+	-- QUANTITY SEGMENTS -- 46x38, gap 6, active wears the same #FFD84D ring the
+	-- selected row does. x1 is the only live one: EggBuy takes no quantity and
+	-- EggHandler debits egg.Price exactly once, so x3/x10 are drawn and
+	-- selectable but say so rather than silently charging once.
+	local qtyRow = new("Frame", {
+		Name = "Qty",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -(12 + ACT_W + 12), 0.5, 0),
+		Size = UDim2.fromOffset(QTY_W * 3 + QTY_GAP * 2, QTY_H),
+		BackgroundTransparency = 1,
+		ZIndex = card.ZIndex + 1,
+	}, card)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, QTY_GAP),
+	}, qtyRow)
+	local qtyRings = {}
+	for qi, qty in ipairs({ 1, 3, 10 }) do
+		-- SLOT WRAPPER, and it is not optional: UI.button parents its hard shadow
+		-- as a SIBLING, so dropping three buttons straight into a UIListLayout
+		-- gives the layout SIX children -- the three shadows become phantom list
+		-- items and shove the real buttons clean past the end of the row, on top
+		-- of the Open button. Wrapping each button in its own frame keeps the
+		-- shadow inside the slot and out of the layout. This is the codebase-wide
+		-- pattern for exactly this reason.
+		local slot = new("Frame", {
+			Name = "QtySlot" .. qty,
+			Size = UDim2.fromOffset(QTY_W, QTY_H),
+			BackgroundTransparency = 1,
+			LayoutOrder = qi,
+			ZIndex = qtyRow.ZIndex,
+		}, qtyRow)
+		local seg = kitButton(slot, "x" .. qty, "tab", UDim2.fromOffset(QTY_W, QTY_H), qtyRow.ZIndex + 1)
+		seg.Name = "Qty" .. qty
+		local ring = Instance.new("UIStroke")
+		ring.Color = T.color.activeRing
+		ring.Thickness = 4
+		ring.Transparency = (qty == 1) and 0 or 1
+		ring.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		ring.Parent = seg
+		qtyRings[qty] = ring
+		seg.Activated:Connect(function()
+			for q, r in pairs(qtyRings) do r.Transparency = (q == qty) and 0 or 1 end
+		end)
+	end
 
 	-- Selecting a row drives the odds strip below, which is the kit's model:
 	-- "Selected row wears a 4px #FFD84D ring and drives the odds strip below."
@@ -525,14 +599,19 @@ for i, egg in ipairs(world.Eggs) do
 	selRing.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	selRing.Parent = card
 
+	-- stops short of the qty segments and the action so it cannot eat their input
 	local hit = new("TextButton", {
 		Name = "SelectHit", Text = "", BackgroundTransparency = 1,
-		Size = UDim2.new(1, -140, 1, 0), ZIndex = card.ZIndex + 1, AutoButtonColor = false,
+		Size = UDim2.new(1, -(12 + ACT_W + 12 + QTY_W * 3 + QTY_GAP * 2 + 12), 1, 0),
+		ZIndex = card.ZIndex, AutoButtonColor = false,
 	}, card)
 	hit.Activated:Connect(function() if selectRow then selectRow(egg) end end)
 
 	rowCards[#rowCards + 1] = { egg = egg, ring = selRing }
-	priceRows[#priceRows + 1] = { chip = priceChip, value = priceValue, button = openBtn, price = egg.Price }
+	priceRows[#priceRows + 1] = {
+		chip = priceChip, edge = priceEdge, value = priceValue,
+		button = openBtn, cap = openCap, price = egg.Price,
+	}
 
 	-- ODDS ARE DATA-DRIVEN: every line below reads straight from egg.Table
 	-- (EggConfig), the exact table EggHandler.RollFor rolls against server-side.
@@ -625,11 +704,19 @@ if world.Eggs[1] then selectRow(world.Eggs[1]) end
 local function refreshAffordability()
 	for _, r in ipairs(priceRows) do
 		local ok = (not darrelsKnown) or currentDarrels >= r.price
+		-- affordable: rgba(0,0,0,.32) on a rgba(0,0,0,.45) edge, white value
+		-- too poor:   #C8231C -> #8E120D on #7A1710, #FFD2CC value
 		r.chip.BackgroundColor3 = ok and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(200, 35, 28)
-		r.chip.BackgroundTransparency = ok and 0.68 or 0.05
+		r.chip.BackgroundTransparency = ok and 0.68 or 0
+		r.edge.Color = ok and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(122, 23, 16)
+		r.edge.Transparency = ok and 0.55 or 0
 		r.value.TextColor3 = ok and T.color.white or Color3.fromRGB(255, 210, 204)
 		local grad = r.button:FindFirstChildOfClass("UIGradient")
 		if grad then grad.Color = ok and T.gradient.green or T.gradient.disabled end
+		if r.cap then
+			r.cap.Text = ok and "Open" or ("Need " .. tostring(math.max(0, r.price - currentDarrels)))
+			r.cap.TextColor3 = ok and T.color.white or Color3.fromRGB(184, 196, 164)
+		end
 	end
 end
 

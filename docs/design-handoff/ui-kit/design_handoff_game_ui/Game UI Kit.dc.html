@@ -46,13 +46,31 @@
   </div>
   </sc-if>
 
+  <sc-if value="{{ hudIdle }}" hint-placeholder-val="{{ false }}">
+  <div style="position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;gap:20px;z-index:20">
+    <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-3px) scale(1.04)" style-active="transform:translateY(2px) scale(.99)">
+      <img src="icons/skip.svg" alt="" width="82" height="82" style="display:block;filter:drop-shadow(0 6px 5px rgba(0,0,0,.5))">
+      <div style="min-width:96px;height:38px;padding:0 14px;border-radius:11px;border:4px solid #16170F;background:linear-gradient(180deg,#FFB44D 0%,#F0850E 52%,#C25A05 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.45),0 4px 0 #16170F;display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:21px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">SKIP</div>
+    </div>
+    <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-3px) scale(1.04)" style-active="transform:translateY(2px) scale(.99)">
+      <img src="icons/shops.svg" alt="" width="82" height="82" style="display:block;filter:drop-shadow(0 6px 5px rgba(0,0,0,.5))">
+      <div style="min-width:96px;height:38px;padding:0 14px;border-radius:11px;border:4px solid #16170F;background:linear-gradient(180deg,#FF7FB2 0%,#E31C6B 52%,#A80B47 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.45),0 4px 0 #16170F;display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:21px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">SHOPS</div>
+    </div>
+    <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-3px) scale(1.04)" style-active="transform:translateY(2px) scale(.99)">
+      <img src="icons/plot.svg" alt="" width="82" height="82" style="display:block;filter:drop-shadow(0 6px 5px rgba(0,0,0,.5))">
+      <div style="min-width:96px;height:38px;padding:0 14px;border-radius:11px;border:4px solid #16170F;background:linear-gradient(180deg,#7FDBFF 0%,#2A93E0 52%,#125FA8 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.45),0 4px 0 #16170F;display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:21px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">PLOT</div>
+    </div>
+  </div>
+  </sc-if>
+
   <div style="position:absolute;right:10px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;z-index:30">
     <sc-for list="{{ rail }}" as="item" hint-placeholder-count="6">
       <div onClick="{{ item.open }}" style="position:relative;width:106px;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-3px) scale(1.05)" style-active="transform:translateY(2px) scale(.99)">
         <sc-if value="{{ item.active }}" hint-placeholder-val="{{ false }}">
           <div style="position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:88px;height:88px;border-radius:999px;background:radial-gradient(circle,rgba(255,232,122,.75) 0%,rgba(255,232,122,.28) 45%,rgba(255,232,122,0) 72%);pointer-events:none"></div>
         </sc-if>
-        <sc-if value="{{ item.is_bag }}" hint-placeholder-val="{{ true }}"><img src="icons/bag.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
+        <sc-if value="{{ item.is_eggs }}" hint-placeholder-val="{{ true }}"><img src="icons/eggs.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
+        <sc-if value="{{ item.is_bag }}" hint-placeholder-val="{{ false }}"><img src="icons/bag.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
         <sc-if value="{{ item.is_pass }}" hint-placeholder-val="{{ false }}"><img src="icons/pass.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
         <sc-if value="{{ item.is_daily }}" hint-placeholder-val="{{ false }}"><img src="icons/daily.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
         <sc-if value="{{ item.is_goals }}" hint-placeholder-val="{{ false }}"><img src="icons/goals.svg" alt="" width="66" height="66" style="display:block;filter:drop-shadow(0 5px 4px rgba(0,0,0,.5))"></sc-if>
@@ -551,6 +569,166 @@
     </div>
   </sc-if>
 
+  <sc-if value="{{ showEggs }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Eggs Shop" style="position:absolute;inset:0;z-index:25;background:rgba(10,14,6,.5);display:flex;align-items:center;justify-content:center;padding:0 132px 0 24px">
+      <div style="display:flex;flex-direction:column;width:1080px">
+
+        <div style="display:flex;align-items:center;gap:14px;height:92px;padding:0 12px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#FFE87A 0%,#FFC531 55%,#E08A0C 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.55),inset 0 -7px 0 rgba(0,0,0,.18),0 6px 0 #16170F,0 14px 22px rgba(0,0,0,.35)">
+          <img src="icons/eggs.svg" alt="" width="62" height="62" style="display:block;flex:0 0 auto;filter:drop-shadow(0 3px 2px rgba(0,0,0,.35))">
+          <div style="font-family:'Fredoka One',cursive;font-size:44px;line-height:1;color:#fff;-webkit-text-stroke:5px #16170F;paint-order:stroke fill;text-shadow:0 4px 0 rgba(0,0,0,.22)">Forest Eggs</div>
+          <div style="flex:1"></div>
+          <div style="display:flex;gap:8px">
+            <sc-for list="{{ biomes }}" as="b" hint-placeholder-count="3">
+              <div onClick="{{ b.pick }}" style="position:relative;height:56px;padding:0 18px;border-radius:13px;border:4px solid #16170F;background:linear-gradient(180deg,#7A8A66 0%,#4E5C3B 100%);display:flex;align-items:center;cursor:pointer;box-shadow:0 4px 0 #16170F;font-family:'Fredoka One',cursive;font-size:19px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.1)">
+                {{ b.label }}
+                <sc-if value="{{ b.active }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:-4px;border-radius:15px;border:4px solid #FFFFFF;box-shadow:0 0 12px rgba(255,255,255,.55);pointer-events:none"></div>
+                </sc-if>
+                <sc-if value="{{ b.locked }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0;border-radius:9px;background:rgba(8,12,5,.42);pointer-events:none"></div>
+                  <div style="position:absolute;top:-9px;right:-9px;width:34px;height:34px;border-radius:10px;border:3.5px solid #16170F;background:linear-gradient(180deg,#F2F2EC,#C2C4B8);box-shadow:0 3px 0 #16170F;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                    <div style="width:11px;height:8px;border:3px solid #3A3A32;border-bottom:none;border-radius:7px 7px 0 0"></div>
+                    <div style="width:17px;height:11px;border-radius:3px;background:#3A3A32"></div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+          <div onClick="{{ closePanel }}" style="width:74px;height:66px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FF8A7A 0%,#E23A2C 52%,#A8140F 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.4),inset 0 -6px 0 rgba(0,0,0,.24),0 5px 0 #16170F;cursor:pointer;transition:transform .12s ease" style-hover="transform:translateY(-2px);filter:brightness(1.07)" style-active="transform:translateY(2px)">
+            <div style="font-family:'Fredoka One',cursive;font-size:32px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">X</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;padding:16px;border-radius:22px;border:5px solid #16170F;background:linear-gradient(180deg,#414E36 0%,#2B3423 100%);box-shadow:inset 0 6px 0 rgba(255,255,255,.08),0 6px 0 #16170F,0 16px 26px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:14px">
+
+          <div style="display:flex;gap:14px;height:432px">
+
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px;overflow-y:auto;scrollbar-width:none">
+              <sc-for list="{{ eggs }}" as="e" hint-placeholder-count="4">
+                <div onClick="{{ e.pick }}" style="position:relative;display:flex;align-items:center;gap:12px;height:80px;flex:0 0 80px;padding:0 12px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#4E5C3B 0%,#333E24 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.1),0 5px 0 #16170F;cursor:pointer;transition:transform .1s ease" style-hover="transform:translateX(3px)">
+
+                  <div style="position:relative;width:64px;height:64px;flex:0 0 64px;border-radius:12px;border:4px solid #16170F;background:repeating-linear-gradient(135deg,#3E4A34 0 6px,#354028 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:8px;color:rgba(255,255,255,.5);text-align:center;line-height:1.2">
+                    {{ e.slot }}
+                    <div style="position:absolute;inset:0;border-radius:8px;border:4px solid {{ e.rarityColor }};box-shadow:inset 0 0 12px {{ e.rarityGlow }};pointer-events:none"></div>
+                  </div>
+
+                  <div style="display:flex;flex-direction:column;gap:4px;width:196px;flex:0 0 196px">
+                    <div style="font-family:'Fredoka One',cursive;font-size:22px;line-height:1;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill">{{ e.name }}</div>
+                    <sc-if value="{{ e.affordable }}" hint-placeholder-val="{{ true }}">
+                      <div style="align-self:flex-start;display:flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 5px;border-radius:9px;border:3px solid rgba(0,0,0,.45);background:rgba(0,0,0,.32)">
+                        <img src="icons/coin.svg" alt="" width="24" height="24" style="display:block;flex:0 0 auto">
+                        <div style="font-family:'Fredoka One',cursive;font-size:19px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ e.price }}</div>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ e.tooPoor }}" hint-placeholder-val="{{ false }}">
+                      <div style="align-self:flex-start;display:flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 5px;border-radius:9px;border:3px solid #7A1710;background:linear-gradient(180deg,#C8231C,#8E120D)">
+                        <img src="icons/coin.svg" alt="" width="24" height="24" style="display:block;flex:0 0 auto">
+                        <div style="font-family:'Fredoka One',cursive;font-size:19px;color:#FFD2CC;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">{{ e.price }}</div>
+                      </div>
+                    </sc-if>
+                  </div>
+
+                  <div style="flex:1"></div>
+
+                  <sc-if value="{{ e.buyable }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;gap:6px">
+                      <sc-for list="{{ e.quantities }}" as="q" hint-placeholder-count="3">
+                        <div onClick="{{ q.pick }}" style="position:relative;width:46px;height:38px;border-radius:10px;border:3.5px solid #16170F;background:linear-gradient(180deg,#7A8A66 0%,#4E5C3B 100%);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 3px 0 #16170F;font-family:'Fredoka One',cursive;font-size:17px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.12)">
+                          {{ q.label }}
+                          <sc-if value="{{ q.active }}" hint-placeholder-val="{{ false }}">
+                            <div style="position:absolute;inset:-4px;border-radius:12px;border:4px solid #FFD84D;box-shadow:0 0 10px rgba(255,216,77,.5);pointer-events:none"></div>
+                          </sc-if>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ e.affordable }}" hint-placeholder-val="{{ true }}">
+                    <div style="width:132px;flex:0 0 132px;height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 5px 0 rgba(255,255,255,.45),inset 0 -5px 0 rgba(0,0,0,.2),0 5px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3.5px #16170F;paint-order:stroke fill;transition:transform .12s ease" style-hover="transform:translateY(-2px);filter:brightness(1.06)" style-active="transform:translateY(2px)">Open</div>
+                  </sc-if>
+                  <sc-if value="{{ e.tooPoor }}" hint-placeholder-val="{{ false }}">
+                    <div style="width:132px;flex:0 0 132px;height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#6A7757,#454F33);display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 4px 6px rgba(0,0,0,.35);font-family:'Fredoka One',cursive;font-size:15px;line-height:1.15;text-align:center;color:#B8C4A4;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">Need<br>{{ e.shortBy }}</div>
+                  </sc-if>
+                  <sc-if value="{{ e.isLocked }}" hint-placeholder-val="{{ false }}">
+                    <div style="width:132px;flex:0 0 132px;height:56px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#6A7757,#454F33);display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:inset 0 4px 6px rgba(0,0,0,.35)">
+                      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center">
+                        <div style="width:13px;height:9px;border:3.5px solid #E4E7DD;border-bottom:none;border-radius:8px 8px 0 0"></div>
+                        <div style="width:20px;height:13px;border-radius:4px;background:#E4E7DD"></div>
+                      </div>
+                      <div style="font-family:'Fredoka One',cursive;font-size:15px;line-height:1.15;color:#DDE3D2;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">{{ e.unlockAt }}</div>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ e.selected }}" hint-placeholder-val="{{ true }}">
+                    <div style="position:absolute;inset:-4px;border-radius:19px;border:4px solid #FFD84D;box-shadow:0 0 14px rgba(255,216,77,.45);pointer-events:none"></div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="width:296px;flex:0 0 296px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:center;gap:10px;height:66px;padding:0 16px 0 8px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#FFE066 0%,#FFC531 52%,#E8930F 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.5),inset 0 -5px 0 rgba(0,0,0,.16),0 5px 0 #16170F">
+                <img src="icons/coin.svg" alt="" width="46" height="46" style="display:block;flex:0 0 auto">
+                <div style="font-family:'Fredoka One',cursive;font-size:28px;color:#fff;-webkit-text-stroke:4px #16170F;paint-order:stroke fill">{{ coins }}</div>
+                <div style="flex:1"></div>
+                <div style="width:38px;height:38px;border-radius:10px;border:3.5px solid #16170F;background:linear-gradient(180deg,#A6EE72,#3E9E22);display:flex;align-items:center;justify-content:center;box-shadow:0 3px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:24px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.08)">+</div>
+              </div>
+
+              <div style="flex:1;display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#4A5840 0%,#2E3825 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.1)">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <img src="icons/goals.svg" alt="" width="30" height="30" style="display:block;flex:0 0 auto">
+                  <div style="font-family:'Fredoka One',cursive;font-size:19px;color:#FFD84D;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">DAILY QUESTS</div>
+                </div>
+                <sc-for list="{{ eggQuests }}" as="q" hint-placeholder-count="3">
+                  <div style="position:relative;display:flex;flex-direction:column;gap:5px;padding:8px 10px;border-radius:12px;border:3.5px solid #16170F;background:linear-gradient(180deg,#4E5C3B 0%,#333E24 100%)">
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <div style="flex:1;font-family:'Fredoka One',cursive;font-size:16px;line-height:1.1;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">{{ q.title }}</div>
+                      <img src="icons/coin.svg" alt="" width="22" height="22" style="display:block;flex:0 0 auto">
+                      <div style="font-family:'Fredoka One',cursive;font-size:15px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">{{ q.reward }}</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:7px">
+                      <div style="position:relative;flex:1;height:20px;border-radius:999px;border:3px solid #16170F;background:linear-gradient(180deg,#1B2114,#26301C);overflow:hidden">
+                        <div style="position:absolute;left:0;top:0;bottom:0;width:{{ q.pct }}%;background:linear-gradient(180deg,#A6EE72,#3E9E22)"></div>
+                        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:Nunito;font-weight:900;font-size:12px;color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.6)">{{ q.progress }}</div>
+                      </div>
+                      <sc-if value="{{ q.isClaimable }}" hint-placeholder-val="{{ false }}">
+                        <div onClick="{{ q.claim }}" style="height:28px;padding:0 11px;border-radius:9px;border:3.5px solid #16170F;background:linear-gradient(180deg,#A6EE72 0%,#5FC22F 52%,#317F16 100%);display:flex;align-items:center;box-shadow:0 3px 0 #16170F;cursor:pointer;font-family:'Fredoka One',cursive;font-size:14px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill" style-hover="filter:brightness(1.08)">CLAIM</div>
+                      </sc-if>
+                      <sc-if value="{{ q.isClaimed }}" hint-placeholder-val="{{ false }}">
+                        <div style="width:28px;height:28px;flex:0 0 28px;border-radius:999px;border:3.5px solid #16170F;background:linear-gradient(180deg,#A6EE72,#3E9E22);display:flex;align-items:center;justify-content:center;box-shadow:0 3px 0 #16170F;font-family:'Fredoka One',cursive;font-size:16px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">✓</div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:9px;padding:12px;border-radius:16px;border:4px solid #16170F;background:linear-gradient(180deg,#4A5840 0%,#2E3825 100%);box-shadow:inset 0 5px 0 rgba(255,255,255,.1)">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-family:'Fredoka One',cursive;font-size:20px;color:#fff;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">Inside the {{ selEggName }}</div>
+              <div style="height:32px;padding:0 12px;border-radius:9px;border:3.5px solid #16170F;background:linear-gradient(180deg,#DE93FF,#8B2FD6);display:flex;align-items:center;box-shadow:0 3px 0 #16170F;font-family:'Fredoka One',cursive;font-size:15px;color:#fff;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">LUCK +25%</div>
+              <div style="flex:1"></div>
+              <div style="font-family:Nunito;font-weight:900;font-size:13px;letter-spacing:.03em;color:#C9D6B4">Odds shown include your active luck boost</div>
+            </div>
+            <div style="display:flex;gap:10px">
+              <sc-for list="{{ pool }}" as="p" hint-placeholder-count="6">
+                <div style="position:relative;flex:1;height:94px;border-radius:14px;border:4px solid #16170F;background:linear-gradient(180deg,#37432D 0%,#232C1C 100%);box-shadow:inset 0 4px 0 rgba(255,255,255,.1);display:flex;flex-direction:column;align-items:center;padding:6px;gap:3px">
+                  <div style="flex:1;align-self:stretch;border-radius:9px;background:repeating-linear-gradient(135deg,#3E4A34 0 6px,#354028 6px 12px);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;font-size:8px;color:rgba(255,255,255,.5);text-align:center;padding:3px;line-height:1.2">{{ p.slot }}</div>
+                  <div style="font-family:'Fredoka One',cursive;font-size:14px;color:#FFD84D;-webkit-text-stroke:2.5px #16170F;paint-order:stroke fill">{{ p.chance }}</div>
+                  <div style="position:absolute;inset:0;border-radius:10px;border:4px solid {{ p.rarityColor }};box-shadow:inset 0 0 12px {{ p.rarityGlow }};pointer-events:none"></div>
+                  <sc-if value="{{ p.undiscovered }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute;inset:0;border-radius:10px;background:rgba(8,12,5,.72);display:flex;align-items:center;justify-content:center;font-family:'Fredoka One',cursive;font-size:34px;color:#7A8A66;-webkit-text-stroke:3px #16170F;paint-order:stroke fill">?</div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
   <sc-if value="{{ showKit }}" hint-placeholder-val="{{ false }}">
     <div data-screen-label="Style Kit" style="position:absolute;inset:0;z-index:50;background:#1B2114;overflow-y:auto;padding:22px 26px 40px">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
@@ -645,10 +823,10 @@
 </div>
 
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1350,&quot;height&quot;:775},&quot;passOwned&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;State&quot;},&quot;initialScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;pass&quot;,&quot;backpack&quot;,&quot;settings&quot;,&quot;daily&quot;,&quot;index&quot;,&quot;goals&quot;],&quot;default&quot;:&quot;pass&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;State&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1350,&quot;height&quot;:775},&quot;passOwned&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;State&quot;},&quot;initialScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;none&quot;,&quot;eggs&quot;,&quot;pass&quot;,&quot;backpack&quot;,&quot;settings&quot;,&quot;daily&quot;,&quot;index&quot;,&quot;goals&quot;],&quot;default&quot;:&quot;eggs&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;State&quot;}}">
 class Component extends DCLogic {
   state = {
-    screen: "pass",
+    screen: "eggs",
     kit: false,
     level: 4,
     xp: 12,
@@ -664,7 +842,38 @@ class Component extends DCLogic {
     dailyClaimed: { 1: true, 2: true, 3: true },
     goalTab: 0,
     goalClaimed: {},
-    indexFilter: 0
+    indexFilter: 0,
+    biome: 0,
+    eggSel: 2,
+    eggQty: { 0: 0, 1: 0, 2: 1, 3: 0, 4: 0 },
+    eggQuestClaimed: {},
+    coins: 1240
+  };
+
+  RARITY = {
+    common: { color: "#C9CCC2", glow: "rgba(201,204,194,.35)" },
+    rare:   { color: "#3FA9F5", glow: "rgba(63,169,245,.5)" },
+    epic:   { color: "#A855F7", glow: "rgba(168,85,247,.55)" },
+    legend: { color: "#FFB200", glow: "rgba(255,178,0,.6)" }
+  };
+
+  EGGS = [
+    { name: "Shard Egg", price: 60, rarity: "common", slot: "egg_shard.png" },
+    { name: "Horned Egg", price: 115, rarity: "rare", slot: "egg_horned.png" },
+    { name: "Rune Egg", price: 160, rarity: "epic", slot: "egg_rune.png" },
+    { name: "Prism Egg", price: 2400, rarity: "legend", slot: "egg_prism.png" },
+    { name: "Void Egg", price: 6000, rarity: "legend", slot: "egg_void.png", unlockAt: "Forest Lv 12" }
+  ];
+
+  POOL = {
+    2: [
+      { name: "Secret Peto", chance: "0.4%", rarity: "legend", slot: "pet_peto.png", undiscovered: true },
+      { name: "Maxwell", chance: "2%", rarity: "epic", slot: "pet_maxwell.png" },
+      { name: "Cocofanto", chance: "6%", rarity: "epic", slot: "pet_coco.png" },
+      { name: "Tralalero", chance: "14%", rarity: "rare", slot: "pet_tralalero.png" },
+      { name: "Odin Din", chance: "28%", rarity: "rare", slot: "pet_odin.png" },
+      { name: "Bombardino", chance: "49.6%", rarity: "common", slot: "pet_bombardino.png" }
+    ]
   };
 
   componentDidMount() {
@@ -821,7 +1030,68 @@ class Component extends DCLogic {
       ["Card light", "#F7F7F1"], ["Card mid", "#DEDED4"], ["Card shade", "#B2B4A8"], ["Text muted", "#C9D6B4"]
     ];
 
+    const coins = s.coins;
+    const eggs = this.EGGS.map((e, i) => {
+      const locked = !!e.unlockAt;
+      const poor = !locked && coins < e.price;
+      const q = s.eggQty[i] || 0;
+      return {
+        name: e.name,
+        price: e.price.toLocaleString(),
+        slot: e.slot,
+        rarityColor: this.RARITY[e.rarity].color,
+        rarityGlow: this.RARITY[e.rarity].glow,
+        selected: s.eggSel === i,
+        isLocked: locked,
+        tooPoor: poor,
+        affordable: !locked && !poor,
+        buyable: !locked,
+        shortBy: (e.price - coins).toLocaleString(),
+        unlockAt: e.unlockAt || "",
+        quantities: ["x1", "x3", "x10"].map((l, j) => ({
+          label: l, active: q === j, pick: () => this.setState(st => ({ eggQty: Object.assign({}, st.eggQty, { [i]: j }) }))
+        })),
+        pick: () => this.setState({ eggSel: i })
+      };
+    });
+    const poolSrc = this.POOL[s.eggSel] || this.POOL[2];
+    const pool = poolSrc.map(p => ({
+      name: p.name,
+      chance: p.chance,
+      slot: p.slot,
+      rarityColor: this.RARITY[p.rarity].color,
+      rarityGlow: this.RARITY[p.rarity].glow,
+      undiscovered: !!p.undiscovered
+    }));
+    const eggQuestSrc = [
+      { title: "Skip 25 rocks", cur: 24, goal: 25, reward: "80" },
+      { title: "Skip 60 rocks", cur: 24, goal: 60, reward: "150" },
+      { title: "Catch 3 Epic+ pets", cur: 3, goal: 3, reward: "220" }
+    ];
+    const eggQuests = eggQuestSrc.map((q, i) => {
+      const done = q.cur >= q.goal;
+      const claimed = !!s.eggQuestClaimed[i];
+      return {
+        title: q.title,
+        reward: q.reward,
+        pct: Math.round(Math.min(1, q.cur / q.goal) * 100),
+        progress: q.cur + " / " + q.goal,
+        isClaimable: done && !claimed,
+        isClaimed: claimed,
+        claim: () => this.setState(st => ({ eggQuestClaimed: Object.assign({}, st.eggQuestClaimed, { [i]: true }) }))
+      };
+    });
+
     return {
+      showEggs: screen === "eggs" && !s.kit,
+      coins: coins.toLocaleString(),
+      eggs,
+      pool,
+      eggQuests,
+      selEggName: this.EGGS[s.eggSel].name,
+      biomes: ["Forest", "Desert", "Frost"].map((l, i) => ({
+        label: l, active: s.biome === i, locked: i > 1, pick: () => this.setState({ biome: i })
+      })),
       showPass: screen === "pass" && !s.kit,
       showBackpack: screen === "backpack" && !s.kit,
       showSettings: screen === "settings" && !s.kit,
@@ -829,13 +1099,14 @@ class Component extends DCLogic {
       showIndex: screen === "index" && !s.kit,
       showGoals: screen === "goals" && !s.kit,
       showKit: s.kit,
-      hudIdle: !s.kit && !["pass", "backpack", "settings", "daily", "index", "goals"].includes(screen),
+      hudIdle: !s.kit && !["pass", "backpack", "settings", "daily", "index", "goals", "eggs"].includes(screen),
       openKit: () => this.setState({ kit: true }),
       closeKit: () => this.setState({ kit: false }),
       closePanel: () => this.setState({ screen: "none" }),
       openGoals: this.go("goals"),
 
       rail: [
+        { label: "Eggs", is_eggs: true, active: screen === "eggs", badge: null, open: this.go("eggs") },
         { label: "Bag", is_bag: true, active: screen === "backpack", badge: null, open: this.go("backpack") },
         { label: "Pass", is_pass: true, active: screen === "pass", badge: "1", open: this.go("pass") },
         { label: "Daily", is_daily: true, active: screen === "daily", badge: "1", open: this.go("daily") },

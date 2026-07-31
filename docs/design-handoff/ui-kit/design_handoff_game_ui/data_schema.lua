@@ -166,4 +166,61 @@ function M.dayState(d: DailyDay, s: DailyState): string
 	return "locked"
 end
 
+--------------------------------------------------------------------- egg shop
+export type EggPool = {
+	petId: string,
+	name: string,
+	rarity: Rarity,
+	icon: string,
+	weight: number,          -- raw drop weight; UI shows weight/total, luck-adjusted
+}
+
+export type Egg = {
+	id: string,              -- "egg_rune"
+	name: string,            -- "Rune Egg"
+	biome: string,           -- "forest" | "desert" | "frost"
+	price: number,           -- in coins
+	rarity: Rarity,          -- the egg's own tier -> frame colour on the row
+	icon: string,
+	unlockLevel: number?,    -- nil = always available; set -> row shows "Forest Lv N"
+	pool: { EggPool },
+}
+
+export type EggShopState = {
+	biome: string,
+	coins: number,
+	unlockedBiomes: { [string]: boolean },
+	biomeLevel: { [string]: number },
+	luckMultiplier: number,  -- 1.25 renders as the "LUCK +25%" chip
+	discovered: { [string]: boolean },  -- petId -> true; false hides the odds tile behind "?"
+}
+
+--  OpenEgg(eggId: string, qty: number) -> { ok, reason, results: { EggPool }, coins: number }
+--    reasons: "locked" | "no_funds" | "bad_qty" | "biome_locked"
+--  Server rolls every result; the client only animates what comes back.
+
+function M.eggRowState(egg: Egg, s: EggShopState): string
+	if egg.unlockLevel and (s.biomeLevel[egg.biome] or 0) < egg.unlockLevel then return "locked" end
+	if s.coins < egg.price then return "too_poor" end
+	return "buyable"
+end
+
+-- Luck-adjusted display odds. Luck lifts rare+ weights only, then renormalises,
+-- so the percentages the player sees always add up to 100.
+function M.displayOdds(pool: { EggPool }, luck: number): { { petId: string, pct: number } }
+	local boosted, total = {}, 0
+	for _, p in ipairs(pool) do
+		local w = if p.rarity == "common" then p.weight else p.weight * luck
+		table.insert(boosted, { petId = p.petId, w = w })
+		total += w
+	end
+	local out = {}
+	for _, b in ipairs(boosted) do
+		table.insert(out, { petId = b.petId, pct = (b.w / total) * 100 })
+	end
+	return out
+end
+
+M.EGG_QUANTITIES = { 1, 3, 10 }
+
 return M

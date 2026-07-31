@@ -132,7 +132,7 @@ T.size = {
 	-- 1080 panel centred on the 1350 canvas starts at x=135, overlapping it by 93px.
 	-- 860 leaves a 245px gutter and clears the rail by 17px, and is derived from the
 	-- row itself: art 64 + gap 12 + name 196 + gap 12 + action 132, plus the odds column.
-	panelWidth    = { pass = 960, backpack = 960, settings = 700, daily = 900, index = 940, goals = 860, eggs = 860 },
+	panelWidth    = { pass = 960, backpack = 960, settings = 700, daily = 900, index = 940, goals = 860, eggs = 940 },
 	panelRightGutter = 132, -- reserves the nav rail
 }
 
