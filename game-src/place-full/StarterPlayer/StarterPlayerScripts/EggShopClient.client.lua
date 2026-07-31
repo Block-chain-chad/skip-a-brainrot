@@ -221,10 +221,22 @@ local BODY_PAD = 16
 -- below is laid out inside that inset box. Offsets here are therefore relative
 -- to the padded content area, not to the panel's outer 1080x620 -- which is why
 -- the header sits at x=0 rather than at a hand-written margin.
-local headerTitle = UI.label(frame, "FOREST EGGS", "panelTitle", T.color.white)
+-- GOLD header bar. Read off the kit's rendered reference
+-- (design_handoff_game_ui/game-ui-reference.html), not the README prose: the
+-- header is a full-width gold slab, the same gradient family as the balance
+-- pill, with the title sitting on it. Building from the written spec alone is
+-- how the first two passes ended up with a dark header that looked nothing
+-- like the picture.
+local headerBar = UI.surface(frame, UDim2.new(1, 0, 0, HEADER_H - 8), "gold", T.radius.control, T.stroke.control)
+headerBar.Name = "HeaderBar"
+headerBar.Position = UDim2.fromOffset(0, 0)
+headerBar.ZIndex = frame.ZIndex + 2
+UI.gloss(headerBar, T.radius.control)
+
+local headerTitle = UI.label(frame, "Forest Eggs", "panelTitle", T.color.white)
 headerTitle.Name = "Title"
 headerTitle.AnchorPoint = Vector2.new(0, 0.5)
-headerTitle.Position = UDim2.new(0, 0, 0, HEADER_H / 2)
+headerTitle.Position = UDim2.new(0, 18, 0, (HEADER_H - 8) / 2)
 headerTitle.Size = UDim2.fromOffset(420, 40)
 headerTitle.TextXAlignment = Enum.TextXAlignment.Left
 headerTitle.ZIndex = frame.ZIndex + 4
@@ -234,7 +246,7 @@ local BAL_W, BAL_H, BAL_ICON = 208, 66, 46
 local balPill = UI.surface(frame, UDim2.fromOffset(BAL_W, BAL_H), "goldSmall", T.radius.control, T.stroke.control)
 balPill.Name = "BalancePill"
 balPill.AnchorPoint = Vector2.new(1, 0.5)
-balPill.Position = UDim2.new(1, -(T.size.closeButton.X + 18), 0, HEADER_H / 2)
+balPill.Position = UDim2.new(1, -(T.size.closeButton.X + 18), 0, (HEADER_H - 8) / 2)
 balPill.ZIndex = frame.ZIndex + 4
 UI.gloss(balPill, T.radius.control)
 
@@ -265,7 +277,7 @@ local closeBtn = UI.button(frame, "\u{2715}", "red",
 	UDim2.fromOffset(T.size.closeButton.X, T.size.closeButton.Y))
 closeBtn.Name = "Close"
 closeBtn.AnchorPoint = Vector2.new(1, 0.5)
-closeBtn.Position = UDim2.new(1, 0, 0, HEADER_H / 2)
+closeBtn.Position = UDim2.new(1, 0, 0, (HEADER_H - 8) / 2)
 closeBtn.ZIndex = frame.ZIndex + 5
 
 ---------------------------------------------------------------- egg list
@@ -275,10 +287,14 @@ closeBtn.ZIndex = frame.ZIndex + 5
 -- Sized in SCALE against the padded content box rather than in absolute pixels:
 -- UI.panel's own padding already supplies the margin, so subtracting it again
 -- here would inset the list twice.
+-- Bottom band reserved for the hatch-odds strip, which the kit says REPLACES
+-- the cramped per-row list: "same information, but each entry gets a rarity
+-- frame, a real drop rate, and enough room to read".
+local ODDS_H = 158
 local list = new("ScrollingFrame", {
 	Name = "EggList",
 	Position = UDim2.fromOffset(0, HEADER_H),
-	Size = UDim2.new(1, 0, 1, -HEADER_H),
+	Size = UDim2.new(1, 0, 1, -(HEADER_H + ODDS_H + 12)),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	ScrollBarThickness = 6,
@@ -338,8 +354,24 @@ local function kitButton(parent, text, variant, size, z)
 	return b, cap
 end
 
+-- Rarity colours are the reference's own, not RarityConfig's: the kit ships a
+-- four-stop ladder for frames and the game's tier palette does not line up with
+-- it. common #C9CCC2 / rare #3FA9F5 / epic #A855F7 / legend #FFB200.
+local KIT_RARITY = {
+	Rare      = Color3.fromRGB(63, 169, 245),
+	Epic      = Color3.fromRGB(168, 85, 247),
+	Legendary = Color3.fromRGB(255, 178, 0),
+	Mythic    = Color3.fromRGB(168, 85, 247),
+	Secret    = Color3.fromRGB(255, 178, 0),
+}
+local function kitTint(creatureName)
+	return KIT_RARITY[rarityOf(creatureName)] or Color3.fromRGB(201, 204, 194)
+end
+
 local openButtons = {}
 local buyLocked = false
+local selectRow      -- assigned once the odds strip exists
+local rowCards = {}  -- { card, egg } for the selection ring
 -- Live balance, so a row can show whether it is affordable. applyDarrel feeds
 -- this; refreshAffordability re-runs on every balance change.
 --
@@ -370,7 +402,7 @@ local function fireBuy(egg)
 end
 
 for i, egg in ipairs(world.Eggs) do
-	local tint = tierColor(eggTier(egg))
+	local tint = kitTint(eggTier(egg))
 
 	-- Wrapper carries the expansion; the CARD stays a fixed 80 so the collapsed
 	-- list keeps the kit's even rhythm rather than five different heights.
@@ -462,72 +494,108 @@ for i, egg in ipairs(world.Eggs) do
 	openBtn.Activated:Connect(function() fireBuy(egg) end)
 	openButtons[#openButtons + 1] = openBtn
 
-	local chevron, chevronCap = kitButton(card, "\u{25BC}", "tab", UDim2.fromOffset(44, 44), card.ZIndex + 2)
-	chevron.Name = "OddsToggle"
-	chevron.AnchorPoint = Vector2.new(1, 0.5)
-	chevron.Position = UDim2.new(1, -132, 0.5, 0)
+	-- Selecting a row drives the odds strip below, which is the kit's model:
+	-- "Selected row wears a 4px #FFD84D ring and drives the odds strip below."
+	local selRing = Instance.new("UIStroke")
+	selRing.Color = T.color.activeRing
+	selRing.Thickness = 4
+	selRing.Transparency = 1
+	selRing.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	selRing.Parent = card
 
+	local hit = new("TextButton", {
+		Name = "SelectHit", Text = "", BackgroundTransparency = 1,
+		Size = UDim2.new(1, -140, 1, 0), ZIndex = card.ZIndex + 1, AutoButtonColor = false,
+	}, card)
+	hit.Activated:Connect(function() if selectRow then selectRow(egg) end end)
+
+	rowCards[#rowCards + 1] = { egg = egg, ring = selRing }
 	priceRows[#priceRows + 1] = { chip = priceChip, value = priceValue, button = openBtn, price = egg.Price }
 
 	-- ODDS ARE DATA-DRIVEN: every line below reads straight from egg.Table
 	-- (EggConfig), the exact table EggHandler.RollFor rolls against server-side.
 	-- No percentage is ever authored a second time in this file.
-	local oddsHolder = UI.surface(row, UDim2.new(1, 0, 0, 0), "subPanel", T.radius.control, T.stroke.chip)
-	oddsHolder.Name = "OddsPanel"
-	oddsHolder.AutomaticSize = Enum.AutomaticSize.Y
-	oddsHolder.Visible = false
-	oddsHolder.LayoutOrder = 2
-	oddsHolder.ZIndex = 13
-	local oddsPad = Instance.new("UIPadding")
-	oddsPad.PaddingTop = UDim.new(0, 10)
-	oddsPad.PaddingBottom = UDim.new(0, 10)
-	oddsPad.PaddingLeft = UDim.new(0, 12)
-	oddsPad.PaddingRight = UDim.new(0, 12)
-	oddsPad.Parent = oddsHolder
-	new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, oddsHolder)
+end
 
-	local oddsHead = UI.label(oddsHolder, "INSIDE THE " .. egg.Name:upper(), "chip", T.color.textAccent)
-	oddsHead.LayoutOrder = 0
-	oddsHead.Size = UDim2.new(1, 0, 0, 20)
-	oddsHead.TextXAlignment = Enum.TextXAlignment.Left
-	oddsHead.ZIndex = oddsHolder.ZIndex + 1
+---------------------------------------------------------------- hatch-odds strip
+-- Kit README 3.1: one shared strip under the list, not a per-row dropdown --
+-- "This replaces the cramped numbered pet row at the bottom of the old screen
+-- -- same information, but each entry gets a rarity frame, a real drop rate,
+-- and enough room to read." Values still come straight from egg.Table, so the
+-- published odds cannot drift from what EggHandler.RollFor actually uses.
+local oddsStrip = UI.surface(frame, UDim2.new(1, 0, 0, ODDS_H), "subPanel", T.radius.control, T.stroke.control)
+oddsStrip.Name = "OddsStrip"
+oddsStrip.AnchorPoint = Vector2.new(0, 1)
+oddsStrip.Position = UDim2.new(0, 0, 1, 0)
+oddsStrip.ZIndex = frame.ZIndex + 3
 
+local oddsTitle = UI.label(oddsStrip, "", "cardLabel", T.color.white)
+oddsTitle.Name = "OddsTitle"
+oddsTitle.Position = UDim2.fromOffset(12, 10)
+oddsTitle.Size = UDim2.fromOffset(420, 26)
+oddsTitle.TextXAlignment = Enum.TextXAlignment.Left
+oddsTitle.ZIndex = oddsStrip.ZIndex + 1
+
+local oddsNote = UI.label(oddsStrip, "Odds are the live drop rates for this egg", "meta", T.color.textMuted)
+oddsNote.AnchorPoint = Vector2.new(1, 0)
+oddsNote.Position = UDim2.new(1, -12, 0, 14)
+oddsNote.Size = UDim2.fromOffset(340, 20)
+oddsNote.TextXAlignment = Enum.TextXAlignment.Right
+oddsNote.ZIndex = oddsStrip.ZIndex + 1
+
+local tileRow = new("Frame", {
+	Name = "Tiles",
+	Position = UDim2.fromOffset(12, 44),
+	Size = UDim2.new(1, -24, 0, ODDS_H - 56),
+	BackgroundTransparency = 1,
+	ZIndex = oddsStrip.ZIndex + 1,
+}, oddsStrip)
+local tileLayout = new("UIListLayout", {
+	FillDirection = Enum.FillDirection.Horizontal,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Padding = UDim.new(0, 10),
+}, tileRow)
+
+-- Tiles are rebuilt per selection: egg tables differ in length (3 to 5), so a
+-- fixed pool would either strand entries or leave holes.
+local function buildOddsFor(egg)
+	oddsTitle.Text = "Inside the " .. egg.Name
+	for _, c in ipairs(tileRow:GetChildren()) do
+		if c:IsA("GuiObject") then c:Destroy() end
+	end
+	local n = #egg.Table
 	for j, tableRow in ipairs(egg.Table) do
 		local creature, weight = tableRow[1], tableRow[2]
-		local line = new("Frame", {
-			Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1,
-			LayoutOrder = j, ZIndex = oddsHolder.ZIndex + 1,
-		}, oddsHolder)
-		-- rarity pip, so the tier reads without parsing the name
-		local pip = new("Frame", {
-			AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
-			Size = UDim2.fromOffset(10, 10), BackgroundColor3 = tierColor(creature),
-			ZIndex = line.ZIndex + 1,
-		}, line)
-		UI.corner(pip, 5)
-		local nameL = UI.label(line, creature, "meta", T.color.white)
-		nameL.AnchorPoint = Vector2.new(0, 0.5)
-		nameL.Position = UDim2.new(0, 20, 0.5, 0)
-		nameL.Size = UDim2.new(1, -100, 0, 20)
-		nameL.TextXAlignment = Enum.TextXAlignment.Left
-		nameL.ZIndex = line.ZIndex + 1
-		-- ODDS ARE DATA-DRIVEN: straight from egg.Table, the exact table
-		-- EggHandler.RollFor rolls against. Never authored twice.
-		local pct = UI.label(line, tostring(weight) .. "%", "meta", T.color.textAccent)
-		pct.AnchorPoint = Vector2.new(1, 0.5)
-		pct.Position = UDim2.new(1, 0, 0.5, 0)
-		pct.Size = UDim2.fromOffset(70, 20)
-		pct.TextXAlignment = Enum.TextXAlignment.Right
-		pct.ZIndex = line.ZIndex + 1
-	end
+		local tile = UI.surface(tileRow, UDim2.new(1 / n, -10 + 10 / n, 1, 0), "slot", T.radius.inner, T.stroke.control)
+		tile.LayoutOrder = j
+		tile.ZIndex = tileRow.ZIndex + 1
+		local frameRing = Instance.new("UIStroke")
+		frameRing.Color = kitTint(creature)
+		frameRing.Thickness = 4
+		frameRing.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		frameRing.Parent = tile
 
-	chevron.Activated:Connect(function()
-		oddsHolder.Visible = not oddsHolder.Visible
-		-- UI.button puts the caption in a child Label, so setting .Text on the
-		-- button itself would write to an empty string nobody renders.
-		if chevronCap then chevronCap.Text = oddsHolder.Visible and "\u{25B2}" or "\u{25BC}" end
-	end)
+		local nameL = UI.label(tile, creature, "meta", T.color.white)
+		nameL.Position = UDim2.fromOffset(6, 8)
+		nameL.Size = UDim2.new(1, -12, 0, 34)
+		nameL.TextWrapped = true
+		nameL.ZIndex = tile.ZIndex + 1
+
+		local pct = UI.label(tile, tostring(weight) .. "%", "cardLabel", T.color.textAccent)
+		pct.AnchorPoint = Vector2.new(0.5, 1)
+		pct.Position = UDim2.new(0.5, 0, 1, -6)
+		pct.Size = UDim2.new(1, -12, 0, 24)
+		pct.ZIndex = tile.ZIndex + 1
+	end
 end
+
+selectRow = function(egg)
+	for _, r in ipairs(rowCards) do
+		r.ring.Transparency = (r.egg == egg) and 0 or 1
+	end
+	buildOddsFor(egg)
+end
+if world.Eggs[1] then selectRow(world.Eggs[1]) end
 
 -- Kit README 5, egg-shop state machine: too_poor -> buyable. The price chip goes
 -- red and OPEN dims when the balance will not cover the egg. The server still

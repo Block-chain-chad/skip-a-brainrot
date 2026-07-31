@@ -147,7 +147,7 @@ ff4fae24|66737|LocalScript|StarterPlayer.StarterPlayerScripts.ClientMain
 29f1a345|9578|LocalScript|StarterPlayer.StarterPlayerScripts.DailyRewardClient
 23c84a72|8464|LocalScript|StarterPlayer.StarterPlayerScripts.DarrelHUDClient
 cb69a16b|3560|LocalScript|StarterPlayer.StarterPlayerScripts.DevWeatherClient
-5c6050ce|55634|LocalScript|StarterPlayer.StarterPlayerScripts.EggShopClient
+29380eb4|58437|LocalScript|StarterPlayer.StarterPlayerScripts.EggShopClient
 c0ceabfa|6739|LocalScript|StarterPlayer.StarterPlayerScripts.FootstepClient
 4d5a965c|19677|LocalScript|StarterPlayer.StarterPlayerScripts.FusionClient
 01e0bdf9|47126|LocalScript|StarterPlayer.StarterPlayerScripts.GameHUDClient
