@@ -124,7 +124,15 @@ T.size = {
 	bagSlot       = 118,
 	dayCard       = 196,
 	questRow      = 88,
-	panelWidth    = { pass = 960, backpack = 960, settings = 700, daily = 900, index = 940, goals = 860 },
+	-- eggs = 860, NOT the kit README 3.1 figure of 1080. That budget assumed a 296
+	-- side column (balance + quests) and a x1/x3/x10 quantity segment, none of
+	-- which this game has: quests moved to the Goals panel and the server takes no
+	-- quantity. 1080 also COLLIDES with the nav rail -- the rail is 2 columns on
+	-- the LEFT ending at x=228 (railItem 106 x2 + railGap 6 + railInset 10), and a
+	-- 1080 panel centred on the 1350 canvas starts at x=135, overlapping it by 93px.
+	-- 860 leaves a 245px gutter and clears the rail by 17px, and is derived from the
+	-- row itself: art 64 + gap 12 + name 196 + gap 12 + action 132, plus the odds column.
+	panelWidth    = { pass = 960, backpack = 960, settings = 700, daily = 900, index = 940, goals = 860, eggs = 860 },
 	panelRightGutter = 132, -- reserves the nav rail
 }
 

@@ -36,6 +36,13 @@ local okIconArt, IconArt = pcall(function()
 end)
 if not okIconArt then IconArt = nil end
 
+-- The kit itself. NOT pcall'd, unlike IconArt: the panel's shell, header and
+-- rows are built out of these, so a failure here is not a degraded icon, it is
+-- no shop at all -- better to throw at require time than to nil-index halfway
+-- through building the panel.
+local T = require(ReplicatedStorage.Modules.UIKit.Tokens)
+local UI = require(ReplicatedStorage.Modules.UIKit.Builders)
+
 local CF = UITheme.Camp
 local FONT = UITheme.Font
 local WORLD_ID = "Forest"
@@ -140,34 +147,40 @@ local gui = new("ScreenGui", {
 	Name = "EggShopUI", DisplayOrder = 9, IgnoreGuiInset = false, ResetOnSpawn = false,
 }, playerGui)
 
-local frame = new("Frame", {
-	Name = "EggShopFrame",
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.new(0.5, 0, 0.5, 0),
-	Size = UDim2.fromOffset(640, 520),
-	Visible = false,
-	ZIndex = 10,
-}, gui)
-UITheme.campPanel(frame)
-SideRail.registerPanel(frame)
+-- KIT RESTYLE (2026-08-01): the panel is now built from UIKit (README 3.1,
+-- "Eggs Shop -- panel width 1080") so it matches the six HUD panels instead of
+-- wearing the older campfire theme. Deliberately NOT in the kit's design:
+--   * no biome chips -- EggConfig has one world, and a one-tab strip is worse
+--     than no strip. The header renders chips only when a second world exists.
+--   * no egg icon in the header, and none in the nav rail: eggs are reached
+--     from the stall prompt and live in the inventory.
+--   * no quests card -- the three darrel dailies are already the Goals panel's
+--     Daily tab, so the copy here was a duplicate. Its column is gone and the
+--     egg list takes the width back.
+-- Everything below the reveal banner is untouched by this restyle.
+local FRAME_W = T.size.panelWidth.eggs   -- 1080
+local FRAME_H = 620
 
--- short-viewport guard, same pattern as every other campfire panel: shrink and
--- push down so the panel never covers the top TabBar band (146px)
-local FRAME_H = 520
-local FRAME_W = 640
+local frame = UI.panel(gui, UDim2.fromOffset(FRAME_W, FRAME_H))
+frame.Name = "EggShopFrame"
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+frame.Visible = false
+frame.ZIndex = 10
+SideRail.registerPanel(frame)
 -- The fit was hard-capped at 1x, so on any normal monitor the panel stopped dead at
 -- its design 640x520 and read small -- there was headroom it simply refused to use.
 -- Allow a modest upscale instead; still capped, because the UIScale magnifies the ink
 -- strokes and text along with everything else.
-local MAX_SCALE = 1.35
-local BOTTOM_MARGIN = 16          -- was 40; the extra 24px is real height on a short window
+-- The panel is now 1080 wide against a 640 design before, so the fit matters
+-- more, not less: MAX_SCALE stays at 1 because a kit panel is authored at its
+-- true pixel size and upscaling it magnifies the 4-5px strokes into slabs.
+local MAX_SCALE = 1.0
+local BOTTOM_MARGIN = 16
 local hudScale = new("UIScale", { Name = "HudFixScale" }, frame)
 local function relayout()
 	local vh, vw = gui.AbsoluteSize.Y, gui.AbsoluteSize.X
 	if vh <= 0 then return end
-	-- Width is now part of the fit. It never was before, which was a latent bug rather
-	-- than a style choice: at 1x a 640-wide panel already overflowed anything narrower
-	-- than 640, and raising the cap would have made that worse on a phone.
 	local s = math.min(MAX_SCALE,
 		(vh - 146 - BOTTOM_MARGIN) / FRAME_H,
 		(vw - 32) / FRAME_W)
@@ -177,147 +190,92 @@ end
 gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
 relayout()
 
-local ribbon, ribbonTitle = UITheme.ribbon(frame, "FOREST EGGS", 0.62)
+---------------------------------------------------------------- header
+-- Title left, balance right, close on the far right. The balance moved up here
+-- from the old side column: with the quests card gone it was the only thing
+-- left in a 176px gutter, and the kit puts currency in the panel chrome anyway
+-- (README 1: the HUD currency cluster hides while a panel is open, so a panel
+-- has to state the price currency itself).
+local HEADER_H = T.size.headerHeight   -- 92
+local BODY_PAD = 16
 
-local closeBtn = new("TextButton", {}, frame)
-UITheme.styleClose(closeBtn)
-closeBtn.ZIndex = 18
-for _, s in ipairs(closeBtn:GetChildren()) do
-	if s:IsA("UIStroke") and s.ApplyStrokeMode ~= Enum.ApplyStrokeMode.Contextual then
-		s.Color = CF.ink
-		s.Thickness = 3
-	end
-end
+-- NOTE ON POSITIONING: UI.panel puts a UIPadding on the frame, so every child
+-- below is laid out inside that inset box. Offsets here are therefore relative
+-- to the padded content area, not to the panel's outer 1080x620 -- which is why
+-- the header sits at x=0 rather than at a hand-written margin.
+local headerTitle = UI.label(frame, "FOREST EGGS", "panelTitle", T.color.white)
+headerTitle.Name = "Title"
+headerTitle.AnchorPoint = Vector2.new(0, 0.5)
+headerTitle.Position = UDim2.new(0, 0, 0, HEADER_H / 2)
+headerTitle.Size = UDim2.fromOffset(420, 40)
+headerTitle.TextXAlignment = Enum.TextXAlignment.Left
+headerTitle.ZIndex = frame.ZIndex + 4
 
----------------------------------------------------------------- layout columns
-local LEFT_W, RIGHT_W, PAD = 392, 176, 16
-local list = new("ScrollingFrame", {
-	Name = "EggList",
-	Position = UDim2.fromOffset(PAD, 78),
-	Size = UDim2.fromOffset(LEFT_W, FRAME_H - 78 - PAD),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	ScrollBarThickness = 6,
-	ScrollBarImageColor3 = CF.cream,
-	CanvasSize = UDim2.new(),
-	AutomaticCanvasSize = Enum.AutomaticSize.Y,
-	ZIndex = 12,
-}, frame)
-new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 10) }, list)
+-- balance pill (README 3.1 side column: height 66, radius 16, goldSmall)
+local BAL_W, BAL_H, BAL_ICON = 208, 66, 46
+local balPill = UI.surface(frame, UDim2.fromOffset(BAL_W, BAL_H), "goldSmall", T.radius.control, T.stroke.control)
+balPill.Name = "BalancePill"
+balPill.AnchorPoint = Vector2.new(1, 0.5)
+balPill.Position = UDim2.new(1, -(T.size.closeButton.X + 18), 0, HEADER_H / 2)
+balPill.ZIndex = frame.ZIndex + 4
+UI.gloss(balPill, T.radius.control)
 
-local right = new("Frame", {
-	Name = "SidePanel",
-	Position = UDim2.fromOffset(PAD * 2 + LEFT_W, 78),
-	Size = UDim2.fromOffset(RIGHT_W, FRAME_H - 78 - PAD),
-	BackgroundTransparency = 1,
-	ZIndex = 12,
-}, frame)
-
----------------------------------------------------------------- darrel chip
-local darrelChip = new("Frame", { Size = UDim2.new(1, 0, 0, 44), ZIndex = 12 }, right)
-UITheme.corner(darrelChip, 12)
-UITheme.gradient(darrelChip, CF.wood1, CF.wood2, 90)
-UITheme.ink(darrelChip, 3)
--- The balance used to read "\u{1F48E} 0" -- a generic diamond emoji for a
--- currency that is named after, and has, an actual mascot. Darrel's face goes
--- in a slot on the left and the label keeps just the number.
-local DARREL_ICON = 30
 local darrelIcon = new("Frame", {
 	Name = "DarrelIcon",
 	AnchorPoint = Vector2.new(0, 0.5),
 	Position = UDim2.new(0, 10, 0.5, 0),
-	Size = UDim2.fromOffset(DARREL_ICON, DARREL_ICON),
+	Size = UDim2.fromOffset(BAL_ICON, BAL_ICON),
 	BackgroundTransparency = 1,
-	ZIndex = 13,
-}, darrelChip)
+	ZIndex = balPill.ZIndex + 2,
+}, balPill)
 if IconArt and IconArt.has("darrel") then
-	IconArt.draw(darrelIcon, "darrel", DARREL_ICON, 13)
+	IconArt.draw(darrelIcon, "darrel", BAL_ICON, balPill.ZIndex + 2)
 end
 
-local darrelLabel = new("TextLabel", {
-	Position = UDim2.fromOffset(DARREL_ICON + 16, 0),
-	Size = UDim2.new(1, -(DARREL_ICON + 26), 1, 0),
-	BackgroundTransparency = 1, Font = FONT, TextSize = 20,
-	TextColor3 = CF.onDark, Text = IconArt and "0" or "\u{1F48E} 0", ZIndex = 13,
-}, darrelChip)
-UITheme.inkText(darrelLabel, 2.4)
+local darrelLabel = UI.label(balPill, "0", "value", T.color.textOnGoldChrome)
+darrelLabel.Name = "Value"
+darrelLabel.AnchorPoint = Vector2.new(0, 0.5)
+darrelLabel.Position = UDim2.new(0, 10 + BAL_ICON + 10, 0.5, 0)
+darrelLabel.Size = UDim2.fromOffset(BAL_W - (10 + BAL_ICON + 20), 30)
+darrelLabel.TextXAlignment = Enum.TextXAlignment.Left
+darrelLabel.ZIndex = balPill.ZIndex + 2
 
----------------------------------------------------------------- daily quests
-local questHeader = new("TextLabel", {
-	Position = UDim2.new(0, 0, 0, 54), Size = UDim2.new(1, 0, 0, 20),
-	BackgroundTransparency = 1, Font = FONT, TextSize = 15, TextColor3 = CF.cream,
-	Text = "DAILY QUESTS", ZIndex = 12,
-}, right)
-UITheme.inkText(questHeader, 2)
+-- UI.button(parent, text, variant, size) -- text and size are NOT interchangeable
+-- with each other's positions; passing them the other way round assigns a string
+-- to Size and the panel dies half-built.
+local closeBtn = UI.button(frame, "\u{2715}", "red",
+	UDim2.fromOffset(T.size.closeButton.X, T.size.closeButton.Y))
+closeBtn.Name = "Close"
+closeBtn.AnchorPoint = Vector2.new(1, 0.5)
+closeBtn.Position = UDim2.new(1, 0, 0, HEADER_H / 2)
+closeBtn.ZIndex = frame.ZIndex + 5
 
-local questList = new("Frame", {
-	Position = UDim2.new(0, 0, 0, 78), Size = UDim2.new(1, 0, 1, -78),
-	BackgroundTransparency = 1, ZIndex = 12,
-}, right)
-new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }, questList)
+---------------------------------------------------------------- egg list
+-- Full width now. The old layout split 640 into a 392 list and a 176 side
+-- column; with quests gone there is no second column, so the list gets all of
+-- it and an egg row can carry its art, name, price and action on one line.
+-- Sized in SCALE against the padded content box rather than in absolute pixels:
+-- UI.panel's own padding already supplies the margin, so subtracting it again
+-- here would inset the list twice.
+local list = new("ScrollingFrame", {
+	Name = "EggList",
+	Position = UDim2.fromOffset(0, HEADER_H),
+	Size = UDim2.new(1, 0, 1, -HEADER_H),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 6,
+	ScrollBarImageColor3 = T.color.scrollThumb,
+	CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ZIndex = frame.ZIndex + 3,
+}, frame)
+new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 12) }, list)
 
-local questRows = {}
-for i = 1, 3 do
-	local row = new("Frame", { Size = UDim2.new(1, 0, 0, 64), Visible = false, LayoutOrder = i, ZIndex = 12 }, questList)
-	UITheme.corner(row, 10)
-	UITheme.gradient(row, CF.cardTop, CF.cardBot, 90)
-	UITheme.ink(row, 2.5)
-	local text = new("TextLabel", {
-		Position = UDim2.new(0, 8, 0, 6), Size = UDim2.new(1, -16, 0, 30),
-		BackgroundTransparency = 1, Font = Enum.Font.GothamMedium, TextSize = 12,
-		TextColor3 = CF.ink, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
-		Text = "", ZIndex = 13,
-	}, row)
-	local progress = new("TextLabel", {
-		Position = UDim2.new(0, 8, 1, -22), Size = UDim2.new(0.5, -12, 0, 16),
-		BackgroundTransparency = 1, Font = FONT, TextSize = 12, TextColor3 = CF.muted,
-		TextXAlignment = Enum.TextXAlignment.Left, Text = "", ZIndex = 13,
-	}, row)
-	-- reward is right-aligned, so Darrel sits to the RIGHT of the number here
-	-- (trailing the value, where the emoji used to be) rather than leading it
-	local REWARD_ICON = 15
-	local rewardIcon = new("Frame", {
-		Name = "RewardIcon",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -8, 1, -14),
-		Size = UDim2.fromOffset(REWARD_ICON, REWARD_ICON),
-		BackgroundTransparency = 1, Visible = false, ZIndex = 14,
-	}, row)
-	if IconArt and IconArt.has("darrel") then
-		IconArt.draw(rewardIcon, "darrel", REWARD_ICON, 14)
-	end
-
-	local reward = new("TextLabel", {
-		Position = UDim2.new(0.5, 4, 1, -22),
-		Size = UDim2.new(0.5, -12 - (IconArt and (REWARD_ICON + 5) or 0), 0, 16),
-		BackgroundTransparency = 1, Font = FONT, TextSize = 12, TextColor3 = CF.amber2,
-		TextXAlignment = Enum.TextXAlignment.Right, Text = "", ZIndex = 13,
-	}, row)
-	local check = new("TextLabel", {
-		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(20, 20),
-		BackgroundTransparency = 1, Font = FONT, TextSize = 16, TextColor3 = CF.pine1,
-		Text = "\u{2713}", Visible = false, ZIndex = 14,
-	}, row)
-	UITheme.inkText(check, 2)
-	questRows[i] = { row = row, text = text, progress = progress, reward = reward, rewardIcon = rewardIcon, check = check }
-end
-
-local function refreshQuests(daily)
-	local quests = (daily and daily.Quests) or {}
-	for i, ui in ipairs(questRows) do
-		local q = quests[i]
-		ui.row.Visible = q ~= nil
-		if q then
-			ui.text.Text = q.Text or ""
-			ui.progress.Text = ("%d/%d"):format(q.Progress or 0, q.Target or 0)
-			ui.reward.Text = "+" .. tostring(q.Reward or 0) .. (IconArt and "" or "\u{1F48E}")
-			-- the icon only appears alongside a populated row, so it hides and shows
-			-- with the row's own text rather than floating on an empty card
-			if ui.rewardIcon then ui.rewardIcon.Visible = (IconArt ~= nil) end
-			ui.check.Visible = q.Claimed == true
-		end
-	end
-end
+-- The three rotating darrel dailies used to live here in a 176px side column.
+-- They are GONE from this panel (user, 2026-08-01): the Goals panel's Daily tab
+-- already renders the same three quests from the same DarrelState payload, so
+-- this was a second place to keep in sync for no gain. DarrelState still
+-- carries .Daily; applyDarrel below simply ignores it now.
 
 ---------------------------------------------------------------- egg rows
 local ACCENTS = {
@@ -1123,9 +1081,7 @@ local function applyDarrel(payload)
 	if payload.Darrels then
 		darrelLabel.Text = (IconArt and "" or "\u{1F48E} ") .. tostring(math.floor(payload.Darrels))
 	end
-	if payload.Daily then
-		refreshQuests(payload.Daily)
-	end
+	-- payload.Daily is deliberately unused: quests render in the Goals panel now.
 end
 local function pullDarrelState()
 	task.spawn(function()
