@@ -42,14 +42,52 @@ local WORLD_ID = "Forest"
 local world = EggConfig.GetWorld(WORLD_ID)
 
 -- creature name -> tier colour, same lookup pattern BackpackClient/EggHandler use
+local PetConfig = require(ReplicatedStorage.Modules.PetConfig)
+
 local tierByName, rarityByName = {}, {}
 for _, t in ipairs(RarityConfig) do tierByName[t.Name] = t end
 for _, e in ipairs(BrainrotConfig.List or BrainrotConfig) do rarityByName[e.Name] = e.Rarity end
 
+-- Egg tables name PETS as of 2026-08-01, so rarity resolves through PetConfig
+-- first. The BrainrotConfig fallback is still live for the ten retired stand-in
+-- pets, which are brainrots and have no PetConfig-only rarity of their own.
+-- Pet tiers (Rare..Secret) all exist in RarityConfig, so the colour lookup is
+-- unchanged either way.
+local function rarityOf(creatureName)
+	local id = PetConfig.IdFor(creatureName)
+	local def = id and PetConfig.Pets[id]
+	if def then return def.Rarity end
+	return rarityByName[creatureName]
+end
+
 local function tierColor(creatureName)
-	local rarity = rarityByName[creatureName]
-	local tier = rarity and tierByName[rarity]
+	local tier = tierByName[rarityOf(creatureName)]
 	return tier and tier.Color or CF.ink
+end
+
+-- The hatch reveal spins the PET that was just hatched. BrainrotThumb.master is
+-- hardwired to ReplicatedStorage.BrainrotModels, so pets need their own lookup
+-- against PetModels (child named after the imported .glb, per PetConfig.Model),
+-- falling through to BrainrotThumb for the retired stand-ins. Masters are cached
+-- per key exactly like BrainrotThumb does, so a reveal clones rather than
+-- rebuilds.
+local petMasters = {}
+local function petMaster(creatureName, petId)
+	local key = petId or creatureName
+	if key and petMasters[key] then return petMasters[key] end
+	local folder = ReplicatedStorage:FindFirstChild("PetModels")
+	local def = petId and PetConfig.Pets[petId]
+	local src = folder and ((def and def.Model and folder:FindFirstChild(def.Model))
+		or (creatureName and folder:FindFirstChild(creatureName)))
+	if src then
+		local m = src:Clone()
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("BasePart") then d.Anchored = true; d.CanCollide = false end
+		end
+		if key then petMasters[key] = m end
+		return m
+	end
+	return BrainrotThumb.master(creatureName)
 end
 
 ---------------------------------------------------------------- tiny UI helper
@@ -448,15 +486,26 @@ local function showToast(message)
 end
 
 ---------------------------------------------------------------- hatch reveal
--- Full-screen dim + a single ViewportFrame carried through three phases:
--- SHAKE (egg jitters in place), CRACK (every non-shell part bursts outward
--- while the shell fades), CREATURE (viewport swaps to the hatched brainrot,
+-- Full-screen dim + a single ViewportFrame carried through four phases:
+-- SHAKE (egg jitters in place), CRACK x3 (the PLAYER taps the egg three times;
+-- each tap fractures the shell at the point that was hit and punches the egg so
+-- it rings down), SPLIT (the shell opens while every non-shell
+-- part bursts outward), CREATURE (viewport swaps to the hatched brainrot,
 -- tier-lit tile, slow spin). "Non-shell part" rather than a fixed name-prefix
 -- whitelist: the five egg models carry a `ring_*`/`tape_*` family alongside
 -- the documented shard/drip/spike/horn/stripe/stud/rune/crown/link/cap/halo
 -- ones, so matching everything except shell_body_* is what actually covers
 -- every decoration on every egg instead of silently stranding a family that
 -- was never on the list.
+--
+-- The three hits are what sell it, and they only read as three if the egg is
+-- STILL between them -- so the idle shake stops at SHAKE_TIME and each hit
+-- fires its own decaying jolt instead.
+--
+-- CRACK waits on player input rather than a timer, so it needs a way out that a
+-- timer-driven phase did not: TAP_TIMEOUT cracks the egg on its own if nobody
+-- taps. Without it a hatch could sit forever with the shop panel hidden behind
+-- this overlay and the player's darrels already spent.
 --
 -- ONE RenderStepped connection drives every per-frame animation in this
 -- reveal -- the egg shake AND the later creature spin both read the same
@@ -478,8 +527,22 @@ local function ensureRevealGui()
 end
 
 local VP_SIZE = 320
-local SHAKE_TIME, SHAKE_HZ, SHAKE_DEG = 1.2, 20, 4
-local CRACK_TIME, CRACK_DIST_MULT, MAX_EXPLODE = 0.4, 2.5, 60
+local EGG_FOV = 32
+local SHAKE_TIME, SHAKE_HZ, SHAKE_DEG = 0.9, 20, 4
+local CRACKS_TO_OPEN = 3
+-- See the header note: the reveal must never wait forever. Once the FIRST
+-- timeout fires the player is plainly not tapping, so the rest run themselves
+-- off quickly -- three full-length waits back to back would strand an AFK
+-- player behind the overlay for thirteen seconds.
+local TAP_TIMEOUT, TAP_TIMEOUT_FAST = 3.5, 0.9
+local TAP_DEBOUNCE = 0.15 -- so mashing cannot land all three hits inside one frame
+local SPLIT_DELAY = 0.34  -- a beat of stillness after the last hit before the shell goes
+local JOLT_TIME, JOLT_HZ, JOLT_DEG = 0.22, 16, 2.2
+local HIT_SOUND  = { "eggCrack1", "eggCrack2", "eggCrack3" }
+local HIT_TAIL   = { "eggCrumble", "eggCrumble", "eggCrumbleBig" }
+local HIT_VOLUME = { 0.34, 0.40, 0.46 }
+local HIT_SPEED  = { 1.10, 1.00, 0.94 }
+local SPLIT_TIME, CRACK_DIST_MULT, MAX_EXPLODE = 0.5, 2.5, 60
 local SPIN_TIME = 2.0     -- seconds per creature revolution
 local CREATURE_HOLD = 3.5 -- seconds the creature sits before auto-skip
 local FADE_TIME = 0.3
@@ -491,6 +554,109 @@ local revealSkip = nil -- the live reveal's skip(), or nil
 local function volumeOf(part)
 	local s = part.Size
 	return s.X * s.Y * s.Z
+end
+
+-- The shell's tangent frame at rest. Flattened camera direction, not an
+-- arbitrary model axis: a fracture has to land on the face the viewport camera
+-- actually looks at, and every egg here is built unrotated at the origin so
+-- world axes are the shell's axes.
+local function shellFrame(shellPart)
+	local out = Vector3.new(BrainrotThumb.DEFAULT_DIR.X, 0, BrainrotThumb.DEFAULT_DIR.Z).Unit
+	return out, Vector3.yAxis:Cross(out).Unit,
+		shellPart.Size.X / 2, shellPart.Size.Y / 2, shellPart.Position
+end
+
+-- A crack is grown as a 2D random walk in the shell's (side, up) tangent plane,
+-- then pushed back onto the ellipsoid so it follows the curve of the shell
+-- instead of lying flat across it.
+--
+-- Four things the previous fixed zigzag had none of are what make this read as a
+-- real fracture rather than a drawn line: the walk TURNS by a random amount at
+-- every step, each sliver TAPERS as it travels away from the impact, hairline
+-- BRANCHES fork off partway along, and the whole thing propagates BOTH WAYS from
+-- the point that was struck -- which is what a hit shell actually does.
+local CRACK_COLOR = Color3.fromRGB(16, 12, 10)
+
+local function growCrack(eggClone, shellPart, s0, y0, hit, rng)
+	local made = {}
+	if not shellPart then return made end
+	local out, side, hx, hy, centre = shellFrame(shellPart)
+
+	-- One sliver at tangent coordinate (s, y), angled along its direction of
+	-- travel. Returns false once the walk has wandered past the silhouette,
+	-- where there is no front face left to scar.
+	local function place(s, y, len, thick, ang)
+		local k = 1 - (y / hy) ^ 2 - (s / hx) ^ 2
+		if k <= 0.03 then return false end
+		local pos = centre + side * s + Vector3.yAxis * y + out * (hx * math.sqrt(k) * 0.98)
+		local dir = (Vector3.yAxis * math.cos(ang) + side * math.sin(ang)).Unit
+		local seg = Instance.new("Part")
+		seg.Name = "crack"
+		seg.Anchored, seg.CanCollide, seg.CanQuery, seg.CastShadow = true, false, false, false
+		seg.Material = Enum.Material.SmoothPlastic
+		seg.Color = CRACK_COLOR
+		seg.Size = Vector3.new(thick, len, thick)
+		-- built from the basis directly rather than lookAt+roll: the sliver's long
+		-- axis IS its direction of travel, so the two can never disagree
+		seg.CFrame = CFrame.fromMatrix(pos, dir:Cross(-out), dir)
+		seg.Parent = eggClone
+		made[#made + 1] = seg
+		return true
+	end
+
+	local function walk(s, y, ang, steps, len, thick)
+		for i = 1, steps do
+			local f = 1 - 0.55 * ((i - 1) / steps) -- taper away from the impact
+			if not place(s, y, len * f, thick * f, ang) then break end
+			s += math.sin(ang) * len * f * 0.85
+			y += math.cos(ang) * len * f * 0.85
+			ang += math.rad(rng:NextNumber(-26, 26))
+		end
+	end
+
+	local steps = 3 + hit                    -- 4, 5, 6 -- later hits travel further
+	local len = hy * 0.17
+	local thick = hx * (0.075 + 0.018 * hit)
+	local ang = rng:NextNumber(-0.55, 0.55)  -- broadly vertical, never twice the same
+
+	walk(s0, y0, ang, steps, len, thick)
+	walk(s0, y0, ang + math.pi, steps, len, thick)
+
+	for _ = 1, hit - 1 do                    -- 0, then 1, then 2 hairline branches
+		local away = (rng:NextInteger(0, 1) == 0 and 1 or -1) * rng:NextNumber(0.6, 1.1)
+		local d = len * rng:NextNumber(0.8, 1.8)
+		walk(s0 + math.sin(ang) * d, y0 + math.cos(ang) * d, ang + away,
+			math.max(2, steps - 2), len * 0.8, thick * 0.55)
+	end
+	return made
+end
+
+-- Shell flakes knocked loose by a hit. Same colour and material as the shell
+-- they came off, so they read as debris rather than as more decoration.
+local function spawnChips(eggClone, shellPart, s0, y0, count, rng)
+	if not shellPart then return end
+	local out, side, hx, hy, centre = shellFrame(shellPart)
+	for _ = 1, count do
+		local s = s0 + rng:NextNumber(-0.12, 0.12) * hx
+		local y = y0 + rng:NextNumber(-0.12, 0.12) * hy
+		local k = math.max(0.05, 1 - (y / hy) ^ 2 - (s / hx) ^ 2)
+		local pos = centre + side * s + Vector3.yAxis * y + out * (hx * math.sqrt(k))
+		local chip = Instance.new("Part")
+		chip.Name = "chip"
+		chip.Anchored, chip.CanCollide, chip.CanQuery, chip.CastShadow = true, false, false, false
+		chip.Material = shellPart.Material
+		chip.Color = shellPart.Color
+		chip.Size = Vector3.one * (hx * rng:NextNumber(0.05, 0.10))
+		chip.CFrame = CFrame.new(pos)
+		chip.Parent = eggClone
+		local fly = pos + out * rng:NextNumber(0.15, 0.40)
+			+ side * rng:NextNumber(-0.30, 0.30)
+			- Vector3.yAxis * rng:NextNumber(0.30, 0.70)
+		TweenService:Create(chip, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			CFrame = CFrame.new(fly) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), rng:NextNumber(0, 6)),
+			Transparency = 1,
+		}):Play()
+	end
 end
 
 local function playReveal(result)
@@ -536,6 +702,8 @@ local function playReveal(result)
 	local dead = false
 	local elapsed = 0
 	local spinFn -- set once the creature phase starts
+	local shellPart, decorations, crackParts = nil, {}, {}
+	local joltStart, joltMag, splitting = nil, 1, false
 
 	local function skip()
 		if dead then return end
@@ -556,80 +724,273 @@ local function playReveal(result)
 	clickCatcher.Activated:Connect(skip)
 
 	---------------------------------------------------- SHAKE
-	local eggClone, basePivot, eggVp
+	local eggClone, basePivot, eggVp, eggCam, eggCentre, eggDist
 	local eggMasterModel = eggModelName and eggMaster(eggModelName)
 	if eggMasterModel then
 		eggVp = new("ViewportFrame", {
 			Name = "EggViewport", Size = UDim2.fromOffset(VP_SIZE, VP_SIZE), BackgroundTransparency = 1, ZIndex = 3,
 		}, holder)
-		local eggCam = new("Camera", { FieldOfView = 32 }, eggVp)
+		-- camera and framing are kept: mapping a tap back onto the shell needs both
+		eggCam = new("Camera", { FieldOfView = EGG_FOV }, eggVp)
 		eggVp.CurrentCamera = eggCam
 		eggClone = eggMasterModel:Clone()
 		eggClone.Parent = eggVp
 		basePivot = eggClone:GetPivot()
-		local centre, dist = BrainrotThumb.framing(eggClone, 32)
-		eggCam.CFrame = CFrame.lookAt(centre + BrainrotThumb.DEFAULT_DIR * dist, centre)
+		eggCentre, eggDist = BrainrotThumb.framing(eggClone, EGG_FOV)
+		eggCam.CFrame = CFrame.lookAt(eggCentre + BrainrotThumb.DEFAULT_DIR * eggDist, eggCentre)
+
+		-- Captured HERE, before any crack geometry exists. "Everything that is not
+		-- the shell is a decoration" still holds, but the crack slivers and the two
+		-- shell halves added later are also non-shell parts, so scanning at SPLIT
+		-- time would sweep the fissure itself into the burst list.
+		shellPart = eggClone:FindFirstChild("shell_body_1")
+		for _, d in ipairs(eggClone:GetDescendants()) do
+			if d:IsA("BasePart") and d ~= shellPart then
+				decorations[#decorations + 1] = d
+			end
+		end
+		-- cap the tween count: the biggest MAX_EXPLODE pieces fly outward, the rest
+		-- (barely visible slivers on a 200-part Crown egg) just vanish instantly
+		-- instead of paying for a tween nobody would see
+		table.sort(decorations, function(a, b) return volumeOf(a) > volumeOf(b) end)
 	end
 
-	local crackPhase, creaturePhase
+	local beginCracking, armTap, crackBeat, splitPhase, creaturePhase
 
 	conn = RunService.RenderStepped:Connect(function(dt)
 		elapsed += dt
-		if eggClone and elapsed <= SHAKE_TIME then
-			local w = elapsed * SHAKE_HZ * (2 * math.pi)
-			local rx = math.rad(SHAKE_DEG) * math.sin(w)
-			local ry = math.rad(SHAKE_DEG) * math.sin(w * 1.31 + 1.7)
-			local rz = math.rad(SHAKE_DEG) * math.sin(w * 0.77 + 0.4)
-			eggClone:PivotTo(basePivot * CFrame.Angles(rx, ry, rz))
+		-- `splitting` gates this off entirely: once SPLIT starts, the halves are
+		-- driven by tweens and a PivotTo here would fight them every frame.
+		if eggClone and basePivot and not splitting then
+			if elapsed <= SHAKE_TIME then
+				local w = elapsed * SHAKE_HZ * (2 * math.pi)
+				local rx = math.rad(SHAKE_DEG) * math.sin(w)
+				local ry = math.rad(SHAKE_DEG) * math.sin(w * 1.31 + 1.7)
+				local rz = math.rad(SHAKE_DEG) * math.sin(w * 0.77 + 0.4)
+				eggClone:PivotTo(basePivot * CFrame.Angles(rx, ry, rz))
+			elseif joltStart then
+				-- Each beat punches the egg and lets it ring down to rest. The
+				-- stillness in between is the whole point -- continuing the idle
+				-- jitter here would blur three hits back into one long wobble.
+				local t = elapsed - joltStart
+				if t < JOLT_TIME then
+					local decay = (1 - t / JOLT_TIME) ^ 2
+					local a = math.rad(JOLT_DEG) * joltMag * decay * math.sin(t * JOLT_HZ * (2 * math.pi))
+					eggClone:PivotTo(basePivot * CFrame.Angles(a * 0.5, a, a * 0.8))
+				else
+					eggClone:PivotTo(basePivot)
+					joltStart = nil
+				end
+			end
 		end
 		if spinFn then spinFn(elapsed) end
 	end)
 
 	task.delay(SHAKE_TIME, function()
 		if myGen ~= revealGen then return end
-		crackPhase()
+		beginCracking()
 	end)
 
-	---------------------------------------------------- CRACK
-	crackPhase = function()
-		SoundKit.play("panelOpen", nil, { volume = 0.2 })
+	---------------------------------------------------- CRACK (player-driven)
+	-- The egg no longer cracks itself: each hit is a tap ON the egg, and the
+	-- fracture starts AT the point that was tapped. crackBtn sits at ZIndex 21,
+	-- one rung above the full-screen clickCatcher, so a tap on the egg cracks it
+	-- while a tap anywhere else still skips the reveal.
+	local rng = Random.new()
+	local hits = 0
+	local tapToken = 0  -- bumped by every hit; a stale timeout sees the change and no-ops
+	local lastTap = -1
+	local timedOut = false -- latched once the player has shown they are not tapping
+	local crackBtn, hintLabel
+
+	-- Screen point -> a coordinate in the shell's (side, up) tangent plane. The
+	-- viewport is square and FieldOfView is vertical, so one half-extent covers
+	-- both axes.
+	local function tangentFromScreen(px, py)
+		local _, side, hx, hy, shellPos = shellFrame(shellPart)
+		local abs, sz = eggVp.AbsolutePosition, eggVp.AbsoluteSize
+		local u = (px - abs.X) / math.max(1, sz.X)
+		local v = (py - abs.Y) / math.max(1, sz.Y)
+		local halfExtent = math.tan(math.rad(EGG_FOV / 2)) * eggDist
+		local camCF = eggCam.CFrame
+		local world = eggCentre
+			+ camCF.RightVector * ((u - 0.5) * 2 * halfExtent)
+			+ camCF.UpVector * ((0.5 - v) * 2 * halfExtent)
+		local rel = world - shellPos
+		local s, y = rel:Dot(side), rel:Dot(Vector3.yAxis)
+		-- A tap out near the silhouette would start a crack on the rim, where the
+		-- surface curves away and there is no front face to draw on. Pull it back
+		-- onto the cap that faces the camera.
+		local e = (s / hx) ^ 2 + (y / hy) ^ 2
+		if e > 0.6 then
+			local k = math.sqrt(0.6 / e)
+			s, y = s * k, y * k
+		end
+		return s, y
+	end
+
+	-- Hidden rather than destroyed: both are registered in `fades`, and skip()
+	-- tweens everything in there -- tweening a Destroy()'d instance throws.
+	local function hidePrompt()
+		tapToken += 1
+		if crackBtn then crackBtn.Active, crackBtn.Visible = false, false end
+		if hintLabel then hintLabel.Visible = false end
+	end
+
+	armTap = function()
+		tapToken += 1
+		local myToken = tapToken
+		if hintLabel then
+			local left = CRACKS_TO_OPEN - hits
+			hintLabel.Text = (hits == 0) and "TAP THE EGG TO CRACK IT"
+				or ((left == 1) and "ONE MORE!" or (left .. " MORE!"))
+		end
+		task.delay(timedOut and TAP_TIMEOUT_FAST or TAP_TIMEOUT, function()
+			if myGen ~= revealGen or myToken ~= tapToken then return end
+			timedOut = true
+			local _, _, hx, hy = shellFrame(shellPart)
+			crackBeat(rng:NextNumber(-0.3, 0.3) * hx, rng:NextNumber(-0.35, 0.35) * hy)
+		end)
+	end
+
+	beginCracking = function()
+		if not (eggClone and shellPart and eggVp) then
+			splitPhase() -- no egg model resolved: nothing to tap, so go straight through
+			return
+		end
+		SoundKit.play("eggStrain", nil, { volume = 0.16, speed = 0.9 })
+
+		crackBtn = new("TextButton", {
+			Name = "CrackButton", Size = UDim2.fromOffset(VP_SIZE, VP_SIZE),
+			BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 21,
+		}, holder)
+		hintLabel = new("TextLabel", {
+			Name = "CrackHint", Position = UDim2.fromOffset(-90, VP_SIZE + 14),
+			Size = UDim2.fromOffset(VP_SIZE + 180, 30), BackgroundTransparency = 1,
+			Font = FONT, TextSize = 20, TextColor3 = CF.onDark, Text = "", ZIndex = 22,
+		}, holder)
+		local hintInk = UITheme.inkText(hintLabel, 2.4)
+		table.insert(fades, { hintLabel, "TextTransparency" })
+		table.insert(fades, { hintInk, "Transparency" })
+
+		-- InputBegan, not Activated: Activated does not carry a position, and the
+		-- position is the whole point of tapping the egg rather than a button.
+		crackBtn.InputBegan:Connect(function(input)
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1
+				and input.UserInputType ~= Enum.UserInputType.Touch then return end
+			if myGen ~= revealGen or hits >= CRACKS_TO_OPEN then return end
+			if elapsed - lastTap < TAP_DEBOUNCE then return end
+			lastTap = elapsed
+			crackBeat(tangentFromScreen(input.Position.X, input.Position.Y))
+		end)
+
+		armTap()
+	end
+
+	crackBeat = function(s0, y0)
+		hits += 1
+		local n = math.min(hits, CRACKS_TO_OPEN)
+		SoundKit.play(HIT_SOUND[n], nil, { volume = HIT_VOLUME[n], speed = HIT_SPEED[n] })
+		SoundKit.play(HIT_TAIL[n], nil, { volume = 0.20 + 0.04 * n, speed = 0.95 })
+
+		-- Everything already drawn widens a little. A shell does not keep its first
+		-- crack hairline once you have hit it twice more.
+		for _, seg in ipairs(crackParts) do
+			seg.Size = Vector3.new(seg.Size.X * 1.13, seg.Size.Y, seg.Size.Z * 1.13)
+		end
+		for _, seg in ipairs(growCrack(eggClone, shellPart, s0, y0, n, rng)) do
+			crackParts[#crackParts + 1] = seg
+		end
+		spawnChips(eggClone, shellPart, s0, y0, 2 + n, rng)
+
+		joltStart, joltMag = elapsed, n -- later hits hit harder
+
+		if hits >= CRACKS_TO_OPEN then
+			hidePrompt()
+			task.delay(SPLIT_DELAY, function()
+				if myGen ~= revealGen then return end
+				splitPhase()
+			end)
+		else
+			armTap()
+		end
+	end
+
+	---------------------------------------------------- SPLIT
+	splitPhase = function()
+		joltStart, splitting = nil, true
+		SoundKit.play("eggSplit", nil, { volume = 0.5 })
+		SoundKit.play("catchSparkle", nil, { volume = 0.3, speed = 1.1 })
 
 		if eggClone then
-			local shellPart = eggClone:FindFirstChild("shell_body_1")
 			local centre = (shellPart and shellPart.Position) or basePivot.Position
+			local ease = TweenInfo.new(SPLIT_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
-			-- everything except the shell is a decoration to burst outward --
-			-- see the header note on why this beats a fixed prefix whitelist.
-			local decorations = {}
-			for _, d in ipairs(eggClone:GetDescendants()) do
-				if d:IsA("BasePart") and d ~= shellPart then
-					decorations[#decorations + 1] = d
+			-- The shell is ONE Part carrying a Sphere SpecialMesh, so there is no
+			-- half to peel off -- it gets swapped for two clones at half height,
+			-- which the mesh refits to on its own. Two domes parting with a
+			-- tier-coloured flash between them reads as a shell opening; the
+			-- rounded cut faces are never still long enough to give it away.
+			if shellPart then
+				local sz = shellPart.Size
+				local function half(sign, name)
+					local h = shellPart:Clone()
+					h.Name = "shell_half_" .. name
+					h.Size = Vector3.new(sz.X, sz.Y / 2, sz.Z)
+					h.CFrame = shellPart.CFrame * CFrame.new(0, sign * sz.Y / 4, 0)
+					h.Parent = eggClone
+					return h
 				end
+				local top, bottom = half(1, "top"), half(-1, "bottom")
+				shellPart.Transparency = 1
+
+				TweenService:Create(top, ease, {
+					CFrame = top.CFrame * CFrame.new(0, sz.Y * 0.85, 0) * CFrame.Angles(math.rad(38), 0, math.rad(22)),
+					Transparency = 1,
+				}):Play()
+				TweenService:Create(bottom, ease, {
+					CFrame = bottom.CFrame * CFrame.new(0, -sz.Y * 0.30, 0) * CFrame.Angles(math.rad(-16), 0, math.rad(-12)),
+					Transparency = 1,
+				}):Play()
 			end
-			-- cap the tween count: the biggest MAX_EXPLODE pieces fly outward,
-			-- the rest (barely visible slivers on a 97-part Crown egg) just
-			-- vanish instantly instead of paying for a tween nobody would see
-			table.sort(decorations, function(a, b) return volumeOf(a) > volumeOf(b) end)
+
+			-- Flash in the widening gap, tier-coloured so the reveal's accent lands
+			-- a beat before the creature tile carrying that same accent does.
+			local flash = Instance.new("Part")
+			flash.Name = "split_flash"
+			flash.Anchored, flash.CanCollide, flash.CanQuery, flash.CastShadow = true, false, false, false
+			flash.Material = Enum.Material.Neon
+			flash.Color = accent
+			flash.Size = Vector3.one * 0.2
+			flash.CFrame = CFrame.new(centre)
+			local fmesh = Instance.new("SpecialMesh")
+			fmesh.MeshType = Enum.MeshType.Sphere
+			fmesh.Parent = flash
+			flash.Parent = eggClone
+			TweenService:Create(flash, TweenInfo.new(SPLIT_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Size = Vector3.one * ((shellPart and shellPart.Size.X * 1.6) or 3),
+				Transparency = 1,
+			}):Play()
+
+			-- the fissure goes with the shell it was drawn on
+			for _, seg in ipairs(crackParts) do
+				TweenService:Create(seg, TweenInfo.new(SPLIT_TIME * 0.5), { Transparency = 1 }):Play()
+			end
+
 			for i, part in ipairs(decorations) do
 				if i <= MAX_EXPLODE then
 					local targetPos = centre + (part.Position - centre) * CRACK_DIST_MULT
 					local targetCFrame = CFrame.new(targetPos) * (part.CFrame - part.CFrame.Position)
-					TweenService:Create(part, TweenInfo.new(CRACK_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					TweenService:Create(part, TweenInfo.new(SPLIT_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 						CFrame = targetCFrame, Transparency = 1,
 					}):Play()
 				else
 					part.Transparency = 1
 				end
 			end
-
-			if shellPart then
-				TweenService:Create(shellPart, TweenInfo.new(CRACK_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-					Transparency = 1,
-				}):Play()
-			end
 		end
 
-		task.delay(CRACK_TIME, function()
+		task.delay(SPLIT_TIME, function()
 			if myGen ~= revealGen then return end
 			creaturePhase()
 		end)
@@ -660,7 +1021,7 @@ local function playReveal(result)
 		creatureVp.CurrentCamera = ccam
 		table.insert(fades, { creatureVp, "ImageTransparency" })
 
-		local master = BrainrotThumb.master(result.Name)
+		local master = petMaster(result.Name, result.PetId)
 		if master then
 			local m = master:Clone()
 			m.Parent = creatureVp

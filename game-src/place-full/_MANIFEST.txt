@@ -5,7 +5,7 @@
 1e22e461|2263|ModuleScript|ReplicatedStorage.Modules.BrainrotWaves
 b9a8b2d8|35460|ModuleScript|ReplicatedStorage.Modules.CatchReveal
 9d0b0c6b|1257|ModuleScript|ReplicatedStorage.Modules.DialogueConfig
-02e951b9|2136|ModuleScript|ReplicatedStorage.Modules.EggConfig
+61ef8717|3137|ModuleScript|ReplicatedStorage.Modules.EggConfig
 8cf2ab10|2802|ModuleScript|ReplicatedStorage.Modules.GamepassConfig
 bd7a9075|12860|ModuleScript|ReplicatedStorage.Modules.IconForge
 92ddba67|1653|ModuleScript|ReplicatedStorage.Modules.MerchantConfig
@@ -14,7 +14,7 @@ f22c088c|5435|ModuleScript|ReplicatedStorage.Modules.MerchantDialog
 5de7e885|4829|ModuleScript|ReplicatedStorage.Modules.MutationFX
 03252a49|2377|ModuleScript|ReplicatedStorage.Modules.NumberFormat
 bf2ad296|1332|ModuleScript|ReplicatedStorage.Modules.OfferingConfig
-70fc881f|4763|ModuleScript|ReplicatedStorage.Modules.PetConfig
+a6047409|7350|ModuleScript|ReplicatedStorage.Modules.PetConfig
 777e6a69|750|ModuleScript|ReplicatedStorage.Modules.PityConfig
 dcd964ca|1146|ModuleScript|ReplicatedStorage.Modules.RarityConfig
 d21019fd|2975|ModuleScript|ReplicatedStorage.Modules.RarityCurve
@@ -24,7 +24,7 @@ d21019fd|2975|ModuleScript|ReplicatedStorage.Modules.RarityCurve
 c70b5126|9416|ModuleScript|ReplicatedStorage.Modules.RockDesign
 3e6df348|1980|ModuleScript|ReplicatedStorage.Modules.SeasonConfig
 a7dd5850|16223|ModuleScript|ReplicatedStorage.Modules.SideRail
-b42098f5|13059|ModuleScript|ReplicatedStorage.Modules.SoundKit
+053739b0|13684|ModuleScript|ReplicatedStorage.Modules.SoundKit
 5c4af078|8267|ModuleScript|ReplicatedStorage.Modules.SupplySchedule
 2f42bbcc|1437|ModuleScript|ReplicatedStorage.Modules.TungQuestConfig
 e8de64e0|15793|ModuleScript|ReplicatedStorage.Modules.UIKit.Builders
@@ -47,7 +47,7 @@ ecb31ec0|5308|ModuleScript|ServerScriptService.Modules.BrainrotMover
 01bb0388|4571|ModuleScript|ServerScriptService.Modules.DailyRewardHandler
 99bdb2f4|4279|ModuleScript|ServerScriptService.Modules.DarrelService
 efbe32ba|3715|ModuleScript|ServerScriptService.Modules.DevWeather
-359a1fd2|5288|ModuleScript|ServerScriptService.Modules.EggHandler
+0bb5d94c|5676|ModuleScript|ServerScriptService.Modules.EggHandler
 dd2516bf|4636|ModuleScript|ServerScriptService.Modules.FusionHandler
 f4ce7215|4163|ModuleScript|ServerScriptService.Modules.GamepassService
 f41997cf|8901|ModuleScript|ServerScriptService.Modules.GianlucaQuest
@@ -60,7 +60,7 @@ b4dbf415|7964|ModuleScript|ServerScriptService.Modules.MaxwellQuest
 38fadad6|18569|ModuleScript|ServerScriptService.Modules.MintRegistry
 e1a550f9|5054|ModuleScript|ServerScriptService.Modules.OfferingHandler
 2ff5b465|2886|ModuleScript|ServerScriptService.Modules.OfflineEarningsHandler
-b5988b14|19597|ModuleScript|ServerScriptService.Modules.PetHandler
+cbdd0a4b|20797|ModuleScript|ServerScriptService.Modules.PetHandler
 d0273cb0|34189|ModuleScript|ServerScriptService.Modules.PlayerDataManager
 70ae7969|15684|ModuleScript|ServerScriptService.Modules.PlotBoardHandler
 5959f866|12835|ModuleScript|ServerScriptService.Modules.PriceIndex
@@ -147,7 +147,7 @@ ff4fae24|66737|LocalScript|StarterPlayer.StarterPlayerScripts.ClientMain
 29f1a345|9578|LocalScript|StarterPlayer.StarterPlayerScripts.DailyRewardClient
 23c84a72|8464|LocalScript|StarterPlayer.StarterPlayerScripts.DarrelHUDClient
 cb69a16b|3560|LocalScript|StarterPlayer.StarterPlayerScripts.DevWeatherClient
-bb75efca|30761|LocalScript|StarterPlayer.StarterPlayerScripts.EggShopClient
+a3b45b3d|46701|LocalScript|StarterPlayer.StarterPlayerScripts.EggShopClient
 c0ceabfa|6739|LocalScript|StarterPlayer.StarterPlayerScripts.FootstepClient
 4d5a965c|19677|LocalScript|StarterPlayer.StarterPlayerScripts.FusionClient
 01e0bdf9|47126|LocalScript|StarterPlayer.StarterPlayerScripts.GameHUDClient

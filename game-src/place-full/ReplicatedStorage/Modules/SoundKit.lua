@@ -131,12 +131,19 @@ M.Ids = {
 	-- TimeLength in this place, which IS the load-verification this file's
 	-- header demands, rather than an id picked off the website and hoped for.
 	--
-	-- bone-snap01 is the classic eggshell-crack foley: 0.34s is short enough
-	-- that three of them at 0.26s apart read as three distinct taps instead of
-	-- a smear (the same length-vs-gap trap wheelTick documents above).
-	eggCrack    = "rbxassetid://1093102664",        -- bone-snap01, 0.34s -- one crack beat
-	eggCrumble  = "rbxassetid://3848076724",        -- earthcrumble1, 0.60s -- weight under the last beat
-	eggSplit    = "rbxassetid://4307207693",        -- brickburst2, 1.37s -- the shell coming apart
+	-- ONE SAMPLE PER HIT, not one sample pitched three ways. Pitching a single
+	-- tap down twice is the same family-sameness failure the catch ladder above
+	-- died of twice: a shell that is nearly open must not sound like the first
+	-- tap played lower. So these climb through three different CLASSES of break --
+	-- a dry snap, a deeper fracture, then splintering give-way -- each with a
+	-- crumble tail under it that grows with the damage.
+	eggCrack1     = "rbxassetid://1093102664",      -- bone-snap01, 0.34s -- first tap, dry and small
+	eggCrack2     = "rbxassetid://4086172699",      -- bonebreak3, 1.02s -- deeper, something gave
+	eggCrack3     = "rbxassetid://4988580015",      -- wood-break1, 1.63s -- splintering, about to open
+	eggCrumble    = "rbxassetid://3848076724",      -- earthcrumble1, 0.60s -- grit tail
+	eggCrumbleBig = "rbxassetid://4307210855",      -- earthloudcrumble2, 1.51s -- tail on the last hit
+	eggStrain     = "rbxassetid://3929463305",      -- bonecrackle, 2.63s -- quiet bed while it waits to be tapped
+	eggSplit      = "rbxassetid://4307207693",      -- brickburst2, 1.37s -- the shell coming apart
 	panelOpen   = "rbxassetid://9117847793",        -- SFX2 new: popup/panel appears
 	panelClose  = "rbxassetid://9126267413",        -- SFX2 new: panel close (X buttons)
 	fusion      = "rbxassetid://4612374036",        -- SFX2 new: same id as `mutation` above, the generic sting

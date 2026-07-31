@@ -19,8 +19,15 @@ local M = {}
 local rng = Random.new()
 local lastBuy = {}  -- [player] = clock, 0.5s debounce
 
-local rarityByName = {}
-for _, e in ipairs(BrainrotConfig.List or BrainrotConfig) do rarityByName[e.Name] = e.Rarity end
+-- Rarity for the EggResult payload (drives the hatch reveal's tier lighting).
+-- Sourced from PetConfig since 2026-08-01: the egg tables name PETS now, and a
+-- pet name has no BrainrotConfig row, so the old BrainrotConfig lookup would
+-- have handed the client a nil Rarity for every hatch.
+local function rarityOf(name)
+	local id = PetConfig.IdFor(name)
+	local def = id and PetConfig.Pets[id]
+	return def and def.Rarity
+end
 
 -- Pure; exposed for the Task 12 odds simulation. Weights sum to 100 (EggConfig.Validate).
 function M.RollFor(egg, r)
@@ -72,9 +79,10 @@ function M.Init()
 		-- pre-check and InventoryHandler.SyncBackpack that used to sit here are gone with it:
 		-- pets have no unique cap and are not backpack items.
 		--
-		-- The creature still resolves through BrainrotConfig for its name and rarity, which
-		-- is why EggConfig.Validate's "references unknown creature" assert still protects
-		-- these tables.
+		-- The rolled name IS a pet name (EggConfig.Validate asserts every row resolves
+		-- through PetConfig.IdFor at boot), so this lookup cannot miss for a table that
+		-- passed validation -- the guard below is for a roster edited live in Studio
+		-- between boot and purchase.
 		local petId = PetConfig.IdFor(name)
 		if not petId then
 			DarrelService.Award(player, egg.Price, "refund:" .. eggId)
@@ -97,7 +105,7 @@ function M.Init()
 		data.EggsOpened[eggId] = (data.EggsOpened[eggId] or 0) + 1
 		PDM.PushUpdate(player)
 		remotes.EggResult:FireClient(player, {
-			Ok = true, EggId = eggId, Name = name, Rarity = rarityByName[name],
+			Ok = true, EggId = eggId, Name = name, Rarity = rarityOf(name),
 			PetUid = uid, PetId = petId,
 		})
 

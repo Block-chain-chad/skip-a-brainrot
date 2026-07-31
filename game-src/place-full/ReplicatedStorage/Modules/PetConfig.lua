@@ -29,7 +29,12 @@ PetConfig.PET_SLOTS_GAMEPASS_ID = 0
 -- Pets are equal within a tier on purpose: the three Mythics differ in CashPerSecond as
 -- brainrots, but as pets their rarity is what you paid for, so making them differ would
 -- just create a right answer and two traps.
+-- Rare added 2026-08-01 with the 15-pet art drop: the roster now starts below
+-- Epic, so the cheapest egg has something to give that is not already a strong
+-- boost. Kept modest on purpose -- a first-egg pet should feel like a foot in
+-- the door, not a reason to stop buying eggs.
 PetConfig.RARITY_BOOSTS = {
+	Rare      = { Luck = 1.15, Income = 1.35 },
 	Epic      = { Luck = 1.50, Income = 2.00 },
 	Legendary = { Luck = 2.25, Income = 3.50 },
 	Mythic    = { Luck = 3.25, Income = 6.00 },
@@ -37,12 +42,13 @@ PetConfig.RARITY_BOOSTS = {
 }
 
 -- Display order + colours for the bag's Pets tab, rarest first.
-PetConfig.RARITY_ORDER = { "Secret", "Mythic", "Legendary", "Epic" }
+PetConfig.RARITY_ORDER = { "Secret", "Mythic", "Legendary", "Epic", "Rare" }
 PetConfig.RARITY_COLOUR = {
 	Secret    = Color3.fromRGB(255, 86, 86),
 	Mythic    = Color3.fromRGB(198, 142, 255),
 	Legendary = Color3.fromRGB(255, 196, 62),
 	Epic      = Color3.fromRGB(126, 170, 255),
+	Rare      = Color3.fromRGB(120, 214, 168),
 }
 
 -- [petId] = { Name, Rarity, Model }. petId is the creature's name with spaces stripped,
@@ -65,6 +71,44 @@ PetConfig.Pets = {
 	-- work. Not in any egg table, so it is unobtainable in normal play.
 	TestAcorn = { Name = "Test Acorn", Rarity = "Epic" },
 }
+
+-- === THE 15-PET FOREST ROSTER (2026-08-01) ===================================
+-- Model = the child name expected in ReplicatedStorage.PetModels, which is the
+-- .glb basename the art was delivered under, so importing the files and leaving
+-- their names alone is enough to wire a pet up. PetHandler falls back to a
+-- placeholder for any pet whose model is missing, so the roster is playable
+-- before the import lands.
+--
+-- Tier shape is 3 Rare / 3 Epic / 4 Legendary / 4 Mythic / 1 Secret. Secret is
+-- deliberately a party of ONE -- Heartwood Guardian -- because the tier is the
+-- 5x luck / 10x income ceiling and three of them would stop it reading as the
+-- chase. Order follows the art's own 01..15 numbering, which already ascends.
+for _, row in ipairs({
+	{ "Moss Larva",         "Rare",      "pet_01_mosslarva" },
+	{ "Pebble Snout",       "Rare",      "pet_02_pebblesnout" },
+	{ "Leaf Frog",          "Rare",      "pet_03_leaffrog" },
+	{ "Reed Duck",          "Epic",      "pet_04_reedduck" },
+	{ "Toad Pup",           "Epic",      "pet_05_toadpup" },
+	{ "Acornel",            "Epic",      "pet_06_acornel" },
+	{ "Sap Snail",          "Legendary", "pet_07_sapsnail" },
+	{ "Bramble Bear",       "Legendary", "pet_08_bramblebear" },
+	{ "Mossback",           "Legendary", "pet_09_mossback" },
+	{ "Glow Moth",          "Legendary", "pet_10_glowmoth" },
+	{ "Hollow Owl",         "Mythic",    "pet_11_hollow_owl" },
+	{ "Vine Coil",          "Mythic",    "pet_12_vinecoil" },
+	{ "Spirit Fawn",        "Mythic",    "pet_13_spirit_fawn" },
+	{ "Elder Stag",         "Mythic",    "pet_14_elder_stag" },
+	{ "Heartwood Guardian", "Secret",    "pet_15_heartwood_guardian" },
+}) do
+	local name, rarity, model = row[1], row[2], row[3]
+	PetConfig.Pets[(name:gsub("%s+", ""))] = { Name = name, Rarity = rarity, Model = model }
+end
+
+-- RETIRED 2026-08-01, definitions intentionally kept: these ten were the forest
+-- BRAINROTS doubling as stand-in pets before the real pet art existed. They are
+-- gone from every EggConfig table, so they are no longer obtainable, but the
+-- entries must stay or anyone who hatched one during testing would be holding a
+-- boost-less orphan (see the NEVER DELETE note above).
 for rarity, names in pairs({
 	Epic      = { "Cervolino Antlerino", "Fanghetto Palunko", "Strigolino Hootini" },
 	Legendary = { "Rospino Bavaglio", "Corvacchio Beccarino", "Ceppone Zampalunga" },

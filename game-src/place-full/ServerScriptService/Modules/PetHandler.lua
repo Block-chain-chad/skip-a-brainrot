@@ -179,9 +179,15 @@ function PetHandler.Describe(petId)
 end
 
 -- === Follow rig ================================================================
--- The rig is the creature's REAL model, cloned out of ReplicatedStorage.BrainrotModels
--- (the same folder BrainrotThumb renders the bag tiles from, so the pet trailing you is
--- the thing you saw in the grid).
+-- The rig is the pet's REAL model, cloned out of ReplicatedStorage.PetModels --
+-- the 15 imported .glb pets, each folder child named after its source file (see
+-- PetConfig's Model field).
+--
+-- ReplicatedStorage.BrainrotModels is kept as a SECOND lookup, not dead weight:
+-- the ten retired stand-in pets (PetConfig's "RETIRED" block) are brainrots, and
+-- a player who hatched one during testing still owns it and still deserves a rig
+-- rather than the placeholder cube. New pets resolve from PetModels; old ones
+-- fall through to BrainrotModels; anything in neither gets the placeholder.
 --
 -- Every part is Massless + CanCollide=false + CanQuery=false: an unanchored multi-part
 -- assembly welded together must not add mass or a hitbox to whatever it is following
@@ -195,10 +201,32 @@ end
 -- spacing of slots 1 and 2.
 local PET_TARGET_SIZE = 4.0
 
-local modelFolder = ReplicatedStorage:FindFirstChild("BrainrotModels")
+-- Resolved lazily rather than at require time: PetModels does not exist until the
+-- art is imported, and a nil captured at boot would never recover without a
+-- server restart.
+local function rsFolder(name)
+	return ReplicatedStorage:FindFirstChild(name)
+end
 
-local function buildPetModel(creatureName)
-	local source = modelFolder and creatureName and modelFolder:FindFirstChild(creatureName)
+-- petId is preferred; creatureName is what the old stand-in pets are stored under.
+local function findPetSource(petId, creatureName)
+	local def = petId and PetConfig.Pets[petId]
+	local pets = rsFolder("PetModels")
+	if pets and def and def.Model then
+		local hit = pets:FindFirstChild(def.Model)
+		if hit then return hit end
+	end
+	-- tolerate the model being renamed to the pet's display name on import
+	if pets and creatureName then
+		local hit = pets:FindFirstChild(creatureName)
+		if hit then return hit end
+	end
+	local brainrots = rsFolder("BrainrotModels")
+	return brainrots and creatureName and brainrots:FindFirstChild(creatureName) or nil
+end
+
+local function buildPetModel(creatureName, petId)
+	local source = findPetSource(petId, creatureName)
 	if not source then return nil end
 
 	local model = source:Clone()
@@ -371,7 +399,7 @@ local function buildRig(player)
 			local slot = SLOT_OFFSETS[i] or SLOT_OFFSETS[#SLOT_OFFSETS]
 			local pet = petByUid[uid]
 			local def = pet and PetConfig.Pets[pet.Id]
-			local model, root = buildPetModel(def and def.Name)
+			local model, root = buildPetModel(def and def.Name, pet.Id)
 			if not model then model, root = buildAcorn() end
 
 			-- How far the PrimaryPart sits above the model's own underside, so the slot
