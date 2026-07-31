@@ -77,10 +77,13 @@
 --   shipped disabled") and Main.lua's comment ("shipped disabled
 --   (PetConfig.ENABLED=false)") -- both comments are stale. Per the brief,
 --   BOTH branches are built (empty-state AND the real data.Pets grid +
---   PetEquip wiring); this module reads `PetConfig.ENABLED` LIVE on every
---   render (a plain top-level `require`, not a one-time capture) rather than
---   baking in today's `true`, so behaviour always tracks the actual flag
---   even if a later change flips it back to false without touching this file.
+--   PetEquip wiring); this module reads `PetConfig.ENABLED` via a plain
+--   top-level `require` rather than a one-time-captured local -- but that is
+--   NOT the same as "live": require() caches by Instance (not Source), so
+--   every call in this session returns the SAME cached table, and the flag's
+--   effective value is SESSION-STATIC from this module's point of view. If
+--   the flag is changed later, this panel will only pick that up after a
+--   client restart (a fresh require on a fresh Instance) -- not on its own.
 --   PetConfig.RARITY_ORDER/RARITY_COLOUR/BoostsFor/Pets are read the same
 --   way BackpackClient's own Pets tab reads them.
 --
@@ -492,6 +495,11 @@ function BackpackPanel.Build(ctx)
 		tab.ZIndex = 14
 		tab.Parent = tabsCol
 		UI.gloss(tab, T.radius.inner)
+		-- tabsCol has no UIListLayout (each tab's Position is set manually
+		-- above), so UI.hardShadow's sibling-parented shadow Frame is safe to
+		-- add directly here -- no wrapper slot needed (see GoalsPanel/PassPanel's
+		-- HardShadow-in-UIListLayout trap note; this container doesn't have it).
+		UI.hardShadow(tab, T.shadowOffset.control, T.radius.inner)
 
 		local icon = UI.artSlot(tab, UDim2.fromOffset(34, 34), def.icon)
 		icon.Name = "Icon"
@@ -805,14 +813,12 @@ function BackpackPanel.Build(ctx)
 		UI.gradient(artHolder, T.gradient.slot)
 		build3DOrSwatch(artHolder, group.Name, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), artHolder.ZIndex + 1, rarityTint(T, tier))
 
-		-- UI.rarityFrame hardcodes ZIndex=5 on its stroke Frame internally
-		-- (UIKit.Builders, not editable here without rippling into every
-		-- other panel) -- lower than the ViewportFrame/swatch it's a sibling
-		-- of under artHolder. Confirmed harmless in ZIndexBehavior.Sibling
-		-- mode + a transparent-background ViewportFrame: the stroke still
-		-- composites through at the frame's edge, which the 3D model's own
-		-- silhouette rarely reaches, so the border reads correctly in
-		-- practice despite the reversed sibling z-order.
+		-- UI.rarityFrame (UIKit.Builders) computes ZIndex relative to the slot
+		-- it's parented to (slot.ZIndex + 2, same convention as UI.rainbowRing's
+		-- slot.ZIndex + 1) instead of a hardcoded 5 -- fixed as a shared-module
+		-- bug (a fixed 5 buried the stroke under this tile's own 3D render,
+		-- which sits at artHolder.ZIndex + 1 = 17 here; the frame now renders
+		-- at artHolder.ZIndex + 2 = 18, above the render).
 		local rarityKey = kitRarityKey(tier)
 		if rarityKey == "rainbow" then
 			UI.rainbowRing(artHolder, T.radius.art)
@@ -913,6 +919,11 @@ function BackpackPanel.Build(ctx)
 			chip.Position = UDim2.fromOffset((i - 1) * (chipW + CHIP_GAP), 0)
 			chip.ZIndex = 14
 			chip.Parent = row
+			-- row (ChipRow) also has no UIListLayout -- chip.Position is set
+			-- manually above -- so this is the same safe direct case as the Tabs
+			-- loop; radius.small (not radius.inner) matches this chip's own
+			-- UI.surface corner radius exactly.
+			UI.hardShadow(chip, T.shadowOffset.control, T.radius.small)
 
 			-- kit "label 18" -- no exact T.text match, cardLabel reused (documented gap).
 			local label = UI.label(chip, def.label, "cardLabel", T.color.white)

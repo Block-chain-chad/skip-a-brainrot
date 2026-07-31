@@ -230,7 +230,8 @@ function UI.rarityFrame(slot: GuiObject, rarity: string): Frame
 	local f = Instance.new("Frame")
 	f.Size = UDim2.fromScale(1, 1)
 	f.BackgroundTransparency = 1
-	f.ZIndex = 5
+	-- relative like UI.rainbowRing (was hardcoded 5, which buried this stroke under any sibling art rendered above z=5, e.g. BackpackPanel's tile renders sitting at parent+1)
+	f.ZIndex = (slot.ZIndex or 1) + 2
 	f.Parent = slot
 	UI.corner(f, T.radius.slot)
 	local s = Instance.new("UIStroke")
