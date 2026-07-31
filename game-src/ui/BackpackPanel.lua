@@ -3,7 +3,10 @@
 -- (StarterPlayer.StarterPlayerScripts.GameHUDPanels.BackpackPanel).
 --
 -- Contract (same as GoalsPanel/DailyPanel/PassPanel): return
---   { Id = "backpack", Build = function(ctx) -> Frame }
+--   { Id = "bag", Build = function(ctx) -> Frame }
+-- NOTE: Id must match GameHUDClient's RAIL_ORDER rail-item id ("bag"), not the
+-- module/instance name ("backpack") -- the registration loop keys panelModules
+-- by mod.Id, and openPanel(cfg.id) looks it up by the rail's id scheme.
 -- Build is called ONCE lazily on first open; the shell (GameHUDClient) parents
 -- the returned Frame into ctx.host and owns Visible toggling on every
 -- open/close after that -- this module never sets its own Parent or drives
@@ -177,7 +180,7 @@ for i, t in ipairs(RarityConfig) do
 	tierRank[t.Name] = i
 end
 
-local BackpackPanel = { Id = "backpack" }
+local BackpackPanel = { Id = "bag" }
 
 ----------------------------------------------------------- shared helpers
 local function measureWidth(text: string, sizePx: number, font: Enum.Font): number

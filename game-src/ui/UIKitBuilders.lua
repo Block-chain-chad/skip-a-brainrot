@@ -152,20 +152,44 @@ function UI.button(parent: Instance, text: string, variant: string, size: UDim2,
 	l.ZIndex = 3
 
 	-- hover / press
+	-- Rest position captured LAZILY (state machine below), not at creation:
+	-- UI.button doesn't take a position parameter, so every caller's mandatory
+	-- pattern is `local btn = UI.button(...); btn.Position = ...` -- set AFTER
+	-- this function returns. Capturing `b.Position` here (as this used to do)
+	-- froze `base` at the TextButton default (0,0) before the caller ever
+	-- repositioned it, so the first hover/press tween dragged the button back
+	-- toward (0,0)-ish. Instead: capture `rest` on first MouseEnter, by which
+	-- point the caller has always already set the real Position. Same fix as
+	-- GameHUDClient's nav-rail basePos() (~line 528).
+	-- Known limitation: if a caller repositions the button again WHILE it is
+	-- already hovered/pressed, `rest` is not invalidated (no cheap way to
+	-- detect external repositioning) -- that one tween will animate off the
+	-- stale `rest` instead of the new position. Considered acceptable: no
+	-- caller in this codebase repositions buttons post-hover today.
 	local TweenService = game:GetService("TweenService")
-	local base = b.Position
+	local rest = nil
+	local hovered, pressed = false, false
 	if variant ~= "disabled" then
 		b.MouseEnter:Connect(function()
-			TweenService:Create(b, T.tween.hover, { Position = base - UDim2.fromOffset(0, 2) }):Play()
+			if not hovered and not pressed then
+				rest = b.Position
+			end
+			hovered = true
+			TweenService:Create(b, T.tween.hover, { Position = rest - UDim2.fromOffset(0, 2) }):Play()
 		end)
 		b.MouseLeave:Connect(function()
-			TweenService:Create(b, T.tween.hover, { Position = base }):Play()
+			hovered = false
+			TweenService:Create(b, T.tween.hover, { Position = rest }):Play()
 		end)
 		b.MouseButton1Down:Connect(function()
-			TweenService:Create(b, T.tween.press, { Position = base + UDim2.fromOffset(0, 2) }):Play()
+			pressed = true
+			TweenService:Create(b, T.tween.press, { Position = rest + UDim2.fromOffset(0, 2) }):Play()
 		end)
 		b.MouseButton1Up:Connect(function()
-			TweenService:Create(b, T.tween.press, { Position = base }):Play()
+			pressed = false
+			TweenService:Create(b, T.tween.press, {
+				Position = if hovered then rest - UDim2.fromOffset(0, 2) else rest,
+			}):Play()
 		end)
 	end
 	return b
