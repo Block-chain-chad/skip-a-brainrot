@@ -544,6 +544,12 @@ local HIT_VOLUME = { 0.34, 0.40, 0.46 }
 local HIT_SPEED  = { 1.10, 1.00, 0.94 }
 local SPLIT_TIME, CRACK_DIST_MULT, MAX_EXPLODE = 0.5, 2.5, 60
 local SPIN_TIME = 2.0     -- seconds per creature revolution
+local ENTER_TIME = 0.5    -- the hatched pet's hop-in before it settles to an idle bob
+-- Clicking anywhere used to skip the reveal instantly, so a stray click right
+-- after pressing OPEN threw the hatch away. Nothing is skippable until the pet
+-- is actually on screen, and then only after this grace -- otherwise the click
+-- that landed the final crack carries straight through and dismisses it.
+local SKIP_GRACE = 0.35
 local CREATURE_HOLD = 3.5 -- seconds the creature sits before auto-skip
 local FADE_TIME = 0.3
 local DIM_TARGET = 0.35
@@ -556,105 +562,89 @@ local function volumeOf(part)
 	return s.X * s.Y * s.Z
 end
 
--- The shell's tangent frame at rest. Flattened camera direction, not an
--- arbitrary model axis: a fracture has to land on the face the viewport camera
--- actually looks at, and every egg here is built unrotated at the origin so
--- world axes are the shell's axes.
-local function shellFrame(shellPart)
-	local out = Vector3.new(BrainrotThumb.DEFAULT_DIR.X, 0, BrainrotThumb.DEFAULT_DIR.Z).Unit
-	return out, Vector3.yAxis:Cross(out).Unit,
-		shellPart.Size.X / 2, shellPart.Size.Y / 2, shellPart.Position
-end
-
--- A crack is grown as a 2D random walk in the shell's (side, up) tangent plane,
--- then pushed back onto the ellipsoid so it follows the curve of the shell
--- instead of lying flat across it.
+-- Cracks are drawn FLAT, as UI over the egg viewport, rather than as parts stuck
+-- on the shell. The 3D version this replaces could not be made to look right:
+-- slivers pasted onto an ellipsoid are lit by the viewport's own ambient, stand
+-- a couple of pixels proud at best, and read as dark specks rather than as a
+-- fracture. Screen-space lines stay crisp at any egg size -- and the tap
+-- position is ALREADY in screen space, so the crack starts exactly under the
+-- finger with no projection maths in between.
 --
--- Four things the previous fixed zigzag had none of are what make this read as a
--- real fracture rather than a drawn line: the walk TURNS by a random amount at
--- every step, each sliver TAPERS as it travels away from the impact, hairline
--- BRANCHES fork off partway along, and the whole thing propagates BOTH WAYS from
--- the point that was struck -- which is what a hit shell actually does.
-local CRACK_COLOR = Color3.fromRGB(16, 12, 10)
+-- What makes it read as a fracture rather than a drawn line: the walk turns by a
+-- random amount at every step, it propagates BOTH WAYS from the point struck,
+-- each segment tapers as it travels out, hairline branches fork off partway
+-- along, and every segment carries a 1px light edge so it looks chipped rather
+-- than painted on.
+local CRACK_DARK = Color3.fromRGB(14, 10, 9)
 
-local function growCrack(eggClone, shellPart, s0, y0, hit, rng)
+
+-- ONE seam down the middle, extended in three stages -- stage 1 marks the top
+-- third, stage 2 the middle, stage 3 the bottom -- so three taps draw a single
+-- continuous line that the split then opens along. This is what an egg cracking
+-- looks like and what the three taps promise.
+--
+-- The tap ADVANCES the seam, it does not place it. A fracture starting wherever
+-- you happened to click read as random damage scattered over the shell rather
+-- than as an egg opening; tap position now only leans the seam slightly, so
+-- tapping still feels connected to what appears without scattering it.
+local SEAM_BANDS = { { -0.70, -0.18 }, { -0.18, 0.26 }, { 0.26, 0.72 } } -- fractions of ry
+local SEAM_STEPS = 4
+local SEAM_WANDER = 0.18 -- how far off centre each kink swings, as a fraction of rx
+
+-- seamX is where the previous stage left off, so the stages join up instead of
+-- each starting from a fresh guess. Returns the new end point for the next one.
+local function drawCrack(layer, seamX, px, rx, ry, hit, rng)
 	local made = {}
-	if not shellPart then return made end
-	local out, side, hx, hy, centre = shellFrame(shellPart)
+	local cx, cy = VP_SIZE / 2, VP_SIZE / 2
+	local band = SEAM_BANDS[math.min(hit, #SEAM_BANDS)]
+	local y0, y1 = cy + band[1] * ry, cy + band[2] * ry
+	local step = (y1 - y0) / SEAM_STEPS
+	local lean = math.clamp((px - cx) / rx, -1, 1) * rx * 0.12
+	local thick = 6 + hit
 
-	-- One sliver at tangent coordinate (s, y), angled along its direction of
-	-- travel. Returns false once the walk has wandered past the silhouette,
-	-- where there is no front face left to scar.
-	local function place(s, y, len, thick, ang)
-		local k = 1 - (y / hy) ^ 2 - (s / hx) ^ 2
-		if k <= 0.03 then return false end
-		local pos = centre + side * s + Vector3.yAxis * y + out * (hx * math.sqrt(k) * 0.98)
-		local dir = (Vector3.yAxis * math.cos(ang) + side * math.sin(ang)).Unit
-		local seg = Instance.new("Part")
-		seg.Name = "crack"
-		seg.Anchored, seg.CanCollide, seg.CanQuery, seg.CastShadow = true, false, false, false
-		seg.Material = Enum.Material.SmoothPlastic
-		seg.Color = CRACK_COLOR
-		seg.Size = Vector3.new(thick, len, thick)
-		-- built from the basis directly rather than lookAt+roll: the sliver's long
-		-- axis IS its direction of travel, so the two can never disagree
-		seg.CFrame = CFrame.fromMatrix(pos, dir:Cross(-out), dir)
-		seg.Parent = eggClone
-		made[#made + 1] = seg
-		return true
+	local x, y = seamX or (cx + lean), y0
+	for i = 1, SEAM_STEPS do
+		-- alternate the swing so the seam zigs and zags instead of drifting one way
+		local swing = (i % 2 == 0) and 1 or -1
+		local nx = cx + lean + swing * rng:NextNumber(SEAM_WANDER * 0.45, SEAM_WANDER) * rx
+		local ny = y + step
+		local dx, dy = nx - x, ny - y
+		local len = math.sqrt(dx * dx + dy * dy)
+		-- GuiObject.Rotation is degrees CLOCKWISE and screen +Y is down, so a
+		-- frame's long axis at rotation r runs along (-sin r, cos r) -- meaning the
+		-- angle pointing along (dx, dy) is atan2(-dx, dy). Getting this backwards is
+		-- exactly what makes a jagged polyline come apart into loose sticks.
+		local a = math.atan2(-dx, dy)
+		made[#made + 1] = new("Frame", {
+			Name = "crackSeg", AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset((x + nx) / 2, (y + ny) / 2),
+			-- +3 so consecutive segments overlap at the joint and the seam stays
+			-- unbroken through every kink
+			Size = UDim2.fromOffset(thick, len + 3),
+			Rotation = math.deg(a), BackgroundColor3 = CRACK_DARK, BorderSizePixel = 0, ZIndex = 5,
+		}, layer)
+		x, y = nx, ny
 	end
-
-	local function walk(s, y, ang, steps, len, thick)
-		for i = 1, steps do
-			local f = 1 - 0.55 * ((i - 1) / steps) -- taper away from the impact
-			if not place(s, y, len * f, thick * f, ang) then break end
-			s += math.sin(ang) * len * f * 0.85
-			y += math.cos(ang) * len * f * 0.85
-			ang += math.rad(rng:NextNumber(-26, 26))
-		end
-	end
-
-	local steps = 3 + hit                    -- 4, 5, 6 -- later hits travel further
-	local len = hy * 0.17
-	local thick = hx * (0.075 + 0.018 * hit)
-	local ang = rng:NextNumber(-0.55, 0.55)  -- broadly vertical, never twice the same
-
-	walk(s0, y0, ang, steps, len, thick)
-	walk(s0, y0, ang + math.pi, steps, len, thick)
-
-	for _ = 1, hit - 1 do                    -- 0, then 1, then 2 hairline branches
-		local away = (rng:NextInteger(0, 1) == 0 and 1 or -1) * rng:NextNumber(0.6, 1.1)
-		local d = len * rng:NextNumber(0.8, 1.8)
-		walk(s0 + math.sin(ang) * d, y0 + math.cos(ang) * d, ang + away,
-			math.max(2, steps - 2), len * 0.8, thick * 0.55)
-	end
-	return made
+	return made, x
 end
 
--- Shell flakes knocked loose by a hit. Same colour and material as the shell
--- they came off, so they read as debris rather than as more decoration.
-local function spawnChips(eggClone, shellPart, s0, y0, count, rng)
-	if not shellPart then return end
-	local out, side, hx, hy, centre = shellFrame(shellPart)
+
+-- Shell flakes knocked loose by a hit, in the colour of the shell they came off
+-- so they read as debris rather than as more decoration.
+local function drawChips(layer, px, py, count, colour, rng)
 	for _ = 1, count do
-		local s = s0 + rng:NextNumber(-0.12, 0.12) * hx
-		local y = y0 + rng:NextNumber(-0.12, 0.12) * hy
-		local k = math.max(0.05, 1 - (y / hy) ^ 2 - (s / hx) ^ 2)
-		local pos = centre + side * s + Vector3.yAxis * y + out * (hx * math.sqrt(k))
-		local chip = Instance.new("Part")
-		chip.Name = "chip"
-		chip.Anchored, chip.CanCollide, chip.CanQuery, chip.CastShadow = true, false, false, false
-		chip.Material = shellPart.Material
-		chip.Color = shellPart.Color
-		chip.Size = Vector3.one * (hx * rng:NextNumber(0.05, 0.10))
-		chip.CFrame = CFrame.new(pos)
-		chip.Parent = eggClone
-		local fly = pos + out * rng:NextNumber(0.15, 0.40)
-			+ side * rng:NextNumber(-0.30, 0.30)
-			- Vector3.yAxis * rng:NextNumber(0.30, 0.70)
-		TweenService:Create(chip, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			CFrame = CFrame.new(fly) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), rng:NextNumber(0, 6)),
-			Transparency = 1,
+		local s = rng:NextNumber(4, 9)
+		local chip = new("Frame", {
+			Name = "chip", AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(px, py), Size = UDim2.fromOffset(s, s),
+			Rotation = rng:NextNumber(0, 180), BackgroundColor3 = colour,
+			BorderSizePixel = 0, ZIndex = 21,
+		}, layer)
+		TweenService:Create(chip, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Position = UDim2.fromOffset(px + rng:NextNumber(-46, 46), py + rng:NextNumber(26, 74)),
+			Rotation = rng:NextNumber(-220, 220),
+			Size = UDim2.fromOffset(s * 0.4, s * 0.4),
+			BackgroundTransparency = 1,
 		}):Play()
 	end
 end
@@ -703,7 +693,9 @@ local function playReveal(result)
 	local elapsed = 0
 	local spinFn -- set once the creature phase starts
 	local shellPart, decorations, crackParts = nil, {}, {}
+	local crackLayer, eggRx, eggRy
 	local joltStart, joltMag, splitting = nil, 1, false
+	local canSkip = false -- see SKIP_GRACE
 
 	local function skip()
 		if dead then return end
@@ -721,7 +713,12 @@ local function playReveal(result)
 		end)
 	end
 	revealSkip = skip
-	clickCatcher.Activated:Connect(skip)
+	-- Stays Active the whole time so stray clicks are SWALLOWED rather than
+	-- passed through to whatever is underneath; it just does nothing until the
+	-- reveal is at a point where skipping is what the player meant.
+	clickCatcher.Activated:Connect(function()
+		if canSkip then skip() end
+	end)
 
 	---------------------------------------------------- SHAKE
 	local eggClone, basePivot, eggVp, eggCam, eggCentre, eggDist
@@ -753,6 +750,26 @@ local function playReveal(result)
 		-- (barely visible slivers on a 200-part Crown egg) just vanish instantly
 		-- instead of paying for a tween nobody would see
 		table.sort(decorations, function(a, b) return volumeOf(a) > volumeOf(b) end)
+
+		-- A CanvasGroup so the whole fissure can be faded with ONE property at
+		-- split time, instead of chasing every segment and its edge highlight.
+		-- Clipped to the viewport rect so a stray branch cannot draw outside it.
+		-- ZIndex 4: directly above the egg viewport (3) and BELOW the reveal tile
+		-- (12-14). It used to sit at 18, on top of everything, so any hiccup in the
+		-- split-time fade left the seam drawn over the hatched pet.
+		crackLayer = new("CanvasGroup", {
+			Name = "CrackLayer", Size = UDim2.fromOffset(VP_SIZE, VP_SIZE),
+			BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 4,
+		}, holder)
+		table.insert(fades, { crackLayer, "GroupTransparency" })
+
+		-- Pixels per stud: the camera's half-extent at the egg's distance maps to
+		-- half the viewport, so the shell's radii convert straight into screen radii.
+		if shellPart then
+			local perStud = (VP_SIZE / 2) / (math.tan(math.rad(EGG_FOV / 2)) * eggDist)
+			eggRx = shellPart.Size.X / 2 * perStud
+			eggRy = shellPart.Size.Y / 2 * perStud
+		end
 	end
 
 	local beginCracking, armTap, crackBeat, splitPhase, creaturePhase
@@ -802,31 +819,20 @@ local function playReveal(result)
 	local lastTap = -1
 	local timedOut = false -- latched once the player has shown they are not tapping
 	local crackBtn, hintLabel
+	local seamX -- where the seam's last stage ended, so the next one joins onto it
 
-	-- Screen point -> a coordinate in the shell's (side, up) tangent plane. The
-	-- viewport is square and FieldOfView is vertical, so one half-extent covers
-	-- both axes.
-	local function tangentFromScreen(px, py)
-		local _, side, hx, hy, shellPos = shellFrame(shellPart)
-		local abs, sz = eggVp.AbsolutePosition, eggVp.AbsoluteSize
-		local u = (px - abs.X) / math.max(1, sz.X)
-		local v = (py - abs.Y) / math.max(1, sz.Y)
-		local halfExtent = math.tan(math.rad(EGG_FOV / 2)) * eggDist
-		local camCF = eggCam.CFrame
-		local world = eggCentre
-			+ camCF.RightVector * ((u - 0.5) * 2 * halfExtent)
-			+ camCF.UpVector * ((0.5 - v) * 2 * halfExtent)
-		local rel = world - shellPos
-		local s, y = rel:Dot(side), rel:Dot(Vector3.yAxis)
-		-- A tap out near the silhouette would start a crack on the rim, where the
-		-- surface curves away and there is no front face to draw on. Pull it back
-		-- onto the cap that faces the camera.
-		local e = (s / hx) ^ 2 + (y / hy) ^ 2
-		if e > 0.6 then
-			local k = math.sqrt(0.6 / e)
-			s, y = s * k, y * k
+	-- Screen point -> layer-local pixels, pulled inside the egg's silhouette. A
+	-- tap out on the rim would start a fissure half off the shell.
+	local function layerPoint(sx, sy)
+		local abs = crackLayer.AbsolutePosition
+		local px, py = sx - abs.X, sy - abs.Y
+		local cx, cy = VP_SIZE / 2, VP_SIZE / 2
+		local e = ((px - cx) / eggRx) ^ 2 + ((py - cy) / eggRy) ^ 2
+		if e > 0.55 then
+			local k = math.sqrt(0.55 / e)
+			px, py = cx + (px - cx) * k, cy + (py - cy) * k
 		end
-		return s, y
+		return px, py
 	end
 
 	-- Hidden rather than destroyed: both are registered in `fades`, and skip()
@@ -848,13 +854,13 @@ local function playReveal(result)
 		task.delay(timedOut and TAP_TIMEOUT_FAST or TAP_TIMEOUT, function()
 			if myGen ~= revealGen or myToken ~= tapToken then return end
 			timedOut = true
-			local _, _, hx, hy = shellFrame(shellPart)
-			crackBeat(rng:NextNumber(-0.3, 0.3) * hx, rng:NextNumber(-0.35, 0.35) * hy)
+			crackBeat(VP_SIZE / 2 + rng:NextNumber(-0.4, 0.4) * eggRx,
+				VP_SIZE / 2 + rng:NextNumber(-0.45, 0.45) * eggRy)
 		end)
 	end
 
 	beginCracking = function()
-		if not (eggClone and shellPart and eggVp) then
+		if not (eggClone and shellPart and eggVp and crackLayer and eggRx) then
 			splitPhase() -- no egg model resolved: nothing to tap, so go straight through
 			return
 		end
@@ -881,13 +887,13 @@ local function playReveal(result)
 			if myGen ~= revealGen or hits >= CRACKS_TO_OPEN then return end
 			if elapsed - lastTap < TAP_DEBOUNCE then return end
 			lastTap = elapsed
-			crackBeat(tangentFromScreen(input.Position.X, input.Position.Y))
+			crackBeat(layerPoint(input.Position.X, input.Position.Y))
 		end)
 
 		armTap()
 	end
 
-	crackBeat = function(s0, y0)
+	crackBeat = function(px, py)
 		hits += 1
 		local n = math.min(hits, CRACKS_TO_OPEN)
 		SoundKit.play(HIT_SOUND[n], nil, { volume = HIT_VOLUME[n], speed = HIT_SPEED[n] })
@@ -896,12 +902,15 @@ local function playReveal(result)
 		-- Everything already drawn widens a little. A shell does not keep its first
 		-- crack hairline once you have hit it twice more.
 		for _, seg in ipairs(crackParts) do
-			seg.Size = Vector3.new(seg.Size.X * 1.13, seg.Size.Y, seg.Size.Z * 1.13)
+			seg.Size = UDim2.fromOffset(seg.Size.X.Offset + 1, seg.Size.Y.Offset)
 		end
-		for _, seg in ipairs(growCrack(eggClone, shellPart, s0, y0, n, rng)) do
+		local segs, endX = drawCrack(crackLayer, seamX, px, eggRx, eggRy, n, rng)
+		seamX = endX
+		for _, seg in ipairs(segs) do
 			crackParts[#crackParts + 1] = seg
 		end
-		spawnChips(eggClone, shellPart, s0, y0, 2 + n, rng)
+		-- chips come off the seam's leading edge, not off wherever the finger was
+		drawChips(crackLayer, endX, VP_SIZE / 2 + SEAM_BANDS[n][2] * eggRy, 1 + n, shellPart.Color, rng)
 
 		joltStart, joltMag = elapsed, n -- later hits hit harder
 
@@ -972,9 +981,17 @@ local function playReveal(result)
 				Transparency = 1,
 			}):Play()
 
-			-- the fissure goes with the shell it was drawn on
-			for _, seg in ipairs(crackParts) do
-				TweenService:Create(seg, TweenInfo.new(SPLIT_TIME * 0.5), { Transparency = 1 }):Play()
+			-- The seam goes with the shell it was drawn on -- one property, because the
+			-- layer is a CanvasGroup. DESTROYED after the fade rather than left at
+			-- transparency 1: an invisible layer is still a layer, and leaving it
+			-- parented is what kept the cracks on screen over the opened pet.
+			if crackLayer then
+				local dying = crackLayer
+				crackLayer = nil
+				TweenService:Create(dying, TweenInfo.new(SPLIT_TIME * 0.5), { GroupTransparency = 1 }):Play()
+				task.delay(SPLIT_TIME * 0.5 + 0.05, function()
+					if dying then dying:Destroy() end
+				end)
 			end
 
 			for i, part in ipairs(decorations) do
@@ -1021,14 +1038,38 @@ local function playReveal(result)
 		creatureVp.CurrentCamera = ccam
 		table.insert(fades, { creatureVp, "ImageTransparency" })
 
+		-- The tile POPS in rather than cutting in, so the moment the shell opens
+		-- lands. On holder (not the tile) because holder is the only node here
+		-- anchored at its own centre -- scaling the tile would grow it out of its
+		-- top-left corner -- and this way the name and tier labels pop with it.
+		local pop = new("UIScale", { Scale = 0.55 }, holder)
+		TweenService:Create(pop, TweenInfo.new(0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Scale = 1,
+		}):Play()
+
 		local master = petMaster(result.Name, result.PetId)
 		if master then
 			local m = master:Clone()
 			m.Parent = creatureVp
 			local centre, dist = BrainrotThumb.framing(m, 30)
+			local rest = m:GetPivot()
+			local hopScale = dist * 0.05 -- size-relative, so a big pet hops as far as a small one
 			local creatureStart = elapsed
 			spinFn = function(t)
-				local ang = ((t - creatureStart) / SPIN_TIME) * (2 * math.pi)
+				local age = t - creatureStart
+				-- ENTRANCE then IDLE: the pet hops up into frame, settles, and keeps a
+				-- gentle bob going. A pet that only turns on the spot reads as a
+				-- turntable render; the hop is what makes it read as alive.
+				local hop = (age < ENTER_TIME)
+					and math.sin(age / ENTER_TIME * math.pi) * 0.6
+					or 0
+				local bob = math.sin(age * 2.4) * 0.12
+				-- world-space offset (CFrame + Vector3), NOT rest * CFrame.new: a pet
+				-- whose pivot is tilted would otherwise hop off at an angle
+				m:PivotTo(rest + Vector3.new(0, (hop + bob) * hopScale, 0))
+				-- the camera keeps the spin, so an off-centre pivot cannot make the
+				-- model swing around instead of turning on the spot
+				local ang = (age / SPIN_TIME) * (2 * math.pi)
 				local dir = CFrame.Angles(0, ang, 0) * BrainrotThumb.DEFAULT_DIR
 				ccam.CFrame = CFrame.lookAt(centre + dir * dist, centre)
 			end
@@ -1058,6 +1099,12 @@ local function playReveal(result)
 		local tierInk = UITheme.inkText(tierLabel, 2.2)
 		table.insert(fades, { tierLabel, "TextTransparency" })
 		table.insert(fades, { tierInk, "Transparency" })
+
+		-- only now is a click a deliberate "I have seen it, move on"
+		task.delay(SKIP_GRACE, function()
+			if myGen ~= revealGen then return end
+			canSkip = true
+		end)
 
 		task.delay(CREATURE_HOLD, function()
 			if myGen ~= revealGen then return end
