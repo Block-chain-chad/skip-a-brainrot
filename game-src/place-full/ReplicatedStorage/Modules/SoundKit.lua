@@ -125,6 +125,18 @@ M.Ids = {
 	-- The final landing wants a genuinely different sample, not just a louder tap:
 	-- 0.39s cannot sound heavy no matter what you do to its volume or pitch.
 	splashBig   = "rbxassetid://4086001962",        -- water-splash-large, 3.51s
+	-- Egg hatch (EggShopClient.playReveal): three crack beats, then the shell
+	-- splits. All three ids are lifted straight out of the 476-sound library
+	-- already sitting in Workspace.SFX -- those instances report a non-zero
+	-- TimeLength in this place, which IS the load-verification this file's
+	-- header demands, rather than an id picked off the website and hoped for.
+	--
+	-- bone-snap01 is the classic eggshell-crack foley: 0.34s is short enough
+	-- that three of them at 0.26s apart read as three distinct taps instead of
+	-- a smear (the same length-vs-gap trap wheelTick documents above).
+	eggCrack    = "rbxassetid://1093102664",        -- bone-snap01, 0.34s -- one crack beat
+	eggCrumble  = "rbxassetid://3848076724",        -- earthcrumble1, 0.60s -- weight under the last beat
+	eggSplit    = "rbxassetid://4307207693",        -- brickburst2, 1.37s -- the shell coming apart
 	panelOpen   = "rbxassetid://9117847793",        -- SFX2 new: popup/panel appears
 	panelClose  = "rbxassetid://9126267413",        -- SFX2 new: panel close (X buttons)
 	fusion      = "rbxassetid://4612374036",        -- SFX2 new: same id as `mutation` above, the generic sting

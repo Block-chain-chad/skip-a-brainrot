@@ -24,7 +24,7 @@ d21019fd|2975|ModuleScript|ReplicatedStorage.Modules.RarityCurve
 c70b5126|9416|ModuleScript|ReplicatedStorage.Modules.RockDesign
 3e6df348|1980|ModuleScript|ReplicatedStorage.Modules.SeasonConfig
 a7dd5850|16223|ModuleScript|ReplicatedStorage.Modules.SideRail
-b2ebfa04|12171|ModuleScript|ReplicatedStorage.Modules.SoundKit
+b42098f5|13059|ModuleScript|ReplicatedStorage.Modules.SoundKit
 5c4af078|8267|ModuleScript|ReplicatedStorage.Modules.SupplySchedule
 2f42bbcc|1437|ModuleScript|ReplicatedStorage.Modules.TungQuestConfig
 e8de64e0|15793|ModuleScript|ReplicatedStorage.Modules.UIKit.Builders
@@ -147,13 +147,13 @@ ff4fae24|66737|LocalScript|StarterPlayer.StarterPlayerScripts.ClientMain
 29f1a345|9578|LocalScript|StarterPlayer.StarterPlayerScripts.DailyRewardClient
 23c84a72|8464|LocalScript|StarterPlayer.StarterPlayerScripts.DarrelHUDClient
 cb69a16b|3560|LocalScript|StarterPlayer.StarterPlayerScripts.DevWeatherClient
-327f0420|29253|LocalScript|StarterPlayer.StarterPlayerScripts.EggShopClient
+bb75efca|30761|LocalScript|StarterPlayer.StarterPlayerScripts.EggShopClient
 c0ceabfa|6739|LocalScript|StarterPlayer.StarterPlayerScripts.FootstepClient
 4d5a965c|19677|LocalScript|StarterPlayer.StarterPlayerScripts.FusionClient
-4b15cc2a|46895|LocalScript|StarterPlayer.StarterPlayerScripts.GameHUDClient
+01e0bdf9|47126|LocalScript|StarterPlayer.StarterPlayerScripts.GameHUDClient
 658448a5|59311|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.BackpackPanel
 bb5f7444|37485|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.DailyPanel
-d38ca46d|33405|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.GoalsPanel
+43446f09|34459|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.GoalsPanel
 45767e18|38085|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.IndexPanel
 14691cc9|26466|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.PassPanel
 aa986b72|33385|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.SettingsPanel

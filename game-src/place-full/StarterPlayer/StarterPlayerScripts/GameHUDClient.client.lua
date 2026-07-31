@@ -268,6 +268,10 @@ local GLYPH = {
 	bag = "\u{1F392}", pass = "\u{1F3AB}", daily = "\u{1F4C5}",
 	goals = "\u{1F4CB}", index = "\u{1F4D6}", settings = "\u{2699}",
 	coin = "\u{1F4B0}", gem = "\u{1F48E}",
+	-- darrel has no kit PNG and never will (he is ours, not the kit's), so this
+	-- is only reached if IconArt itself fails to load; the diamond is the same
+	-- stand-in the currency used before he had a face.
+	darrel = "\u{1F48E}",
 }
 
 local function glyphFallback(slot, key, textSize, plated)

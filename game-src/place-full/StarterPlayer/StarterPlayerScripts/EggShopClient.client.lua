@@ -235,8 +235,23 @@ for i = 1, 3 do
 		BackgroundTransparency = 1, Font = FONT, TextSize = 12, TextColor3 = CF.muted,
 		TextXAlignment = Enum.TextXAlignment.Left, Text = "", ZIndex = 13,
 	}, row)
+	-- reward is right-aligned, so Darrel sits to the RIGHT of the number here
+	-- (trailing the value, where the emoji used to be) rather than leading it
+	local REWARD_ICON = 15
+	local rewardIcon = new("Frame", {
+		Name = "RewardIcon",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -8, 1, -14),
+		Size = UDim2.fromOffset(REWARD_ICON, REWARD_ICON),
+		BackgroundTransparency = 1, Visible = false, ZIndex = 14,
+	}, row)
+	if IconArt and IconArt.has("darrel") then
+		IconArt.draw(rewardIcon, "darrel", REWARD_ICON, 14)
+	end
+
 	local reward = new("TextLabel", {
-		Position = UDim2.new(0.5, 4, 1, -22), Size = UDim2.new(0.5, -12, 0, 16),
+		Position = UDim2.new(0.5, 4, 1, -22),
+		Size = UDim2.new(0.5, -12 - (IconArt and (REWARD_ICON + 5) or 0), 0, 16),
 		BackgroundTransparency = 1, Font = FONT, TextSize = 12, TextColor3 = CF.amber2,
 		TextXAlignment = Enum.TextXAlignment.Right, Text = "", ZIndex = 13,
 	}, row)
@@ -246,7 +261,7 @@ for i = 1, 3 do
 		Text = "\u{2713}", Visible = false, ZIndex = 14,
 	}, row)
 	UITheme.inkText(check, 2)
-	questRows[i] = { row = row, text = text, progress = progress, reward = reward, check = check }
+	questRows[i] = { row = row, text = text, progress = progress, reward = reward, rewardIcon = rewardIcon, check = check }
 end
 
 local function refreshQuests(daily)
@@ -257,7 +272,10 @@ local function refreshQuests(daily)
 		if q then
 			ui.text.Text = q.Text or ""
 			ui.progress.Text = ("%d/%d"):format(q.Progress or 0, q.Target or 0)
-			ui.reward.Text = "+" .. tostring(q.Reward or 0) .. "\u{1F48E}"
+			ui.reward.Text = "+" .. tostring(q.Reward or 0) .. (IconArt and "" or "\u{1F48E}")
+			-- the icon only appears alongside a populated row, so it hides and shows
+			-- with the row's own text rather than floating on an empty card
+			if ui.rewardIcon then ui.rewardIcon.Visible = (IconArt ~= nil) end
 			ui.check.Visible = q.Claimed == true
 		end
 	end
@@ -335,11 +353,26 @@ for i, egg in ipairs(world.Eggs) do
 	}, header)
 	UITheme.inkText(nameLabel, 2.6)
 
+	-- Price reads "<face> 25" rather than "25<diamond emoji>": Darrel's face
+	-- leads, the same order the balance chip and the HUD pill use, so a player
+	-- scanning prices against their balance sees the same mark in both places.
+	local PRICE_ICON = 18
+	local priceIcon = new("Frame", {
+		Name = "PriceIcon",
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 90, 0, 48),
+		Size = UDim2.fromOffset(PRICE_ICON, PRICE_ICON),
+		BackgroundTransparency = 1, ZIndex = 14,
+	}, header)
+	if IconArt and IconArt.has("darrel") then
+		IconArt.draw(priceIcon, "darrel", PRICE_ICON, 14)
+	end
+
 	local priceLabel = new("TextLabel", {
-		Position = UDim2.fromOffset(90, 38), Size = UDim2.new(1, -220, 0, 20),
+		Position = UDim2.fromOffset(90 + PRICE_ICON + 6, 38), Size = UDim2.new(1, -(220 + PRICE_ICON + 6), 0, 20),
 		BackgroundTransparency = 1, Font = FONT, TextSize = 15, TextColor3 = CF.muted,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		Text = tostring(egg.Price) .. "\u{1F48E}", ZIndex = 14,
+		Text = (IconArt and "" or "") .. tostring(egg.Price) .. (IconArt and "" or "\u{1F48E}"), ZIndex = 14,
 	}, header)
 	UITheme.inkText(priceLabel, 1.6)
 

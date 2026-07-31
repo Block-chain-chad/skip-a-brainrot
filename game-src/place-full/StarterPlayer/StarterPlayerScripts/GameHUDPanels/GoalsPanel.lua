@@ -163,6 +163,13 @@ end
 function GoalsPanel.Build(ctx)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
+	-- Darrel's drawn face, for the Daily tab's reward chips. Not part of ctx
+	-- (which carries only the kit's own Tokens/Builders), and pcall'd so a
+	-- missing module costs an icon rather than the whole panel.
+	local okIconArt, IconArt = pcall(function()
+		return require(game:GetService("ReplicatedStorage").Modules.UIKit.IconArt)
+	end)
+	if not okIconArt then IconArt = nil end
 
 	----------------------------------------------------------- geometry (kit README §3.6, exact where tokenised)
 	local PANEL_W = T.size.panelWidth.goals -- 860
@@ -423,7 +430,22 @@ function GoalsPanel.Build(ctx)
 		chip.Name = "RewardChip"
 		chip.ZIndex = parent.ZIndex + 1
 
-		local icon = UI.artSlot(chip, UDim2.fromOffset(CHIP_ICON_W, CHIP_ICON_W), T.icons[iconKey])
+		-- "darrel" has no Tokens.icons entry (he is not part of the kit), so an
+		-- artSlot would render an empty box here. Fall back to the drawn version
+		-- the HUD pill and egg shop already use, keeping one face for the currency
+		-- everywhere it is shown.
+		local icon: GuiObject
+		local iconId = T.icons[iconKey]
+		if (iconId and iconId ~= "") or not (IconArt and IconArt.has(iconKey)) then
+			icon = UI.artSlot(chip, UDim2.fromOffset(CHIP_ICON_W, CHIP_ICON_W), iconId)
+		else
+			local host = Instance.new("Frame")
+			host.Size = UDim2.fromOffset(CHIP_ICON_W, CHIP_ICON_W)
+			host.BackgroundTransparency = 1
+			host.Parent = chip
+			IconArt.draw(host, iconKey, CHIP_ICON_W, chip.ZIndex + 1)
+			icon = host
+		end
 		icon.Name = "CurrencyIcon"
 		icon.AnchorPoint = Vector2.new(0, 0.5)
 		icon.Position = UDim2.new(0, CHIP_PAD_L, 0.5, 0)
@@ -638,7 +660,7 @@ function GoalsPanel.Build(ctx)
 				Title = q.Text or "",
 				Progress = q.Progress or 0,
 				Target = q.Target or 1,
-				RewardIconKey = "gem",
+				RewardIconKey = "darrel", -- daily egg-quests pay darrels, not a generic gem
 				RewardText = "+" .. tostring(q.Reward or 0),
 				Action = q.Claimed and "claimed" or "inprogress",
 			})
