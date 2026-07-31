@@ -62,11 +62,14 @@
 -- number and dollar amount always real/current regardless of how deep into
 -- the 30-day cycle the player is, rather than freezing the row at a
 -- perpetually-stale literal days-1-7 view once the player passes day 7.
--- Day 7's GRAND rainbow-ring/ribbon treatment (kit §3.4/§5) is a fixed
--- POSITIONAL treatment (slot 7 of the row), not conditional on that slot's
--- raw day actually being one of the server's real milestone days
--- (7/14/21/30) -- the kit spec has no such conditional either, and the two
--- only reliably coincide in the cycle's first week.
+-- GRAND rainbow-ring/ribbon treatment (kit §3.4/§5) is MILESTONE-based (post-
+-- review FIX 1), not positional: gated on MILESTONES[wrapDay(slotDay)] --
+-- the server's real 7/14/21/30 milestone days (legacy DailyRewardClient's own
+-- table, copied verbatim) -- so it can land on ANY slot 1..7 depending on
+-- where NextDay's window falls (e.g. NextDay=30 puts the real GRAND on slot
+-- 2, raw day 30, not slot 7). A window can also contain ZERO milestones
+-- (e.g. NextDay=22..28 -> weekBase 21 -> raw days 22..28 hit none of
+-- 7/14/21/30) -- correctly, no card gets the ring/ribbon that render.
 --
 -- CLAIMED/TODAY/LOCKED adaptation (kit §5 Daily): the kit's literal formula
 -- is `day < streakDay -> CLAIMED`, `day == streakDay and not claimedToday
@@ -152,6 +155,14 @@ local function nextMidnightRemaining(t: number): number
 	return (86400 - (t % 86400)) % 86400
 end
 
+-- FIX 1 (post-review): the server's real GRAND-tier milestone days --
+-- copied verbatim from the legacy DailyRewardClient's own table. Spacing is
+-- 7,7,7,9 (NOT a flat "every 7th day"), so a fixed "slot 7 of the window"
+-- treatment drifts off the real milestones after week 3 -- see renderCards()
+-- below, which gates isGrand on MILESTONES[wrapDay(slotDay)] instead of a
+-- literal `i == 7`.
+local MILESTONES = { [7] = true, [14] = true, [21] = true, [30] = true }
+
 ----------------------------------------------------------------- module-top-level capture (see header note)
 local remotesTop = ReplicatedStorage:WaitForChild("Remotes")
 local capturedState = nil
@@ -195,6 +206,15 @@ function DailyPanel.Build(ctx)
 	local state = { Streak = 0, NextDay = 1, Rewards = {} :: { number }, Claimable = false, FreezeAvailable = false }
 	local cardFrames: { [number]: Frame } = {} -- rewardIdx (1..#Rewards) -> currently-rendered card Frame, rebuilt every render()
 	local claimMotionGen = 0
+	-- FIX 2: every live instance a claim-resolve motion has created (scrim/
+	-- check/coin), keyed by the generation that created it -- lets the
+	-- wrapper Visible watcher below force-destroy an in-flight flourish's
+	-- instances immediately on panel close instead of waiting for its own
+	-- delayed cleanup (the coin in particular is parented to the ScreenGui,
+	-- OUTSIDE wrapper's hierarchy, so it is not even hidden by wrapper.
+	-- Visible = false on its own -- it would otherwise keep visibly flying
+	-- across the screen after the panel closes).
+	local motionInstancesByGen: { [number]: { Instance } } = {}
 
 	----------------------------------------------------------- root
 	local wrapper = Instance.new("Frame")
@@ -251,7 +271,7 @@ function DailyPanel.Build(ctx)
 	timerChip.BorderSizePixel = 0
 	timerChip.ZIndex = header.ZIndex + 2
 	timerChip.Parent = header
-	UI.corner(timerChip, T.radius.small)
+	UI.corner(timerChip, T.radius.inner) -- FIX 4: kit §3.4 says radius 14 (T.radius.inner) in its own comment above -- was T.radius.small (12), contradicting it
 	local timerGradient = Instance.new("UIGradient")
 	timerGradient.Rotation = 90
 	timerGradient.Color = ColorSequence.new({
@@ -368,7 +388,7 @@ function DailyPanel.Build(ctx)
 		local overlay = Instance.new("Frame")
 		overlay.Name = "ClaimedOverlay"
 		overlay.Size = UDim2.fromScale(1, 1)
-		overlay.BackgroundColor3 = Color3.fromRGB(12, 18, 8)
+		overlay.BackgroundColor3 = Color3.fromRGB(8, 12, 5) -- FIX 5: kit Daily spec value rgba(8,12,5) -- was Color3.fromRGB(12,18,8), an off-kit approximation
 		overlay.BackgroundTransparency = 0.38 -- kit §5 Daily "overlay .62" opacity -> transparency = 1-0.62
 		overlay.BorderSizePixel = 0
 		overlay.ZIndex = card.ZIndex + 6
@@ -403,7 +423,7 @@ function DailyPanel.Build(ctx)
 		local overlay = Instance.new("Frame")
 		overlay.Name = "LockedOverlay"
 		overlay.Size = UDim2.fromScale(1, 1)
-		overlay.BackgroundColor3 = Color3.fromRGB(12, 18, 8)
+		overlay.BackgroundColor3 = Color3.fromRGB(8, 12, 5) -- FIX 5: kit Daily spec value rgba(8,12,5) -- was Color3.fromRGB(12,18,8), an off-kit approximation
 		overlay.BackgroundTransparency = 0.58 -- kit §5 Daily "overlay .42" opacity -> transparency = 1-0.42
 		overlay.BorderSizePixel = 0
 		overlay.ZIndex = card.ZIndex + 6
@@ -426,7 +446,7 @@ function DailyPanel.Build(ctx)
 		-- (unlike PassPanel's inset "-8" claim pill), so the reward label is
 		-- hidden for this state to give it room (same convention PassPanel's
 		-- CLAIMABLE state hides its qty chip).
-		local pill = UI.button(card, "CLAIM", "green", UDim2.new(1, -16, 0, T.size.claimPill), "buttonM")
+		local pill = UI.button(card, "CLAIM", "green", UDim2.new(1, -16, 0, 44), "buttonM") -- FIX 3: kit states.md Daily spec pins CLAIM pill height at 44 (also the touch minimum) -- T.size.claimPill is 38, shared with other panels' claim pills; hardcoded here per review, not changing the shared token (would ripple into every other panel)
 		pill.Name = "ClaimPill"
 		pill.AnchorPoint = Vector2.new(0.5, 1)
 		pill.Position = UDim2.new(0.5, 0, 1, 16)
@@ -519,9 +539,13 @@ function DailyPanel.Build(ctx)
 		local weekBase = math.floor((state.NextDay - 1) / 7) * 7
 
 		for i = 1, 7 do
-			local isGrand = (i == 7)
 			local slotDay = weekBase + i
 			local rewardIdx = wrapDay(slotDay)
+			-- FIX 1: milestone-true GRAND, not positional -- gate on the SAME
+			-- wrapped reward index the card's reward-value lookup/label use, so
+			-- the ring/ribbon follows the real milestone wherever it falls in
+			-- this window (see MILESTONES + header note above).
+			local isGrand = MILESTONES[rewardIdx] == true
 
 			local slot = Instance.new("Frame")
 			slot.Name = "DaySlot" .. i
@@ -549,6 +573,8 @@ function DailyPanel.Build(ctx)
 
 		claimMotionGen += 1
 		local myGen = claimMotionGen
+		local myInstances: { Instance } = {} -- FIX 2: every live instance this generation creates (scrim/check/coin), so a mid-flight panel close can force-destroy them immediately
+		motionInstancesByGen[myGen] = myInstances
 
 		local scrim = Instance.new("Frame")
 		scrim.Name = "ClaimMotionScrim"
@@ -558,6 +584,7 @@ function DailyPanel.Build(ctx)
 		scrim.BorderSizePixel = 0
 		scrim.ZIndex = card.ZIndex + 10
 		scrim.Parent = card
+		table.insert(myInstances, scrim)
 		UI.corner(scrim, T.radius.control)
 		TweenService:Create(scrim, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			BackgroundTransparency = 0.4,
@@ -577,6 +604,7 @@ function DailyPanel.Build(ctx)
 			check.BorderSizePixel = 0
 			check.ZIndex = scrim.ZIndex + 1
 			check.Parent = card
+			table.insert(myInstances, check) -- FIX 2
 			UI.corner(check, 28)
 			UI.gradient(check, T.gradient.green)
 			UI.stroke(check, T.stroke.control)
@@ -614,6 +642,7 @@ function DailyPanel.Build(ctx)
 					coin.Position = UDim2.fromOffset(fromCenter.X, fromCenter.Y)
 					coin.ZIndex = T.zindex.toast
 					coin.Parent = screenGui
+					table.insert(myInstances, coin) -- FIX 2: parented to the ScreenGui, NOT under card/wrapper -- the one instance not hidden by wrapper.Visible = false on its own, so it must be tracked + force-destroyed on close
 					local target = ctx.pillAnchor("coin")
 					local flyTween = TweenService:Create(coin, T.tween.fly, {
 						Position = UDim2.fromOffset(target.X, target.Y),
@@ -629,8 +658,11 @@ function DailyPanel.Build(ctx)
 						if coin and coin.Parent then
 							coin:Destroy()
 						end
+						motionInstancesByGen[myGen] = nil -- FIX 2: natural completion -- coin outlives scrim/check by design (380ms fly vs 120ms fades), so it is the true last step of the flow
 					end)
 					flyTween:Play()
+				else
+					motionInstancesByGen[myGen] = nil -- FIX 2: no ScreenGui found, no coin flight -- scrim/check are the whole flow, clear now
 				end
 
 				TweenService:Create(scrim, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -719,6 +751,27 @@ function DailyPanel.Build(ctx)
 			startCountdown()
 		else
 			stopCountdown()
+			-- FIX 2: a mid-flight claim-resolve motion (scrim/check parented
+			-- under `card`, coin parented directly under the ScreenGui --
+			-- see playClaimResolveMotion) does NOT get hidden by the panel
+			-- closing on its own: the coin in particular lives OUTSIDE the
+			-- wrapper's hierarchy entirely (parented to the ScreenGui so its
+			-- Position can use raw AbsolutePosition), so it would otherwise
+			-- keep visibly flying across the screen after the player closes
+			-- the panel. Bump the generation so every in-flight delayed
+			-- continuation (check-pop stage, fly stage, Completed handler)
+			-- sees a stale myGen and no-ops, AND destroy every currently-
+			-- tracked live motion instance immediately rather than waiting
+			-- for its own delayed cleanup to get around to it.
+			claimMotionGen += 1
+			for gen, instances in pairs(motionInstancesByGen) do
+				for _, inst in ipairs(instances) do
+					if inst and inst.Parent then
+						inst:Destroy()
+					end
+				end
+				motionInstancesByGen[gen] = nil
+			end
 		end
 	end)
 
