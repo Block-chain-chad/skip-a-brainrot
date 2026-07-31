@@ -187,6 +187,42 @@ IconArt.SHAPES = {
 		{ type = "circle", cx = 35, cy = 49, radius = 1.6, fill = "#FFD84D", outline = false, note = "door knob" },
 	},
 
+	--[[ Darrel -- the egg-shop currency is named after the mascot, so his face IS
+	the currency icon. Colours are lifted straight off the ReplicatedStorage
+	"DarrelBust" model the retired DarrelHUDClient used to render in a 30px
+	ViewportFrame: skin rgb(150,99,64), cap rgb(32,32,35), strap rgb(92,86,76),
+	buckle rgb(150,148,145), glass frames rgb(12,12,12), lenses rgb(228,222,206),
+	locs/mustache rgb(24,19,17), grin rgb(248,244,235), ear stud rgb(212,175,55).
+
+	Deliberately COARSE. This renders at 38px in the currency pill -- less than
+	two thirds the rail's 66px -- so the bust's finer parts (chin beard, mustache
+	tips, individual locs, teeth split) are merged or dropped. What has to survive
+	at that size is the silhouette: cap, big dark glasses, mustache, locs. ]]
+	darrel = {
+		-- Locs stop at the jaw rather than running the full height of the head:
+		-- carried lower they merge with the cap into one black mass, which is what
+		-- the first pass looked like.
+		{ type = "bar", x1 = 15, y1 = 29, x2 = 13, y2 = 45, t = 8, fill = "#181311", outline = true, note = "locs left" },
+		{ type = "bar", x1 = 49, y1 = 29, x2 = 51, y2 = 45, t = 8, fill = "#181311", outline = true, note = "locs right" },
+		{ type = "rect", x = 14.5, y = 31, w = 4.5, h = 7, r = 2, fill = "#96633F", outline = true, note = "ear left" },
+		{ type = "rect", x = 45, y = 31, w = 4.5, h = 7, r = 2, fill = "#96633F", outline = true, note = "ear right" },
+		-- skin lifted a shade off the model's rgb(150,99,64): at icon size the true
+		-- value goes muddy between the black cap and the black mustache
+		{ type = "rect", x = 17, y = 15, w = 30, h = 35, r = 10, gradTop = "#B8825C", gradBottom = "#85583A", outline = true, note = "head" },
+		{ type = "circle", cx = 16.7, cy = 37.5, radius = 1.8, fill = "#D4AF37", outline = false, note = "ear stud" },
+		-- cap: rounded on top, cut flat where it meets the brow
+		{ type = "rect", x = 15, y = 10, w = 34, h = 19, r = 9, gradTop = "#3A3A42", gradBottom = "#1E1E22", clip = { 15, 10, 49, 24 }, outline = true, note = "cap dome" },
+		{ type = "rect", x = 15, y = 21.5, w = 34, h = 4.5, r = 2, fill = "#5C564C", outline = true, note = "cap strap" },
+		{ type = "rect", x = 30, y = 22, w = 4, h = 3.5, r = 1, fill = "#96948F", outline = false, note = "strap buckle" },
+		-- the glasses are the single most recognisable feature, so they get the
+		-- most area: widened until the pair nearly spans the face
+		{ type = "rect", x = 18, y = 29, w = 12.5, h = 11, r = 3.5, fill = "#E4DECE", strokeColor = "#0C0C0C", strokeWidth = 3.5, outline = true, note = "lens left" },
+		{ type = "rect", x = 33.5, y = 29, w = 12.5, h = 11, r = 3.5, fill = "#E4DECE", strokeColor = "#0C0C0C", strokeWidth = 3.5, outline = true, note = "lens right" },
+		{ type = "bar", x1 = 30.5, y1 = 34.5, x2 = 33.5, y2 = 34.5, t = 3, fill = "#0C0C0C", outline = false, note = "bridge" },
+		{ type = "bar", x1 = 26.5, y1 = 43.5, x2 = 37.5, y2 = 43.5, t = 5, fill = "#181311", outline = true, note = "mustache" },
+		{ type = "rect", x = 29, y = 46.5, w = 6, h = 2.6, r = 1.3, fill = "#F8F4EB", outline = false, note = "grin" },
+	},
+
 	settings = {
 		-- 8 teeth: the kit repeats one rect at rotate(N 32 32) for N in 0..315 step 45
 		{ type = "rect", x = 26.5, y = 3, w = 11, h = 20, r = 4, rot = 0, pivotX = 32, pivotY = 32, gradTop = "#FCFCF6", gradBottom = "#9AA28E", outline = true },

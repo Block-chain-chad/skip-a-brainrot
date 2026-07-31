@@ -29,6 +29,12 @@ local SideRail = require(ReplicatedStorage.Modules.SideRail)
 local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb)
 local RarityFX = require(ReplicatedStorage.Modules.RarityFX)
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
+-- Darrel's face, drawn from primitives (UIKit.IconArt). pcall'd so a missing
+-- module leaves the shop working with the old emoji rather than failing to open.
+local okIconArt, IconArt = pcall(function()
+	return require(ReplicatedStorage.Modules.UIKit.IconArt)
+end)
+if not okIconArt then IconArt = nil end
 
 local CF = UITheme.Camp
 local FONT = UITheme.Font
@@ -174,9 +180,27 @@ local darrelChip = new("Frame", { Size = UDim2.new(1, 0, 0, 44), ZIndex = 12 }, 
 UITheme.corner(darrelChip, 12)
 UITheme.gradient(darrelChip, CF.wood1, CF.wood2, 90)
 UITheme.ink(darrelChip, 3)
+-- The balance used to read "\u{1F48E} 0" -- a generic diamond emoji for a
+-- currency that is named after, and has, an actual mascot. Darrel's face goes
+-- in a slot on the left and the label keeps just the number.
+local DARREL_ICON = 30
+local darrelIcon = new("Frame", {
+	Name = "DarrelIcon",
+	AnchorPoint = Vector2.new(0, 0.5),
+	Position = UDim2.new(0, 10, 0.5, 0),
+	Size = UDim2.fromOffset(DARREL_ICON, DARREL_ICON),
+	BackgroundTransparency = 1,
+	ZIndex = 13,
+}, darrelChip)
+if IconArt and IconArt.has("darrel") then
+	IconArt.draw(darrelIcon, "darrel", DARREL_ICON, 13)
+end
+
 local darrelLabel = new("TextLabel", {
-	Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = FONT, TextSize = 20,
-	TextColor3 = CF.onDark, Text = "\u{1F48E} 0", ZIndex = 13,
+	Position = UDim2.fromOffset(DARREL_ICON + 16, 0),
+	Size = UDim2.new(1, -(DARREL_ICON + 26), 1, 0),
+	BackgroundTransparency = 1, Font = FONT, TextSize = 20,
+	TextColor3 = CF.onDark, Text = IconArt and "0" or "\u{1F48E} 0", ZIndex = 13,
 }, darrelChip)
 UITheme.inkText(darrelLabel, 2.4)
 
@@ -656,7 +680,7 @@ local darrelStateRF = remotes:WaitForChild("DarrelState")
 local function applyDarrel(payload)
 	if type(payload) ~= "table" then return end
 	if payload.Darrels then
-		darrelLabel.Text = "\u{1F48E} " .. tostring(math.floor(payload.Darrels))
+		darrelLabel.Text = (IconArt and "" or "\u{1F48E} ") .. tostring(math.floor(payload.Darrels))
 	end
 	if payload.Daily then
 		refreshQuests(payload.Daily)

@@ -342,7 +342,12 @@ local function sizePillToValue(pill, value)
 	pill.Size = UDim2.fromOffset(width, T.size.currencyPill)
 end
 
-local function buildPill(order, gradientKey, iconKey)
+-- `iconKey` names the pill (GemPill etc, which pillAnchor and the panels' coin
+-- flight resolve against) while `artKey` chooses the artwork. They differ for
+-- the second pill: it is the kit's "gem" slot structurally, but the currency it
+-- counts is darrels, so it wears Darrel's face rather than a generic diamond.
+local function buildPill(order, gradientKey, iconKey, artKey)
+	artKey = artKey or iconKey
 	local pill = Instance.new("Frame")
 	pill.Name = iconKey:sub(1, 1):upper() .. iconKey:sub(2) .. "Pill"
 	pill.LayoutOrder = order
@@ -380,7 +385,7 @@ local function buildPill(order, gradientKey, iconKey)
 	-- no extra stroke. Only an imported image id still needs the art-slot
 	-- treatment (circular crop + stroke) to sit right in the pill.
 	local icon: GuiObject
-	local iconId = T.icons[iconKey]
+	local iconId = T.icons[artKey]
 	if iconId and iconId ~= "" then
 		icon = UI.artSlot(content, UDim2.fromOffset(PILL_ICON_W, PILL_ICON_W), iconId)
 		local iconCorner = icon:FindFirstChildOfClass("UICorner")
@@ -392,10 +397,10 @@ local function buildPill(order, gradientKey, iconKey)
 		host.BackgroundTransparency = 1
 		host.Parent = content
 		icon = host
-		if IconArt and IconArt.has(iconKey) then
-			IconArt.draw(host, iconKey, PILL_ICON_W, content.ZIndex + 1)
+		if IconArt and IconArt.has(artKey) then
+			IconArt.draw(host, artKey, PILL_ICON_W, content.ZIndex + 1)
 		else
-			glyphFallback(host, iconKey, 24, false) -- last resort, unplated
+			glyphFallback(host, artKey, 24, false) -- last resort, unplated
 		end
 	end
 	icon.Name = "IconSlot"
@@ -417,7 +422,7 @@ local function buildPill(order, gradientKey, iconKey)
 end
 
 local coinPill, coinValueLabel, coinPop = buildPill(1, "goldSmall", "coin")
-local gemPill, gemValueLabel, gemPop = buildPill(2, "gem", "gem")
+local gemPill, gemValueLabel, gemPop = buildPill(2, "gem", "gem", "darrel")
 
 local cash, darrels = 0, 0
 local hasCashLoaded, hasDarrelsLoaded = false, false
