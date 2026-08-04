@@ -27,6 +27,11 @@ local M = {}
 
 -- per-tier drama numbers: hold = black-void seconds, climb = counter seconds
 local TIERS = {
+	-- quick = skip the void + climb entirely: sparkle-burst straight into the
+	-- giant model, short linger. Every catch feels real; only big ones slow time.
+	Common    = { quick = true, shards = 6 },
+	Uncommon  = { quick = true, shards = 6 },
+	Rare      = { quick = true, shards = 8 },
 	Epic      = { hold = 0.9,  climb = 1.0, shards = 10, drama = false },
 	Legendary = { hold = 1.3,  climb = 1.2, shards = 12, drama = true },
 	Mythic    = { hold = 1.8,  climb = 1.5, shards = 14, drama = true },
@@ -124,12 +129,7 @@ end
 
 -- result: {Name, Rarity, RarityColor, Mutation, Serial, Exists, OddsN}
 function M.play(result)
-	local cfg = TIERS[result.Rarity]
-	if not cfg then
-		-- not a ceremony tier; plain reveal
-		pcall(CatchReveal.play, result)
-		return
-	end
+	local cfg = TIERS[result.Rarity] or TIERS.Common
 	activeToken += 1
 	local token = activeToken
 	local color = result.RarityColor or Color3.fromRGB(255, 216, 77)
@@ -137,9 +137,11 @@ function M.play(result)
 	task.spawn(function()
 		local g = ensureGui()
 		clear()
+		local black = nil
 
+		if not cfg.quick then
 		-- ===== TAKEOVER =====
-		local black = Instance.new("Frame")
+		black = Instance.new("Frame")
 		black.Size = UDim2.fromScale(1, 1)
 		black.BackgroundColor3 = Color3.fromRGB(4, 4, 8)
 		black.BackgroundTransparency = 1
@@ -202,13 +204,19 @@ function M.play(result)
 		counter.Text = "1 / " .. comma(target)
 		task.wait(0.25)
 		if token ~= activeToken then return end
+		end -- not cfg.quick
 
 		-- ===== BURST =====
-		SoundKit.play(CATCH_SOUND[result.Rarity] or "catchLegend")
-		SoundKit.play("catchBigHit")
+		if cfg.quick then
+			SoundKit.play("catchSparkle")
+		else
+			SoundKit.play(CATCH_SOUND[result.Rarity] or "catchLegend")
+			SoundKit.play("catchBigHit")
+		end
 		local flash = Instance.new("Frame")
 		flash.Size = UDim2.fromScale(1, 1)
 		flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		flash.BackgroundTransparency = cfg.quick and 0.35 or 0
 		flash.BorderSizePixel = 0
 		flash.Parent = g
 		for i = 1, cfg.shards do
@@ -228,9 +236,11 @@ function M.play(result)
 				BackgroundTransparency = 1,
 			}):Play()
 		end
-		TweenService:Create(flash, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
-		TweenService:Create(black, TweenInfo.new(0.4), { BackgroundTransparency = 1 }):Play()
-		task.wait(0.42)
+		TweenService:Create(flash, TweenInfo.new(cfg.quick and 0.3 or 0.5), { BackgroundTransparency = 1 }):Play()
+		if black then
+			TweenService:Create(black, TweenInfo.new(0.4), { BackgroundTransparency = 1 }):Play()
+		end
+		task.wait(cfg.quick and 0.18 or 0.42)
 		if token ~= activeToken then return end
 		clear()
 
@@ -298,7 +308,7 @@ function M.play(result)
 				confetti.Lifetime = NumberRange.new(0.8, 1.6)
 				confetti.Rate = 0
 				confetti.Parent = host
-				confetti:Emit(70)
+				confetti:Emit(cfg.quick and 28 or 70)
 				if result.Mutation and result.Mutation ~= "" and result.Mutation ~= "None" then
 					pcall(MutationFX.apply, revealModel, result.Mutation)
 				end
@@ -328,8 +338,8 @@ function M.play(result)
 			local ex = result.Exists and (" · ONLY " .. tostring(result.Exists) .. " EXIST") or ""
 			label(stamp, "#" .. tostring(result.Serial) .. ex, 24, Color3.fromRGB(255, 216, 77), 3).LayoutOrder = 3
 		end
-		if result.OddsN then
-			label(stamp, "1 in " .. tostring(result.OddsN) .. " of its tier", 18, Color3.fromRGB(200, 208, 200), 2.5).LayoutOrder = 4
+		if result.OddsN and not cfg.quick then
+			label(stamp, "1 in " .. comma(result.OddsN) .. " of its tier", 18, Color3.fromRGB(200, 208, 200), 2.5).LayoutOrder = 4
 		end
 		local sScale = Instance.new("UIScale")
 		sScale.Scale = 2.6
@@ -347,7 +357,8 @@ function M.play(result)
 			end
 		end)
 		local held = 0
-		while held < 3.2 and not dismissed and token == activeToken do
+		local holdMax = cfg.quick and 1.4 or 3.2
+		while held < holdMax and not dismissed and token == activeToken do
 			task.wait(0.1)
 			held += 0.1
 		end
