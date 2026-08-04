@@ -229,10 +229,16 @@ function M.play(result)
 		-- Common/Uncommon/Rare catch against a cue that already sounds correct.
 		-- Nil flag = nobody else played one, so this carries it alone: safe
 		-- whichever reveal system survives.
+		local tierVol = CATCH_VOLUME[result.Rarity] or 0.25
 		if not result.TierCuePlayed then
-			SoundKit.play(CATCH_SOUND[result.Rarity] or "catchLegend", nil,
-				{ volume = CATCH_VOLUME[result.Rarity] or 0.25 })
+			SoundKit.play(CATCH_SOUND[result.Rarity] or "catchLegend", nil, { volume = tierVol })
 		end
+		-- THE CREATURE'S OWN VOICE, layered rather than replacing: the tier sound
+		-- says how rare, the voice says who. Scaled to 0.8 of the tier lead so it
+		-- always sits UNDER it -- a flat value would drown a Common's 0.13 while
+		-- vanishing under a God's 0.54. Absent/empty VoiceId returns nil and
+		-- costs one comparison, which is the state of all 161 today.
+		SoundKit.playId(result.VoiceId, nil, { volume = tierVol * VOICE_REVEAL_MULT })
 		if not cfg.quick then
 			SoundKit.play("catchBigHit", nil, { volume = VOL_BIGHIT })
 		end
@@ -284,7 +290,19 @@ function M.play(result)
 					d.CanCollide = false
 					d.CanQuery = false
 					d.CanTouch = false
-				elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Sound")
+				elseif d:IsA("Sound") then
+					-- KEPT, not destroyed: stripping these also stripped any voice
+					-- line shipped inside a model. But a clone must never be able
+					-- to make noise on its own, so each one is neutered: a model
+					-- shipping a Looped + Playing Sound would otherwise drone for
+					-- the whole reveal and, worse, keep going if anything ever
+					-- leaked the clone. Looped=false bounds it to one play, and
+					-- Playing=false means only code that explicitly asks gets audio.
+					-- The clone is Destroyed on teardown regardless, which is the
+					-- backstop.
+					d.Looped = false
+					d.Playing = false
+				elseif d:IsA("Script") or d:IsA("LocalScript")
 					or d:IsA("ProximityPrompt") or d:IsA("BillboardGui") then
 					d:Destroy()
 				end

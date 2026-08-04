@@ -2,6 +2,17 @@
 -- 161 authored entries. Format: { Name, Rarity, CashPerSecond, Weight }
 -- plus the optional { FixedChance } -- see the Secret Pete note at the bottom.
 --
+-- OPTIONAL: VoiceId = "rbxassetid://..."
+--   The creature's own voice line -- the thing that makes it a brainrot rather
+--   than a coloured cube with a number. Read by PullCeremony (layered UNDER the
+--   tier sound on reveal) and by BrainrotIdleClient (occasional, positional,
+--   only while placed on a pad).
+--   ABSENT OR EMPTY IS FULLY SUPPORTED and is the current state of all 161: a
+--   nil VoiceId behaves exactly as before, no sound, no cost, no warning. Fill
+--   these in per-creature; nothing else has to change when you do.
+--   One id per entry, and it must be an id you have verified loads in this
+--   place -- an unresolvable id costs a silent voice, never an error.
+--
 -- REBUILT 2026-07-25: the original 213 Italian-language roster was replaced with
 -- the 148-model pack, tiered by a 5-agent pass. Old saves are carried across by
 -- PlayerDataManager.RENAMES -- never delete a name from here without adding a
