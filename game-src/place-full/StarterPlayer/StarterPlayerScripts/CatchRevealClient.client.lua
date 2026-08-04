@@ -4,6 +4,7 @@
 -- and CatchFX (the burst around the player); this only decides WHETHER to show one,
 -- which is exactly the decision the phase-2 Robux upgrade needs to change.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CatchReveal = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CatchReveal"))
 local PullCeremony = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("PullCeremony"))
@@ -65,16 +66,23 @@ local function playTierCue(result)
 	end
 end
 
--- PHASE 2 SEAM: the purchasable "skip the animation" upgrade replaces this body
--- with a gamepass-ownership check plus the player's chosen rarities.
+-- PHASE 2 SEAM, now half-filled (2026-08-04): Settings > Skip Animations --
+-- the FREE half of the phase-2 plan, a plain toggle instead of a gamepass,
+-- bridged through the same player attribute SettingsPanel uses for
+-- FastSpinPref/HideOwnBanners. Read at time of use, so a mid-session flip
+-- covers the very next catch. The burst + tier cue above the gate still
+-- play, and ClientMain brings back its retired ThrowResult text card as the
+-- fast announcement, so a skipped catch is still announced -- in ~3s of
+-- corner text instead of an up-to-9s takeover.
 --
 -- Skipping an ANIMATION is a pure presentation choice, so the client may own it
 -- -- a client that lies about it gains nothing. The auto-sell half of that
 -- upgrade is NOT the same and must never live here: a client that can say "sell
 -- this catch" can say it about anything. Auto-sell belongs server-side in
 -- ThrowHandler.revealCatch behind a verified MarketplaceService check.
+local player = Players.LocalPlayer
 local function shouldReveal(_result)
-	return true
+	return player:GetAttribute("SkipAnimations") ~= true
 end
 
 throwResult.OnClientEvent:Connect(function(result)

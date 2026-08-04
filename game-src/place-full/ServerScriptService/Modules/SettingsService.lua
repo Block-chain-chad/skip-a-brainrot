@@ -5,16 +5,17 @@
 -- ReplicatedStorage.Remotes on Init() rather than assuming it was hand-built
 -- in Studio, same spirit as this file's own creation.
 --
--- WHITELIST DISCIPLINE: exactly the 5 keys the kit's Settings panel writes
--- (music, sfx, quality, fastSpin, hideOwnBanners). Anything else in the
+-- WHITELIST DISCIPLINE: exactly the 6 keys the kit's Settings panel writes
+-- (music, sfx, quality, fastSpin, hideOwnBanners, skipAnimations). Anything else in the
 -- payload is silently dropped (warn + skip that ONE key -- a malformed or
 -- hostile client sending {Cash=999} alongside a legit {music=0.5} must not
 -- lose the legit half of the update, and must never be able to touch a
 -- field outside data.Settings). Numeric fields (music/sfx) are CLAMPED into
 -- [0,1] rather than rejected outright -- an out-of-range value is still a
 -- real intent ("turn it up/down"), so clamping preserves the direction
--- instead of discarding the whole update. quality/fastSpin/hideOwnBanners
--- are type+enum checked and dropped (not coerced) on mismatch.
+-- instead of discarding the whole update. quality and the booleans
+-- (fastSpin/hideOwnBanners/skipAnimations) are type+enum checked and
+-- dropped (not coerced) on mismatch.
 --
 -- QUALITY ENUM DEVIATION: the task brief spells this enum
 -- {"Low","Med","High"}, but StarterPlayerScripts.GameHUDClient's own
@@ -83,7 +84,7 @@ function SettingsService._Validate(tbl)
 			else
 				warn("[SettingsService] dropped invalid quality: " .. tostring(value))
 			end
-		elseif key == "fastSpin" or key == "hideOwnBanners" then
+		elseif key == "fastSpin" or key == "hideOwnBanners" or key == "skipAnimations" then
 			if type(value) == "boolean" then
 				out[key] = value
 			else

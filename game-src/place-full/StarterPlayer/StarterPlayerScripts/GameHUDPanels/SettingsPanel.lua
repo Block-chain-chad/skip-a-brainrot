@@ -142,6 +142,21 @@ local function applyHideOwnBanners(on)
 	end
 end
 
+----------------------------------------------------------- REAL SEAM 3: skipAnimations -> CatchRevealClient / ClientMain
+-- Grinder's toggle (user request 2026-08-04): skips the time-eating
+-- cinematics -- the Pull ceremony on catches (CatchRevealClient's
+-- shouldReveal seam, authored for exactly this; the retired ThrowResult
+-- text card in ClientMain comes back as the fast announcement) and the
+-- stone-tracking camera trip + 1.4s flyback (ClientMain's StoneThrown
+-- handler; the bar then unlocks from ThrowResult at landing). Same
+-- attribute bridge as the two seams above; consumers read it at time of
+-- use, so a mid-session flip covers the very next throw.
+local function applySkipAnimations(on)
+	if player then
+		player:SetAttribute("SkipAnimations", on == true)
+	end
+end
+
 ----------------------------------------------------------- top-level settings apply (require-time wiring, correctly outside Build -- same pattern IndexPanel's `discovered` uses)
 -- Applied the instant a Settings payload is known, whether or not this panel
 -- has EVER been opened -- audio volume / quality / the two gameplay seams
@@ -149,7 +164,7 @@ end
 -- visit Settings. `applied` also seeds the panel's own controls on first
 -- Build (see below), and `onAppliedChanged` (assigned inside Build once the
 -- widgets exist) keeps them in sync if a payload lands again afterward.
-local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false }
+local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, skipAnimations = false }
 local onAppliedChanged = nil
 
 local function applySettings(s)
@@ -175,6 +190,10 @@ local function applySettings(s)
 	if typeof(s.hideOwnBanners) == "boolean" then
 		applied.hideOwnBanners = s.hideOwnBanners
 		applyHideOwnBanners(applied.hideOwnBanners)
+	end
+	if typeof(s.skipAnimations) == "boolean" then
+		applied.skipAnimations = s.skipAnimations
+		applySkipAnimations(applied.skipAnimations)
 	end
 	if onAppliedChanged then
 		onAppliedChanged()
@@ -212,10 +231,10 @@ function SettingsPanel.Build(ctx)
 	local TOGGLE_ROW_H = 52 -- kit "Toggle row height 52"
 	local FOOTER_H = 58 -- kit "Redeem Code... height 58"
 	local GAP = T.pad.gapTight -- 8, kit "Body padding 16, gap 8"
-	local ITEM_COUNT = 9 -- 3 section headers + 2 sliders + 1 segmented + 2 toggles + 1 footer
+	local ITEM_COUNT = 10 -- 3 section headers + 2 sliders + 1 segmented + 3 toggles + 1 footer
 	local BODY_CONTENT_H = (SECTION_HEADER_H + SLIDER_ROW_H * 2) -- AUDIO
 		+ (SECTION_HEADER_H + SEGMENT_ROW_H) -- GRAPHICS
-		+ (SECTION_HEADER_H + TOGGLE_ROW_H * 2) -- GAMEPLAY
+		+ (SECTION_HEADER_H + TOGGLE_ROW_H * 3) -- GAMEPLAY
 		+ FOOTER_H
 		+ GAP * (ITEM_COUNT - 1)
 	local BODY_H = T.pad.panel * 2 + BODY_CONTENT_H
@@ -798,6 +817,11 @@ function SettingsPanel.Build(ctx)
 		applyHideOwnBanners(on)
 		fireSave({ hideOwnBanners = on })
 	end)
+	local skipAnimCtl = buildToggleRow("Skip Animations", applied.skipAnimations, function(on)
+		applied.skipAnimations = on
+		applySkipAnimations(on)
+		fireSave({ skipAnimations = on })
+	end)
 
 	buildFooter()
 
@@ -810,6 +834,7 @@ function SettingsPanel.Build(ctx)
 			ctx.state.settings.toggles = ctx.state.settings.toggles or {}
 			ctx.state.settings.toggles.fastSpin = applied.fastSpin
 			ctx.state.settings.toggles.hideOwnBanners = applied.hideOwnBanners
+			ctx.state.settings.toggles.skipAnimations = applied.skipAnimations
 		end
 	end
 	syncState()
@@ -821,6 +846,7 @@ function SettingsPanel.Build(ctx)
 		qualityCtl.setValue(applied.quality)
 		fastSpinCtl.setValue(applied.fastSpin)
 		hideBannersCtl.setValue(applied.hideOwnBanners)
+		skipAnimCtl.setValue(applied.skipAnimations)
 		syncState()
 	end
 
