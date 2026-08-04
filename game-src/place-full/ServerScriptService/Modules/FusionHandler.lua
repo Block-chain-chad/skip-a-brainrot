@@ -92,7 +92,36 @@ function FusionHandler.Init()
 		if MintRegistry.IsTracked(rarityByName[name], mutation) then
 			pcall(MintRegistry.Burn, name, mutation, FUSE_COUNT)
 		end
-		table.insert(data.Brainrots, { Name = name, PadIndex = nil, Pending = 0, Mutation = nextMut, Uid = PlayerDataManager.TakeUid(data) })
+
+		-- MINT THE OUTPUT. Burning without minting was the whole defect: every fuse
+		-- recorded 5 burns against a mint count fusion never incremented, so Get()'s
+		-- exists = max(0, minted - burned) drove Golden/Diamond toward 0 while players
+		-- held hundreds -- and Rainbow/Glitched, which MutationConfig makes FusionOnly
+		-- (this file's header), reported 0 minted / 0 exists permanently, since fusion
+		-- is their ONLY source. IsTracked returns true for any non-empty mutation, so
+		-- every rung of the ladder above "" is tracked.
+		--
+		-- Same shape as ThrowHandler's catch path: Prepare warms the block without
+		-- yielding, Mint never yields and never errors (nil = cold registry / store
+		-- down), and the pcall is belt-and-braces. A missing serial costs a garnish;
+		-- it must never cost the player their fuse.
+		local fusedSerial, fusedAt
+		if MintRegistry.IsTracked(rarityByName[name], nextMut) then
+			pcall(MintRegistry.Prepare, name, nextMut)
+			local okMint, serial = pcall(MintRegistry.Mint, name, nextMut)
+			if okMint and type(serial) == "number" then
+				fusedSerial = serial
+				fusedAt = os.time()
+			end
+		end
+		local fused = { Name = name, PadIndex = nil, Pending = 0, Mutation = nextMut, Uid = PlayerDataManager.TakeUid(data) }
+		if fusedSerial then
+			-- carried the same way BrainrotMover.Give carries them through a trade,
+			-- so mint identity survives every later hop
+			fused.Serial = fusedSerial
+			fused.MintedAt = fusedAt
+		end
+		table.insert(data.Brainrots, fused)
 
 		InventoryHandler.SyncBackpack(player)
 		SeasonPassHandler.Notify(player, "Fuse", 1)
