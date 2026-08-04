@@ -1554,25 +1554,27 @@ do
 		  accent = { light = C(112, 192, 255), dark = C(38, 118, 236), outline = C(18, 58, 138) } },
 	}
 
-	--[[ 2026-08-04 icon redesign (user handoff, option 3a): the tabs KEEP
-	their top-middle placement and ribbon labels (user instruction), but the
-	icon becomes the mock's frameless emoji sticker -- per-tab tilt, no plate.
-	This replaces the kit drawing from UIKit.IconArt (2026-07-31 pass); the
-	IconArt skip/shops/plot entries stay in the module for anything else that
-	wants them. The mock's dark keyline is not achievable on colour emoji --
-	UIStroke, legacy TextStroke and UIPolish are all no-ops on them (probed
-	live this session) -- so the glyph rides bare, same as the nav rail's.
+	--[[ 2026-08-04 icon redesign (user handoff, option 3a), round 2: the full
+	mock treatment for the top actions -- bare tilted emoji with a plain white
+	OUTLINED word below it, NO ribbon banner, no plate. Placement stays
+	top-middle (user instruction; the mock parks these top-right). The ribbon
+	UIStyle.sticker builds every applyLayout pass is hidden rather than the
+	builder edited -- sticker() is shared with other surfaces. UIStroke works
+	fine on ordinary TEXT (it is only colour emoji it cannot outline), so the
+	word gets the mock's #1c1333 keyline for real, matching the rail labels.
 
 	applyLayout re-runs on every viewport change, so this stays idempotent:
-	the previous glyph is destroyed before a new one goes in. ]]
+	previous glyph/word are destroyed, the ribbon re-hidden, every pass. ]]
 	local function applyStickerGlyph(btn, spec, MET)
 		local card = btn:FindFirstChild("StickerCard")
 		if not card then return end
 
 		local emoji = card:FindFirstChild("StickerIcon")
-		for _, n in ipairs({ "KitIcon", "StickerGlyph" }) do
-			local stale = card:FindFirstChild(n)
-			if stale then stale:Destroy() end
+		for _, host in ipairs({ card, btn }) do
+			for _, n in ipairs({ "KitIcon", "StickerGlyph", "StickerWord" }) do
+				local stale = host:FindFirstChild(n)
+				if stale then stale:Destroy() end
+			end
 		end
 
 		-- un-plate: card goes invisible but stays as the layout box
@@ -1581,30 +1583,51 @@ do
 			if child:IsA("UIStroke") then child.Transparency = 1 end
 		end
 		if emoji then emoji.Visible = false end
+		local ribbon = btn:FindFirstChild("StickerRibbon")
+		if ribbon then ribbon.Visible = false end
 
-		-- Sized off the metrics rather than card.AbsoluteSize: this runs in the
-		-- same tick the card is built, before any layout pass has resolved it.
-		-- Sized/centred against the room ABOVE the ribbon (36 tall at the
-		-- button's foot), not the card height: the emoji em-box fills its full
-		-- line, and on COMPACT metrics a card-derived size sank ~7px of glyph
-		-- ink under the banner (cart wheels / house base sliced off on narrow
-		-- viewports -- review catch; WIDE only survived on artwork padding).
-		local room = MET.H - 36
-		local box = math.min(MET.W, room - 2)
+		-- Sized off the metrics rather than AbsoluteSize: this runs in the same
+		-- tick the card is built, before any layout pass has resolved it. The
+		-- glyph is capped below the free space so it stays in family with the
+		-- nav rail's icons instead of ballooning into the ribbon's old room.
+		local labelSize = (MET.W >= 80) and 18 or 14
+		local labelH = labelSize + 4
+		local room = MET.H - labelH - 2
+		local box = math.min(MET.W, room, math.floor(MET.H * 0.65))
 		local glyph = Instance.new("TextLabel")
 		glyph.Name = "StickerGlyph"
 		glyph.AnchorPoint = Vector2.new(0.5, 0.5)
-		glyph.Position = UDim2.new(0.5, 0, 0, math.floor(room * 0.5))
+		glyph.Position = UDim2.new(0.5, 0, 0, math.floor(room * 0.5) + 2)
 		glyph.Size = UDim2.fromOffset(box, box)
 		glyph.BackgroundTransparency = 1
 		glyph.Font = Enum.Font.FredokaOne
 		glyph.TextSize = box
 		glyph.Text = spec.glyph
 		glyph.Rotation = spec.tilt or 0
-		glyph.ZIndex = card.ZIndex + 2
+		glyph.ZIndex = btn.ZIndex + 3
 		-- emoji must not be re-coloured or outlined by the UIPolish sweep
 		glyph:SetAttribute("NoPolish", true)
-		glyph.Parent = card
+		glyph.Parent = btn
+
+		local word = Instance.new("TextLabel")
+		word.Name = "StickerWord"
+		word.AnchorPoint = Vector2.new(0.5, 1)
+		word.Position = UDim2.new(0.5, 0, 1, 0)
+		word.Size = UDim2.new(0, MET.W + 14, 0, labelH)
+		word.BackgroundTransparency = 1
+		word.Font = Enum.Font.FredokaOne
+		word.TextSize = labelSize
+		word.TextColor3 = Color3.fromRGB(255, 255, 255)
+		word.Text = string.upper(spec.word)
+		word.ZIndex = btn.ZIndex + 3
+		-- our own keyline; keep the game-wide sweep's hands off it
+		word:SetAttribute("NoPolish", true)
+		local ink = Instance.new("UIStroke")
+		ink.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+		ink.Thickness = 3
+		ink.Color = Color3.fromHex("#1c1333")
+		ink.Parent = word
+		word.Parent = btn
 	end
 
 	local WIDE    = { W = 86, H = 104, GAP = 30 }
