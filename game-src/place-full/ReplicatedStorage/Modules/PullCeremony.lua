@@ -20,6 +20,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local CatchReveal = require(Modules:WaitForChild("CatchReveal"))
 local SoundKit = require(Modules:WaitForChild("SoundKit"))
+local MutationFX = require(Modules:WaitForChild("MutationFX"))
+local RunService = game:GetService("RunService")
 
 local M = {}
 
@@ -232,8 +234,78 @@ function M.play(result)
 		if token ~= activeToken then return end
 		clear()
 
-		-- ===== HANDOFF: the existing reveal shows the model =====
-		pcall(CatchReveal.play, result)
+		-- ===== HANDOFF: GIANT REAL MODEL in the world, camera-locked =====
+		-- Viewports render no particles, no Highlight, no real lighting -- which
+		-- is exactly why a card reveal feels fake after this buildup. So the
+		-- ceremony shows the ACTUAL model, big, floating in front of the camera,
+		-- with confetti and (when present) its real mutation aura. Falls back to
+		-- the old CatchReveal card only if the model folder has no entry.
+		local revealModel = nil
+		local modelFolder = ReplicatedStorage:FindFirstChild("BrainrotModels")
+		local master = modelFolder and modelFolder:FindFirstChild(result.Name)
+		if master then
+			revealModel = master:Clone()
+			for _, d in ipairs(revealModel:GetDescendants()) do
+				if d:IsA("BasePart") then
+					d.Anchored = true
+					d.CanCollide = false
+					d.CanQuery = false
+					d.CanTouch = false
+				elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Sound")
+					or d:IsA("ProximityPrompt") or d:IsA("BillboardGui") then
+					d:Destroy()
+				end
+			end
+			local cam = workspace.CurrentCamera
+			local _, ext = revealModel:GetBoundingBox()
+			local radius = math.max(ext.X, ext.Y, ext.Z)
+			-- distance so the model fills ~70% of the vertical FOV
+			local dist = radius / (2 * math.tan(math.rad(cam.FieldOfView / 2)) * 0.7)
+			revealModel.Parent = cam
+			local spinConn
+			local t0 = os.clock()
+			spinConn = RunService.RenderStepped:Connect(function()
+				if token ~= activeToken or not revealModel.Parent then
+					spinConn:Disconnect()
+					if revealModel.Parent then revealModel:Destroy() end
+					return
+				end
+				local dt = os.clock() - t0
+				local c = workspace.CurrentCamera
+				local base = c.CFrame * CFrame.new(0, -0.06 * radius + 0.05 * radius * math.sin(dt * 2), -dist)
+				revealModel:PivotTo(base * CFrame.Angles(0, dt * 0.9, 0))
+			end)
+			-- tier glow + confetti, on the model itself so it moves with it
+			local host = revealModel:FindFirstChildWhichIsA("BasePart", true)
+			if host then
+				local hl = Instance.new("Highlight")
+				hl.FillTransparency = 1
+				hl.OutlineColor = color
+				hl.OutlineTransparency = 0.15
+				hl.Parent = revealModel
+				local confetti = Instance.new("ParticleEmitter")
+				confetti.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+				confetti.Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, color),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
+				})
+				confetti.Size = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, radius * 0.06),
+					NumberSequenceKeypoint.new(1, radius * 0.02),
+				})
+				confetti.Speed = NumberRange.new(radius * 0.6, radius * 1.3)
+				confetti.SpreadAngle = Vector2.new(180, 180)
+				confetti.Lifetime = NumberRange.new(0.8, 1.6)
+				confetti.Rate = 0
+				confetti.Parent = host
+				confetti:Emit(70)
+				if result.Mutation and result.Mutation ~= "" and result.Mutation ~= "None" then
+					pcall(MutationFX.apply, revealModel, result.Mutation)
+				end
+			end
+		else
+			pcall(CatchReveal.play, result)
+		end
 
 		-- ===== STAMP overlay =====
 		local stamp = Instance.new("Frame")
@@ -289,7 +361,10 @@ function M.play(result)
 			end
 		end
 		task.wait(0.32)
-		if token == activeToken then clear() end
+		if token == activeToken then
+			if revealModel and revealModel.Parent then revealModel:Destroy() end
+			clear()
+		end
 	end)
 end
 
