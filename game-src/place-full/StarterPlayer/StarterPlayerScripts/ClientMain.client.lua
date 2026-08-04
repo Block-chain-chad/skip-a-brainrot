@@ -1079,11 +1079,15 @@ local charging = false
 local power = 0
 local cooldown = false
 local CYCLE_SECONDS = 1.1
--- The bar's period is RE-ROLLED on every charge rather than being the flat 1.1s it used
--- to be. A fixed period made the bar a metronome: hold for a known number of
--- milliseconds and you land on the same point every single time, which is the whole of
--- what a macro needs. Re-rolling per charge means a fixed-cadence macro cannot know
--- where the bar is at the moment it releases, so it cannot be set up overnight.
+-- REFERENCE VIDEO (2026-08-04, user recording): chargePeriod is now the FILL
+-- DURATION of a single left-to-right sweep, not an oscillation period -- see
+-- the RenderStepped charge block. It is still RE-ROLLED on every charge for
+-- the same anti-macro reason as always: a fixed duration makes the bar a
+-- metronome (hold N ms, land on the same power every time). Re-rolling per
+-- charge means a fixed-hold-time macro cannot know what power it releases
+-- at. (A macro CAN now camp the clamp at full power -- the sine bar punished
+-- that, the reference mechanic does not -- but full power never earns the
+-- server-judged perfect, and the auto/AFK taxes in ThrowHandler still apply.)
 local CYCLE_MIN_MULT, CYCLE_MAX_MULT = 0.62, 1.55
 local chargeStart = 0
 local chargePeriod = CYCLE_SECONDS
@@ -1492,12 +1496,17 @@ RunService.RenderStepped:Connect(function(dt)
 		stopChargeLoop()
 	end
 	if charging then
-		-- time since THIS charge began, on THIS charge's period: the bar always starts at 0
-		-- and sweeps up, but at a speed the player cannot read off the previous throw
+		-- REFERENCE VIDEO (2026-08-04): the bar FILLS ONCE, left to right, and
+		-- holds at full -- no more bouncing sine. Missing the green band is a
+		-- real miss now: past it there is no second pass, exactly like the
+		-- reference. Speed still varies per charge (chargePeriod re-roll), so
+		-- the release point cannot be macro'd off a stopwatch.
 		local t = os.clock() - chargeStart
-		power = (math.sin((t * (2 * math.pi / chargePeriod)) - math.pi / 2) + 1) / 2
+		power = math.clamp(t / chargePeriod, 0, 1)
 		barFill.Size = UDim2.new(power, 0, 1, 0)
-		barFill.BackgroundColor3 = Color3.fromHSV(0.33 * power, 0.8, 1)
+		-- user brief: the fill fades GREEN into RED the longer you hold (the
+		-- old ramp ran the other way); the pinned green band keeps its spot
+		barFill.BackgroundColor3 = Color3.fromHSV(0.33 * (1 - power), 0.8, 1)
 		-- Pitch rides the SAME power the bar and the arm ride, so what you hear is
 		-- exactly what you see. Geometric, not linear: pitch perception is
 		-- logarithmic, and a linear sweep audibly stalls near the top.
