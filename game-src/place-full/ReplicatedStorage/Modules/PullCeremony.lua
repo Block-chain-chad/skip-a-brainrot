@@ -58,6 +58,7 @@ local VOL_DRAMA   = 0.30   -- takeover "uh oh"
 local VOL_SHIMMER = 0.12   -- takeover star
 local VOL_TICK    = 0.08   -- odds counter, fires 6x -- must be nearly subliminal
 local VOL_BIGHIT  = 0.24   -- burst impact layer
+local VOICE_REVEAL_MULT = 0.8   -- voice sits at 0.8 of its tier's lead, always under it
 
 local player = Players.LocalPlayer
 local gui, activeToken = nil, 0
@@ -171,7 +172,6 @@ function M.play(result)
 		local star, starScale = makeStar(black, color)
 		starScale.Scale = 0.1
 		TweenService:Create(starScale, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-		-- slow pulse + spin while the void holds
 		task.spawn(function()
 			local t0 = os.clock()
 			while token == activeToken and star.Parent do
@@ -181,7 +181,6 @@ function M.play(result)
 				task.wait()
 			end
 		end)
-		-- drifting dust
 		for i = 1, 10 do
 			local d = Instance.new("Frame")
 			d.Size = UDim2.fromOffset(3, 3)
@@ -209,7 +208,6 @@ function M.play(result)
 		local steps = 6
 		for s = 1, steps do
 			if token ~= activeToken then return end
-			-- exponential approach so the last ticks are the big jumps
 			local v = math.max(2, math.floor(target ^ (s / steps)))
 			counter.Text = "1 / " .. comma(v)
 			cScale.Scale = 1.25
@@ -387,7 +385,6 @@ function M.play(result)
 		sScale.Parent = stamp
 		TweenService:Create(sScale, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 
-		-- tap to dismiss early, else auto-fade
 		local dismissed = false
 		local conn
 		conn = UserInputService.InputBegan:Connect(function(input, processed)

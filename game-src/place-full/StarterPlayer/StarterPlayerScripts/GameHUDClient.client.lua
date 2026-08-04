@@ -44,6 +44,22 @@ local UIKit = modules:WaitForChild("UIKit")
 local T = require(UIKit:WaitForChild("Tokens"))
 local UI = require(UIKit:WaitForChild("Builders"))
 local SideRail = require(modules:WaitForChild("SideRail"))
+-- The six rail buttons are raw Instance.new TextButtons: they bypass every
+-- styled constructor, so they were silent. Same SfxWired attribute key the
+-- constructors use, so a control that is BOTH built here and styled elsewhere
+-- can still only ever get one connection -- no double clicks.
+local SoundKit = require(modules:WaitForChild("SoundKit"))
+-- Fetch the whole sound set once, at join. PreloadAsync yields inside SoundKit's
+-- own task.spawn, so this never blocks the HUD build.
+task.spawn(function() pcall(SoundKit.preload) end)
+local CLICK_VOLUME = 0.12
+local function wireClick(btn, soundName)
+	if btn:GetAttribute("SfxWired") then return end
+	btn:SetAttribute("SfxWired", true)
+	btn.MouseButton1Click:Connect(function()
+		pcall(SoundKit.play, soundName or "uiClick", nil, { volume = CLICK_VOLUME })
+	end)
+end
 -- The kit's nav icons, redrawn from GUI primitives (see UIKit.IconArt) for as
 -- long as Tokens.icons is empty. pcall'd on purpose: a missing or broken
 -- IconArt must not take the whole HUD down with it -- the rail just falls back
@@ -431,13 +447,196 @@ local gemPill, gemValueLabel, gemPop = buildPill(2, "gem", "gem", "darrel")
 local cash, darrels = 0, 0
 local hasCashLoaded, hasDarrelsLoaded = false, false
 
-local function applyCash(n)
+-- alive pass #2: gains COUNT UP over 0.35s (Quint/Out via a tweened
+-- NumberValue); spends snap instantly -- counting down reads as slow loss.
+-- Retarget rule: a new value mid-count starts from the number currently
+-- DISPLAYED, never the stale target. The pill has no AutomaticSize (Bug A),
+-- so width re-tracks on every tick of the count.
+-- COUNT-UP DRIVER.
+--
+-- CLAUDE.md says never lerp in a RunService loop for something a tween can do.
+-- Measured in this place, a tween CANNOT do this. TweenService animates
+-- GuiObject properties -- Frame.Size tweens fine, which is what drives the quest
+-- bar fill -- but does NOT animate non-GuiObject instances. UIScale.Scale,
+-- NumberValue.Value and Sound.Volume were each probed live and each sat at
+-- whatever value it was last set to while its tween "ran". So a NumberValue
+-- tween drove nothing, and the pill only ever updated via the snap path.
+--
+-- Stepped write on a task loop instead, token-guarded so a new target supersedes
+-- the previous driver rather than two fighting over the label. The tuned
+-- Quint-out shape is applied by hand, so the feel matches what was specified.
+local function makeTicker(pillFrame, valueLabel, duration)
+	local shown = 0
+	local token = 0
+	local function paint(v)
+		valueLabel.Text = shortNumber(math.floor(v))
+		sizePillToValue(pillFrame, valueLabel)
+	end
+	return function(target, animate)
+		token += 1
+		local myToken = token
+		if not animate then
+			shown = target
+			paint(target)
+			return
+		end
+		-- retarget from where the number VISIBLY is, so a burst of payouts
+		-- chases one moving target and can never step backwards
+		local from = shown
+		local span = target - from
+		local secs = duration or 0.35
+		task.spawn(function()
+			local t0 = os.clock()
+			while true do
+				if myToken ~= token then return end
+				local a = math.clamp((os.clock() - t0) / secs, 0, 1)
+				shown = from + span * (1 - (1 - a) ^ 5)   -- Quint out
+				paint(shown)
+				if a >= 1 then break end
+				task.wait()
+			end
+			if myToken == token then shown = target; paint(target) end
+		end)
+	end
+end
+-- =========================== CASH GAIN FEEDBACK ===========================
+-- A payout used to change the total silently. Now: the pill pops in the
+-- direction of the change, and an increase floats a "+N" off the pill.
+--
+-- INCOME vs EVENT. IncomeLoop fires CashTick every 0.35s and nothing else on
+-- the server fires it (verified), so CashTick IS the income channel and
+-- DataUpdated carries the deliberate payouts -- catches, sales, claims. That
+-- split needs no server change and is the whole reason this can batch income
+-- without batching the things the player actually did.
+--   income -> accumulate, at most one float per second, NO sound
+--   event  -> float immediately, WITH the cash sound
+-- Back-out and Quad-out written as plain functions, because the engine's
+-- EasingStyle is only reachable through TweenInfo and tweens do not drive
+-- UIScale here. c1/c3 are the standard Back constants.
+local function easeBackOut(a)
+	local c1, c3 = 1.70158, 2.70158
+	return 1 + c3 * (a - 1) ^ 3 + c1 * (a - 1) ^ 2
+end
+local function easeQuadOut(a) return 1 - (1 - a) ^ 2 end
+local POP_UP   = { from = 1.14, time = 0.26, ease = easeBackOut }
+local POP_DOWN = { from = 0.92, time = 0.18, ease = easeQuadOut }
+local FLOAT_RISE   = 38     -- px travelled
+local FLOAT_TIME   = 0.75   -- seconds to travel it
+local FLOAT_FADE_AT = 0.45  -- seconds before fade begins
+local FLOAT_POOL   = 4      -- hard cap; the oldest is recycled, never a 5th instance
+local INCOME_BATCH = 1.0    -- seconds of income folded into a single float
+
+-- Same measured limitation as the ticker: a TweenService tween on UIScale.Scale
+-- does not run in this place (probed live -- the scale sat at its start value
+-- for the whole tween). Stepped, token-guarded, easing applied by hand so the
+-- specified Back-out / Quad-out shapes survive.
+local popToken = {}
+local function playPopDir(popScale, spec)
+	popToken[popScale] = (popToken[popScale] or 0) + 1
+	local myToken = popToken[popScale]
+	local from = spec.from
+	local secs = spec.time
+	local ease = spec.ease
+	popScale.Scale = from
+	task.spawn(function()
+		local t0 = os.clock()
+		while true do
+			if popToken[popScale] ~= myToken then return end
+			local a = math.clamp((os.clock() - t0) / secs, 0, 1)
+			popScale.Scale = from + (1 - from) * ease(a)
+			if a >= 1 then break end
+			task.wait()
+		end
+		if popToken[popScale] == myToken then popScale.Scale = 1 end
+	end)
+end
+
+-- POOLED. Four labels are built once and reused forever; a burst of payouts
+-- recycles the oldest rather than allocating, so the pool size IS the cap.
+local floatPool, floatNext = {}, 1
+for i = 1, FLOAT_POOL do
+	local l = UI.label(coinPill, "", "chip", T.color.textAccent)
+	l.Name = "CashGain" .. i
+	l.AnchorPoint = Vector2.new(0, 0.5)
+	l.AutomaticSize = Enum.AutomaticSize.XY
+	l.Visible = false
+	l.ZIndex = coinPill.ZIndex + 6
+	floatPool[i] = { label = l, token = 0 }
+end
+
+local function floatGain(amount)
+	if amount < 1 then return end
+	local slot = floatPool[floatNext]
+	floatNext = floatNext % FLOAT_POOL + 1
+	slot.token += 1
+	local myToken = slot.token
+	local l = slot.label
+
+	l.Text = "+" .. shortNumber(math.floor(amount))
+	l.TextTransparency = 0
+	for _, d in ipairs(l:GetChildren()) do
+		if d:IsA("UIStroke") then d.Transparency = 0 end
+	end
+	-- starts low and right of the pill and rises past it: reads as the payout
+	-- travelling INTO the counter. Kept off the pill's own footprint so it
+	-- never covers the number it is describing.
+	l.Position = UDim2.new(1, 10, 0.5, 20)
+	l.Visible = true
+
+	TweenService:Create(l, TweenInfo.new(FLOAT_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Position = UDim2.new(1, 10, 0.5, 20 - FLOAT_RISE) }):Play()
+	task.delay(FLOAT_FADE_AT, function()
+		if slot.token ~= myToken then return end   -- recycled early: leave it to its new owner
+		local fade = TweenInfo.new(FLOAT_TIME - FLOAT_FADE_AT, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(l, fade, { TextTransparency = 1 }):Play()
+		for _, d in ipairs(l:GetChildren()) do
+			if d:IsA("UIStroke") then TweenService:Create(d, fade, { Transparency = 1 }):Play() end
+		end
+	end)
+	task.delay(FLOAT_TIME + 0.05, function()
+		if slot.token == myToken then l.Visible = false end
+	end)
+end
+
+-- income accumulator: one float per INCOME_BATCH at most, no sound
+local incomePending, incomeFlushQueued = 0, false
+local function queueIncomeFloat(delta)
+	incomePending += delta
+	if incomeFlushQueued then return end
+	incomeFlushQueued = true
+	task.delay(INCOME_BATCH, function()
+		incomeFlushQueued = false
+		local n = incomePending
+		incomePending = 0
+		if n >= 1 then floatGain(n) end
+	end)
+end
+
+local tickCash = makeTicker(coinPill, coinValueLabel, 0.45)   -- U2 tuning
+local tickDarrels = makeTicker(gemPill, gemValueLabel)         -- gem pill untouched this round
+
+-- source: "income" (CashTick, IncomeLoop's 0.35s tick) or "event" (a payout the
+-- player caused). Defaults to "event" so any future caller is loud, not silent.
+local function applyCash(n, source)
 	if typeof(n) ~= "number" then return end
 	local prev = cash
 	cash = n
-	coinValueLabel.Text = shortNumber(n)
-	sizePillToValue(coinPill, coinValueLabel) -- Bug A fix: pill has no AutomaticSize, recompute on every value change
-	if hasCashLoaded and n > prev then playPop(coinPop) end
+	local gained = hasCashLoaded and n > prev
+	tickCash(n, gained)
+	if hasCashLoaded then
+		if n > prev then
+			playPopDir(coinPop, POP_UP)
+			local delta = n - prev
+			if source == "income" then
+				queueIncomeFloat(delta)          -- batched, silent
+			else
+				floatGain(delta)                 -- immediate
+				SoundKit.play("cash", nil, { volume = 0.22 })
+			end
+		elseif n < prev then
+			playPopDir(coinPop, POP_DOWN)        -- spending reads as a dip, not a bounce
+		end
+	end
 	hasCashLoaded = true
 end
 
@@ -445,15 +644,23 @@ local function applyDarrels(n)
 	if typeof(n) ~= "number" then return end
 	local prev = darrels
 	darrels = n
-	gemValueLabel.Text = shortNumber(n)
-	sizePillToValue(gemPill, gemValueLabel) -- Bug A fix: pill has no AutomaticSize, recompute on every value change
+	tickDarrels(n, hasDarrelsLoaded and n > prev)
 	if hasDarrelsLoaded and n > prev then playPop(gemPop) end
 	hasDarrelsLoaded = true
 end
 
 remotes.DataUpdated.OnClientEvent:Connect(function(payload)
 	if typeof(payload) ~= "table" then return end
-	if payload.Cash ~= nil then applyCash(payload.Cash) end
+	if payload.Cash ~= nil then applyCash(payload.Cash, "event") end
+end)
+
+-- THE REAL DEFECT THIS ROUND FIXES. IncomeLoop fires CashTick every 0.35s, and
+-- the visible pill was never subscribed to it -- only ClientMain (whose label
+-- GameHUDClient retires) and TradeClient/MerchantClient were. So a stocked plot
+-- earned continuously while the pill the player actually looks at sat still
+-- until some unrelated event happened to fire DataUpdated.
+remotes.CashTick.OnClientEvent:Connect(function(n)
+	applyCash(n, "income")
 end)
 
 -- Bug C2 fix (gem seed redesign, round-2): applies unconditionally whenever
@@ -713,6 +920,7 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	hit.AutoButtonColor = false
 	hit.ZIndex = item.ZIndex + 10
 	hit.Parent = item
+	wireClick(hit, "uiClick")
 
 	-- Base position captured lazily on first use, not at build time: `item`
 	-- is a UIListLayout child and its list-computed Position isn't
@@ -832,6 +1040,7 @@ local function buildPlaceholder(id)
 end
 
 function openPanel(id)
+	pcall(SoundKit.play, "panelOpen", nil, { volume = CLICK_VOLUME })
 	closeGen += 1 -- FIX F3: invalidate any in-flight closePanel hide callback
 	local mod = panelModules[id]
 
@@ -892,7 +1101,8 @@ function openPanel(id)
 end
 
 function closePanel()
-	if not currentPanelId then return end
+	if not currentPanelId then return end   -- guard FIRST: no sound for a no-op close
+	pcall(SoundKit.play, "panelClose", nil, { volume = CLICK_VOLUME })
 	closeGen += 1 -- FIX F3: bump on every close too, so a close->reopen->close
 	-- sequence never lets an earlier close's delayed callback act on a later state
 	local myCloseGen = closeGen

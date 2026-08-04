@@ -161,3 +161,82 @@ RunService.Heartbeat:Connect(function()
 		model:PivotTo(entry.base * entry.offset(t, entry.phase))
 	end
 end)
+-- ============================ IDLE VOICE LINES ============================
+-- The creature occasionally says its own line while sitting on a pad. This is
+-- the most annoying thing in the game if it is wrong, so every number here is
+-- deliberately conservative and every one is a named constant.
+--
+-- Runs on its OWN slow timer, never the Heartbeat above: this fires about once
+-- a minute, and putting it on a per-frame loop to do nothing 3599 times out of
+-- 3600 would be waste. Client-side and positional -- your camp should sound
+-- alive when you are standing in it, and silent from across the valley.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundKit = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("SoundKit"))
+local BrainrotConfig = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("BrainrotConfig"))
+
+local VOICE_INTERVAL   = 45     -- seconds between attempts (base)
+local VOICE_JITTER     = 15     -- +/- seconds, so a plot never speaks in chorus
+local VOICE_RANGE      = 60     -- studs; HALF the 120 visual range -- audio intrudes more
+local VOICE_COOLDOWN   = 90     -- seconds before the SAME body may speak again
+local VOICE_MIN_GAP    = 8      -- seconds between ANY two voices, anywhere
+local VOICE_VOLUME     = 0.18   -- under the splash register
+
+-- name -> VoiceId, built once. Empty today: no entry in BrainrotConfig has a
+-- VoiceId yet, so this whole system is inert until one is authored.
+local voiceByName = {}
+for _, e in ipairs(BrainrotConfig) do
+	if type(e.VoiceId) == "string" and e.VoiceId ~= "" then
+		voiceByName[e.Name] = e.VoiceId
+	end
+end
+
+local player = Players.LocalPlayer
+local lastSpoke = {}          -- [model] = os.clock() of its last line
+local lastAnyVoice = 0        -- global gap, the real anti-noise guard
+
+task.spawn(function()
+	while true do
+		task.wait(VOICE_INTERVAL + (math.random() * 2 - 1) * VOICE_JITTER)
+
+		-- Nothing authored -> nothing to do. Costs one table lookup a minute.
+		if next(voiceByName) ~= nil then
+			local now = os.clock()
+			if now - lastAnyVoice >= VOICE_MIN_GAP then
+				local cam = Workspace.CurrentCamera
+				local origin = cam and cam.CFrame.Position
+				if origin then
+					-- Collect every eligible body, then pick ONE. Picking one and
+					-- playing it is the concurrency cap: there is no path here
+					-- that starts a second voice in the same pass.
+					local eligible = {}
+					for _, model in ipairs(CollectionService:GetTagged(TAG)) do
+						local id = voiceByName[model.Name]
+						if id and model.Parent then
+							local ok, pivot = pcall(function() return model:GetPivot().Position end)
+							if ok and (pivot - origin).Magnitude <= VOICE_RANGE then
+								local last = lastSpoke[model]
+								if not last or now - last >= VOICE_COOLDOWN then
+									eligible[#eligible + 1] = { model = model, id = id, part = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart") }
+								end
+							end
+						end
+					end
+					if #eligible > 0 then
+						local pick = eligible[math.random(1, #eligible)]
+						if pick.part then
+							SoundKit.playId(pick.id, pick.part, { volume = VOICE_VOLUME, range = VOICE_RANGE })
+							lastSpoke[pick.model] = now
+							lastAnyVoice = now
+						end
+					end
+				end
+			end
+		end
+
+		-- prune bodies that have been despawned, so lastSpoke cannot grow forever
+		for model in pairs(lastSpoke) do
+			if not model.Parent then lastSpoke[model] = nil end
+		end
+	end
+end)

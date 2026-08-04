@@ -144,22 +144,21 @@ local state = {
 -- canonical abbreviator, K through Qi -- see Modules.NumberFormat
 local formatNumber = require(ReplicatedStorage.Modules.NumberFormat).Short
 
-local displayCash = 0
-local function refreshCashLabel()
-	cashLabel.Text = "Cash: " .. formatNumber(displayCash)
-end
-local function snapCashLabel()          -- for non-animated updates (purchases, snapshots)
-	displayCash = state.Cash
-	refreshCashLabel()
-end
-RunService.Heartbeat:Connect(function(dt)
-	if math.abs(displayCash - state.Cash) < 1 then
-		if displayCash ~= state.Cash then displayCash = state.Cash; refreshCashLabel() end
-		return
-	end
-	displayCash += (state.Cash - displayCash) * math.min(dt * 9, 1)
-	refreshCashLabel()
-end)
+-- REMOVED (U2): a per-frame Heartbeat that lerped displayCash toward state.Cash
+-- and wrote it into cashLabel -- a label inside gui.CashFrame, which
+-- GameHUDClient retires on startup (retireAsync(mainUI, "CashFrame")). So it
+-- animated a number nobody could see, every frame, for the whole session, and
+-- it broke CLAUDE.md's "never lerp in a RunService loop for something a tween
+-- can do" while doing it.
+--
+-- The visible coin pill is driven by GameHUDClient's makeTicker (a TweenService
+-- tween on a NumberValue), which now also subscribes to CashTick -- the income
+-- channel this loop was the only consumer of.
+--
+-- cashFrame/cashLabel locals stay: the legacy styling pass further down still
+-- references them, and the frame is retired rather than destroyed.
+local function refreshCashLabel() end   -- no-op: retained for the call sites below
+local function snapCashLabel() end
 
 -- === Shop ===
 local rockRows = {}
@@ -429,8 +428,11 @@ local sellPrompt = sellPromptPart:WaitForChild("SellPrompt")
 
 -- Rock shop is served by the unified MerchantClient panel (see MerchantClient LocalScript).
 
-sellPrompt.Triggered:Connect(function(triggeringPlayer)
-	if triggeringPlayer ~= player then return end
+-- Marco keeps a stall in each world (SellStall in the valley, TundraSellStall in
+-- the Frozen Tundra hub). Both bind this one handler, and the dialogue anchors to
+-- whichever stall was actually used.
+local sellParts = { sellPromptPart }
+local function openSell(part)
 	if sellFrame.Visible then
 		sellFrame.Visible = false
 		return
@@ -449,7 +451,25 @@ sellPrompt.Triggered:Connect(function(triggeringPlayer)
 		buildSellList()
 		sellFrame.Visible = true
 		shopFrame.Visible = false
-	end, sellPromptPart)
+	end, part)
+end
+
+sellPrompt.Triggered:Connect(function(triggeringPlayer)
+	if triggeringPlayer ~= player then return end
+	openSell(sellPromptPart)
+end)
+
+task.spawn(function()
+	local alt = gameWorld:WaitForChild("TundraSellStall", 30)
+	if not alt then return end
+	local altPart = alt:WaitForChild("PromptPart", 30)
+	local altPrompt = altPart and altPart:WaitForChild("SellPrompt", 30)
+	if not altPrompt then return end
+	table.insert(sellParts, altPart)
+	altPrompt.Triggered:Connect(function(triggeringPlayer)
+		if triggeringPlayer ~= player then return end
+		openSell(altPart)
+	end)
 end)
 
 -- auto-close if the player wanders away from a stall
@@ -466,8 +486,13 @@ RunService.Heartbeat:Connect(function()
 	end
 
 	if sellFrame.Visible then
-		local distance = (hrp.Position - sellPromptPart.Position).Magnitude
-		if distance > 20 then
+		-- nearest stall, not the valley one: the tundra copy is 11k studs away and
+		-- would otherwise close the menu the moment it opened
+		local nearest = math.huge
+		for _, part in ipairs(sellParts) do
+			nearest = math.min(nearest, (hrp.Position - part.Position).Magnitude)
+		end
+		if nearest > 20 then
 			sellFrame.Visible = false
 		end
 	end
@@ -895,6 +920,10 @@ local perfectPopToken = 0
 local function showPerfectPop()
 	perfectPopToken += 1
 	local myToken = perfectPopToken
+	-- 78 lines of sunburst, sparks, FOV punch and camera shake had no audio at all.
+	-- Bright and SHORT: it fires on the same frame as the release whoosh and must sit
+	-- under it, and it is long gone before any catch audio arrives.
+	SoundKit.play("catchSparkle", nil, { volume = PERFECT_VOL })
 
 	-- reset every animated property, or a second perfect mid-fade inherits the tail of
 	-- the first and reads as a flicker
@@ -972,6 +1001,80 @@ local function showPerfectPop()
 	end)
 end
 
+-- === THROW AUDIO =========================================================
+-- All four cues reuse ids already declared and load-verified in SoundKit.Ids;
+-- nothing new is invented here, and the two orphaned ids (panelOpen, fusion)
+-- are deliberately left for the features they belong to.
+--   charge   eggStrain  bonecrackle 2.63s -- a tension bed, pitched up as you wind
+--   release  wheelWind  UI whoosh 0.85s   -- the commit, its own voice not a UI click
+--   perfect  catchSparkle Twinkling 0.63s -- bright, short, fires seconds before any
+--                                            catch audio so the two never collide
+--   pity     wheelWin   bling             -- handled in PityThrowClient
+local CHARGE_PITCH_LO = 0.72    -- power 0
+local CHARGE_PITCH_HI = 1.85    -- power 1
+local CHARGE_VOL      = 0.16    -- a bed: must lose to the release
+local RELEASE_VOL     = 0.38    -- loudest of the four -- this is the commitment
+local PERFECT_VOL     = 0.32
+local CHARGE_FADE     = 0.12    -- stop fade on release OR cancel
+local chargeLoop = nil
+
+-- ONE teardown, called from every path that can end a charge. Idempotent.
+local function stopChargeLoop()
+	if chargeLoop then
+		chargeLoop:stop(CHARGE_FADE)
+		chargeLoop = nil
+	end
+end
+
+-- ===================== CTA BREATH =====================
+-- The one element in the game that breathes. It is the primary call to action,
+-- and only while the player has gone quiet: 6s after the last throw, stopping
+-- the instant they charge again.
+--
+-- REAL TWEENS with Reverses + RepeatCount = -1, so the engine drives them and
+-- no per-frame Lua is involved. It breathes via Size + Position rather than a
+-- UIScale because a TweenService tween on UIScale.Scale does not run in this
+-- place (probed live) -- Size and Position are GuiObject properties and do.
+-- AnchorPoint is (0,0), so Position is shifted by half the growth to keep the
+-- button breathing about its own centre. Both always return to exact rest.
+local BREATH_SCALE = 0.025      -- 1.000 <-> 1.025
+local BREATH_TIME  = 2.4        -- seconds per half-cycle
+local BREATH_IDLE  = 6          -- seconds of no throw before it starts
+local breathTweens = {}
+local breathOn = false
+local lastThrowAt = os.clock()
+
+local BREATH_REST_SIZE = throwButton.Size
+local BREATH_REST_POS  = throwButton.Position
+
+local function stopBreath()
+	if not breathOn then return end
+	breathOn = false
+	for _, t in ipairs(breathTweens) do t:Cancel() end
+	table.clear(breathTweens)
+	-- exact rest, never "wherever the tween happened to stop"
+	throwButton.Size = BREATH_REST_SIZE
+	throwButton.Position = BREATH_REST_POS
+end
+
+local function startBreath()
+	if breathOn then return end
+	breathOn = true
+	local growX = math.round(340 * BREATH_SCALE)   -- ThrowFrame is 340 wide
+	local growY = math.round(34 * BREATH_SCALE)
+	local info = TweenInfo.new(BREATH_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	local sz = TweenService:Create(throwButton, info, {
+		Size = UDim2.new(BREATH_REST_SIZE.X.Scale, BREATH_REST_SIZE.X.Offset + growX,
+		                 BREATH_REST_SIZE.Y.Scale, BREATH_REST_SIZE.Y.Offset + growY),
+	})
+	local ps = TweenService:Create(throwButton, info, {
+		Position = UDim2.new(BREATH_REST_POS.X.Scale, BREATH_REST_POS.X.Offset - growX / 2,
+		                     BREATH_REST_POS.Y.Scale, BREATH_REST_POS.Y.Offset - growY / 2),
+	})
+	breathTweens = { sz, ps }
+	sz:Play(); ps:Play()
+end
+
 local charging = false
 local power = 0
 local cooldown = false
@@ -1029,12 +1132,20 @@ end
 -- forward declarations: the wind-up system is defined just below, but startCharge and
 -- the RenderStepped driver both sit above it in this file
 local beginWindup, driveWindup, endWindup
+-- assigned by the skip-counter block further down; startCharge clears the counter
+-- so the last throw's number never bleeds into the next wind-up
+local clearSkipCounter
 
 local function startCharge()
 	if cooldown or charging then return end
 	if not inThrowZone then return end
 	if not playerHasPlot() then return end -- no base yet; button acts as "get a plot" instead
 	charging = true
+	stopBreath()          -- they are engaged; the invitation is over
+	lastThrowAt = os.clock()
+	if clearSkipCounter then clearSkipCounter() end   -- last throw's count goes away NOW
+	stopChargeLoop()   -- never stack two beds if a charge somehow re-enters
+	chargeLoop = SoundKit.loop("eggStrain", { volume = CHARGE_VOL, speed = CHARGE_PITCH_LO })
 	-- roll this charge's own bar speed (see CYCLE_MIN_MULT above)
 	chargeStart = os.clock()
 	chargePeriod = CYCLE_SECONDS * (CYCLE_MIN_MULT + math.random() * (CYCLE_MAX_MULT - CYCLE_MIN_MULT))
@@ -1239,6 +1350,10 @@ end
 local function releaseThrow(isAuto)
 	if not charging then return end
 	charging = false
+	stopChargeLoop()
+	-- release is a COMMITMENT with no cancel, so it gets its own voice rather than
+	-- the incidental uiClick that was leaking from the button style
+	SoundKit.play("wheelWind", nil, { volume = RELEASE_VOL })
 	local finalPower = power
 	local _char = player.Character
 	local _hrp = _char and _char:FindFirstChild("HumanoidRootPart")
@@ -1369,6 +1484,13 @@ task.spawn(function()
 end)
 
 RunService.RenderStepped:Connect(function(dt)
+	-- STRUCTURAL SAFETY NET: the bed's lifetime is owned by the same frame loop that
+	-- owns `power`, so it cannot outlive a charge by ANY path -- release, a cancel
+	-- that only flips `charging`, leaving the zone, death, or a character reset that
+	-- takes the whole rig with it. Nothing has to remember to call the teardown.
+	if not charging and chargeLoop then
+		stopChargeLoop()
+	end
 	if charging then
 		-- time since THIS charge began, on THIS charge's period: the bar always starts at 0
 		-- and sweeps up, but at a speed the player cannot read off the previous throw
@@ -1376,6 +1498,12 @@ RunService.RenderStepped:Connect(function(dt)
 		power = (math.sin((t * (2 * math.pi / chargePeriod)) - math.pi / 2) + 1) / 2
 		barFill.Size = UDim2.new(power, 0, 1, 0)
 		barFill.BackgroundColor3 = Color3.fromHSV(0.33 * power, 0.8, 1)
+		-- Pitch rides the SAME power the bar and the arm ride, so what you hear is
+		-- exactly what you see. Geometric, not linear: pitch perception is
+		-- logarithmic, and a linear sweep audibly stalls near the top.
+		if chargeLoop then
+			chargeLoop:setSpeed(CHARGE_PITCH_LO * (CHARGE_PITCH_HI / CHARGE_PITCH_LO) ^ power)
+		end
 		-- the arm IS the bar: same value drives both, so what you see on the HUD and what
 		-- the character is doing can never disagree
 		driveWindup(power)
@@ -1601,6 +1729,16 @@ local shiftHeld = false
 local sprintToggled = false
 
 local sprintButton = gui:WaitForChild("SprintButton")
+-- Authored in StarterGui and only ever handed to UITheme.setColors, which is a
+-- COLOUR swap and wires nothing -- so it passed through no constructor and was
+-- silent. Wired directly, with the same SfxWired guard the constructors use so
+-- it can never end up double-connected.
+if not sprintButton:GetAttribute("SfxWired") then
+	sprintButton:SetAttribute("SfxWired", true)
+	sprintButton.MouseButton1Click:Connect(function()
+		pcall(SoundKit.play, "uiClick", nil, { volume = 0.12 })
+	end)
+end
 
 local function getHumanoid()
 	local char = player.Character
@@ -1646,20 +1784,63 @@ end)
 applySprint()
 
 -- === Throw-zone gating ===
-local throwZone = gameWorld:WaitForChild("ThrowZone")
+-- ONE ZONE PER SKIP AREA, and there are two: the hub dock and the Frozen Tundra's
+-- ice deck 8000 studs out. This used to be a single WaitForChild on GameWorld.ThrowZone,
+-- so at the tundra deck the HUD sat on "GO TO SKIP AREA" forever while the server --
+-- which does its own check -- would happily have taken the throw.
+--
+-- Matched to ThrowHandler's throwZoneOf: any BasePart named ThrowZone under GameWorld,
+-- same box test, same generous Y. Rebuilt on add/remove rather than walked per frame;
+-- GameWorld is far too big to search inside a Heartbeat.
+local throwZones = {}
+local function rebuildThrowZones()
+	table.clear(throwZones)
+	for _, d in ipairs(gameWorld:GetDescendants()) do
+		if d:IsA("BasePart") and d.Name == "ThrowZone" then
+			table.insert(throwZones, d)
+		end
+	end
+end
+rebuildThrowZones()
+gameWorld.DescendantAdded:Connect(function(d)
+	if d.Name == "ThrowZone" and d:IsA("BasePart") then rebuildThrowZones() end
+end)
+gameWorld.DescendantRemoving:Connect(function(d)
+	if d.Name == "ThrowZone" and d:IsA("BasePart") then task.defer(rebuildThrowZones) end
+end)
 
 local function computeInZone()
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return false end
-	local rel = throwZone.CFrame:PointToObjectSpace(hrp.Position)
-	local s = throwZone.Size / 2
-	return math.abs(rel.X) <= s.X and math.abs(rel.Z) <= s.Z and math.abs(rel.Y) <= s.Y + 6
+	for _, zone in ipairs(throwZones) do
+		local rel = zone.CFrame:PointToObjectSpace(hrp.Position)
+		local s = zone.Size / 2
+		if math.abs(rel.X) <= s.X and math.abs(rel.Z) <= s.Z and math.abs(rel.Y) <= s.Y + 6 then
+			return true
+		end
+	end
+	return false
 end
 
 local prevInZone = false
+-- The breath gate rides the throw-zone Heartbeat that already exists rather than
+-- adding a loop of its own. It only ever starts/stops tweens -- the animation
+-- itself is engine-driven.
+local function updateBreathGate()
+	local offer = inThrowZone and not charging and not cooldown
+		and throwFrame.Visible and throwButton.Visible
+	if not offer then
+		stopBreath()
+		return
+	end
+	if os.clock() - lastThrowAt >= BREATH_IDLE then
+		startBreath()
+	end
+end
 RunService.Heartbeat:Connect(function()
 	inThrowZone = computeInZone()
+	updateBreathGate()
 	if inThrowZone and not prevInZone then refreshSweetSpot() end -- fresh spot on walk-up
 	prevInZone = inThrowZone
 	-- only show the throw UI at the dock (stay visible mid-throw so it doesn't vanish)
@@ -1684,6 +1865,85 @@ local camera = Workspace.CurrentCamera
 local TRACK_MIN_DISTANCE = 60
 local tracking = false
 local stoneThrownRemote = remotes:WaitForChild("StoneThrown")
+
+-- === Skip counter =========================================================
+-- ThrowHandler computes nContacts (2..8) to lay out the arc and now ships it,
+-- with segTime, on the StoneThrown payload. Splash k fires server-side at
+-- k*segTime after that payload is sent; the payload and each splash sound both
+-- reach us one-way-late, so the latency cancels and ticking at k*segTime after
+-- RECEIVING lands on the splash. TICK_LEAD is perceptual only -- a visual a hair
+-- ahead of its audio reads as simultaneous, behind reads as lag.
+--
+-- AUTHORED IN STUDIO, NOT HERE: this code only drives an element that a human
+-- placed. Expected at PlayerGui.MainUI.SkipCounter (TextLabel) with a UIScale
+-- child for the pop. Missing element = silent no-op (warned once), never a
+-- runtime error and never an Instance.new UI.
+local SKIP_TICK_LEAD  = 0.03   -- seconds BEFORE the splash the number flips
+local SKIP_POP_SCALE  = 1.45   -- pop peak, settles to 1
+local SKIP_POP_TIME   = 0.18   -- seconds, Back/Out
+local SKIP_CLEAR_SAFE = 8      -- seconds after the last tick, guard only
+
+local skipCounterWarned = false
+local skipToken = 0
+
+local function skipCounterLabel()
+	local gui = player:FindFirstChild("PlayerGui")
+	local mainUi = gui and gui:FindFirstChild("MainUI")
+	local label = mainUi and mainUi:FindFirstChild("SkipCounter", true)
+	if not label and not skipCounterWarned then
+		skipCounterWarned = true
+		warn("[ClientMain] SkipCounter not authored yet -- expected PlayerGui.MainUI.SkipCounter (TextLabel + UIScale child). Skip count will not display.")
+	end
+	return label
+end
+
+local function hideSkipCounter()
+	skipToken += 1
+	local label = skipCounterLabel()
+	if label then label.Visible = false end
+end
+clearSkipCounter = hideSkipCounter   -- startCharge calls this (forward-declared above)
+
+local function runSkipCounter(nContacts, segTime)
+	local label = skipCounterLabel()
+	if not label then return end
+	if type(nContacts) ~= "number" or type(segTime) ~= "number" then return end
+	if nContacts ~= nContacts or segTime ~= segTime then return end   -- NaN
+	if nContacts < 1 or segTime <= 0 then return end
+
+	skipToken += 1
+	local token = skipToken
+	local scale = label:FindFirstChildOfClass("UIScale")
+
+	label.Text = "0"
+	label.Visible = true
+
+	task.spawn(function()
+		local t0 = os.clock()
+		for k = 1, nContacts do
+			local due = k * segTime - SKIP_TICK_LEAD
+			local waitFor = due - (os.clock() - t0)
+			if waitFor > 0 then task.wait(waitFor) end
+			if token ~= skipToken then return end     -- superseded by a new throw / charge
+			label.Text = tostring(k)
+			if scale then
+				-- retarget rather than queue: at 8 contacts on a short flight the
+				-- pops overlap, and a queued tween would drift behind the splashes
+				scale.Scale = SKIP_POP_SCALE
+				TweenService:Create(scale,
+					TweenInfo.new(SKIP_POP_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+					{ Scale = 1 }):Play()
+			end
+		end
+		task.delay(SKIP_CLEAR_SAFE, function()
+			if token == skipToken and label then label.Visible = false end
+		end)
+	end)
+end
+
+stoneThrownRemote.OnClientEvent:Connect(function(_, _, _, _, nContacts, segTime)
+	runSkipCounter(nContacts, segTime)
+end)
 
 stoneThrownRemote.OnClientEvent:Connect(function(startPos, landingPos, flightTime, distance)
 	if tracking then return end

@@ -21,7 +21,49 @@ local TweenService = game:GetService("TweenService")
 -- Lowered 0.22 -> 0.15. Even at 0.22 the music was sitting level with the skip
 -- splashes (0.22 each) and masking them, which is backwards: the splash is the
 -- feedback for the thing the player just did, the music is furniture.
+local SoundKit = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("SoundKit"))
+
 local VOLUME    = 0.15   -- under the weather beds and well under the SFX
+-- The Settings music slider is a MULTIPLIER over VOLUME, never an absolute level.
+-- SetCategoryVolume cannot simply write s.Volume here: this script tweens Volume
+-- for its own fades, so a direct write would be overwritten by the next fade and
+-- lost entirely on the next track. Instead we hold the live scale and re-apply
+-- base * scale ourselves, both on slider moves and whenever a track starts.
+local musicScale = SoundKit.MusicScale and SoundKit.MusicScale() or 1
+
+-- Volume is written DIRECTLY in steps rather than tweened. Measured in this place:
+-- a TweenService tween on Sound.Volume does not move the property, so every fade
+-- here silently left the track at 0 and the music was only ever audible after a
+-- slider move (SetCategoryVolume writes Volume directly). Direct writes always
+-- work, so the fade is a loop. Token-guarded: a new fade supersedes an old one
+-- instead of the two fighting over the same property.
+local fadeToken = 0
+local function fadeSound(snd, to, seconds)
+	if not snd or not snd.Parent then return end
+	fadeToken += 1
+	local myToken = fadeToken
+	if not seconds or seconds <= 0 then
+		snd.Volume = to
+		return
+	end
+	local from = snd.Volume
+	local steps = math.max(1, math.floor(seconds / 0.05))
+	for i = 1, steps do
+		if myToken ~= fadeToken or not snd.Parent then return end
+		snd.Volume = from + (to - from) * (i / steps)
+		task.wait(seconds / steps)
+	end
+	if myToken == fadeToken and snd.Parent then snd.Volume = to end
+end
+local currentTrack = nil
+SoundKit.OnMusicVolume(function(v)
+	musicScale = v
+	-- Re-level the playing track immediately: a slider is a live control, not a
+	-- setting that waits for the next song.
+	if currentTrack and currentTrack.Parent then
+		task.spawn(fadeSound, currentTrack, VOLUME * v, 0.15)
+	end
+end)
 local FADE      = 3.0    -- seconds of fade in / fade out
 local GAP_MIN   = 5      -- silence between tracks, so it breathes instead of
 local GAP_MAX   = 11     -- running wall-to-wall like a menu screen
@@ -81,9 +123,11 @@ task.spawn(function()
 		s.SoundId = "rbxassetid://" .. t.id
 		s.Looped = false
 		s.Volume = 0            -- always fade in; a track snapping on at full volume is jarring
+		s:SetAttribute("BaseVolume", VOLUME)   -- lets SoundKit scale it without knowing our base
 		s.Parent = folder
 		s:Play()
-		TweenService:Create(s, TweenInfo.new(FADE), { Volume = VOLUME }):Play()
+		currentTrack = s
+		task.spawn(fadeSound, s, VOLUME * musicScale, FADE)
 
 		-- Wait on the measured length rather than s.Ended: Ended does not fire if the asset
 		-- fails to stream, which would stall the playlist forever on a bad connection.
@@ -92,8 +136,9 @@ task.spawn(function()
 		local t0 = os.clock()
 		while not stopped and os.clock() - t0 < hold do task.wait(0.5) end
 
-		TweenService:Create(s, TweenInfo.new(FADE), { Volume = 0 }):Play()
-		task.wait(FADE + 0.2)
+		fadeSound(s, 0, FADE)
+		task.wait(0.2)
+		if currentTrack == s then currentTrack = nil end
 		if s.Parent then s:Stop(); s:Destroy() end
 		if stopped then break end
 		task.wait(math.random(GAP_MIN, GAP_MAX))

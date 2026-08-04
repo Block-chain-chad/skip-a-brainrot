@@ -40,7 +40,9 @@ end
 function M.MusicScale() return vol.music end
 function M.SfxScale() return vol.sfx end
 
--- Same seam for SFX.
+-- Same seam for SFX. M.play multiplies vol.sfx into every clone it makes, but a
+-- long-lived loop (the lake bed, WheelClient's persistent sounds) is never a
+-- clone, so it would ignore the SFX slider entirely without this.
 local sfxListeners = {}
 function M.OnSfxVolume(fn)
 	if type(fn) ~= "function" then return end
@@ -57,18 +59,27 @@ function M.SetCategoryVolume(category, v)
 	v = math.clamp(v, 0, 1)
 	if category == "music" then
 		vol.music = v
-		-- Forward-compatible seam: scales an existing SoundService.Music
-		-- folder's children directly (ambient loops would be long-lived Sound
-		-- instances, not M.play() clones -- the same reasoning WheelClient's
-		-- own tickSound/windSound use persistent Sound instances instead of
-		-- M.play()). Nil-guarded: no such folder exists in this game yet.
+		-- MULTIPLIER, not an absolute level. This used to do `s.Volume = v`,
+		-- which had two bugs: a 0.5 slider forced every track to 0.5 when
+		-- MusicClient's tuned base is 0.15 (3.3x too loud), and because
+		-- MusicClient builds a NEW Sound per track, the next track came back at
+		-- 0.15 and the setting silently reverted. Each long-lived Sound now
+		-- carries its authored level as a BaseVolume attribute and is scaled
+		-- against it, so the slider is proportional and idempotent.
 		local musicFolder = SoundService:FindFirstChild("Music")
 		if musicFolder then
-			for _, s in ipairs(musicFolder:GetChildren()) do
-				if s:IsA("Sound") then
-					s.Volume = v
+			for _, snd in ipairs(musicFolder:GetChildren()) do
+				if snd:IsA("Sound") then
+					local base = snd:GetAttribute("BaseVolume")
+					if base then snd.Volume = base * v end
 				end
 			end
+		end
+		-- Owners that fade their own sounds (MusicClient tweens Volume) cannot be
+		-- driven by the loop above -- a tween in flight would overwrite it. They
+		-- register here instead and re-apply against their own base.
+		for _, fn in ipairs(musicListeners) do
+			pcall(fn, v)
 		end
 	elseif category == "sfx" then
 		vol.sfx = v
@@ -150,7 +161,20 @@ M.Ids = {
 	splash      = "rbxassetid://9117946641",        -- SFX2 default, 0.39s: a SKIP tap, not a wash
 	-- The final landing wants a genuinely different sample, not just a louder tap:
 	-- 0.39s cannot sound heavy no matter what you do to its volume or pitch.
-	splashBig   = "rbxassetid://4086001962",        -- water-splash-large, 3.51s
+	splashBig   = "rbxassetid://4086001962",
+	-- LOOPING AMBIENCE. Not for M.play -- that clones and Debris-cleans a one-shot,
+	-- which is wrong for a bed that has to run forever. AmbientAudio reads these ids
+	-- and builds persistent looping Sound instances from them.
+	-- All lifted from the library already in Workspace.SFX, so they are load-verified
+	-- in this place rather than ids taken on faith.
+	ambienceShore1 = "rbxassetid://4085819509",   -- shore1, 8.53s -- water on a beach
+	ambienceShore2 = "rbxassetid://4085819006",   -- shore2, 10.00s -- second take, so
+	                                             -- neighbouring emitters do not phase-lock
+	ambienceLake1  = "rbxassetid://4085820629",   -- lake1, 9.74s -- open water, further out
+	ambienceLake2  = "rbxassetid://4085820187",   -- lake2, 9.72s
+	ambienceWind1  = "rbxassetid://3778630178",   -- wind1, 10.00s -- the tundra bed
+	ambienceWind2  = "rbxassetid://4085840701",   -- wind2
+	ambienceNight  = "rbxassetid://4988619554",   -- night, 3.61s -- crickets/still air        -- water-splash-large, 3.51s
 	-- Egg hatch (EggShopClient.playReveal): three crack beats, then the shell
 	-- splits. All three ids are lifted straight out of the 476-sound library
 	-- already sitting in Workspace.SFX -- those instances report a non-zero
@@ -222,8 +246,34 @@ end
 
 -- Warm every template up front so the first catch of a session is not silent
 -- while the asset streams in.
+-- Builds every template so the SoundId resolves once per session. This alone is
+-- NOT a preload: it creates the instances but never asks the engine to fetch the
+-- assets, which is why M.play below has to floor its cleanup delay at
+-- math.max(TimeLength, 3) -- TimeLength reads 0 until the asset actually lands.
+--
+-- ContentProvider:PreloadAsync YIELDS (seconds, over the network), so it is
+-- spawned rather than run inline: a caller must never block its own startup on
+-- audio. Client-only -- the server has no reason to fetch audio bytes.
 function M.preload()
 	for name in pairs(M.Ids) do template(name) end
+	if not RunService:IsClient() then return end
+	if M._preloading or M._preloaded then return end
+	M._preloading = true
+	task.spawn(function()
+		local list = {}
+		for name in pairs(M.Ids) do
+			local t = templates[name]
+			if t then table.insert(list, t) end
+		end
+		local ok, err = pcall(function()
+			ContentProvider:PreloadAsync(list)
+		end)
+		M._preloading = false
+		M._preloaded = ok
+		if not ok then
+			warn("[SoundKit] PreloadAsync failed: " .. tostring(err))
+		end
+	end)
 end
 
 -- where: nil for a flat 2D sound (UI, or something that happened to YOU),
@@ -272,7 +322,6 @@ function M.play(name, where, opts)
 	return s
 end
 
-
 -- LOOPS. M.play is fire-and-forget with a Debris lifetime, which is wrong for a
 -- charge bed: it must survive an arbitrarily long hold and then stop on command.
 -- Same template/clone/volume-scaling path as M.play, so the Settings SFX slider
@@ -313,6 +362,44 @@ function M.loop(name, opts)
 		Debris:AddItem(s, fade + 0.05)   -- destroyed even if the tween is interrupted
 	end
 	return handle
+end
+
+-- Play an ARBITRARY asset id, for content-authored audio that cannot live in
+-- M.Ids -- specifically BrainrotConfig.VoiceId, which is one id per creature and
+-- would mean 161 entries in a table that exists to be a curated palette.
+--
+-- Deliberately NOT a new volume category: voices are sound effects, so they take
+-- vol.sfx exactly like every M.play clone, and the existing SFX slider governs
+-- them with no new plumbing.
+--
+-- Returns the Sound, or nil for a nil/empty id -- so a creature with no VoiceId
+-- costs one comparison and nothing else.
+function M.playId(assetId, where, opts)
+	if type(assetId) ~= "string" or assetId == "" then return nil end
+	opts = opts or {}
+
+	local s = Instance.new("Sound")
+	s.Name = "voice"
+	s.SoundId = assetId
+	s.Volume = (opts.volume or 0.25) * vol.sfx
+	s.PlaybackSpeed = opts.speed or 1
+	s.Looped = false   -- never: a voice line is a one-shot by definition
+
+	-- TimeLength is 0 until the asset resolves, so the cleanup floor mirrors
+	-- M.play's. An id that never loads is destroyed on the floor and is silent.
+	local life = math.max(s.TimeLength, 4) + 0.5
+
+	if typeof(where) == "Instance" and where:IsA("BasePart") then
+		s.RollOffMaxDistance = opts.range or 90
+		s.RollOffMode = Enum.RollOffMode.InverseTapered
+		s.Parent = where
+	else
+		s.Parent = SoundService
+	end
+
+	s:Play()
+	Debris:AddItem(s, life)
+	return s
 end
 
 return M

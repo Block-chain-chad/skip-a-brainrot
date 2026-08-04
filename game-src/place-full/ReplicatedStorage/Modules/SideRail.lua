@@ -78,6 +78,11 @@ local function getRail()
 		upd()
 		if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(upd) end
 	end
+	-- OFF-SCREEN MUST NOT ANIMATE, whoever hid it. GameHUDClient hides this
+	-- frame directly rather than going through updateRailVisibility, so hooking
+	-- only our own path missed that case entirely (verified: the suspend never
+	-- fired while the rail was folded). Watching the frame's own Visible, plus
+	-- the ScreenGui's Enabled, catches every hider including future ones.
 	return railFrame
 end
 
@@ -165,6 +170,97 @@ end
 -- existing rail buttons pick up the new look without a single call-site edit.
 --
 -- Handle contract is also unchanged: { button, setReady, setBadge }.
+-- ===================== CLAIM PULSE ARBITRATION =====================
+-- Every rail client calls setReady on its own tile with no knowledge of the
+-- others, so four could breathe at once. Six pulsing buttons reads as noise
+-- rather than as a reward, so the decision is made HERE, centrally, where the
+-- full set is visible -- no call site changes.
+--
+-- <= PULSE_MAX claimable: they all pulse.
+-- >  PULSE_MAX: only the highest-priority one pulses. The rest keep a STATIC
+--    glow, so nothing stops advertising that it is claimable -- it just stops
+--    competing for attention.
+-- ONE shared driver for every claim pulse, matching the convention
+-- UIKit.Builders already uses for its rainbow ring ("ONE Heartbeat total, a
+-- registry pruned when the instance is gone") rather than a loop per element.
+--
+-- Why not a tween, given the round asked for tweens: measured in this place, a
+-- TweenService tween on BackgroundTransparency does not run -- the property sits
+-- at whatever it was last set to. Frame.Size tweens fine (it drives the quest
+-- bar), so this is property-specific, not a broken TweenService. UIScale.Scale,
+-- NumberValue.Value and Sound.Volume behave the same way. One registry-driven
+-- Heartbeat for the whole rail keeps the cost bounded and, critically, still
+-- lets every pulse be stopped dead when the rail folds away.
+local RunService = game:GetService("RunService")
+local pulseSet, pulseConn = {}, nil
+
+-- Effective visibility: every GuiObject ancestor Visible, and the ScreenGui
+-- Enabled. A hidden ANCESTOR is what folding the rail actually does.
+local function isShown(inst)
+	local node = inst
+	while node and node ~= game do
+		if node:IsA("GuiObject") and not node.Visible then return false end
+		if node:IsA("ScreenGui") then return node.Enabled end
+		node = node.Parent
+	end
+	return true
+end
+
+local function ensurePulseDriver()
+	if pulseConn then return end
+	pulseConn = RunService.Heartbeat:Connect(function()
+		local t = os.clock()
+		local live = false
+		for glow, spec in pairs(pulseSet) do
+			if not glow.Parent then
+				pulseSet[glow] = nil                 -- gone for good
+			else
+				live = true
+				-- OFF-SCREEN DOES NO WORK. Visibility is decided HERE, per frame,
+				-- rather than by hooking whoever hides the rail: GameHUDClient
+				-- hides LeftRail directly while SideRail hides it too, and
+				-- hooking both made them fight and flip-flop (observed live --
+				-- the pulse was cleared several times a second and never showed).
+				-- Asking the instance is self-correcting and cannot disagree.
+				if glow.Visible and glow:IsDescendantOf(game) and isShown(glow) then
+					local a = (math.sin(t * (2 * math.pi / spec.period)) + 1) * 0.5
+					glow.BackgroundTransparency = spec.rest + (spec.peak - spec.rest) * a
+				elseif glow.BackgroundTransparency ~= spec.rest then
+					glow.BackgroundTransparency = spec.rest   -- park it, once
+				end
+			end
+		end
+		if not live then
+			pulseConn:Disconnect()
+			pulseConn = nil
+		end
+	end)
+end
+
+local PULSE_MAX = 3
+local CLAIM_PRIORITY = { Daily = 1, Season = 2, Goals = 3, Rebirth = 4 }
+local readyTiles = {}   -- [tileName] = { setPulse = fn, ready = bool }
+
+local function arbitrateClaims()
+	local ready = {}
+	for name, entry in pairs(readyTiles) do
+		if entry.ready then ready[#ready + 1] = name end
+	end
+	table.sort(ready, function(a, b)
+		return (CLAIM_PRIORITY[a] or 99) < (CLAIM_PRIORITY[b] or 99)
+	end)
+	local onlyTop = #ready > PULSE_MAX
+	for i, name in ipairs(ready) do
+		readyTiles[name].setPulse(not onlyTop or i == 1)
+	end
+end
+
+-- Called when the rail folds away behind an open panel. Off-screen elements
+-- must not keep animating, and the loops are CANCELLED rather than hidden --
+-- a paused-but-live tween is exactly the orphan this is meant to avoid.
+
+
+
 function SideRail.MakeTile(cfg)
 	local rail = getRail()
 	local W, CARD_H, RIBBON_H, OVERLAP = 72, 64, 26, 9
@@ -334,12 +430,51 @@ function SideRail.MakeTile(cfg)
 
 	-- ===== handle =====
 	local handle = { button = tile }
-	function handle.setReady(on)
-		readyGlow.Visible = on == true
+	-- alive pass #1: the claim halo pops in once, then BREATHES until cleared.
+	-- 1.6 is UIKit.Tokens' T.tween.pulsePeriod (SideRail deliberately imports no
+	-- Tokens); the loop mirrors UIKit.Builders.claimRing exactly.
+	-- APPEARS BY FADE, not by pop. The old pop tweened a UIScale, and a
+	-- TweenService tween on UIScale.Scale does not run in this place (probed
+	-- live: the scale sits at whatever it was set to). A transparency fade is
+	-- both what the spec asks for and a GuiObject property, which does tween.
+	local REST_ALPHA, PULSE_ALPHA, PULSE_PERIOD = 0.35, 0.62, 1.1
+	local function setPulse(on)
+		if on then
+			pulseSet[readyGlow] = { rest = REST_ALPHA, peak = PULSE_ALPHA, period = PULSE_PERIOD }
+			ensurePulseDriver()
+		else
+			pulseSet[readyGlow] = nil                       -- deregistered, not merely paused
+			if readyGlow.Visible then
+				readyGlow.BackgroundTransparency = REST_ALPHA  -- static, still claimable
+			end
+		end
 	end
+	readyTiles[cfg.name or tostring(slot)] = { setPulse = setPulse, ready = false }
+
+	function handle.setReady(on)
+		local key = cfg.name or tostring(slot)
+		local entry = readyTiles[key]
+		if on == true then
+			if not readyGlow.Visible then
+				readyGlow.Visible = true
+				readyGlow.BackgroundTransparency = REST_ALPHA   -- appears at rest, no pop
+			end
+			if entry then entry.ready = true end
+		else
+			setPulse(false)
+			readyGlow.BackgroundTransparency = REST_ALPHA
+			readyGlow.Visible = false
+			if entry then entry.ready = false end
+		end
+		arbitrateClaims()
+	end
+	-- alive pass #5: a visible badge whose text CHANGES re-pops (1.25 -> 1);
+	-- rapid updates retarget by cancelling the previous tween, never stacking.
+	local badgeTween = nil
 	function handle.setBadge(kind, n)
 		if not kind or kind == "none" then badge.Visible = false; return end
 		local wasVisible = badge.Visible
+		local oldText = blabel.Text
 		badge.Visible = true
 		if kind == "dot" then
 			blabel.Text = ""; badge.Size = UDim2.fromOffset(15, 15); badge.BackgroundColor3 = BADGE_RED
@@ -349,8 +484,15 @@ function SideRail.MakeTile(cfg)
 			blabel.Text = "!"; badge.Size = UDim2.fromOffset(22, 22); badge.BackgroundColor3 = BADGE_GOLD
 		end
 		if not wasVisible then
+			if badgeTween then badgeTween:Cancel() end
 			bscale.Scale = 0
-			TweenService:Create(bscale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+			badgeTween = TweenService:Create(bscale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+			badgeTween:Play()
+		elseif blabel.Text ~= oldText then
+			if badgeTween then badgeTween:Cancel() end
+			bscale.Scale = 1.25
+			badgeTween = TweenService:Create(bscale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+			badgeTween:Play()
 		end
 	end
 	return handle
@@ -362,6 +504,7 @@ end
 -- matter how a client toggles it (a raw Visible flag, or UIStyle.popIn which also
 -- sets Visible). Hiding the others via Visible=false is enough for every panel.
 local railPanels = {}
+
 
 -- The rail sits at DisplayOrder 6, above every panel, and its cards are wide
 -- enough to cover a panel's left-hand column (the Index grid lost a whole
