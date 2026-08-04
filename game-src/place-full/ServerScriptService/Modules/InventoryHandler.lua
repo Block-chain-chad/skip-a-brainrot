@@ -393,6 +393,11 @@ function InventoryHandler.Init()
 	remotes.PlaceBrainrot.OnServerEvent:Connect(function(player, uid, padIndex)
 		if typeof(uid) ~= "number" then return end
 		if padIndex ~= nil and typeof(padIndex) ~= "number" then return end
+		-- NaN sails through range checks (NaN < 1 and NaN > limit are both false) and
+		-- then corrupts the profile as a table key: unsellable item, dead income tick,
+		-- unserialisable save. `% 1 ~= 0` also rejects inf (inf % 1 is NaN) and
+		-- fractional indexes in one stroke.
+		if padIndex ~= nil and (padIndex ~= padIndex or padIndex % 1 ~= 0) then return end
 		place(player, uid, padIndex and math.floor(padIndex) or nil)
 	end)
 
