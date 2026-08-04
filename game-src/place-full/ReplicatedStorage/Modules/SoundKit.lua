@@ -11,6 +11,7 @@
 
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")   -- M.loop's stop fade
 
 local M = {}
 
@@ -244,6 +245,49 @@ function M.play(name, where, opts)
 	s:Play()
 	Debris:AddItem(s, life)
 	return s
+end
+
+
+-- LOOPS. M.play is fire-and-forget with a Debris lifetime, which is wrong for a
+-- charge bed: it must survive an arbitrarily long hold and then stop on command.
+-- Same template/clone/volume-scaling path as M.play, so the Settings SFX slider
+-- still governs it -- this is a second play SHAPE, not a second audio layer.
+--
+-- Returns a handle: :setSpeed(n) to drive pitch, :stop(fade) to fade and destroy.
+-- stop() is idempotent, so a caller may call it from several teardown paths.
+function M.loop(name, opts)
+	local t = template(name)
+	if not t then return nil end
+	opts = opts or {}
+
+	local s = t:Clone()
+	s.Name = name .. "_loop"
+	s.Looped = true
+	s.Volume = (opts.volume or 0.2) * vol.sfx
+	s.PlaybackSpeed = opts.speed or 1
+	s.Parent = SoundService     -- 2D: this is happening to YOU, not somewhere
+	s:Play()
+
+	local handle = { sound = s }
+	local stopped = false
+	function handle:setSpeed(n)
+		if stopped or not s.Parent then return end
+		if type(n) ~= "number" or n ~= n then return end
+		s.PlaybackSpeed = n
+	end
+	function handle:stop(fade)
+		if stopped then return end
+		stopped = true
+		if not s.Parent then return end
+		fade = fade or 0
+		if fade <= 0 then
+			s:Destroy()
+			return
+		end
+		TweenService:Create(s, TweenInfo.new(fade), { Volume = 0 }):Play()
+		Debris:AddItem(s, fade + 0.05)   -- destroyed even if the tween is interrupted
+	end
+	return handle
 end
 
 return M
