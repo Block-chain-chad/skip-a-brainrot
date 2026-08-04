@@ -223,6 +223,52 @@ IconArt.SHAPES = {
 		{ type = "rect", x = 29, y = 46.5, w = 6, h = 2.6, r = 1.3, fill = "#F8F4EB", outline = false, note = "grin" },
 	},
 
+	--[[ Egg -- the Eggs Shop header mark, transcribed from the egg-shop handoff's
+	icons/eggs.svg (speckled forest egg). The kit's true egg outline is a bezier
+	(narrow crown into a 21-radius base); the closest primitive union is a tall
+	capsule, which at the 62px header size keeps the read -- pale shell, three
+	green spots, gloss -- without the bezier. Spot geometry is the SVG's own. ]]
+	egg = {
+		{ type = "rect", x = 11.5, y = 4, w = 41, h = 52, r = 20.5, gradTop = "#F7FBE6", gradBottom = "#BFCF8E", outline = true, note = "shell" },
+		{ type = "circle", cx = 40, cy = 22, radius = 5, gradTop = "#A6EE72", gradBottom = "#3E9E22", strokeColor = "#16170F", strokeWidth = 2.5, outline = false, note = "spot" },
+		{ type = "circle", cx = 24, cy = 34, radius = 4, gradTop = "#A6EE72", gradBottom = "#3E9E22", strokeColor = "#16170F", strokeWidth = 2.5, outline = false, note = "spot" },
+		{ type = "circle", cx = 39, cy = 41, radius = 6, gradTop = "#A6EE72", gradBottom = "#3E9E22", strokeColor = "#16170F", strokeWidth = 2.5, outline = false, note = "spot" },
+		{ type = "bar", x1 = 23, y1 = 13, x2 = 31.5, y2 = 6.5, t = 4, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+	},
+
+	--[[ The two quest KEYS, for the Backpack's Keys tab. No kit SVG exists for
+	either -- they are the first icons here drawn to a game need rather than
+	transcribed from the handoff -- so they are built from the same vocabulary and
+	palette as everything above, and are deliberately different SILHOUETTES rather
+	than two recolours: at tile size a player has to tell them apart at a glance,
+	and colour alone does not survive the greyed state the tab uses.
+
+	Both read left-to-right (bow left, teeth right) rather than on the diagonal a
+	key is usually drawn at: the tile is square, and a diagonal key leaves two
+	empty corners while shortening the shaft that carries the read. ]]
+	keyGianluca = {
+		-- Gianluca's: a plain round-bow key in the same gold as the coin icon
+		{ type = "circle", cx = 21, cy = 32, radius = 14, gradTop = "#FFE87A", gradBottom = "#E8930F", outline = true, note = "bow" },
+		{ type = "circle", cx = 21, cy = 32, radius = 6, fill = "#3F4038", outline = false, note = "bow hole" },
+		{ type = "bar", x1 = 33, y1 = 32, x2 = 59, y2 = 32, t = 9, fill = "#FFC531", outline = true, note = "shaft" },
+		{ type = "bar", x1 = 49, y1 = 33, x2 = 49, y2 = 43, t = 7, fill = "#FFC531", outline = true, note = "tooth" },
+		{ type = "bar", x1 = 58, y1 = 33, x2 = 58, y2 = 45, t = 7, fill = "#FFC531", outline = true, note = "tooth" },
+		{ type = "bar", x1 = 15, y1 = 25, x2 = 21, y2 = 21.5, t = 4, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+	},
+
+	keyCellar = {
+		-- Elder Tung's: an old skeleton key -- DIAMOND bow, collar on the shaft --
+		-- in the wood-brown his dialogue card already uses. gradFixed because the
+		-- 45-degree spin is our way of drawing a diamond, not the artwork tilting.
+		{ type = "rect", x = 11, y = 22, w = 20, h = 20, r = 4, rot = 45, gradTop = "#D8B48A", gradBottom = "#7A4A20", gradFixed = true, outline = true, note = "bow" },
+		{ type = "circle", cx = 21, cy = 32, radius = 5, fill = "#3F4038", outline = false, note = "bow hole" },
+		{ type = "bar", x1 = 30, y1 = 32, x2 = 59, y2 = 32, t = 8, fill = "#A9743C", outline = true, note = "shaft" },
+		{ type = "rect", x = 39, y = 24, w = 5.5, h = 16, r = 2, fill = "#6E4522", strokeColor = "#16170F", strokeWidth = 2.5, outline = true, note = "collar" },
+		{ type = "bar", x1 = 53, y1 = 33, x2 = 53, y2 = 44, t = 6.5, fill = "#A9743C", outline = true, note = "tooth" },
+		{ type = "bar", x1 = 59, y1 = 33, x2 = 59, y2 = 40, t = 6.5, fill = "#A9743C", outline = true, note = "tooth" },
+		{ type = "bar", x1 = 16, y1 = 28, x2 = 20, y2 = 24, t = 3.5, fill = "#FFFFFF", opacity = 0.45, outline = false, note = "gloss" },
+	},
+
 	settings = {
 		-- 8 teeth: the kit repeats one rect at rotate(N 32 32) for N in 0..315 step 45
 		{ type = "rect", x = 26.5, y = 3, w = 11, h = 20, r = 4, rot = 0, pivotX = 32, pivotY = 32, gradTop = "#FCFCF6", gradBottom = "#9AA28E", outline = true },

@@ -120,6 +120,9 @@ function M.Spawn(plot, entryOrName, padIndex, mutation, uid)
 	-- prompt.Parent, so hanging this on a child part would silently break Store.
 	storePrompt.Parent = model
 
+	-- No collect prompt here on purpose: takings are picked up by WALKING OVER the
+	-- brainrot (IncomeLoop.WALKUP_COLLECT), so there is nothing to press.
+
 	if mutation then
 		model:SetAttribute("Mutation", mutation)
 		local isPart = model:IsA("BasePart")

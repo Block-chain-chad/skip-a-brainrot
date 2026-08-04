@@ -214,7 +214,16 @@ return {
 	-- note on BrainrotMover.Give for why it cannot be enforced inside Give itself.
 	-- Fusion needs 5 identical copies, so a cap of 1 makes a Golden Chim unreachable
 	-- by construction rather than by a special case.
-	{ Name = "Chim", Rarity = "Mythic", CashPerSecond = 35000, Weight = 0, Unique = true, QuestOnly = true },
+	-- NO LONGER QuestOnly. Chim can now also be CAUGHT by skipping: FixedChance rolls it
+	-- independently before the Mythic weighted pool, so it is a rare find on a genuine
+	-- Mythic-distance throw (0.2% of Mythic-tier rolls) and its odds cannot be diluted by
+	-- future roster changes. Weight stays 0 -- FixedChance entries never touch the pool.
+	-- 0.002 is the tuning knob for how often it turns up.
+	--
+	-- Unique = true still caps you at ONE. That cap is now enforced on the CATCH path too
+	-- (ThrowHandler's reveal), which it never had to be before -- Chim is the first Unique
+	-- name a throw can produce.
+	{ Name = "Chim", Rarity = "Mythic", CashPerSecond = 35000, Weight = 0, Unique = true, FixedChance = 0.002 },
 
 	-- QUESTLINE EXCLUSIVE: Maxwell the cat's reward (see MaxwellQuest). Weight = 0 AND
 	-- QuestOnly = true -- BrainrotWaves.IsObtainable returns false for QuestOnly items,

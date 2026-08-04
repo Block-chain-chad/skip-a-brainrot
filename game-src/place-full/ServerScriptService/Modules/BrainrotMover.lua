@@ -47,16 +47,19 @@ function BrainrotMover.CountOwned(data, name)
 	return n
 end
 
+-- Both camps: the same brainrot is rendered on each of the player's plots, so removing
+-- it from one and not the other leaves a ghost standing on the world they are not in.
 function BrainrotMover.RemovePadVisual(player, padIndex)
 	if not padIndex then return end
-	local plot = PlayerDataManager.GetPlot(player)
-	if not plot then return end
-	local pads = plot:FindFirstChild("Pads")
-	if not pads then return end
-	for _, child in ipairs(pads:GetChildren()) do
-		if child:GetAttribute("PadIndex") == padIndex then
-			child:Destroy()
-			break
+	for _, plot in ipairs(PlayerDataManager.GetPlots(player)) do
+		local pads = plot:FindFirstChild("Pads")
+		if pads then
+			for _, child in ipairs(pads:GetChildren()) do
+				if child:GetAttribute("PadIndex") == padIndex then
+					child:Destroy()
+					break
+				end
+			end
 		end
 	end
 end
@@ -119,8 +122,7 @@ function BrainrotMover.Give(receiver, receiverData, record)
 		Uid = uid,
 	})
 	if padIndex then
-		local plot = PlayerDataManager.GetPlot(receiver)
-		if plot then
+		for _, plot in ipairs(PlayerDataManager.GetPlots(receiver)) do
 			BrainrotSpawner.Spawn(plot, record.Name, padIndex, record.Mutation, uid)
 		end
 	end
