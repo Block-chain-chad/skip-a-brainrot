@@ -50,6 +50,13 @@ end
 local tierIndexByName = {}
 for i, t in ipairs(RarityConfig) do tierIndexByName[t.Name] = i end
 
+-- Names capped at one per player. Needed here because a throw can now roll a Unique
+-- name (Chim) -- see the cap check on the reveal path below.
+local uniqueByName = {}
+for _, e in ipairs(BrainrotConfig) do
+	if e.Unique then uniqueByName[e.Name] = true end
+end
+
 -- fired to the throwing player when a pity boost lands, for the "<TIER> PITY THROW!" banner
 local pityRemote = remotes:FindFirstChild("PityThrow")
 if not pityRemote then
@@ -65,7 +72,67 @@ end
 
 local raritySignFolder = Workspace:WaitForChild("GameWorld")
 
-local WATER_Y = 1.5
+--============================ SKIP SURFACES =============================--
+-- THERE ARE TWO SKIP AREAS NOW. The hub lake is open water at y 1.5; the Frozen
+-- Tundra's is a solid sea-ice plane at y 1999, 8000 studs away. Everything a throw
+-- draws -- the skip path, the splashes, the ripples, the settle pose -- used to be
+-- pinned to the hub's single WATER_Y, so a stone thrown in the tundra skipped along
+-- an invisible plane two thousand studs beneath the ice.
+--
+-- A skip area is any BasePart named ThrowZone under GameWorld. It carries its own
+-- surface height and the Z its skip path starts at as attributes, so a third one is a
+-- build-time job with no edit here. Defaults are the hub's old constants, which means
+-- a zone authored without attributes still behaves exactly as before.
+local DEFAULT_SURFACE_Y = 1.5
+local DEFAULT_SKIP_START_Z = 28
+
+local function surfaceYOf(zone)
+	return (zone and zone:GetAttribute("SurfaceY")) or DEFAULT_SURFACE_Y
+end
+
+local function skipStartZOf(zone)
+	return (zone and zone:GetAttribute("SkipStartZ")) or DEFAULT_SKIP_START_Z
+end
+
+-- Cached rather than walked per throw: GameWorld has tens of thousands of descendants
+-- and this would otherwise run on every skip, every splash.
+local throwZones = {}
+local function rebuildThrowZones()
+	table.clear(throwZones)
+	local gw = Workspace:FindFirstChild("GameWorld")
+	if not gw then return end
+	for _, d in ipairs(gw:GetDescendants()) do
+		if d:IsA("BasePart") and d.Name == "ThrowZone" then
+			table.insert(throwZones, d)
+		end
+	end
+end
+
+task.spawn(function()
+	local gw = Workspace:WaitForChild("GameWorld")
+	rebuildThrowZones()
+	gw.DescendantAdded:Connect(function(d)
+		if d.Name == "ThrowZone" and d:IsA("BasePart") then rebuildThrowZones() end
+	end)
+	gw.DescendantRemoving:Connect(function(d)
+		if d.Name == "ThrowZone" and d:IsA("BasePart") then task.defer(rebuildThrowZones) end
+	end)
+end)
+
+-- The zone the character is standing in, or nil. Y is generous (+6) because the stance
+-- mats sit above the deck bed and a jumping player should not drop out of the zone.
+local function throwZoneOf(character)
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return nil end
+	for _, zone in ipairs(throwZones) do
+		local rel = zone.CFrame:PointToObjectSpace(hrp.Position)
+		local s = zone.Size / 2
+		if math.abs(rel.X) <= s.X and math.abs(rel.Z) <= s.Z and math.abs(rel.Y) <= s.Y + 6 then
+			return zone
+		end
+	end
+	return nil
+end
 
 -- perfect = the release landed inside the sweet-spot band. The band is ISSUED
 -- BY THIS SERVER (GetSweetSpot, single-use, aged) and judged here against the
@@ -151,7 +218,7 @@ local SPLASH_BIG_SOUND = SoundKit.Ids.splashBig -- 3.51s, the landing only
 --   index/total: 1-based contact number, used to raise the pitch across the sequence
 --                the way a real stone gets lighter and quicker as it loses energy.
 --   big:         the final landing -- lower, fuller, and allowed to ring longer.
-local function playSplashSound(pos, big, index, total)
+local function playSplashSound(pos, big, index, total, surfaceY)
 	local host = Instance.new("Part")
 	host.Name = "SplashAudio"
 	host.Size = Vector3.new(0.2, 0.2, 0.2)
@@ -160,7 +227,7 @@ local function playSplashSound(pos, big, index, total)
 	host.CanCollide = false
 	host.CanQuery = false
 	host.CastShadow = false
-	host.CFrame = CFrame.new(pos.X, WATER_Y, pos.Z)
+	host.CFrame = CFrame.new(pos.X, surfaceY or DEFAULT_SURFACE_Y, pos.Z)
 	host.Parent = Workspace
 
 	local sound = Instance.new("Sound")
@@ -243,7 +310,7 @@ local function decorPart(p)
 	return p
 end
 
-local function ripple(pos, delay, startD, endD, life, alpha)
+local function ripple(pos, delay, startD, endD, life, alpha, surfaceY)
 	task.delay(delay, function()
 		local TweenService = game:GetService("TweenService")
 		local ring = Instance.new("Part")
@@ -253,7 +320,7 @@ local function ripple(pos, delay, startD, endD, life, alpha)
 		ring.Material = Enum.Material.Neon
 		ring.Color = Color3.fromRGB(226, 244, 255)
 		ring.Transparency = alpha
-		ring.CFrame = CFrame.new(pos.X, WATER_Y + 0.04, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+		ring.CFrame = CFrame.new(pos.X, (surfaceY or DEFAULT_SURFACE_Y) + 0.04, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
 		decorPart(ring)
 		-- Quad easing: a real ripple sprints outward then slows, where the old Linear
 		-- tween expanded at a constant rate and looked mechanical.
@@ -263,19 +330,20 @@ local function ripple(pos, delay, startD, endD, life, alpha)
 	end)
 end
 
-local function spawnSplash(pos, big)
+local function spawnSplash(pos, big, surfaceY)
 	local TweenService = game:GetService("TweenService")
 	local scale = big and 2.6 or 1
+	surfaceY = surfaceY or DEFAULT_SURFACE_Y
 
 	-- lead ripple, plus a trailing one that chases it. The landing sheds a THIRD,
 	-- slowest, widest ring -- a big impact pushes out a longer train than a skip,
 	-- and the late wide ring is what makes the lake look like it took the hit.
-	ripple(pos, 0, 1.6, 12 * scale, big and 0.80 or 0.62, 0.35)
+	ripple(pos, 0, 1.6, 12 * scale, big and 0.80 or 0.62, 0.35, surfaceY)
 	if big then
-		ripple(pos, 0.10, 1.2, 28, 1.05, 0.58)
-		ripple(pos, 0.26, 1.0, 40, 1.45, 0.72)
+		ripple(pos, 0.10, 1.2, 28, 1.05, 0.58, surfaceY)
+		ripple(pos, 0.26, 1.0, 40, 1.45, 0.72, surfaceY)
 	else
-		ripple(pos, 0.09, 1.0, 6.5, 0.44, 0.68)
+		ripple(pos, 0.09, 1.0, 6.5, 0.44, 0.68, surfaceY)
 	end
 
 	-- droplet burst
@@ -283,7 +351,7 @@ local function spawnSplash(pos, big)
 	host.Name = "SkipSplash"
 	host.Size = Vector3.new(0.2, 0.2, 0.2)
 	host.Transparency = 1
-	host.CFrame = CFrame.new(pos.X, WATER_Y + 0.15, pos.Z)
+	host.CFrame = CFrame.new(pos.X, surfaceY + 0.15, pos.Z)
 	decorPart(host)
 
 	local e = Instance.new("ParticleEmitter")
@@ -346,7 +414,7 @@ local function spawnSplash(pos, big)
 		col.Material = Enum.Material.Neon
 		col.Color = Color3.fromRGB(240, 251, 255)
 		col.Transparency = 0.28
-		col.CFrame = CFrame.new(pos.X, WATER_Y + 0.3, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+		col.CFrame = CFrame.new(pos.X, surfaceY + 0.3, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
 		decorPart(col)
 		TweenService:Create(col, TweenInfo.new(0.20, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
 			{ Size = Vector3.new(10.5, 2.0, 2.0) }):Play()
@@ -360,9 +428,12 @@ local function spawnSplash(pos, big)
 	end
 end
 
-local function spawnSkippingStone(player, distance, rock, onLand)
+local function spawnSkippingStone(player, distance, rock, onLand, zone)
 	local origin, dir = getThrowOrigin(player)
 	local horiz = Vector3.new(0, 0, 1) -- always toward the distance markers
+	-- Both skip areas face +Z, so the path is still a straight run up the lane; what
+	-- differs per zone is how high the surface is and where the lane starts.
+	local surfaceY = surfaceYOf(zone)
 
 	-- A detailed multi-part rock, not a bare primitive: chips, facets and flecks
 	-- from RockDesign, which the shop preview and Rocco's shelf build from too, so
@@ -375,7 +446,7 @@ local function spawnSkippingStone(player, distance, rock, onLand)
 	stone.Parent = Workspace
 
 	-- start the skip path just past the dock's front edge so the rock skips on OPEN water, never under the deck floor
-	local startFlat = Vector3.new(origin.X, WATER_Y, math.max(origin.Z, 28))
+	local startFlat = Vector3.new(origin.X, surfaceY, math.max(origin.Z, skipStartZOf(zone)))
 	-- fewer, clearer skips: aim for ~one skip every ~18 studs, 2..8 contacts
 	local nContacts = math.clamp(math.floor(distance / 18) + 1, 2, 8)
 	local points = { origin }
@@ -423,30 +494,30 @@ local function spawnSkippingStone(player, distance, rock, onLand)
 			end
 			-- splash at each water contact (bigger on the final landing)
 			local isLast = k == #points - 1
-			spawnSplash(b, isLast)
-			playSplashSound(b, isLast, k, #points - 1)
+			spawnSplash(b, isLast, surfaceY)
+			playSplashSound(b, isLast, k, #points - 1, surfaceY)
 		end
 		local last = points[#points]
-		stone:PivotTo(CFrame.new(last.X, WATER_Y, last.Z) * CFrame.Angles(math.rad(6), 0, 0))
+		stone:PivotTo(CFrame.new(last.X, surfaceY, last.Z) * CFrame.Angles(math.rad(6), 0, 0))
 		Debris:AddItem(stone, 1.3)
 		if onLand then onLand() end -- the stone has settled in the water -> reveal the catch
 	end)
 end
 
+-- EVERY camp the player owns. A brainrot is one entry in data.Brainrots rendered on each
+-- of their plots, so a catch made in the valley has to appear on the tundra camp too --
+-- otherwise walking through the portal looks like it ate half your collection.
 local function spawnBrainrotOnPlot(player, brainrotEntry, padIndex, mutation)
-	local plot = PlayerDataManager.GetPlot(player)
-	if not plot then return end
-	BrainrotSpawner.Spawn(plot, brainrotEntry, padIndex, mutation)
+	for _, plot in ipairs(PlayerDataManager.GetPlots(player)) do
+		BrainrotSpawner.Spawn(plot, brainrotEntry, padIndex, mutation)
+	end
 end
 
+-- Unchanged contract: no zones authored at all means no gating, exactly as when this
+-- looked up a single GameWorld.ThrowZone and let the throw through if it was missing.
 local function isInThrowZone(character)
-	local zone = Workspace:FindFirstChild("GameWorld") and Workspace.GameWorld:FindFirstChild("ThrowZone")
-	if not zone then return true end
-	local hrp = character and character:FindFirstChild("HumanoidRootPart")
-	if not hrp then return false end
-	local rel = zone.CFrame:PointToObjectSpace(hrp.Position)
-	local s = zone.Size / 2
-	return math.abs(rel.X) <= s.X and math.abs(rel.Z) <= s.Z and math.abs(rel.Y) <= s.Y + 6
+	if #throwZones == 0 then return true end
+	return throwZoneOf(character) ~= nil
 end
 
 local ThrowHandler = {}
@@ -540,6 +611,10 @@ function ThrowHandler.Init()
 			and power >= band.min and power <= band.max
 
 		if not isInThrowZone(player.Character) then return end
+		-- Captured HERE, at the last validation, rather than at launch: the reveal path
+		-- below yields (mint claims, season writes) and the player can wander off the deck
+		-- in between. The stone should skip on the surface they threw from.
+		local throwZone = throwZoneOf(player.Character)
 
 		-- Claim the flight slot HERE -- immediately after the last cheap validation and
 		-- BEFORE any of the roll / mint / season work below.
@@ -604,7 +679,17 @@ function ThrowHandler.Init()
 		-- God index so Pete still gets his independent 1-in-a-million FixedChance shot;
 		-- PickInTier(God) rolls Pete, else falls through to a Secret. pickIndex is reused
 		-- by the reveal-time re-rolls below (vaulted / limited fallbacks).
-		local rolledTier = RarityCurve.RollTierIndex(distance, accessLuck)
+		-- WHICH WORLD IS THIS THROW IN. The tundra has its own ladder and its own pool, so
+		-- the curve, the pick and the pity bands all have to be asked for that world.
+		-- PlayerWorld returns BoundsGuard's region name, which is what WorldProgression
+		-- is keyed on.
+		local throwWorld = PlayerDataManager.PlayerWorld(player)
+		local curve = RarityCurve.For(throwWorld)
+		-- tier name -> index within THIS world's ladder. The module-level tierIndexByName
+		-- is the valley's, and the tundra's bands are not the same distances.
+		local wIdx = {}
+		for i, t in ipairs(curve.Rarities) do wIdx[t.Name] = i end
+		local rolledTier = curve.RollTierIndex(distance, accessLuck)
 
 		-- === Pity: cap dry streaks. Every throw that REACHES a tier's distance ticks that
 		-- tier's counter up; once it passes the threshold, the HIGHEST eligible tier gets ONE
@@ -612,17 +697,17 @@ function ThrowHandler.Init()
 		-- actually catch that tier or higher (revealCatch). See PityConfig for the tunables.
 		data.Pity = data.Pity or {}
 		for _, pity in ipairs(PityConfig) do
-			local tIdx = tierIndexByName[pity.Tier]
-			if tIdx and distance >= RarityConfig[tIdx].MinDistance then
+			local tIdx = wIdx[pity.Tier]
+			if tIdx and distance >= curve.Rarities[tIdx].MinDistance then
 				data.Pity[pity.Tier] = (data.Pity[pity.Tier] or 0) + 1
 			end
 		end
 		local pityTierName
 		for i = #PityConfig, 1, -1 do   -- highest tier first: one pity bump per throw
 			local pity = PityConfig[i]
-			local tIdx = tierIndexByName[pity.Tier]
+			local tIdx = wIdx[pity.Tier]
 			if tIdx and tIdx > rolledTier
-				and distance >= RarityConfig[tIdx].MinDistance
+				and distance >= curve.Rarities[tIdx].MinDistance
 				and (data.Pity[pity.Tier] or 0) >= pity.Threshold
 				and math.random() < pity.Chance then
 				rolledTier = tIdx
@@ -633,12 +718,15 @@ function ThrowHandler.Init()
 		-- pity fired: flash a "<TIER> PITY THROW!" banner as the rock flies. The catch that
 		-- lands will be at least this tier (rolledTier was just bumped up to it).
 		if pityTierName then
-			local pt = RarityConfig[tierIndexByName[pityTierName]]
+			local pt = curve.Rarities[wIdx[pityTierName]]
 			pityRemote:FireClient(player, pityTierName, pt and pt.Color)
 		end
 
-		local pickIndex = (rolledTier >= RarityCurve.TopTier) and RarityCurve.GodIndex or rolledTier
-		local brainrotEntry, tier = RarityRoll.PickInTier(pickIndex)
+		-- A top-of-curve roll is routed at this world's APEX tier so its FixedChance
+		-- entries get their shot first and otherwise fall back to the tier below.
+		-- Valley: Secret Pete. Tundra: the ten Glitched. Same mechanism, different table.
+		local pickIndex = (rolledTier >= curve.TopTier) and curve.ApexIndex or rolledTier
+		local brainrotEntry, tier = RarityRoll.PickInTier(pickIndex, false, throwWorld)
 		if not brainrotEntry then abandonFlight(); return end   -- empty tier: never hand out a nil catch
 
 		-- set by the test hook below; makes this catch exempt from the
@@ -733,18 +821,39 @@ function ThrowHandler.Init()
 			-- mid-flight must not land an away/vaulted catch. Clock-pure and
 			-- non-yielding, so it is allowed on the reveal path.
 			-- forcedCatch bypasses this: a test override deliberately targets
-			-- entries the schedule says are unobtainable (Chim is questline-only),
+			-- entries the schedule says are unobtainable (Maxwell is questline-only),
 			-- so re-checking here would silently swap it for an ordinary catch.
 			if not forcedCatch and not Waves.IsObtainable(brainrotEntry.Name) then
-				local fallback, fallbackTier = RarityRoll.PickInTier(pickIndex, true)
+				local fallback, fallbackTier = RarityRoll.PickInTier(pickIndex, true, throwWorld)
 				if not fallback then return end
 				brainrotEntry, tier = fallback, fallbackTier
 				tracked = MintRegistry.IsTracked(tier.Name, mutation)
 			end
 
+			-- === UNIQUE CAP, ON THE CATCH PATH ===
+			-- New here. BrainrotMover.Give documents the one-per-player cap as checked
+			-- PRE-FLIGHT by every caller that can hand an item over -- trade, booth, quest
+			-- grant -- and a THROW was never one of them, because no Unique name could be
+			-- rolled. Chim can be now, so without this a player holding a Chim could simply
+			-- catch a second one, which is the exact thing Unique exists to forbid.
+			-- Falls back to an ordinary catch for the tier, same as a LimitedStock miss --
+			-- the player still gets a Mythic, just not a duplicate of a one-off.
+			if uniqueByName[brainrotEntry.Name] then
+				local owned = 0
+				for _, e in ipairs(liveData.Brainrots) do
+					if e.Name == brainrotEntry.Name then owned += 1 end
+				end
+				if owned >= 1 then
+					local fallback, fallbackTier = RarityRoll.PickInTier(pickIndex, true, throwWorld)
+					if not fallback then return end
+					brainrotEntry, tier = fallback, fallbackTier
+					tracked = MintRegistry.IsTracked(tier.Name, mutation)
+				end
+			end
+
 			if LimitedStock.IsLimited(brainrotEntry.Name) then
 				if not LimitedStock.TryClaim(brainrotEntry.Name) then
-					local fallback, fallbackTier = RarityRoll.PickInTier(pickIndex, true)
+					local fallback, fallbackTier = RarityRoll.PickInTier(pickIndex, true, throwWorld)
 					if not fallback then return end
 					brainrotEntry, tier = fallback, fallbackTier
 					-- re-evaluated because the fallback may sit in a different tier; its serial
@@ -824,7 +933,7 @@ function ThrowHandler.Init()
 			local caughtIdx = tierIndexByName[tier.Name]
 			if caughtIdx and liveData.Pity then
 				for _, pity in ipairs(PityConfig) do
-					local tIdx = tierIndexByName[pity.Tier]
+					local tIdx = wIdx[pity.Tier]
 					if tIdx and caughtIdx >= tIdx then liveData.Pity[pity.Tier] = 0 end
 				end
 			end
@@ -845,7 +954,7 @@ function ThrowHandler.Init()
 				if not ok then
 					warn("[ThrowHandler] revealCatch failed for " .. player.Name .. ": " .. tostring(err))
 				end
-			end)
+			end, throwZone)
 		end)
 
 		-- Watchdog: if that task ever dies before landing, the flag would strand the
