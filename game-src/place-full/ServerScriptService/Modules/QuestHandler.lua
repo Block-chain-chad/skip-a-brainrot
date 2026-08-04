@@ -36,17 +36,34 @@ local function maxDupe(data)
 end
 
 -- ordered goal list (id, description, reward, met(data))
+-- Every goal now carries cur(data) + target alongside met(). The protocol could
+-- previously only say yes/no, so "fill 10 plot spots" transmitted Met = false
+-- whether you had 0 or 9 -- there was nothing a progress bar could read.
+--
+-- met() is KEPT and still authoritative for claiming: cur/target are for display
+-- only, so a display bug can never hand out a reward. The two agree by
+-- construction (met is cur >= target) but claim never consults cur.
 local QUESTS = {
-	{ id = "uncommon",  desc = "Catch an Uncommon+ brainrot", reward = 1500,  met = function(d) return bestRarity(d) >= 2 end },
-	{ id = "own5",      desc = "Own 5 brainrots",             reward = 4000,  met = function(d) return totalBrainrots(d) >= 5 end },
-	{ id = "cash25k",   desc = "Reach $25,000 cash",          reward = 6000,  met = function(d) return d.Cash >= 25000 end },
-	{ id = "rare",      desc = "Catch a Rare+ brainrot",      reward = 10000, met = function(d) return bestRarity(d) >= 3 end },
-	{ id = "dupe3",     desc = "Own 3 of the same brainrot",  reward = 8000,  met = function(d) return maxDupe(d) >= 3 end },
-	{ id = "pads10",    desc = "Fill 10 plot spots",          reward = 18000, met = function(d) return filledPads(d) >= 10 end },
-	{ id = "epic",      desc = "Catch an Epic+ brainrot",     reward = 30000, met = function(d) return bestRarity(d) >= 4 end },
-	{ id = "cash250k",  desc = "Reach $250,000 cash",         reward = 40000, met = function(d) return d.Cash >= 250000 end },
-	{ id = "legendary", desc = "Catch a Legendary+ brainrot", reward = 75000, met = function(d) return bestRarity(d) >= 5 end },
-	{ id = "mythic",    desc = "Catch a Mythic+ brainrot",    reward = 200000,met = function(d) return bestRarity(d) >= 6 end },
+	{ id = "uncommon",  desc = "Catch an Uncommon+ brainrot", reward = 1500,  target = 2,
+	  cur = bestRarity,      met = function(d) return bestRarity(d) >= 2 end },
+	{ id = "own5",      desc = "Own 5 brainrots",             reward = 4000,  target = 5,
+	  cur = totalBrainrots,  met = function(d) return totalBrainrots(d) >= 5 end },
+	{ id = "cash25k",   desc = "Reach $25,000 cash",          reward = 6000,  target = 25000,
+	  cur = function(d) return d.Cash end,   met = function(d) return d.Cash >= 25000 end },
+	{ id = "rare",      desc = "Catch a Rare+ brainrot",      reward = 10000, target = 3,
+	  cur = bestRarity,      met = function(d) return bestRarity(d) >= 3 end },
+	{ id = "dupe3",     desc = "Own 3 of the same brainrot",  reward = 8000,  target = 3,
+	  cur = maxDupe,         met = function(d) return maxDupe(d) >= 3 end },
+	{ id = "pads10",    desc = "Fill 10 plot spots",          reward = 18000, target = 10,
+	  cur = filledPads,      met = function(d) return filledPads(d) >= 10 end },
+	{ id = "epic",      desc = "Catch an Epic+ brainrot",     reward = 30000, target = 4,
+	  cur = bestRarity,      met = function(d) return bestRarity(d) >= 4 end },
+	{ id = "cash250k",  desc = "Reach $250,000 cash",         reward = 40000, target = 250000,
+	  cur = function(d) return d.Cash end,   met = function(d) return d.Cash >= 250000 end },
+	{ id = "legendary", desc = "Catch a Legendary+ brainrot", reward = 75000, target = 5,
+	  cur = bestRarity,      met = function(d) return bestRarity(d) >= 5 end },
+	{ id = "mythic",    desc = "Catch a Mythic+ brainrot",    reward = 200000,target = 6,
+	  cur = bestRarity,      met = function(d) return bestRarity(d) >= 6 end },
 }
 
 local QuestHandler = {}
@@ -56,10 +73,16 @@ function QuestHandler.SendState(player)
 	if not data then return end
 	local list = {}
 	for _, q in ipairs(QUESTS) do
+		-- Cur is clamped to Target for display so a bar can never overfill (you can
+		-- hold $9m against a $25k goal). Met stays exactly as it was -- everything
+		-- already reading this payload is unaffected.
+		local target = q.target or 1
+		local cur = math.clamp(tonumber(q.cur and q.cur(data)) or 0, 0, target)
 		list[#list + 1] = {
 			Id = q.id, Desc = q.desc, Reward = q.reward,
 			Met = q.met(data) == true,
 			Claimed = data.Quests[q.id] == true,
+			Cur = cur, Target = target,
 		}
 	end
 	remotes.QuestState:FireClient(player, list)
