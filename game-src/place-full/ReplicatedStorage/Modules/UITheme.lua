@@ -465,6 +465,7 @@ function M.styleHudButton(btn, cTop, cBot, radius)
 	end
 	textStroke.Color = Color3.fromRGB(20, 24, 32); textStroke.Thickness = 2; textStroke.Transparency = 0.1
 	if not btn:FindFirstChild("Gloss") then M.gloss(btn, math.max(radius - 3, 4), 0.72) end
+	wireClick(btn, "uiClick") -- SFX2
 	return btn
 end
 
@@ -584,6 +585,7 @@ function M.candyButton(b, c1, c2, radius)
 	ts.Color = CANDY.ink
 	ts.Thickness = 2.5
 	ts.Parent = b
+	wireClick(b, "uiClick") -- SFX2
 	return b
 end
 

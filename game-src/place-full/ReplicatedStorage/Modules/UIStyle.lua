@@ -34,8 +34,30 @@ Border vs text strokes are distinguished by ApplyStrokeMode AND by name.
 ]]
 
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+-- SoundKit is a LEAF (it requires no module of its own), and UIStyle is never
+-- required server-side, so this top-level require cannot cycle. UITheme requires
+-- it lazily instead only because UITheme loads on the server too.
+local SoundKit = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("SoundKit"))
 
 local UIStyle = {}
+
+-- CLICK AUDIO. Deliberately the SAME "SfxWired" attribute key UITheme.wireClick
+-- uses: a button that passes through constructors in BOTH modules (or is styled
+-- and then wired directly) can only ever get ONE connection, so it can never
+-- double-click. Volume matches UITheme's existing 0.12 so every button in the
+-- game sits at one level.
+local CLICK_VOLUME = 0.12
+local function wireClick(btn, soundName)
+	if not RunService:IsClient() then return end
+	if typeof(btn) ~= "Instance" or not btn:IsA("GuiButton") then return end
+	if btn:GetAttribute("SfxWired") then return end
+	btn:SetAttribute("SfxWired", true)
+	btn.MouseButton1Click:Connect(function()
+		pcall(SoundKit.play, soundName or "uiClick", nil, { volume = CLICK_VOLUME })
+	end)
+end
+UIStyle._wireClick = wireClick
 
 local function C(r, g, b) return Color3.fromRGB(r, g, b) end
 
@@ -215,6 +237,7 @@ function UIStyle.styleButton(btn, accent)
 	if btn:IsA("TextButton") then
 		UIStyle.bubbleText(btn, accent)
 	end
+	wireClick(btn, "uiClick")
 	return btn
 end
 
@@ -286,6 +309,9 @@ function UIStyle.styleClose(btn)
 	btn.Size = UDim2.fromOffset(34, 34)
 	btn.Text = ""
 	btn.ZIndex = 6
+	-- wire the CLOSE voice first: styleButton below would otherwise claim this
+	-- button for the generic uiClick via the shared SfxWired guard
+	wireClick(btn, "panelClose")
 	UIStyle.styleButton(btn, P.Red)
 	UIStyle.pill(btn)
 	drawCloseX(btn)
@@ -333,6 +359,7 @@ function UIStyle.popIn(panelRoot)
 	local base = panelRoot:GetAttribute("UIStyleBaseScale") or 1
 	local sc = rootScale(panelRoot)
 	panelRoot.Visible = true
+	pcall(SoundKit.play, "panelOpen", nil, { volume = CLICK_VOLUME })
 	sc.Scale = base * 0.65
 	playTween(sc, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = base })
 end
@@ -340,6 +367,7 @@ end
 -- pop-closed: 0.15s Quad/In shrink, THEN hides the panel and calls cb.
 -- If a popIn interrupts, the tween is cancelled and Visible stays true.
 function UIStyle.popOut(panelRoot, cb)
+	pcall(SoundKit.play, "panelClose", nil, { volume = CLICK_VOLUME })
 	local base = panelRoot:GetAttribute("UIStyleBaseScale") or 1
 	local sc = rootScale(panelRoot)
 	local tween = playTween(sc, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = base * 0.65 })
@@ -460,6 +488,7 @@ function UIStyle.plate(root, accent, opts)
 		plateCorner(shadow, cScale)
 	end
 
+	wireClick(root, "uiClick")   -- no-ops when the plate root is a Frame, not a button
 	return { root = root, face = face, gloss = gloss, iconHolder = iconHolder, shadow = shadow }
 end
 
@@ -601,6 +630,7 @@ function UIStyle.sticker(btn, opts)
 	UIStyle.bubbleText(bang, P.Red)
 
 	UIStyle.attachHoverPress(btn)
+	wireClick(btn, "uiClick")
 	return { card = card, icon = icon, ribbon = ribbon, label = word, badge = badge }
 end
 

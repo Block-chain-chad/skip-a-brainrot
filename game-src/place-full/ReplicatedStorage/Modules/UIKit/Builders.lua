@@ -8,6 +8,20 @@
 -- local btn   = UI.button(panel, "Claim", "green", UDim2.fromOffset(136, 60))
 
 local T = require(script.Parent.Tokens)
+-- SoundKit is a LEAF (requires no module) and UIKit is never required server-side,
+-- so this cannot cycle. Same SfxWired attribute key UITheme/UIStyle use, so a button
+-- built here and restyled elsewhere still gets exactly ONE click connection.
+local RunService = game:GetService("RunService")
+local SoundKit = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("SoundKit"))
+local CLICK_VOLUME = 0.12
+local function wireClick(btn: GuiButton, soundName: string?)
+	if not RunService:IsClient() then return end
+	if btn:GetAttribute("SfxWired") then return end
+	btn:SetAttribute("SfxWired", true)
+	btn.MouseButton1Click:Connect(function()
+		pcall(SoundKit.play, soundName or "uiClick", nil, { volume = CLICK_VOLUME })
+	end)
+end
 
 local UI = {}
 
@@ -214,6 +228,8 @@ function UI.button(parent: Instance, text: string, variant: string, size: UDim2,
 			}):Play()
 		end)
 	end
+	-- disabled variants stay silent: a dead control that clicks reads as a bug
+	if variant ~= "disabled" then wireClick(b, "uiClick") end
 	return b
 end
 
