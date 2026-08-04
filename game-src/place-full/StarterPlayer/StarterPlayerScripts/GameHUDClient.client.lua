@@ -764,6 +764,34 @@ local RAIL_LABEL_H = 26
 -- around the art, not a plate behind it
 local RAIL_CLAIM_D = T.size.railIcon + 10
 
+-- 2026-08-04 icon redesign (user handoff "Roblox game UI redesign", option
+-- 3a): the rail wears the mock's frameless sticker treatment -- the EMOJI
+-- GLYPH IS THE ICON, at the mock's per-icon size ladder (scaled 653->775 to
+-- our canvas) and tilt, idle-bobbing with a 0.25s stagger; the Daily gift
+-- wobbles instead (rotate about its base tilt -- Rotation tweens verified
+-- running in this place, unlike the transparency/UIScale family). The kit
+-- PNGs in T.icons and IconArt stay untouched underneath: delete a STICKER
+-- entry and that slot falls straight back to the old art chain. Rebirth
+-- deliberately has NO entry (user call: keep our drawn arc-over-star).
+-- Every glyph below was render-proven live on a probe board this session.
+-- NOTE: the mock's dark keyline is NOT achievable on colour emoji --
+-- UIStroke (3px and 6px), legacy TextStroke and UIPolish are all no-ops on
+-- them (probed live) -- so the glyphs ride bare with the shadow the emoji
+-- art itself carries.
+local STICKER = {
+	bag      = { glyph = "\u{1F392}", size = 64, tilt = -5 },
+	goals    = { glyph = "\u{2705}", size = 59, tilt = 4 },
+	pass     = { glyph = "\u{2B50}", size = 64, tilt = 5 },
+	index    = { glyph = "\u{1F4D8}", size = 62, tilt = -4 },
+	daily    = { glyph = "\u{1F381}", size = 68, tilt = -6, wobble = true },
+	settings = { glyph = "\u{2699}\u{FE0F}", size = 52, tilt = 4 },
+}
+local BOB_RISE = 7        -- px of idle lift (mock: 6 at reference scale)
+local BOB_TIME = 1.6      -- half-cycle; full bob = 3.2s like the mock
+local BOB_STAGGER = 0.25
+local WOB_SWING = 3       -- degrees either side of the base tilt
+local WOB_TIME = 1.3      -- half-cycle; full wobble = 2.6s
+
 local RAIL_ORDER = {
 	{ id = "bag", label = "Bag" },
 	{ id = "pass", label = "Pass" },
@@ -870,21 +898,73 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	icon.ZIndex = item.ZIndex + 2
 	icon.Parent = item
 
-	local iconId = T.icons[cfg.id]
-	if iconId and iconId ~= "" then
-		-- imported art always wins once the ids land in Tokens
-		local img = Instance.new("ImageLabel")
-		img.Name = "Art"
-		img.Size = UDim2.fromScale(1, 1)
-		img.BackgroundTransparency = 1
-		img.Image = iconId
-		img.ScaleType = Enum.ScaleType.Fit
-		img.ZIndex = icon.ZIndex + 1
-		img.Parent = icon
-	elseif IconArt and IconArt.has(cfg.id) then
-		IconArt.draw(icon, cfg.id, T.size.railIcon, icon.ZIndex + 1)
+	local sticker = STICKER[cfg.id]
+	if sticker then
+		-- redesign glyph wins over the old art chain (see STICKER above)
+		local glyph = Instance.new("TextLabel")
+		glyph.Name = "StickerGlyph"
+		glyph.Size = UDim2.fromScale(1, 1)
+		glyph.BackgroundTransparency = 1
+		glyph.Font = Enum.Font.FredokaOne
+		glyph.TextSize = sticker.size
+		glyph.Text = sticker.glyph
+		glyph.TextColor3 = T.color.white -- colour emoji ignore this; fallback only
+		glyph.Rotation = sticker.tilt
+		glyph.ZIndex = icon.ZIndex + 1
+		-- emoji must not be re-coloured or outlined by the game-wide UIPolish
+		-- sweep (SideRail convention; strokes are no-ops on emoji anyway)
+		glyph:SetAttribute("NoPolish", true)
+		glyph.Parent = icon
+		if sticker.wobble then
+			-- rock about the base tilt, engine-driven, no per-frame Lua
+			glyph.Rotation = sticker.tilt - WOB_SWING
+			TweenService:Create(glyph,
+				TweenInfo.new(WOB_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ Rotation = sticker.tilt + WOB_SWING }):Play()
+		else
+			-- idle bob on the icon SLOT (never `item`: hover/press tween item
+			-- Position and capture a lazy rest pose -- bobbing there would
+			-- corrupt basePos). Staggered like the mock so the rail ripples.
+			local slotRest = icon.Position
+			task.delay(order * BOB_STAGGER, function()
+				if not icon.Parent then return end
+				TweenService:Create(icon,
+					TweenInfo.new(BOB_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+					{ Position = slotRest - UDim2.fromOffset(0, BOB_RISE) }):Play()
+			end)
+		end
 	else
-		glyphFallback(icon, cfg.id, 40, false) -- last resort, unplated
+		local iconId = T.icons[cfg.id]
+		if iconId and iconId ~= "" then
+			-- imported art always wins once the ids land in Tokens
+			local img = Instance.new("ImageLabel")
+			img.Name = "Art"
+			img.Size = UDim2.fromScale(1, 1)
+			img.BackgroundTransparency = 1
+			img.Image = iconId
+			img.ScaleType = Enum.ScaleType.Fit
+			img.ZIndex = icon.ZIndex + 1
+			img.Parent = icon
+		elseif IconArt and IconArt.has(cfg.id) then
+			IconArt.draw(icon, cfg.id, T.size.railIcon, icon.ZIndex + 1)
+		else
+			glyphFallback(icon, cfg.id, 40, false) -- last resort, unplated
+		end
+		-- rebirth keeps its drawn icon (user call) but joins the mock's motion
+		-- language with the staggered bob, so one dead-still icon doesn't read
+		-- as broken in a rail of live ones. NO TILT, deliberately: rotating any
+		-- ancestor of IconArt's clip frames disables ClipsDescendants (probed
+		-- live at 4x -- the arch's keyline+purple rings render as FULL ovals
+		-- looping through the star). Review catch.
+		if cfg.id == "rebirth" then
+			local slotRest = icon.Position
+			task.delay(order * BOB_STAGGER, function()
+				if not icon.Parent then return end
+				TweenService:Create(icon,
+					TweenInfo.new(BOB_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+					{ Position = slotRest - UDim2.fromOffset(0, BOB_RISE) }):Play()
+			end)
+		end
 	end
 
 	local label = UI.label(item, cfg.label, "railLabel", T.color.white)

@@ -1546,34 +1546,33 @@ do
 	-- One saturated accent per destination. Deliberately high-chroma and far
 	-- apart in hue so a glance at the rail is enough to tell them apart.
 	local RAIL = {
-		{ btn = throwTab, order = 1, word = "Skip",  glyph = "\u{1F3AF}", icon = "skip",
+		{ btn = throwTab, order = 1, word = "Skip",  glyph = "\u{1F3AF}", icon = "skip", tilt = -4,
 		  accent = { light = C(255, 182, 64),  dark = C(244, 122, 18), outline = C(148, 64, 8)  } },
-		{ btn = shopsTab, order = 2, word = "Shops", glyph = "\u{1F6D2}", icon = "shops",
+		{ btn = shopsTab, order = 2, word = "Shops", glyph = "\u{1F6D2}", icon = "shops", tilt = 3,
 		  accent = { light = C(255, 116, 176), dark = C(226, 42, 122), outline = C(134, 14, 70) } },
-		{ btn = plotTab,  order = 3, word = "Plot",  glyph = "\u{1F3E0}", icon = "plot",
+		{ btn = plotTab,  order = 3, word = "Plot",  glyph = "\u{1F3E0}", icon = "plot", tilt = -3,
 		  accent = { light = C(112, 192, 255), dark = C(38, 118, 236), outline = C(18, 58, 138) } },
 	}
 
-	--[[ USER (2026-07-31): the tabs take the same treatment the nav rail got --
-	the kit-style drawing from UIKit.IconArt, sitting bare with no white plate
-	behind it, matching the reference image. UIStyle.sticker is left alone (it is
-	shared with other surfaces and is idempotent); this runs straight after it
-	and un-plates the card it just built, keeping the card only as the icon's
-	positioning box. The ribbon underneath is untouched -- it IS the label.
+	--[[ 2026-08-04 icon redesign (user handoff, option 3a): the tabs KEEP
+	their top-middle placement and ribbon labels (user instruction), but the
+	icon becomes the mock's frameless emoji sticker -- per-tab tilt, no plate.
+	This replaces the kit drawing from UIKit.IconArt (2026-07-31 pass); the
+	IconArt skip/shops/plot entries stay in the module for anything else that
+	wants them. The mock's dark keyline is not achievable on colour emoji --
+	UIStroke, legacy TextStroke and UIPolish are all no-ops on them (probed
+	live this session) -- so the glyph rides bare, same as the nav rail's.
 
-	applyLayout re-runs on every viewport change, so this has to be idempotent
-	too: the previous drawing is destroyed before a new one goes in. ]]
-	local function applyKitIcon(btn, iconName, MET)
+	applyLayout re-runs on every viewport change, so this stays idempotent:
+	the previous glyph is destroyed before a new one goes in. ]]
+	local function applyStickerGlyph(btn, spec, MET)
 		local card = btn:FindFirstChild("StickerCard")
 		if not card then return end
 
 		local emoji = card:FindFirstChild("StickerIcon")
-		local stale = card:FindFirstChild("KitIcon")
-		if stale then stale:Destroy() end
-
-		if not (IconArt and iconName and IconArt.has(iconName)) then
-			if emoji then emoji.Visible = true end -- no artwork for this tab: keep the emoji
-			return
+		for _, n in ipairs({ "KitIcon", "StickerGlyph" }) do
+			local stale = card:FindFirstChild(n)
+			if stale then stale:Destroy() end
 		end
 
 		-- un-plate: card goes invisible but stays as the layout box
@@ -1585,18 +1584,27 @@ do
 
 		-- Sized off the metrics rather than card.AbsoluteSize: this runs in the
 		-- same tick the card is built, before any layout pass has resolved it.
-		local box = math.min(MET.W, MET.H - 22)
-		local size = math.max(math.floor(box * 0.92), 8)
-
-		local holder = Instance.new("Frame")
-		holder.Name = "KitIcon"
-		holder.AnchorPoint = Vector2.new(0.5, 0.5)
-		holder.Position = UDim2.fromScale(0.5, 0.46)
-		holder.Size = UDim2.fromOffset(size, size)
-		holder.BackgroundTransparency = 1
-		holder.ZIndex = card.ZIndex + 2
-		holder.Parent = card
-		IconArt.draw(holder, iconName, size, holder.ZIndex)
+		-- Sized/centred against the room ABOVE the ribbon (36 tall at the
+		-- button's foot), not the card height: the emoji em-box fills its full
+		-- line, and on COMPACT metrics a card-derived size sank ~7px of glyph
+		-- ink under the banner (cart wheels / house base sliced off on narrow
+		-- viewports -- review catch; WIDE only survived on artwork padding).
+		local room = MET.H - 36
+		local box = math.min(MET.W, room - 2)
+		local glyph = Instance.new("TextLabel")
+		glyph.Name = "StickerGlyph"
+		glyph.AnchorPoint = Vector2.new(0.5, 0.5)
+		glyph.Position = UDim2.new(0.5, 0, 0, math.floor(room * 0.5))
+		glyph.Size = UDim2.fromOffset(box, box)
+		glyph.BackgroundTransparency = 1
+		glyph.Font = Enum.Font.FredokaOne
+		glyph.TextSize = box
+		glyph.Text = spec.glyph
+		glyph.Rotation = spec.tilt or 0
+		glyph.ZIndex = card.ZIndex + 2
+		-- emoji must not be re-coloured or outlined by the UIPolish sweep
+		glyph:SetAttribute("NoPolish", true)
+		glyph.Parent = card
 	end
 
 	local WIDE    = { W = 86, H = 104, GAP = 30 }
@@ -1667,7 +1675,7 @@ do
 					glyph  = spec.glyph,
 					badge  = false,     -- flip on via UIStyle.stickerBadge(btn, true)
 				})
-				applyKitIcon(btn, spec.icon, MET)
+				applyStickerGlyph(btn, spec, MET)
 			end
 		end
 	end
