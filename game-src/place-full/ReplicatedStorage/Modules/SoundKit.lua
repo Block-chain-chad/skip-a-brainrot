@@ -11,7 +11,9 @@
 
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
-local TweenService = game:GetService("TweenService")   -- M.loop's stop fade
+local TweenService = game:GetService("TweenService")
+local ContentProvider = game:GetService("ContentProvider")
+local RunService = game:GetService("RunService")   -- M.loop's stop fade
 
 local M = {}
 
@@ -25,6 +27,26 @@ local M = {}
 -- to be scaled by (SetCategoryVolume nil-guards that lookup below), and
 -- simply has no audible effect yet. Not a bug: the seam is forward-compatible.
 local vol = { music = 0.7, sfx = 1 }
+
+-- Long-lived sounds (music tracks, ambient loops) are NOT M.play() clones, so the
+-- sfx multiply inside M.play cannot reach them. Their owners register here and
+-- re-apply their own base * scale whenever the slider moves.
+local musicListeners = {}
+function M.OnMusicVolume(fn)
+	if type(fn) ~= "function" then return end
+	table.insert(musicListeners, fn)
+	pcall(fn, vol.music)   -- fire immediately so a late-loading owner starts correct
+end
+function M.MusicScale() return vol.music end
+function M.SfxScale() return vol.sfx end
+
+-- Same seam for SFX.
+local sfxListeners = {}
+function M.OnSfxVolume(fn)
+	if type(fn) ~= "function" then return end
+	table.insert(sfxListeners, fn)
+	pcall(fn, vol.sfx)
+end
 
 -- category: "music" | "sfx". v is clamped to 0..1 regardless of input.
 function M.SetCategoryVolume(category, v)
@@ -50,6 +72,9 @@ function M.SetCategoryVolume(category, v)
 		end
 	elseif category == "sfx" then
 		vol.sfx = v
+		for _, fn in ipairs(sfxListeners) do
+			pcall(fn, v)
+		end
 	else
 		warn("[SoundKit] SetCategoryVolume: unknown category: " .. tostring(category))
 	end
