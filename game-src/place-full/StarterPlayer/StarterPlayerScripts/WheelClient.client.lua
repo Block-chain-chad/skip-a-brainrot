@@ -961,9 +961,9 @@ task.spawn(function()
 		local anchor = worldWheel and (worldWheel.PrimaryPart or worldWheel:FindFirstChild("Base"))
 		if hrp and anchor then
 			local d = (hrp.Position - anchor.Position).Magnitude
-			if d <= NEAR and not isOpen and not manualClose then
-				setOpen(true)
-			elseif d > FAR then
+			-- walk-over auto-open removed (user request 2026-08-03): the wheel now
+			-- opens ONLY via its SpinPrompt (E / click). Walking away still closes it.
+			if d > FAR then
 				manualClose = false
 				if isOpen and not spinning then setOpen(false) end
 			end
