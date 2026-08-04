@@ -239,7 +239,15 @@ end
 
 local PULSE_MAX = 3
 local CLAIM_PRIORITY = { Daily = 1, Season = 2, Goals = 3, Rebirth = 4 }
-local readyTiles = {}   -- [tileName] = { setPulse = fn, ready = bool }
+local readyTiles = {}   -- [tileName] = { setPulse = fn, ready = bool, legacyGlow = Frame }
+
+-- U3 port: GameHUDClient hides LeftRail permanently, so a claim cue painted on
+-- these tiles animates something the player never sees. The visible nav rail
+-- attaches a per-button halo here; from then on every claim paint for that
+-- tile name lands on the halo instead. Reporters are untouched -- the handle
+-- contract does not change.
+local REST_ALPHA, PULSE_ALPHA, PULSE_PERIOD = 0.35, 0.62, 1.1
+local claimSurfaces = {}   -- [tileName] = GuiObject on the visible rail
 
 local function arbitrateClaims()
 	local ready = {}
@@ -252,6 +260,26 @@ local function arbitrateClaims()
 	local onlyTop = #ready > PULSE_MAX
 	for i, name in ipairs(ready) do
 		readyTiles[name].setPulse(not onlyTop or i == 1)
+	end
+end
+
+-- The visible rail calls this once per button it wants claim cues on. Safe in
+-- any order relative to MakeTile: attaching re-applies the tile's current
+-- ready state to the new surface, and a tile made later routes to the surface
+-- through claimTarget() on its next paint.
+function SideRail.attachClaimSurface(name, glow)
+	claimSurfaces[name] = glow
+	local entry = readyTiles[name]
+	if entry then
+		-- the legacy glow may still be registered with the pulse driver; retire it
+		if entry.legacyGlow then
+			pulseSet[entry.legacyGlow] = nil
+		end
+		glow.Visible = entry.ready == true
+		glow.BackgroundTransparency = REST_ALPHA
+		arbitrateClaims()
+	else
+		glow.Visible = false
 	end
 end
 
@@ -437,33 +465,39 @@ function SideRail.MakeTile(cfg)
 	-- TweenService tween on UIScale.Scale does not run in this place (probed
 	-- live: the scale sits at whatever it was set to). A transparency fade is
 	-- both what the spec asks for and a GuiObject property, which does tween.
-	local REST_ALPHA, PULSE_ALPHA, PULSE_PERIOD = 0.35, 0.62, 1.1
+	local key = cfg.name or tostring(slot)
+	-- claim paints land on the visible rail's halo once one is attached for
+	-- this name (see attachClaimSurface); until then, the legacy readyGlow.
+	local function claimTarget()
+		return claimSurfaces[key] or readyGlow
+	end
 	local function setPulse(on)
+		local glow = claimTarget()
 		if on then
-			pulseSet[readyGlow] = { rest = REST_ALPHA, peak = PULSE_ALPHA, period = PULSE_PERIOD }
+			pulseSet[glow] = { rest = REST_ALPHA, peak = PULSE_ALPHA, period = PULSE_PERIOD }
 			ensurePulseDriver()
 		else
-			pulseSet[readyGlow] = nil                       -- deregistered, not merely paused
-			if readyGlow.Visible then
-				readyGlow.BackgroundTransparency = REST_ALPHA  -- static, still claimable
+			pulseSet[glow] = nil                       -- deregistered, not merely paused
+			if glow.Visible then
+				glow.BackgroundTransparency = REST_ALPHA  -- static, still claimable
 			end
 		end
 	end
-	readyTiles[cfg.name or tostring(slot)] = { setPulse = setPulse, ready = false }
+	readyTiles[key] = { setPulse = setPulse, ready = false, legacyGlow = readyGlow }
 
 	function handle.setReady(on)
-		local key = cfg.name or tostring(slot)
 		local entry = readyTiles[key]
+		local glow = claimTarget()
 		if on == true then
-			if not readyGlow.Visible then
-				readyGlow.Visible = true
-				readyGlow.BackgroundTransparency = REST_ALPHA   -- appears at rest, no pop
+			if not glow.Visible then
+				glow.Visible = true
+				glow.BackgroundTransparency = REST_ALPHA   -- appears at rest, no pop
 			end
 			if entry then entry.ready = true end
 		else
 			setPulse(false)
-			readyGlow.BackgroundTransparency = REST_ALPHA
-			readyGlow.Visible = false
+			glow.BackgroundTransparency = REST_ALPHA
+			glow.Visible = false
 			if entry then entry.ready = false end
 		end
 		arbitrateClaims()

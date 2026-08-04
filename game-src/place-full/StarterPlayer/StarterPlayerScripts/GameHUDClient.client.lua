@@ -219,7 +219,7 @@ local state = {
 local panelModules = {}   -- id -> { Id, Build }
 local panelInstances = {} -- id -> built Frame
 local currentPanelId = nil
-local railItems = {}      -- id -> { frame, glow, scale }
+local railItems = {}      -- id -> { frame, glow, scale, claim }
 local railBadges = {}     -- id -> badge Frame
 
 -- FIX F3 (2026-07-30 fix wave): generation counter guarding closePanel's
@@ -756,6 +756,9 @@ local RAIL_TOP_CLEARANCE = 96
 local RAIL_BOTTOM_RESERVE = 88
 local RAIL_ICON_GAP = 6
 local RAIL_LABEL_H = 26
+-- claim halo: a shade wider than the icon so it reads as a rim of gold
+-- around the art, not a plate behind it
+local RAIL_CLAIM_D = T.size.railIcon + 10
 
 local RAIL_ORDER = {
 	{ id = "bag", label = "Bag" },
@@ -909,6 +912,25 @@ for order, cfg in ipairs(RAIL_ORDER) do
 		UI.corner(glowRing, d / 2)
 	end
 
+	-- Claim halo (U3 port): SideRail's claim arbitration paints onto this --
+	-- see attachClaimSurface below the loop. A single soft gold disc behind
+	-- the icon. Visible/BackgroundTransparency are owned by SideRail: shown
+	-- at rest alpha while claimable, breathed by its shared Heartbeat driver
+	-- while this button holds pulse priority. Per-frame property writes, no
+	-- TweenService (BackgroundTransparency tweens do not run in this place).
+	local claimHalo = Instance.new("Frame")
+	claimHalo.Name = "ClaimHalo"
+	claimHalo.AnchorPoint = Vector2.new(0.5, 0.5)
+	claimHalo.Position = UDim2.new(0.5, 0, 0, T.size.railIcon / 2)
+	claimHalo.Size = UDim2.fromOffset(RAIL_CLAIM_D, RAIL_CLAIM_D)
+	claimHalo.BackgroundColor3 = T.color.activeGlow
+	claimHalo.BackgroundTransparency = 0.35
+	claimHalo.BorderSizePixel = 0
+	claimHalo.Visible = false
+	claimHalo.ZIndex = item.ZIndex + 1 -- behind the icon, beside ActiveGlow
+	claimHalo.Parent = item
+	UI.corner(claimHalo, RAIL_CLAIM_D / 2)
+
 	-- Hit target: invisible button covering icon + label -- comfortably
 	-- above the 44px minimum touch target regardless of the 66px icon
 	-- alone (kit README section 2: "touch targets never below 44 px").
@@ -956,7 +978,24 @@ for order, cfg in ipairs(RAIL_ORDER) do
 		end
 	end)
 
-	railItems[cfg.id] = { frame = item, glow = glow, scale = itemScale }
+	railItems[cfg.id] = { frame = item, glow = glow, scale = itemScale, claim = claimHalo }
+end
+
+-- U3 port: these rail buttons are the claim surface now -- the legacy
+-- LeftRail this used to happen on is hidden permanently further down this
+-- file. SideRail's central arbitration (priority table + PULSE_MAX cap)
+-- still decides WHO pulses; it just paints onto these halos. Rebirth is
+-- deliberately absent: it has no button on this rail, so its claim cue has
+-- no visible home yet. Type-guarded so an older SideRail (two sessions edit
+-- this place) can never hard-error the HUD build.
+local CLAIM_SOURCE = { daily = "Daily", goals = "Goals", pass = "Season" }
+if type(SideRail.attachClaimSurface) == "function" then
+	for id, tileName in pairs(CLAIM_SOURCE) do
+		local entry = railItems[id]
+		if entry and entry.claim then
+			SideRail.attachClaimSurface(tileName, entry.claim)
+		end
+	end
 end
 
 ---------------------------------------------------------------- panel control
