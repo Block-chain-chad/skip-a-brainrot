@@ -579,6 +579,13 @@ function PassPanel.Build(ctx)
 		return claimableCount
 	end
 
+	-- Gate for the rail-badge write below: render() also runs once at Build
+	-- time with the all-zero placeholder state, and that zero used to DESTROY
+	-- the correct join-time badge SeasonClient had already painted (review
+	-- catch) -- for the whole first-open server round trip on the rail that
+	-- stays visible above open panels.
+	local hasServerState = false
+
 	local function render()
 		local xpPerTier = SeasonConfig.XP_PER_TIER
 		local tierCount = #SeasonConfig.Tiers
@@ -597,7 +604,9 @@ function PassPanel.Build(ctx)
 		ctx.state.pass.xp = intoTier
 		ctx.state.pass.xpNeed = xpPerTier
 		ctx.state.pass.claimedFree = state.Claimed
-		ctx.setBadge("pass", claimableCount)
+		if hasServerState then
+			ctx.setBadge("pass", claimableCount)
+		end
 	end
 
 	----------------------------------------------------------- wiring
@@ -615,6 +624,7 @@ function PassPanel.Build(ctx)
 		if typeof(s) ~= "table" then
 			return
 		end
+		hasServerState = true
 		state.XP = s.XP or 0
 		state.Claimed = s.Claimed or {}
 		render()

@@ -6,6 +6,7 @@
 -- model is therefore a content drop, not a code change.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local CollectionService = game:GetService("CollectionService")
 local BrainrotConfig = require(ReplicatedStorage.Modules.BrainrotConfig)
 local RarityConfig = require(ReplicatedStorage.Modules.RarityConfig)
 local Mutations = require(ReplicatedStorage.Modules.MutationConfig)
@@ -16,6 +17,35 @@ local M = {}
 local entryByName, tierByName = {}, {}
 for _, e in ipairs(BrainrotConfig) do entryByName[e.Name] = e end
 for _, t in ipairs(RarityConfig) do tierByName[t.Name] = t end
+
+-- ===== idle motion policy =====
+-- BrainrotIdleClient animates any Model tagged "BrainrotBody" by its Motion
+-- attribute (bob/sway/hover/spin/shiver -- the presets live in that script).
+-- The ladder makes motion itself a rarity read: grounded tiers rock or bob in
+-- place, Epic/Legendary lift off and slowly turn, the top tiers do a lazy
+-- showcase spin, and Secrets shiver. A BrainrotConfig entry can override any
+-- of it with Motion = "spin" etc.; unknown values cost nothing client-side
+-- (adopt() ignores what it does not recognise).
+local MOTION_BY_RARITY = {
+	Common = "ground", Uncommon = "ground", Rare = "ground",
+	Epic = "hover", Legendary = "hover",
+	Mythic = "spin", God = "spin",
+	Secret = "shiver",
+}
+local function motionFor(entry)
+	if entry.Motion then return entry.Motion end
+	local m = MOTION_BY_RARITY[entry.Rarity] or "ground"
+	if m == "ground" then
+		-- deterministic bob/sway split so a row of Commons does not move in
+		-- unison; same hash shape BrainrotIdleClient uses for phase stagger
+		local h = 0
+		for i = 1, #entry.Name do
+			h = (h * 33 + string.byte(entry.Name, i)) % 8192
+		end
+		return (h % 2 == 0) and "bob" or "sway"
+	end
+	return m
+end
 
 -- Authored models are normalised to one height instead of being trusted at their
 -- authored scale: Secret Pete is 9.71 studs tall, which on a 5x5 pad would dwarf the
@@ -74,6 +104,20 @@ local function buildModelVisual(template, pad)
 			d.CanCollide = false
 		end
 	end
+
+	-- Centre the model's pivot on its bounding box, upright. The pack models'
+	-- authored PrimaryPart is an arbitrary limb -- often carrying its own
+	-- authored PivotOffset -- so GetPivot lands studs off the visual body
+	-- (CatchReveal measured 3.75 on a real one; Carloo is 1.42). Everything
+	-- that rotates or measures a placed body (BrainrotIdleClient's idle yaw,
+	-- the store prompt, walk-up feel) wants the visual centre, and a centred
+	-- pivot makes the idle client's rel-capture immune to replication-order
+	-- races. NOTE: Model.WorldPivot writes are a silent no-op on these models
+	-- (probed live); write the PrimaryPart's PivotOffset directly.
+	if model.PrimaryPart then
+		local cf = model:GetBoundingBox()
+		model.PrimaryPart.PivotOffset = model.PrimaryPart.CFrame:ToObjectSpace(CFrame.new(cf.Position))
+	end
 	return model
 end
 
@@ -106,6 +150,15 @@ function M.Spawn(plot, entryOrName, padIndex, mutation, uid)
 	model.Parent = pads
 	model:SetAttribute("PadIndex", padIndex)
 	if uid then model:SetAttribute("Uid", uid) end
+
+	-- idle motion: only authored Models breathe -- the fallback cube is a
+	-- marker, not a creature (and BrainrotIdleClient ignores non-Models
+	-- anyway). Tag + attribute replicate, so the client needs no new wiring;
+	-- this line is what turns the whole dormant idle system on.
+	if model:IsA("Model") then
+		model:SetAttribute("Motion", motionFor(entry))
+		CollectionService:AddTag(model, "BrainrotBody")
+	end
 
 	-- walk up to a placed brainrot to put it back in your backpack
 	local storePrompt = Instance.new("ProximityPrompt")

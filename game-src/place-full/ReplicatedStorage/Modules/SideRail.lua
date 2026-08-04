@@ -248,6 +248,7 @@ local readyTiles = {}   -- [tileName] = { setPulse = fn, ready = bool, legacyGlo
 -- contract does not change.
 local REST_ALPHA, PULSE_ALPHA, PULSE_PERIOD = 0.35, 0.62, 1.1
 local claimSurfaces = {}   -- [tileName] = GuiObject on the visible rail
+local badgeSurfaces = {}   -- [tileName] = fn(kind, n) painting the visible badge
 
 local function arbitrateClaims()
 	local ready = {}
@@ -280,6 +281,19 @@ function SideRail.attachClaimSurface(name, glow)
 		arbitrateClaims()
 	else
 		glow.Visible = false
+	end
+end
+
+-- Badge twin of attachClaimSurface: the visible rail hands us a paint
+-- function (kind, n), and every handle.setBadge for that tile name routes
+-- there instead of the hidden tile's own bubble. The last badge is replayed
+-- on attach, so a reporter that painted before the HUD rail finished
+-- building loses nothing.
+function SideRail.attachBadgeSurface(name, paint)
+	badgeSurfaces[name] = paint
+	local entry = readyTiles[name]
+	if entry and entry.lastBadgeKind then
+		paint(entry.lastBadgeKind, entry.lastBadgeN)
 	end
 end
 
@@ -506,7 +520,14 @@ function SideRail.MakeTile(cfg)
 	-- rapid updates retarget by cancelling the previous tween, never stacking.
 	local badgeTween = nil
 	function handle.setBadge(kind, n)
-		if not kind or kind == "none" then badge.Visible = false; return end
+		kind = kind or "none"
+		-- memo + route: once the visible rail attaches a badge surface it owns
+		-- this tile's badge paint; the memo makes a late attach lossless
+		local entry = readyTiles[key]
+		if entry then entry.lastBadgeKind, entry.lastBadgeN = kind, n end
+		local paint = badgeSurfaces[key]
+		if paint then paint(kind, n); return end
+		if kind == "none" then badge.Visible = false; return end
 		local wasVisible = badge.Visible
 		local oldText = blabel.Text
 		badge.Visible = true

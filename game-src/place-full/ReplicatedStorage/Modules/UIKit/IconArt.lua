@@ -269,6 +269,21 @@ IconArt.SHAPES = {
 		{ type = "bar", x1 = 16, y1 = 28, x2 = 20, y2 = 24, t = 3.5, fill = "#FFFFFF", opacity = 0.45, outline = false, note = "gloss" },
 	},
 
+	--[[ Rebirth -- no kit SVG exists (the 7th rail button is ours, not the
+	handoff's), so like the quest keys it is drawn to a game need in the kit's
+	own vocabulary: a purple refresh arc with a chevron arrowhead curling over
+	the gold kit star (pass/coin's exact golds) -- the star, reborn. Purple is
+	RebirthClient's tile hue pair, so the button matches the panel it opens.
+	A broken recycle RING is not drawable here: the arch renderer has no rot
+	support (see drawShape), so the arc is a single top sweep instead. ]]
+	rebirth = {
+		{ type = "arch", x1 = 12, x2 = 52, yTop = 7, yBottom = 27, t = 7, fill = "#9A2ED6", outline = true, note = "cycle arc" },
+		{ type = "bar", x1 = 46.5, y1 = 30, x2 = 52, y2 = 37, t = 5.5, fill = "#9A2ED6", outline = true, note = "arrowhead left leg" },
+		{ type = "bar", x1 = 57.5, y1 = 30, x2 = 52, y2 = 37, t = 5.5, fill = "#9A2ED6", outline = true, note = "arrowhead right leg" },
+		{ type = "star", cx = 32, cy = 41, outerRadius = 11.5, gradTop = "#FFE066", gradBottom = "#E8930F", outline = true, note = "the star, reborn" },
+		{ type = "bar", x1 = 19, y1 = 10.5, x2 = 27, y2 = 7.5, t = 4, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+	},
+
 	settings = {
 		-- 8 teeth: the kit repeats one rect at rotate(N 32 32) for N in 0..315 step 45
 		{ type = "rect", x = 26.5, y = 3, w = 11, h = 20, r = 4, rot = 0, pivotX = 32, pivotY = 32, gradTop = "#FCFCF6", gradBottom = "#9AA28E", outline = true },

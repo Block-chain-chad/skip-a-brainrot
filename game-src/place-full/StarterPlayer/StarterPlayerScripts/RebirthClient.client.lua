@@ -209,6 +209,18 @@ end)
 
 btn.MouseButton1Click:Connect(function() panel.Visible = not panel.Visible; confirming = false; render() end)
 closeBtn.MouseButton1Click:Connect(function() panel.Visible = false; confirming = false end)
+-- Every close path must disarm the two-step wipe confirm, not just the two
+-- above: ESC and the rebirth rail button (GameHUDClient) toggle raw Visible,
+-- and SideRail's single-open registry force-hides this panel when any other
+-- registered panel opens. Without this, close -> reopen within the 3s token
+-- window left the ember CONFIRM armed and one click away from wiping
+-- progress. Watching our own Visible catches every path, present and future.
+panel:GetPropertyChangedSignal("Visible"):Connect(function()
+	if not panel.Visible and confirming then
+		confirming = false
+		render()
+	end
+end)
 rebirthBtn.MouseButton1Click:Connect(function()
 	if not state.CanAfford then return end
 	if not confirming then

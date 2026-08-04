@@ -288,6 +288,10 @@ local GLYPH = {
 	-- is only reached if IconArt itself fails to load; the diamond is the same
 	-- stand-in the currency used before he had a face.
 	darrel = "\u{1F48E}",
+	-- rebirth is also ours (7th button, no kit PNG): only reached if IconArt
+	-- fails to load. U+2B50 is the same star the legacy SideRail tile used,
+	-- proven rendering there since 07-26.
+	rebirth = "\u{2B50}",
 }
 
 local function glyphFallback(slot, key, textSize, plated)
@@ -767,7 +771,28 @@ local RAIL_ORDER = {
 	{ id = "goals", label = "Goals" },
 	{ id = "index", label = "Index" },
 	{ id = "settings", label = "Settings" },
+	-- 7th button (2026-08-04): Rebirth's claim cue finally has a visible
+	-- home; its click path is special -- see rebirthPanel() just below.
+	-- Review catch: a THIRD column would overlap open panels' left edge at
+	-- true 16:9 sizes (rail is true-screen chrome, panels are scaled canvas;
+	-- at 1080p the panel edge sits ~screen-x 291 while a third column spans
+	-- ~234..340) -- and its invisible hit button would steal panel clicks and
+	-- force-close the panel via single-open. So the grid grows DOWN instead:
+	-- two columns of four, RAIL_W stays 218, zero new overlap.
+	{ id = "rebirth", label = "Rebirth" },
 }
+
+-- Rebirth's surface is still RebirthClient's own legacy panel
+-- (PlayerGui.RebirthUI.RebirthPanel, built eagerly at join) -- there is no
+-- GameHUDPanels module for it. Toggling that frame's Visible is the
+-- sanctioned lever: the panel sits in SideRail.registerPanel's single-open
+-- registry, so opening it force-closes `host` (and vice versa), and the
+-- host watcher near the bottom of this file already resyncs our bookkeeping
+-- when that happens.
+local function rebirthPanel()
+	local ui = playerGui:FindFirstChild("RebirthUI")
+	return ui and ui:FindFirstChild("RebirthPanel") or nil
+end
 
 -- USER LAYOUT (2026-07-30): two columns of three instead of one column of six,
 -- filled COLUMN-FIRST -- Bag/Pass/Daily down the left, Goals/Index/Settings
@@ -775,7 +800,7 @@ local RAIL_ORDER = {
 -- the left column keeps the on-screen position it already had. Three rows of
 -- full-size items is 306px against a ~532px band, so railScale sits back at
 -- 1.0 and the icons render at the kit's intended 66px again.
-local RAIL_ROWS = 3
+local RAIL_ROWS = 4 -- was 3; the 7th item grows the grid DOWN, never right (see above)
 local RAIL_COLS = math.ceil(#RAIL_ORDER / RAIL_ROWS)
 local RAIL_ITEM_H = T.size.railIcon + RAIL_ICON_GAP + RAIL_LABEL_H
 local RAIL_W = RAIL_COLS * T.size.railItem + (RAIL_COLS - 1) * T.size.railGap
@@ -971,6 +996,12 @@ for order, cfg in ipairs(RAIL_ORDER) do
 		TweenService:Create(item, T.tween.press, { Position = basePos() - UDim2.fromOffset(0, 3) }):Play()
 	end)
 	hit.MouseButton1Click:Connect(function()
+		if cfg.id == "rebirth" then
+			-- legacy panel, not an openPanel id -- see rebirthPanel() above
+			local panel = rebirthPanel()
+			if panel then panel.Visible = not panel.Visible end
+			return
+		end
 		if currentPanelId == cfg.id then
 			closePanel()
 		else
@@ -984,11 +1015,11 @@ end
 -- U3 port: these rail buttons are the claim surface now -- the legacy
 -- LeftRail this used to happen on is hidden permanently further down this
 -- file. SideRail's central arbitration (priority table + PULSE_MAX cap)
--- still decides WHO pulses; it just paints onto these halos. Rebirth is
--- deliberately absent: it has no button on this rail, so its claim cue has
--- no visible home yet. Type-guarded so an older SideRail (two sessions edit
--- this place) can never hard-error the HUD build.
-local CLAIM_SOURCE = { daily = "Daily", goals = "Goals", pass = "Season" }
+-- still decides WHO pulses; it just paints onto these halos. Rebirth joined
+-- the map when it got its own rail button (2026-08-04). Type-guarded so an
+-- older SideRail (two sessions edit this place) can never hard-error the
+-- HUD build.
+local CLAIM_SOURCE = { daily = "Daily", goals = "Goals", pass = "Season", rebirth = "Rebirth" }
 if type(SideRail.attachClaimSurface) == "function" then
 	for id, tileName in pairs(CLAIM_SOURCE) do
 		local entry = railItems[id]
@@ -998,12 +1029,103 @@ if type(SideRail.attachClaimSurface) == "function" then
 	end
 end
 
----------------------------------------------------------------- panel control
-local function updateActiveGlow()
-	for id, item in pairs(railItems) do
-		item.glow.Visible = (id == currentPanelId)
+-- One renderer for every badge kind on the rail. "count" is the v2 kit badge
+-- (red, numeric); "dot" is the same badge shrunk to a plain disc; "alert" is
+-- the gold "!" the legacy tiles used for Rebirth. ctx.setBadge keeps its
+-- numeric contract through the setBadge wrapper further down; SideRail's
+-- reporters arrive here with their kind intact via attachBadgeSurface --
+-- which also closes a real gap: the pass badge used to be absent until the
+-- pass panel's FIRST open (PassPanel.Build is lazy), while SeasonClient
+-- pushes the same claimable count from join+1s.
+local BADGE_GOLD = ColorSequence.new(Color3.fromHex("#FFE87A"), Color3.fromHex("#E8930F"))
+local function paintBadge(id, kind, n)
+	local item = railItems[id]
+	if not item then return end
+	if kind == "none" or (kind == "count" and (not n or n <= 0)) then
+		if railBadges[id] then
+			railBadges[id]:Destroy()
+			railBadges[id] = nil
+		end
+		return
+	end
+	local text = kind == "count" and ((n > 99) and "99+" or tostring(n))
+		or kind == "alert" and "!"
+		or ""
+	local b = railBadges[id]
+	-- a kind flip rebuilds; only same-kind updates retarget the label
+	if b and b:GetAttribute("BadgeKind") ~= kind then
+		b:Destroy()
+		b = nil
+		railBadges[id] = nil
+	end
+	if b then
+		local label = b:FindFirstChild("Value")
+		if label then label.Text = text end
+		return
+	end
+	-- v2 (kit README 3.7): min-width 34, height 34, stroke 4, hard
+	-- shadow 0 3, value 19, at top -6 / right 12 relative to the item
+	-- column -- UI.badge ships the v1 defaults (30/30, stroke 3.5, no
+	-- shadow, text 16), overridden here rather than in the shared builder.
+	local d = (kind == "dot") and 18 or 34
+	b = UI.badge(item.frame, text)
+	b:SetAttribute("BadgeKind", kind)
+	b.Size = UDim2.fromOffset(0, d)
+	local sizeConstraint = b:FindFirstChildOfClass("UISizeConstraint")
+	if sizeConstraint then sizeConstraint.MinSize = Vector2.new(d, d) end
+	local badgeStroke = b:FindFirstChildOfClass("UIStroke")
+	if badgeStroke then badgeStroke.Thickness = (kind == "dot") and 3 or 4 end
+	local valueLabel = b:FindFirstChild("Value")
+	if valueLabel then valueLabel.TextSize = 19 end
+	if kind == "alert" then
+		-- gold, matching the legacy tile's alert and the kit's coin golds
+		local grad = b:FindFirstChildOfClass("UIGradient")
+		if grad then grad.Color = BADGE_GOLD
+		else b.BackgroundColor3 = Color3.fromHex("#F5B62E") end
+	end
+	b.AnchorPoint = Vector2.new(1, 0)
+	b.Position = UDim2.new(1, -12, 0, -6)
+	b.ZIndex = T.zindex.rail + 15
+	-- (no UI.hardShadow: the badge is AutomaticSize.X with an offset-0 Size,
+	-- and hardShadow copies that Size literally -- the shadow rendered 0px
+	-- wide, i.e. never. Pre-existing; the kit's "hard shadow 0 3" spec needs
+	-- a sizing fix in Builders first. Dropping the dead call stops orphaning
+	-- one invisible frame per badge. Review catch.)
+	railBadges[id] = b
+end
+
+if type(SideRail.attachBadgeSurface) == "function" then
+	for id, tileName in pairs(CLAIM_SOURCE) do
+		if railItems[id] then
+			SideRail.attachBadgeSurface(tileName, function(kind, n)
+				paintBadge(id, kind, n)
+			end)
+		end
 	end
 end
+
+---------------------------------------------------------------- panel control
+local function updateActiveGlow()
+	local rb = rebirthPanel()
+	for id, item in pairs(railItems) do
+		if id == "rebirth" then
+			-- rebirth's open state lives on the legacy panel, not currentPanelId
+			item.glow.Visible = (rb ~= nil and rb.Visible)
+		else
+			item.glow.Visible = (id == currentPanelId)
+		end
+	end
+end
+
+-- The legacy panel opens/closes outside openPanel/closePanel, so the rebirth
+-- glow rides the panel's own Visible signal instead.
+task.spawn(function()
+	local ui = playerGui:WaitForChild("RebirthUI", 10)
+	local panel = ui and ui:WaitForChild("RebirthPanel", 5)
+	if not panel then return end
+	panel:GetPropertyChangedSignal("Visible"):Connect(updateActiveGlow)
+	updateActiveGlow()
+end)
 
 -- Bug D fix (ui-overhaul checkpoint-1 fix wave): kit-styled "COMING SOON"
 -- placeholder mounted into `host` when openPanel(id) is called for an id
@@ -1183,38 +1305,11 @@ function closePanel()
 end
 
 function setBadge(id, n)
-	local item = railItems[id]
-	if not item then return end
-	if not n or n <= 0 then
-		if railBadges[id] then
-			railBadges[id]:Destroy()
-			railBadges[id] = nil
-		end
-		return
-	end
-	local text = (n > 99) and "99+" or tostring(n)
-	if railBadges[id] then
-		local label = railBadges[id]:FindFirstChild("Value")
-		if label then label.Text = text end
-	else
-		-- v2 (kit README 3.7): min-width 34, height 34, stroke 4, hard
-		-- shadow 0 3, value 19, at top -6 / right 12 relative to the item
-		-- column -- UI.badge ships the v1 defaults (30/30, stroke 3.5, no
-		-- shadow, text 16), overridden here rather than in the shared builder.
-		local b = UI.badge(item.frame, text)
-		b.Size = UDim2.fromOffset(0, 34)
-		local sizeConstraint = b:FindFirstChildOfClass("UISizeConstraint")
-		if sizeConstraint then sizeConstraint.MinSize = Vector2.new(34, 34) end
-		local badgeStroke = b:FindFirstChildOfClass("UIStroke")
-		if badgeStroke then badgeStroke.Thickness = 4 end
-		local valueLabel = b:FindFirstChild("Value")
-		if valueLabel then valueLabel.TextSize = 19 end
-		b.AnchorPoint = Vector2.new(1, 0)
-		b.Position = UDim2.new(1, -12, 0, -6)
-		b.ZIndex = T.zindex.rail + 15
-		UI.hardShadow(b, 3, T.radius.pill)
-		railBadges[id] = b
-	end
+	-- ctx contract unchanged (numeric): panels keep calling this. Kind-aware
+	-- paints from SideRail's reporters reach paintBadge directly via
+	-- attachBadgeSurface; both paths share the one renderer above the
+	-- panel-control section.
+	paintBadge(id, (n and n > 0) and "count" or "none", n)
 end
 
 function pillAnchor(which)
@@ -1251,6 +1346,13 @@ end
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.Escape then
+		-- the rebirth surface is a legacy panel outside closePanel's world;
+		-- without this, ESC would ignore it (RebirthClient never wired ESC)
+		local rb = rebirthPanel()
+		if rb and rb.Visible then
+			rb.Visible = false
+			return
+		end
 		closePanel()
 	end
 end)

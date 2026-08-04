@@ -18,9 +18,10 @@ local SWAY_ANGLE = math.rad(3.5)
 local HOVER_YAW = 0.6      -- rad/s
 local SPIN_YAW = 1.1       -- rad/s; about one lazy turn every six seconds
 local SHIVER_AMP = 0.05    -- studs; shiver should read as tension, not travel
--- Must exceed the largest offset any preset can write (bob 0.15, shiver
--- diagonal ~0.07), or the drift check in the loop would mistake our own
--- writes for a server move and walk the base pivot away frame by frame.
+-- Tolerance for deciding the SERVER re-seated a body. The drift check
+-- compares against the exact pivot WE last wrote (lastPos), so the presets'
+-- own offsets can never trip it, whatever their amplitude -- this is purely
+-- replication-jitter headroom.
 local RESEAT = 0.5
 
 -- Phase must be stable across sessions and identical on every client, so it
@@ -76,7 +77,7 @@ function MOTIONS.shiver(t, phase)
 		math.sin(t * 53 + phase * 1.7) * SHIVER_AMP)
 end
 
--- bodies[model] = { model, base, phase, offset, dist, conn }
+-- bodies[model] = { model, animBase, rel, lastPos, phase, offset, dist, conn }
 local bodies = {}
 
 local function drop(model)
@@ -86,8 +87,8 @@ local function drop(model)
 	entry.conn:Disconnect()
 	-- a body that survives untagged parks exactly where the server thinks it
 	-- is, so nothing is left frozen mid-bob above its pad
-	if model.Parent then
-		model:PivotTo(entry.base)
+	if model.Parent and entry.animBase then
+		model:PivotTo(entry.animBase * entry.rel)
 	end
 end
 
@@ -97,11 +98,16 @@ local function adopt(model)
 	-- "none" and anything unrecognized cost zero from here on: never tracked,
 	-- never iterated, never pivoted
 	if not offset then return end
-	local base = model:GetPivot()
+	-- Capture NOTHING here. The tag signal fires mid-replication-burst, and a
+	-- capture taken then can see a half-arrived model: PrimaryPart may not
+	-- have replicated yet, so GetPivot falls back near the box centre and
+	-- `rel` bakes in as identity -- then the real (limb) pivot arrives a
+	-- frame later and the body yaws about the limb again, which is exactly
+	-- the orbit the animBase rework removes. Observed live: pivot pinned dead
+	-- still, body orbiting it. The Heartbeat captures on the body's first
+	-- animated frame instead, after replication has settled.
 	bodies[model] = {
 		model = model,
-		base = base,
-		phase = phaseFor(model, base),
 		offset = offset,
 		dist = 0,
 		conn = model.AncestryChanged:Connect(function()
@@ -130,9 +136,24 @@ RunService.Heartbeat:Connect(function()
 
 	table.clear(candidates)
 	for _, entry in pairs(bodies) do
-		-- gate on the cached spawn pivot: one Vector3 subtraction per body,
+		-- Deferred capture (see adopt): animate about an UPRIGHT frame at the
+		-- bounding-box centre, NOT the raw pivot -- on the pack models the
+		-- pivot is an arbitrary limb (CatchReveal measured 3.75 studs off),
+		-- and yawing about a limb makes the body ORBIT across neighbouring
+		-- pads. `rel` carries the offset pivot along, so PivotTo lands the
+		-- body exactly where it stood; on a centred pivot (BrainrotSpawner
+		-- now centres them at spawn) rel is identity. One-time cost per body.
+		if not entry.animBase then
+			local pivot = entry.model:GetPivot()
+			local boxCF = entry.model:GetBoundingBox()
+			entry.animBase = CFrame.new(boxCF.Position)
+			entry.rel = entry.animBase:ToObjectSpace(pivot)
+			entry.lastPos = pivot.Position
+			entry.phase = phaseFor(entry.model, entry.animBase)
+		end
+		-- gate on the cached box centre: one Vector3 subtraction per body,
 		-- where GetPivot here would touch every part of every body every frame
-		entry.dist = (entry.base.Position - camPos).Magnitude
+		entry.dist = (entry.animBase.Position - camPos).Magnitude
 		if entry.dist <= RANGE then
 			candidates[#candidates + 1] = entry
 		end
@@ -151,14 +172,19 @@ RunService.Heartbeat:Connect(function()
 		local entry = candidates[i]
 		local model = entry.model
 		-- the server can re-seat a body (mover, pad shuffle) and its writes
-		-- land on the anchored parts over ours -- a pivot far from our base
-		-- means the base is stale, and without re-capturing it the body would
-		-- snap back to wherever it spawned
+		-- land on the anchored parts over ours. We know exactly where WE left
+		-- the pivot (lastPos), so any real difference is a server move --
+		-- recapture both frames from the new pose, or the body would snap
+		-- back to wherever it spawned
 		local current = model:GetPivot()
-		if (current.Position - entry.base.Position).Magnitude > RESEAT then
-			entry.base = current
+		if (current.Position - entry.lastPos).Magnitude > RESEAT then
+			local boxCF = model:GetBoundingBox()
+			entry.animBase = CFrame.new(boxCF.Position)
+			entry.rel = entry.animBase:ToObjectSpace(current)
 		end
-		model:PivotTo(entry.base * entry.offset(t, entry.phase))
+		local target = entry.animBase * entry.offset(t, entry.phase) * entry.rel
+		model:PivotTo(target)
+		entry.lastPos = target.Position
 	end
 end)
 -- ============================ IDLE VOICE LINES ============================
