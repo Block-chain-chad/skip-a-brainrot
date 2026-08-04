@@ -69,6 +69,8 @@ local player = Players.LocalPlayer
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local SoundKit = require(modules:WaitForChild("SoundKit"))
+-- tier names + colours for the per-rarity Skip Catch Animation chips
+local RarityConfig = require(modules:WaitForChild("RarityConfig"))
 
 -- Bounded wait (matches ToastClient's own `WaitForChild(name, 10)` -- see
 -- StarterPlayerScripts.ToastClient): SettingsSave is SELF-HEAL created by
@@ -142,18 +144,19 @@ local function applyHideOwnBanners(on)
 	end
 end
 
------------------------------------------------------------ REAL SEAM 3: skipAnimations -> CatchRevealClient / ClientMain
--- Grinder's toggle (user request 2026-08-04): skips the time-eating
--- cinematics -- the Pull ceremony on catches (CatchRevealClient's
--- shouldReveal seam, authored for exactly this; the retired ThrowResult
--- text card in ClientMain comes back as the fast announcement) and the
--- stone-tracking camera trip + 1.4s flyback (ClientMain's StoneThrown
--- handler; the bar then unlocks from ThrowResult at landing). Same
--- attribute bridge as the two seams above; consumers read it at time of
--- use, so a mid-session flip covers the very next throw.
-local function applySkipAnimations(on)
-	if player then
-		player:SetAttribute("SkipAnimations", on == true)
+----------------------------------------------------------- REAL SEAM 3: skipReveal -> CatchRevealClient / ClientMain
+-- Per-rarity catch-animation skip (user request 2026-08-04, v2 -- "just
+-- skip the actual catch animation... for whatever rarity they desire"):
+-- the Pull ceremony is skipped only for the rarities the player picked;
+-- ClientMain's text card announces those catches instead. One boolean
+-- attribute per tier (SkipRevealCommon .. SkipRevealGod), read at time of
+-- use, so a mid-session change covers the very next catch. The v1 camera
+-- skip is gone on purpose -- the tracking camera always flies again.
+local function applySkipReveal(t)
+	if not player then return end
+	t = type(t) == "table" and t or {}
+	for _, tier in ipairs(RarityConfig) do
+		player:SetAttribute("SkipReveal" .. tier.Name, t[tier.Name] == true)
 	end
 end
 
@@ -164,7 +167,7 @@ end
 -- visit Settings. `applied` also seeds the panel's own controls on first
 -- Build (see below), and `onAppliedChanged` (assigned inside Build once the
 -- widgets exist) keeps them in sync if a payload lands again afterward.
-local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, skipAnimations = false }
+local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, skipReveal = {} }
 local onAppliedChanged = nil
 
 local function applySettings(s)
@@ -191,9 +194,17 @@ local function applySettings(s)
 		applied.hideOwnBanners = s.hideOwnBanners
 		applyHideOwnBanners(applied.hideOwnBanners)
 	end
-	if typeof(s.skipAnimations) == "boolean" then
-		applied.skipAnimations = s.skipAnimations
-		applySkipAnimations(applied.skipAnimations)
+	if typeof(s.skipReveal) == "table" then
+		applied.skipReveal = s.skipReveal
+		applySkipReveal(applied.skipReveal)
+	elseif s.skipAnimations == true and next(applied.skipReveal) == nil then
+		-- v1 migration: the short-lived single Skip Animations toggle becomes
+		-- "skip every rarity", so a player who had it ON keeps the behavior
+		-- until they touch the chips (which then persists the new shape)
+		local all = {}
+		for _, tier in ipairs(RarityConfig) do all[tier.Name] = true end
+		applied.skipReveal = all
+		applySkipReveal(all)
 	end
 	if onAppliedChanged then
 		onAppliedChanged()
@@ -229,12 +240,13 @@ function SettingsPanel.Build(ctx)
 	local SLIDER_ROW_H = 54 -- kit "Slider row height 54"
 	local SEGMENT_ROW_H = 54 -- kit "three equal buttons height 54"
 	local TOGGLE_ROW_H = 52 -- kit "Toggle row height 52"
+	local SKIPREV_ROW_H = 86 -- label line + 8 rarity chips (no kit spec; two-line row)
 	local FOOTER_H = 58 -- kit "Redeem Code... height 58"
 	local GAP = T.pad.gapTight -- 8, kit "Body padding 16, gap 8"
-	local ITEM_COUNT = 10 -- 3 section headers + 2 sliders + 1 segmented + 3 toggles + 1 footer
+	local ITEM_COUNT = 10 -- 3 section headers + 2 sliders + 1 segmented + 2 toggles + 1 rarity row + 1 footer
 	local BODY_CONTENT_H = (SECTION_HEADER_H + SLIDER_ROW_H * 2) -- AUDIO
 		+ (SECTION_HEADER_H + SEGMENT_ROW_H) -- GRAPHICS
-		+ (SECTION_HEADER_H + TOGGLE_ROW_H * 3) -- GAMEPLAY
+		+ (SECTION_HEADER_H + TOGGLE_ROW_H * 2 + SKIPREV_ROW_H) -- GAMEPLAY
 		+ FOOTER_H
 		+ GAP * (ITEM_COUNT - 1)
 	local BODY_H = T.pad.panel * 2 + BODY_CONTENT_H
@@ -704,6 +716,147 @@ function SettingsPanel.Build(ctx)
 		}
 	end
 
+	----------------------------------------------------------- skip-catch-animation row (GAMEPLAY): 8 per-rarity chips
+	-- A filled chip = that rarity's Pull ceremony is skipped (the fast text
+	-- card shows instead). Chips wear their tier colour when ON and the
+	-- toggle family's OFF greens when not, so the row reads with the same
+	-- vocabulary as the switches above it.
+	local function buildSkipRevealRow()
+		local slot = listSlot(SKIPREV_ROW_H)
+		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
+		card.Name = "SkipRevealRow"
+		card.ZIndex = 15
+		UI.hardShadow(card, T.shadowOffset.control, T.radius.inner)
+
+		local ROW_PAD_X = 14
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, ROW_PAD_X)
+		pad.PaddingRight = UDim.new(0, ROW_PAD_X)
+		pad.Parent = card
+
+		local label = UI.label(card, "Skip Catch Animation", "cardLabel", T.color.white)
+		label.Name = "Label"
+		label.Position = UDim2.new(0, 0, 0, 8)
+		label.Size = UDim2.new(1, 0, 0, 22)
+		label.AutomaticSize = Enum.AutomaticSize.None
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.ZIndex = 16
+
+		local chipRow = Instance.new("Frame")
+		chipRow.Name = "Chips"
+		chipRow.BackgroundTransparency = 1
+		chipRow.Position = UDim2.new(0, 0, 0, 36)
+		chipRow.Size = UDim2.new(1, 0, 0, 40)
+		chipRow.ZIndex = 16
+		chipRow.Parent = card
+		local chipList = Instance.new("UIListLayout")
+		chipList.FillDirection = Enum.FillDirection.Horizontal
+		chipList.SortOrder = Enum.SortOrder.LayoutOrder
+		chipList.Padding = UDim.new(0, 6)
+		chipList.Parent = chipRow
+
+		local CHIP_W = math.floor((BODY_INNER_W - ROW_PAD_X * 2 - 6 * (#RarityConfig - 1)) / #RarityConfig)
+		local SHORT = { Common = "COM", Uncommon = "UNC", Rare = "RARE", Epic = "EPIC",
+			Legendary = "LEG", Mythic = "MYTH", Secret = "SEC", God = "GOD" }
+		local OFF_TOP, OFF_BOT = T.hex("#5A6748"), T.hex("#3A452C")
+
+		-- Trailing save: SettingsService silently drops saves within 0.5s of the
+		-- last one, and chip-picking is exactly the rapid-click case -- so the
+		-- attribute applies instantly per click, and ONE save (the full table)
+		-- fires 0.6s after the last click. Token pattern, newest wins.
+		local saveToken = 0
+		local function queueSave()
+			saveToken += 1
+			local my = saveToken
+			task.delay(0.6, function()
+				if my ~= saveToken then return end
+				local copy = {}
+				for _, tier in ipairs(RarityConfig) do copy[tier.Name] = applied.skipReveal[tier.Name] == true end
+				fireSave({ skipReveal = copy })
+			end)
+		end
+
+		local chips = {}
+		local function paintChip(tierName)
+			local c = chips[tierName]
+			if not c then return end
+			local on = applied.skipReveal[tierName] == true
+			if on then
+				c.gradient.Color = ColorSequence.new(c.color, c.color:Lerp(Color3.new(0, 0, 0), 0.35))
+				c.label.TextColor3 = T.color.white
+			else
+				c.gradient.Color = ColorSequence.new(OFF_TOP, OFF_BOT)
+				c.label.TextColor3 = T.color.textMuted
+			end
+			c.inset.Visible = not on
+		end
+
+		for i, tier in ipairs(RarityConfig) do
+			local chip = Instance.new("TextButton")
+			chip.Name = tier.Name .. "Chip"
+			chip.Text = ""
+			chip.AutoButtonColor = false
+			chip.LayoutOrder = i
+			chip.Size = UDim2.fromOffset(CHIP_W, 34)
+			chip.BackgroundColor3 = T.color.white
+			chip.BorderSizePixel = 0
+			chip.ZIndex = 17
+			chip.Parent = chipRow
+			UI.corner(chip, T.radius.control)
+			local grad = Instance.new("UIGradient")
+			grad.Rotation = 90
+			grad.Parent = chip
+			UI.stroke(chip, T.stroke.hairline)
+
+			local inset = Instance.new("Frame")
+			inset.Name = "InsetShadow"
+			inset.Size = UDim2.new(1, 0, 0, 3)
+			inset.BackgroundColor3 = Color3.new(0, 0, 0)
+			inset.BackgroundTransparency = 0.55
+			inset.BorderSizePixel = 0
+			inset.ZIndex = 18
+			inset.Parent = chip
+			UI.corner(inset, T.radius.control)
+
+			local chipLabel = Instance.new("TextLabel")
+			chipLabel.Name = "Word"
+			chipLabel.BackgroundTransparency = 1
+			chipLabel.Size = UDim2.new(1, -6, 1, 0)
+			chipLabel.Position = UDim2.new(0, 3, 0, 0)
+			chipLabel.FontFace = T.font.display
+			chipLabel.TextScaled = true
+			chipLabel.RichText = false
+			chipLabel.Text = SHORT[tier.Name] or string.upper(tier.Name)
+			chipLabel.ZIndex = 19
+			chipLabel.Parent = chip
+			local cap = Instance.new("UITextSizeConstraint")
+			cap.MaxTextSize = T.text.chip[1]
+			cap.Parent = chipLabel
+			local ink = Instance.new("UIStroke")
+			ink.Thickness = T.text.chip[2]
+			ink.Color = T.color.outline
+			ink.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+			ink.LineJoinMode = Enum.LineJoinMode.Round
+			ink.Parent = chipLabel
+
+			chips[tier.Name] = { gradient = grad, label = chipLabel, inset = inset, color = tier.Color }
+			paintChip(tier.Name)
+
+			chip.MouseButton1Click:Connect(function()
+				applied.skipReveal[tier.Name] = not (applied.skipReveal[tier.Name] == true)
+				paintChip(tier.Name)
+				applySkipReveal(applied.skipReveal)
+				queueSave()
+			end)
+		end
+
+		return {
+			setValue = function()
+				for _, tier in ipairs(RarityConfig) do paintChip(tier.Name) end
+			end,
+		}
+	end
+
 	----------------------------------------------------------- footer: Redeem Code (Reset Data intentionally absent -- see module header)
 	local function buildFooter()
 		local slot = listSlot(FOOTER_H)
@@ -817,11 +970,7 @@ function SettingsPanel.Build(ctx)
 		applyHideOwnBanners(on)
 		fireSave({ hideOwnBanners = on })
 	end)
-	local skipAnimCtl = buildToggleRow("Skip Animations", applied.skipAnimations, function(on)
-		applied.skipAnimations = on
-		applySkipAnimations(on)
-		fireSave({ skipAnimations = on })
-	end)
+	local skipRevealCtl = buildSkipRevealRow()
 
 	buildFooter()
 
@@ -834,7 +983,7 @@ function SettingsPanel.Build(ctx)
 			ctx.state.settings.toggles = ctx.state.settings.toggles or {}
 			ctx.state.settings.toggles.fastSpin = applied.fastSpin
 			ctx.state.settings.toggles.hideOwnBanners = applied.hideOwnBanners
-			ctx.state.settings.toggles.skipAnimations = applied.skipAnimations
+			ctx.state.settings.toggles.skipReveal = applied.skipReveal
 		end
 	end
 	syncState()
@@ -846,7 +995,7 @@ function SettingsPanel.Build(ctx)
 		qualityCtl.setValue(applied.quality)
 		fastSpinCtl.setValue(applied.fastSpin)
 		hideBannersCtl.setValue(applied.hideOwnBanners)
-		skipAnimCtl.setValue(applied.skipAnimations)
+		skipRevealCtl.setValue()
 		syncState()
 	end
 

@@ -665,13 +665,13 @@ remotes.ThrowResult.OnClientEvent:Connect(function(result)
 	local myToken = resultToken
 
 	-- The card is SEMI-retired: CatchRevealClient normally shows the caught
-	-- brainrot itself, spinning, instead of describing it in text -- but with
-	-- Settings > Skip Animations on, the ceremony is skipped over there
-	-- (shouldReveal) and this card comes back as the fast announcement:
-	-- rarity/name/distance/income in ~3s of corner text. The quick
-	-- celebrateCatch juice above runs in both modes.
+	-- brainrot itself, spinning, instead of describing it in text -- but for
+	-- rarities picked under Settings > Skip Catch Animation, the ceremony is
+	-- skipped over there (shouldReveal) and this card is the fast
+	-- announcement: rarity/name/distance/income in ~3s of corner text. The
+	-- quick celebrateCatch juice above runs in both modes.
 	celebrateCatch(result.Rarity, result.Mutation)
-	if player:GetAttribute("SkipAnimations") ~= true then return end
+	if player:GetAttribute("SkipReveal" .. tostring(result.Rarity)) ~= true then return end
 
 	rarityLabel.Text = string.upper(result.Rarity)
 	rarityLabel.TextColor3 = result.RarityColor
@@ -1991,12 +1991,6 @@ end)
 stoneThrownRemote.OnClientEvent:Connect(function(startPos, landingPos, flightTime, distance)
 	if tracking then return end
 	if (distance or 0) < TRACK_MIN_DISTANCE then return end
-	-- Settings > Skip Animations: no camera trip at all. The bar then unlocks
-	-- from ThrowResult / the StoneThrown fallback below (both fire at
-	-- landing) -- EARLIER than this path's flightTime+1.4 flyback ever
-	-- allowed. Never hand-unlock the bar here instead: the server's silent
-	-- THROW_COOLDOWN/inFlight drops would strand it (see ThrowHandler).
-	if player:GetAttribute("SkipAnimations") == true then return end
 	if not startPos or not landingPos then return end
 	tracking = true
 	cameraTracking = true    -- holds the throw bar at "SKIPPING..." until the flyback ends

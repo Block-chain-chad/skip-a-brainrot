@@ -66,14 +66,15 @@ local function playTierCue(result)
 	end
 end
 
--- PHASE 2 SEAM, now half-filled (2026-08-04): Settings > Skip Animations --
--- the FREE half of the phase-2 plan, a plain toggle instead of a gamepass,
--- bridged through the same player attribute SettingsPanel uses for
--- FastSpinPref/HideOwnBanners. Read at time of use, so a mid-session flip
--- covers the very next catch. The burst + tier cue above the gate still
--- play, and ClientMain brings back its retired ThrowResult text card as the
--- fast announcement, so a skipped catch is still announced -- in ~3s of
--- corner text instead of an up-to-9s takeover.
+-- PHASE 2 SEAM, filled (2026-08-04 v2): Settings > Skip Catch Animation --
+-- the free per-rarity version of the phase-2 plan ("the player's chosen
+-- rarities", exactly as this comment always said). SettingsPanel writes one
+-- boolean attribute per tier (SkipRevealCommon .. SkipRevealGod); read at
+-- time of use, so a mid-session change covers the very next catch. The
+-- burst + tier cue above the gate still play, and ClientMain shows its
+-- ThrowResult text card for skipped rarities, so every catch is still
+-- announced -- picked rarities just take ~3s of corner text instead of an
+-- up-to-9s takeover.
 --
 -- Skipping an ANIMATION is a pure presentation choice, so the client may own it
 -- -- a client that lies about it gains nothing. The auto-sell half of that
@@ -81,8 +82,8 @@ end
 -- this catch" can say it about anything. Auto-sell belongs server-side in
 -- ThrowHandler.revealCatch behind a verified MarketplaceService check.
 local player = Players.LocalPlayer
-local function shouldReveal(_result)
-	return player:GetAttribute("SkipAnimations") ~= true
+local function shouldReveal(result)
+	return player:GetAttribute("SkipReveal" .. tostring(result.Rarity)) ~= true
 end
 
 throwResult.OnClientEvent:Connect(function(result)

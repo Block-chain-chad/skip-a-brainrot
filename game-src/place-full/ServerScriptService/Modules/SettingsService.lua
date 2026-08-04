@@ -6,7 +6,7 @@
 -- in Studio, same spirit as this file's own creation.
 --
 -- WHITELIST DISCIPLINE: exactly the 6 keys the kit's Settings panel writes
--- (music, sfx, quality, fastSpin, hideOwnBanners, skipAnimations). Anything else in the
+-- (music, sfx, quality, fastSpin, hideOwnBanners, skipReveal). Anything else in the
 -- payload is silently dropped (warn + skip that ONE key -- a malformed or
 -- hostile client sending {Cash=999} alongside a legit {music=0.5} must not
 -- lose the legit half of the update, and must never be able to touch a
@@ -14,8 +14,14 @@
 -- [0,1] rather than rejected outright -- an out-of-range value is still a
 -- real intent ("turn it up/down"), so clamping preserves the direction
 -- instead of discarding the whole update. quality and the booleans
--- (fastSpin/hideOwnBanners/skipAnimations) are type+enum checked and
--- dropped (not coerced) on mismatch.
+-- (fastSpin/hideOwnBanners) are type+enum checked and dropped (not
+-- coerced) on mismatch. skipReveal is a TABLE of {TierName = bool} --
+-- rebuilt against the RarityConfig tier whitelist rather than trusted,
+-- and replaced whole on every write (the panel always sends all chips).
+-- (v1 note: a single boolean `skipAnimations` shipped briefly on
+-- 2026-08-04 and was superseded the same day by per-rarity skipReveal;
+-- the old field may linger inertly in old saves, and the panel migrates
+-- it client-side to all-rarities-on.)
 --
 -- QUALITY ENUM DEVIATION: the task brief spells this enum
 -- {"Low","Med","High"}, but StarterPlayerScripts.GameHUDClient's own
@@ -45,6 +51,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local PlayerDataManager = require(ServerScriptService.Modules.PlayerDataManager)
+local RarityConfig = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RarityConfig"))
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
@@ -84,11 +91,21 @@ function SettingsService._Validate(tbl)
 			else
 				warn("[SettingsService] dropped invalid quality: " .. tostring(value))
 			end
-		elseif key == "fastSpin" or key == "hideOwnBanners" or key == "skipAnimations" then
+		elseif key == "fastSpin" or key == "hideOwnBanners" then
 			if type(value) == "boolean" then
 				out[key] = value
 			else
 				warn("[SettingsService] dropped invalid " .. key .. ": " .. tostring(value))
+			end
+		elseif key == "skipReveal" then
+			if type(value) == "table" then
+				local t = {}
+				for _, tier in ipairs(RarityConfig) do
+					if type(value[tier.Name]) == "boolean" then t[tier.Name] = value[tier.Name] end
+				end
+				out.skipReveal = t
+			else
+				warn("[SettingsService] dropped invalid skipReveal: " .. tostring(value))
 			end
 		else
 			warn("[SettingsService] dropped unknown key: " .. tostring(key))
