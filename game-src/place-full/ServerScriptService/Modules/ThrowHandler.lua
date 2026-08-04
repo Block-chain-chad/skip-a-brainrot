@@ -388,7 +388,13 @@ local function spawnSkippingStone(player, distance, rock, onLand)
 	local totalTime = math.clamp(0.9 + distance / 360, 1.15, 4.2)
 	local segTime = totalTime / (#points - 1)
 
-	remotes.StoneThrown:FireClient(player, origin, points[#points], totalTime, distance)
+	-- nContacts + segTime ride the EXISTING payload rather than a new remote or one
+	-- event per bounce: the arc is fully deterministic, so the client ticks its own
+	-- counter off segTime. One payload change instead of up to 8 fires per throw.
+	-- Splash k happens at k*segTime after this fires (see the loop below), and the
+	-- client receives this payload and hears each splash both one-way-late, so the
+	-- latency cancels and a client-side tick at k*segTime lands on the splash.
+	remotes.StoneThrown:FireClient(player, origin, points[#points], totalTime, distance, nContacts, segTime)
 
 	task.spawn(function()
 		local spin = 0
