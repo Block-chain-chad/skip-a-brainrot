@@ -33,6 +33,11 @@ local REGIONS = {
 }
 
 local INTERVAL = 0.25   -- how often each player is checked
+-- How far a rig must travel between checks to count as MOVING while it has no live
+-- Humanoid. Above ragdoll settle (<0.5 studs) and below walking (WalkSpeed 21 covers
+-- 5.25 studs per 0.25s interval), so a corpse lying still is never punished and a
+-- client-driven rig always is.
+local MOVE_EPS = 2.0
 local STRIKES  = 2      -- consecutive out-of-bounds checks before acting (~0.5s of grace)
 local WARN_GAP = 10     -- seconds between warns per player, so a stuck exploiter can't spam output
 
@@ -40,7 +45,7 @@ local WARN_GAP = 10     -- seconds between warns per player, so a stuck exploite
 -- hardcoding it here would silently drift the day someone moves the spawn.
 local FALLBACK_RETURN = Vector3.new(24, 6, -16)   -- TeleportService's HUB_POS
 
-local strikes, lastWarn = {}, {}
+local strikes, lastWarn, lastPos = {}, {}, {}
 M.Returns = 0   -- count of corrections made this server's lifetime, for a quick sanity read
 
 local function returnPoint()
@@ -96,6 +101,7 @@ function M.Init()
 	Players.PlayerRemoving:Connect(function(player)
 		strikes[player] = nil
 		lastWarn[player] = nil
+		lastPos[player] = nil
 	end)
 
 	task.spawn(function()
@@ -104,21 +110,44 @@ function M.Init()
 			for _, player in ipairs(Players:GetPlayers()) do
 				local char = player.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart")
-				local hum = char and char:FindFirstChildOfClass("Humanoid")
-				-- Skip a dead or still-loading character: it has no meaningful position, and
-				-- respawn puts it back inside the world anyway.
-				if hrp and hum and hum.Health > 0 then
-					if regionOf(hrp.Position) then
-						strikes[player] = nil
-					else
+				if not hrp then
+					-- No root part at all: still streaming in, or the character is gone.
+					-- There is no position to judge, so no verdict -- but strikes are
+					-- DELIBERATELY left alone rather than cleared. Clearing here was half
+					-- the fail-open: a client that can delete its Humanoid can also drop
+					-- its rig for one frame to wipe the counter.
+					lastPos[player] = nil
+				else
+					-- FindFirstChildOfClass, not FindFirstChild("Humanoid"): a RENAMED
+					-- Humanoid is still found by class, so renaming was never an escape.
+					-- Destroying or reparenting it is, and so is pinning Health at 0
+					-- while the rig keeps being driven.
+					local hum = char:FindFirstChildOfClass("Humanoid")
+					local alive = hum ~= nil and hum.Health > 0
+					local pos = hrp.Position
+					local prev = lastPos[player]
+					local moving = prev ~= nil and (pos - prev).Magnitude > MOVE_EPS
+					lastPos[player] = pos
+
+					local out = regionOf(pos) == nil
+					-- A rig with no live Humanoid that is STILL MOVING is not a corpse --
+					-- nothing legitimate drives it -- so it is judged exactly like being
+					-- out of bounds. A corpse holding still is left alone (it is about to
+					-- respawn anyway), but its strikes are PRESERVED, never cleared.
+					if not alive and moving then
+						out = true
+					end
+
+					if out then
 						strikes[player] = (strikes[player] or 0) + 1
 						if strikes[player] >= STRIKES then
 							strikes[player] = nil
-							sendBack(player, hrp.Position)
+							sendBack(player, pos)
 						end
+					elseif alive then
+						strikes[player] = nil
 					end
-				else
-					strikes[player] = nil
+					-- dead-and-still: falls through with strikes intact
 				end
 			end
 		end
