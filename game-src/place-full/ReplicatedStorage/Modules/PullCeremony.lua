@@ -38,10 +38,26 @@ local TIERS = {
 	Secret    = { hold = 2.4,  climb = 1.8, shards = 16, drama = true },
 	God       = { hold = 2.8,  climb = 2.0, shards = 18, drama = true },
 }
+-- ALL EIGHT TIERS. The bottom three were missing, so Common/Uncommon/Rare fell
+-- through to a flat catchSparkle here. SoundKit already declared all eight ids.
 local CATCH_SOUND = {
+	Common = "catchCommon", Uncommon = "catchUncommon", Rare = "catchRare",
 	Epic = "catchEpic", Legendary = "catchLegend", Mythic = "catchMythic",
 	Secret = "catchSecret", God = "catchGod",
 }
+-- The escalating ladder, ported verbatim from RareCatchClient's TIER_SFX so the
+-- two reveal systems agree on how loud a tier is. Every SoundKit.play below used
+-- to pass no opts and land on SoundKit's flat 0.25 default, which is why a
+-- Common and a God were the same level here.
+local CATCH_VOLUME = {
+	Common = 0.13, Uncommon = 0.17, Rare = 0.21, Epic = 0.25,
+	Legendary = 0.30, Mythic = 0.34, Secret = 0.40, God = 0.54,
+}
+-- support layers: chosen to sit UNDER the lead, never to compete with it
+local VOL_DRAMA   = 0.30   -- takeover "uh oh"
+local VOL_SHIMMER = 0.12   -- takeover star
+local VOL_TICK    = 0.08   -- odds counter, fires 6x -- must be nearly subliminal
+local VOL_BIGHIT  = 0.24   -- burst impact layer
 
 local player = Players.LocalPlayer
 local gui, activeToken = nil, 0
@@ -148,7 +164,7 @@ function M.play(result)
 		black.BorderSizePixel = 0
 		black.Parent = g
 		TweenService:Create(black, TweenInfo.new(0.35), { BackgroundTransparency = 0 }):Play()
-		if cfg.drama then SoundKit.play("catchDrama") end
+		if cfg.drama then SoundKit.play("catchDrama", nil, { volume = VOL_DRAMA }) end
 		task.wait(0.38)
 		if token ~= activeToken then return end
 
@@ -179,7 +195,7 @@ function M.play(result)
 				BackgroundTransparency = 1,
 			}):Play()
 		end
-		SoundKit.play("catchSparkle")
+		SoundKit.play("catchSparkle", nil, { volume = VOL_SHIMMER })
 		task.wait(cfg.hold)
 		if token ~= activeToken then return end
 
@@ -198,7 +214,7 @@ function M.play(result)
 			counter.Text = "1 / " .. comma(v)
 			cScale.Scale = 1.25
 			TweenService:Create(cScale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-			SoundKit.play("catchSparkle")
+			SoundKit.play("catchSparkle", nil, { volume = VOL_TICK })
 			task.wait(cfg.climb / steps)
 		end
 		counter.Text = "1 / " .. comma(target)
@@ -207,11 +223,18 @@ function M.play(result)
 		end -- not cfg.quick
 
 		-- ===== BURST =====
-		if cfg.quick then
-			SoundKit.play("catchSparkle")
-		else
-			SoundKit.play(CATCH_SOUND[result.Rarity] or "catchLegend")
-			SoundKit.play("catchBigHit")
+		-- THE TIER LEAD. Skipped only when the caller already played this exact
+		-- cue (CatchRevealClient.playTierCue does, for non-broadcast tiers) --
+		-- without that check, wiring the bottom three here would double every
+		-- Common/Uncommon/Rare catch against a cue that already sounds correct.
+		-- Nil flag = nobody else played one, so this carries it alone: safe
+		-- whichever reveal system survives.
+		if not result.TierCuePlayed then
+			SoundKit.play(CATCH_SOUND[result.Rarity] or "catchLegend", nil,
+				{ volume = CATCH_VOLUME[result.Rarity] or 0.25 })
+		end
+		if not cfg.quick then
+			SoundKit.play("catchBigHit", nil, { volume = VOL_BIGHIT })
 		end
 		local flash = Instance.new("Frame")
 		flash.Size = UDim2.fromScale(1, 1)
