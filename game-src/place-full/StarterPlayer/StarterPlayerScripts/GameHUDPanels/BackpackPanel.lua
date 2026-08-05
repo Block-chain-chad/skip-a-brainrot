@@ -168,6 +168,10 @@ local BrainrotConfig = require(modules:WaitForChild("BrainrotConfig"))
 local RarityConfig = require(modules:WaitForChild("RarityConfig"))
 local Mutations = require(modules:WaitForChild("MutationConfig"))
 local BrainrotThumb = require(modules:WaitForChild("BrainrotThumb"))
+-- The key artwork lives in the kit's own vector icon module, the same place the
+-- nav-rail icons come from, so the keys are drawn in the game's style rather than
+-- being emoji in a text label.
+local IconArt = require(modules:WaitForChild("UIKit"):WaitForChild("IconArt"))
 local PetConfigModule = modules:WaitForChild("PetConfig") -- required live, see header note
 
 local infoByName = {}
@@ -374,6 +378,11 @@ end
 local ownedBrainrots: { { Name: string, Mutation: string?, Uid: any } } = {}
 local ownedPets: { { Uid: string, Id: string } } = {}
 local petSlots: { string } = {}
+-- Keys tab state. Gianluca's keys are a spendable COUNT (data.Keys); Elder Tung's
+-- cellar key is a one-off flag, not a currency -- so the tab renders two different
+-- kinds of thing and needs both shapes. The unlock booleans are what let a key read
+-- as "already spent, and permanently" instead of just vanishing from the count.
+local keyState = { Gianluca = 0, Cellar = false, CellarPaid = false }
 local onSnapshotChanged: (() -> ())? = nil
 
 local function applySnapshot(snap)
@@ -396,6 +405,11 @@ local function applySnapshot(snap)
 	for _, u in ipairs(snap.PetSlots or {}) do
 		petSlots[#petSlots + 1] = u
 	end
+	keyState = {
+		Gianluca = tonumber(snap.Keys) or 0,
+		Cellar = snap.TungPortalUnlocked and true or false,
+		CellarPaid = snap.CellarUnlocked and true or false,
+	}
 end
 
 remotes.DataUpdated.OnClientEvent:Connect(function(payload)
@@ -457,6 +471,7 @@ function BackpackPanel.Build(ctx)
 	-- other panel reading that shape).
 	local selectedBrainrotKey: string? = nil -- (Mutation.."|"..Name), independent of Pets' own selection
 	local selectedPetUid: string? = nil
+	local selectedKeyId: string? = nil
 
 	----------------------------------------------------------- root
 	local wrapper = Instance.new("Frame")
@@ -549,6 +564,11 @@ function BackpackPanel.Build(ctx)
 		{ id = "Pets", label = "Pets", icon = nil },
 		{ id = "Charms", label = "Charms", icon = nil },
 		{ id = "Eggs", label = "Eggs", icon = nil },
+		-- Keys are not brainrots and were previously invisible: Gianluca's showed only
+		-- as a number in the legacy panel and the cellar key was a bare player attribute
+		-- with no representation at all. Five tabs still fit the 534px column
+		-- (5 x 60 + 4 x 9 = 336).
+		{ id = "Keys", label = "Keys", icon = nil },
 	}
 
 	local tabFrames: { [string]: Frame } = {}
@@ -656,7 +676,7 @@ function BackpackPanel.Build(ctx)
 	-- created below capture THIS slot by reference, and by the time any of
 	-- them actually fires (a real user click) every assignment below has
 	-- already run once, synchronously, during this same Build() call.
-	local renderBrainrots, renderPets, renderCharms, renderEggs, renderActiveTab
+	local renderBrainrots, renderPets, renderCharms, renderEggs, renderKeys, renderActiveTab
 
 	----------------------------------------------------------- shared build blocks
 	local function clearChildren(parent: Instance)
@@ -747,6 +767,34 @@ function BackpackPanel.Build(ctx)
 		valueLabel.TextXAlignment = Enum.TextXAlignment.Right
 		valueLabel.ZIndex = row.ZIndex + 1
 		valueLabel.Parent = row
+	end
+
+	local function buildSwatch(parent: Instance, size: UDim2, position: UDim2, zIndex: number, tint: Color3)
+		local sw = Instance.new("Frame")
+		sw.Name = "Swatch"
+		sw.Size = size
+		sw.Position = position
+		sw.BackgroundColor3 = tint
+		sw.BackgroundTransparency = 0.5
+		sw.BorderSizePixel = 0
+		sw.ZIndex = zIndex
+		sw.Parent = parent
+		UI.corner(sw, T.radius.art)
+		return sw
+	end
+
+	-- PETS RESOLVE THROUGH A DIFFERENT FOLDER AND A DIFFERENT KEY than brainrots: the
+	-- art lives in ReplicatedStorage.PetModels under PetConfig's Model field (the .glb
+	-- basename), not in BrainrotModels under the display name. Calling the brainrot path
+	-- with a pet's display name misses on both counts, which is why every pet in this
+	-- tab used to render as a flat coloured square regardless of the art being present.
+	local function build3DPetOrSwatch(parent: Instance, def, size: UDim2, position: UDim2, zIndex: number, tint: Color3)
+		local vp = BrainrotThumb.addPet(parent, def and def.Model, def and def.Name,
+			{ size = size, position = position, zIndex = zIndex })
+		if not vp then
+			buildSwatch(parent, size, position, zIndex, tint)
+		end
+		return vp
 	end
 
 	local function build3DOrSwatch(parent: Instance, name: string, size: UDim2, position: UDim2, zIndex: number, tint: Color3)
@@ -873,10 +921,30 @@ function BackpackPanel.Build(ctx)
 		return nil
 	end
 
+	-- CELL WRAPPER, and it is not optional. UI.hardShadow parents the shadow as a SIBLING
+	-- of the tile (UIKit.Builders: `sh.Parent = frame.Parent`), so dropping tiles straight
+	-- into the UIGridLayout gave the layout TWO cells per item -- and because a shadow
+	-- carries no LayoutOrder it sorts as 0, ahead of every real tile. With 117 brainrots
+	-- that put 117 phantom cells first and pushed the first real tile ~3200px down, far
+	-- outside the grid's clipped window: the whole bag rendered as a field of empty dark
+	-- rectangles, which were the shadows themselves. Wrapping keeps each shadow inside its
+	-- own cell. This is the codebase-wide pattern for exactly this trap -- the same one
+	-- EquipSlot above and the egg shop's qty segments already use.
+	local function buildTileCell(parent: Instance, name: string, order: number): Frame
+		local cell = Instance.new("Frame")
+		cell.Name = name
+		cell.Size = UDim2.fromOffset(SLOT_W, SLOT_H)
+		cell.BackgroundTransparency = 1
+		cell.LayoutOrder = order
+		cell.ZIndex = 15
+		cell.Parent = parent
+		return cell
+	end
+
 	local function buildBrainrotTile(parent: Instance, order: number, group, isSelected: boolean, held: { [any]: boolean })
-		local tile = UI.surface(parent, UDim2.fromOffset(SLOT_W, SLOT_H), "slot", T.radius.inner, T.stroke.control)
+		local cell = buildTileCell(parent, "TileCell" .. order, order)
+		local tile = UI.surface(cell, UDim2.fromScale(1, 1), "slot", T.radius.inner, T.stroke.control)
 		tile.Name = "Tile" .. order
-		tile.LayoutOrder = order
 		tile.ZIndex = 15
 		UI.hardShadow(tile, T.shadowOffset.control, T.radius.inner)
 
@@ -970,7 +1038,7 @@ function BackpackPanel.Build(ctx)
 			renderBrainrotDetail(group)
 		end)
 
-		tile.Parent = parent
+		tile.Parent = cell
 	end
 
 	-- Called only from renderBrainrots, which already clears contentHost's
@@ -1206,9 +1274,11 @@ function BackpackPanel.Build(ctx)
 	end
 
 	local function buildPetTile(parent: Instance, order: number, pet, def, isSelected: boolean)
-		local tile = UI.surface(parent, UDim2.fromOffset(SLOT_W, SLOT_H), "slot", T.radius.inner, T.stroke.control)
+		-- see buildTileCell: without this wrapper the hard shadows become phantom grid
+		-- cells and shove every pet out of the visible scroll window
+		local cell = buildTileCell(parent, "PetCell" .. order, order)
+		local tile = UI.surface(cell, UDim2.fromScale(1, 1), "slot", T.radius.inner, T.stroke.control)
 		tile.Name = "PetTile" .. order
-		tile.LayoutOrder = order
 		tile.ZIndex = 15
 		UI.hardShadow(tile, T.shadowOffset.control, T.radius.inner)
 
@@ -1223,7 +1293,7 @@ function BackpackPanel.Build(ctx)
 		artHolder.Parent = tile
 		UI.corner(artHolder, T.radius.art)
 		UI.gradient(artHolder, T.gradient.slot)
-		build3DOrSwatch(artHolder, def.Name, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), artHolder.ZIndex + 1, rarityTint(T, def.Rarity))
+		build3DPetOrSwatch(artHolder, def, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), artHolder.ZIndex + 1, rarityTint(T, def.Rarity))
 
 		local rarityKey = kitRarityKey(def.Rarity)
 		if rarityKey == "rainbow" then
@@ -1273,7 +1343,7 @@ function BackpackPanel.Build(ctx)
 			renderPets()
 		end)
 
-		tile.Parent = parent
+		tile.Parent = cell
 	end
 
 	renderPets = function()
@@ -1356,8 +1426,269 @@ function BackpackPanel.Build(ctx)
 		buildDetailPlaceholder("Crack eggs at Gino's stall!")
 	end
 
+	----------------------------------------------------------- KEYS tab
+	-- ONLY KEYS YOU ACTUALLY HAVE are listed. The first cut showed both as greyed
+	-- "not earned yet" rows so a new player could see where each comes from; that
+	-- turned the tab into a to-do list and read as clutter next to the other tabs,
+	-- which never show what you do not own either. An unearned key is simply absent
+	-- and the empty state carries the hint.
+	--
+	-- Two quite different things share the tab, which is why each tile is captioned:
+	--   * Stupid Gianluca's Key is a COUNT, and it is SPENT. Opening Elder Tung's cellar
+	--     hatch consumes one (ServerScriptService.CellarDoor) and stamps
+	--     data.CellarUnlocked, after which the way down is free FOREVER for that player.
+	--     The hatch takes BOTH keys -- his and Tung's -- which is the whole gate to the
+	--     dungeon and the Frozen Tundra past it. The tundra portal itself is not locked.
+	--   * Elder Tung's Cellar Key is not a currency at all. Finishing his list sets
+	--     TungPortalUnlocked plus the HasCellarKey attribute, and the hatch is drawn
+	--     per-client (StarterPlayerScripts.CellarDoorClient), so it opens for the
+	--     holder alone -- a keyholder cannot walk a friend down the ladder.
+	local function keyDefs()
+		local defs = {}
+		if keyState.Cellar then
+			defs[#defs + 1] = {
+				id = "Cellar",
+				caption = "Cellar",
+				name = "Elder Tung's Cellar Key",
+				art = "keyCellar",
+				tint = Color3.fromRGB(198, 150, 96), -- Tung's own wood-brown
+				qty = nil,                            -- not a currency: you have it or you don't
+				from = "Elder Tung",
+				-- buildStatRow splits its 204px row 50/50 and the value is 18px display type,
+				-- so anything past ~14 characters overflows leftwards and paints over its own
+				-- key label. Keep these short; the full sentence belongs in `status`.
+				opens = "Cellar hatch",
+				status = "Opens for you alone, forever \u{2014} you cannot let a friend in on it.",
+			}
+		end
+		-- A SPENT key still belongs here. Dropping the tile at count 0 would make the
+		-- thing it bought look like it never existed, and the unlock is the whole point.
+		if keyState.Gianluca > 0 or keyState.CellarPaid then
+			defs[#defs + 1] = {
+				id = "Gianluca",
+				caption = "Gianluca",
+				name = "Stupid Gianluca's Key",
+				art = "keyGianluca",
+				tint = T.color.textAccent,
+				qty = keyState.Gianluca,
+				from = "Gianluca",
+				opens = "Cellar hatch",   -- see the length note on the cellar key above
+				status = keyState.CellarPaid
+					and "Cellar unlocked, forever \u{2014} going down costs nothing now."
+					or "Spend one at Elder Tung's hatch, with his key, to open it for good.",
+			}
+		end
+		return defs
+	end
+
+	-- The kit's vector key art on the same slot plate a brainrot tile uses, so the two
+	-- tabs read as one grid. IconArt.draw sizes and parents its own root, so the centring
+	-- has to be applied afterwards.
+	local function buildKeyArt(parent: Instance, def, artSize: number, zIndex: number): Frame
+		local holder = Instance.new("Frame")
+		holder.Name = "Art"
+		holder.AnchorPoint = Vector2.new(0.5, 0.5)
+		holder.Position = UDim2.fromScale(0.5, 0.5)
+		holder.Size = UDim2.new(1, -12, 1, -12)
+		holder.BackgroundColor3 = T.color.white
+		holder.BorderSizePixel = 0
+		holder.ZIndex = zIndex
+		holder.Parent = parent
+		UI.corner(holder, T.radius.art)
+		UI.gradient(holder, T.gradient.slot)
+
+		local art = IconArt.draw(holder, def.art, artSize, zIndex + 1)
+		if art then
+			art.AnchorPoint = Vector2.new(0.5, 0.5)
+			art.Position = UDim2.fromScale(0.5, 0.5)
+		end
+		return holder
+	end
+
+	local function buildKeyTile(parent: Instance, order: number, def, isSelected: boolean)
+		local cell = buildTileCell(parent, "KeyCell" .. def.id, order)
+		local tile = UI.surface(cell, UDim2.fromScale(1, 1), "slot", T.radius.inner, T.stroke.control)
+		tile.Name = "Key" .. def.id
+		tile.ZIndex = 15
+		UI.hardShadow(tile, T.shadowOffset.control, T.radius.inner)
+
+		-- art sits in the upper part of the tile; the caption strip owns the bottom 22px
+		local holder = buildKeyArt(tile, def, math.floor(SLOT_W * 0.62), tile.ZIndex + 1)
+		holder.AnchorPoint = Vector2.new(0.5, 0)
+		holder.Position = UDim2.new(0.5, 0, 0, 6)
+		holder.Size = UDim2.new(1, -12, 1, -30)
+		-- the key's own colour as a keyline, the role rarityFrame plays on a brainrot tile
+		local ring = UI.stroke(holder, T.stroke.chip)
+		ring.Color = def.tint
+
+		-- Captioned, unlike the brainrot tiles: two keys are two similar silhouettes and
+		-- a creature is recognisable where a key is not.
+		local caption = Instance.new("TextLabel")
+		caption.Name = "Caption"
+		caption.BackgroundTransparency = 1
+		caption.FontFace = T.font.display
+		caption.TextSize = 14
+		caption.TextColor3 = T.color.white
+		caption.Text = def.caption
+		caption.AnchorPoint = Vector2.new(0.5, 1)
+		caption.Position = UDim2.new(0.5, 0, 1, -5)
+		caption.Size = UDim2.new(1, -8, 0, 18)
+		caption.TextXAlignment = Enum.TextXAlignment.Center
+		caption.TextTruncate = Enum.TextTruncate.AtEnd
+		caption.ZIndex = tile.ZIndex + 3
+		caption.Parent = tile
+		local capStroke = Instance.new("UIStroke")
+		capStroke.Thickness = 2.5
+		capStroke.Color = T.color.outline
+		capStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+		capStroke.Parent = caption
+
+		if def.qty then
+			local qty = Instance.new("TextLabel")
+			qty.Name = "Quantity"
+			qty.BackgroundTransparency = 1
+			qty.FontFace = T.font.display
+			qty.TextSize = 17
+			qty.TextColor3 = T.color.white
+			qty.Text = "x" .. tostring(def.qty)
+			qty.AnchorPoint = Vector2.new(1, 0)
+			qty.Position = UDim2.new(1, -6, 0, 4)
+			qty.Size = UDim2.fromOffset(40, 20)
+			qty.TextXAlignment = Enum.TextXAlignment.Right
+			qty.ZIndex = tile.ZIndex + 3
+			qty.Parent = tile
+			local qtyStroke = Instance.new("UIStroke")
+			qtyStroke.Thickness = 2.5
+			qtyStroke.Color = T.color.outline
+			qtyStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+			qtyStroke.Parent = qty
+		end
+
+		if isSelected then
+			local sel = Instance.new("Frame")
+			sel.Name = "SelectedRing"
+			sel.Size = UDim2.fromScale(1, 1)
+			sel.BackgroundTransparency = 1
+			sel.ZIndex = tile.ZIndex + 5
+			sel.Parent = tile
+			UI.corner(sel, T.radius.inner)
+			local selStroke = Instance.new("UIStroke")
+			selStroke.Thickness = 3
+			selStroke.Color = T.color.activeRing
+			selStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			selStroke.Parent = sel
+		end
+
+		local hit = Instance.new("TextButton")
+		hit.Name = "Hit"
+		hit.Text = ""
+		hit.Size = UDim2.fromScale(1, 1)
+		hit.BackgroundTransparency = 1
+		hit.ZIndex = tile.ZIndex + 6
+		hit.Parent = tile
+		hit.MouseButton1Click:Connect(function()
+			selectedKeyId = def.id
+			renderKeys()
+		end)
+	end
+
+	local function renderKeyDetail(def)
+		if not def then
+			buildDetailPlaceholder("Keys you earn show up here.")
+			return
+		end
+		clearChildren(detailContent)
+
+		local hero = Instance.new("Frame")
+		hero.Name = "Hero"
+		hero.LayoutOrder = 1
+		hero.Size = UDim2.new(1, 0, 0, 150)
+		hero.BackgroundColor3 = T.color.white
+		hero.BorderSizePixel = 0
+		hero.ZIndex = detailContent.ZIndex + 1
+		hero.Parent = detailContent
+		UI.corner(hero, T.radius.small)
+		UI.gradient(hero, T.gradient.slot)
+		UI.stroke(hero, T.stroke.control)
+		buildKeyArt(hero, def, 118, hero.ZIndex + 1)
+
+		local name = UI.label(detailContent, def.name, "cardLabel", T.color.white)
+		name.Name = "KeyName"
+		name.LayoutOrder = 2
+		name.Size = UDim2.new(1, 0, 0, 48)
+		name.AutomaticSize = Enum.AutomaticSize.None
+		name.TextXAlignment = Enum.TextXAlignment.Center
+		name.TextWrapped = true
+		name.ZIndex = detailContent.ZIndex + 1
+
+		buildStatRow(3, "From", def.from)
+		buildStatRow(4, "Opens", def.opens)
+		if def.qty then
+			buildStatRow(5, "Held", tostring(def.qty))
+		end
+
+		local status = UI.label(detailContent, def.status, "meta", T.color.claimRing)
+		status.Name = "Status"
+		status.LayoutOrder = 6
+		status.Size = UDim2.new(1, 0, 0, 76)
+		status.AutomaticSize = Enum.AutomaticSize.None
+		status.TextXAlignment = Enum.TextXAlignment.Left
+		status.TextYAlignment = Enum.TextYAlignment.Top
+		status.TextWrapped = true
+		status.ZIndex = detailContent.ZIndex + 1
+	end
+
+	renderKeys = function()
+		clearChildren(contentHost)
+		refreshHeader()
+
+		local defs = keyDefs()
+		if #defs == 0 then
+			buildEmptyState(contentHost, "No keys yet \u{2014} quests hand them out.")
+			buildDetailPlaceholder("Keys you earn show up here.")
+			return
+		end
+
+		-- Nothing selected (or the selection is gone) falls to the first key, so the
+		-- detail column is never a blank slab next to a single tile.
+		local chosen
+		for _, def in ipairs(defs) do
+			if def.id == selectedKeyId then chosen = def end
+		end
+		if not chosen then
+			chosen = defs[1]
+			selectedKeyId = chosen.id
+		end
+
+		local scroll = Instance.new("ScrollingFrame")
+		scroll.Name = "KeyGrid"
+		scroll.Size = UDim2.fromOffset(GRID_COL_W, CONTENT_H)
+		scroll.BackgroundTransparency = 1
+		scroll.BorderSizePixel = 0
+		scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+		scroll.ScrollBarThickness = 10
+		scroll.ScrollBarImageColor3 = T.color.scrollThumb
+		scroll.CanvasSize = UDim2.new()
+		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		scroll.ElasticBehavior = Enum.ElasticBehavior.Never
+		scroll.ZIndex = 14
+		scroll.Parent = contentHost
+
+		local gridLayout = Instance.new("UIGridLayout")
+		gridLayout.CellSize = UDim2.fromOffset(SLOT_W, SLOT_H)
+		gridLayout.CellPadding = UDim2.fromOffset(GRID_GAP, GRID_GAP)
+		gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		gridLayout.Parent = scroll
+
+		for i, def in ipairs(defs) do
+			buildKeyTile(scroll, i, def, def.id == chosen.id)
+		end
+
+		renderKeyDetail(chosen)
+	end
+
 	----------------------------------------------------------- tab dispatch
-	local RENDERERS = { Brainrots = renderBrainrots, Pets = renderPets, Charms = renderCharms, Eggs = renderEggs }
+	local RENDERERS = { Brainrots = renderBrainrots, Pets = renderPets, Charms = renderCharms, Eggs = renderEggs, Keys = renderKeys }
 
 	local function updateTabVisuals()
 		for id, ring in pairs(tabRings) do
