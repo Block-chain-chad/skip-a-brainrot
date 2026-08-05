@@ -9,6 +9,17 @@
 -- open/close after that -- this module never sets its own Parent or drives
 -- its own open/close animation.
 --
+-- 2026-08-04 1d/1e SWEEP RESTYLE: blue header (#58a6ff -> #1f6fe0), cream
+-- body (hand-built 16px T.pad.panel padding -- NOT DailyPanel's panelWide 18,
+-- because every body measurement below is computed against T.pad.panel),
+-- white grid tiles / filter chips with the soft #e5d3ac border and #4a3416
+-- ink text, tier-colour washes KEPT (tightened 0.55 -> 0.4 for the white
+-- backing), undiscovered "?" covers kept dark verbatim (secrecy treatment),
+-- tide chip ported to DailyPanel's dark timer-pill colours, per-panel
+-- backdrop BlurEffect ("IndexPanelBlur"). ALL data wiring -- discovery,
+-- seen/NEW lifecycle, supply snapshot, viewport virtualisation, filters --
+-- is byte-identical to the pre-sweep version; recolor/re-surface only.
+--
 -- ============================================================================
 -- DATA (StarterPlayer.StarterPlayerScripts.IndexClient read FULLY, live,
 -- before writing anything below -- it carries TWO waves of badge work that
@@ -123,6 +134,7 @@
 -- ============================================================================
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting") -- 1d/1e sweep (2026-08-04): the backdrop BlurEffect lives in Lighting (see setBlur in Build)
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
@@ -133,6 +145,17 @@ local SupplySchedule = require(modules:WaitForChild("SupplySchedule"))
 local BrainrotThumb = require(modules:WaitForChild("BrainrotThumb"))
 
 local IndexPanel = { Id = "index" }
+
+----------------------------------------------------------- 1d/1e sweep palette (2026-08-04; ink stays the kit's)
+-- Index's assigned header accent is BLUE (Daily owns purple, Pass gold,
+-- Goals green); the cream/white-card trio below is exactly what DailyPanel
+-- shipped -- cream body, white cards with a soft tan border, brown body ink.
+local HEADER_TOP = Color3.fromHex("#58a6ff")
+local HEADER_BOT = Color3.fromHex("#1f6fe0")
+local CREAM_INK = Color3.fromHex("#4a3416") -- body text on cream / on white cards
+local CARD_BORDER = Color3.fromHex("#e5d3ac") -- soft border on white cards (panel outline stays kit ink)
+local TIDE_BG = Color3.fromHex("#281608") -- DailyPanel's TIMER_BG, ported with the whole pill treatment
+local TIDE_GOLD = Color3.fromHex("#ffd23e") -- DailyPanel's TIMER_GOLD countdown value
 
 ----------------------------------------------------------- availability (IndexClient lines 64-83, verbatim)
 local AV_LIVE, AV_SOON, AV_VAULTED = 1, 2, 3
@@ -366,6 +389,14 @@ function IndexPanel.Build(ctx)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
+	-- 1d/1e sweep (2026-08-04): Index's accent is blue -- recolor the gold
+	-- surface's gradient IN PLACE (UI.surface has no blue panel kind; same
+	-- pattern DailyPanel's purple header uses). Shell, gloss, shadow, icon,
+	-- title and close button are untouched.
+	local headerGrad = header:FindFirstChildOfClass("UIGradient")
+	if headerGrad then
+		headerGrad.Color = ColorSequence.new(HEADER_TOP, HEADER_BOT)
+	end
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
 
@@ -398,30 +429,36 @@ function IndexPanel.Build(ctx)
 	tideChip.AnchorPoint = Vector2.new(1, 0.5)
 	tideChip.Position = UDim2.new(1, -12 - T.size.closeButton.X - 14, 0.5, 0)
 	tideChip.Size = UDim2.fromOffset(TIDE_W, TIDE_H)
-	tideChip.BackgroundColor3 = T.color.white
+	-- 1d/1e sweep (2026-08-04): the old dark-GREEN gradient (#3B4731 ->
+	-- #26301F) was picked against the gold header and goes muddy on the new
+	-- blue one; the chip keeps its dark-pill ROLE but ports DailyPanel's
+	-- timer-pill colours verbatim -- solid #281608 at .9 alpha plus a 2.5px
+	-- white(.9) ring instead of the ink stroke. Static, never tweened.
+	tideChip.BackgroundColor3 = TIDE_BG
+	tideChip.BackgroundTransparency = 0.1
 	tideChip.BorderSizePixel = 0
 	tideChip.ZIndex = header.ZIndex + 2
 	tideChip.Parent = header
 	UI.corner(tideChip, T.radius.inner)
-	local tideGradient = Instance.new("UIGradient")
-	tideGradient.Rotation = 90
-	tideGradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, T.hex("#3B4731")),
-		ColorSequenceKeypoint.new(1, T.hex("#26301F")),
-	})
-	tideGradient.Parent = tideChip
-	UI.stroke(tideChip, T.stroke.control)
+	local tideStroke = Instance.new("UIStroke")
+	tideStroke.Thickness = 2.5
+	tideStroke.Color = Color3.fromRGB(255, 255, 255)
+	tideStroke.Transparency = 0.1
+	tideStroke.Parent = tideChip
 
-	local tideLabel = UI.label(tideChip, "TIDE CHANGES IN", "meta", T.color.textMuted)
+	-- caption goes white-75% (DailyPanel's timerLabel treatment) -- textMuted
+	-- was a green-tinted pick that read off next to blue (1d/1e sweep)
+	local tideLabel = UI.label(tideChip, "TIDE CHANGES IN", "meta", T.color.white)
 	tideLabel.Name = "TideLabel"
 	tideLabel.AnchorPoint = Vector2.new(0, 0.5)
 	tideLabel.Position = UDim2.new(0, 12, 0.5, -12)
 	tideLabel.Size = UDim2.new(1, -24, 0, 16)
 	tideLabel.AutomaticSize = Enum.AutomaticSize.None
 	tideLabel.TextXAlignment = Enum.TextXAlignment.Left
+	tideLabel.TextTransparency = 0.25 -- mock white-75%
 	tideLabel.ZIndex = tideChip.ZIndex + 1
 
-	local tideValue = UI.label(tideChip, "--", "cardLabel", T.color.white)
+	local tideValue = UI.label(tideChip, "--", "cardLabel", TIDE_GOLD) -- 1d/1e sweep: gold countdown value, matching Daily's pill
 	tideValue.Name = "TideValue"
 	tideValue.AnchorPoint = Vector2.new(0, 0.5)
 	tideValue.Position = UDim2.new(0, 12, 0.5, 12)
@@ -430,11 +467,26 @@ function IndexPanel.Build(ctx)
 	tideValue.TextXAlignment = Enum.TextXAlignment.Left
 	tideValue.ZIndex = tideChip.ZIndex + 1
 
-	----------------------------------------------------------- body (common shell, kit README §3)
-	local body = UI.panel(panelCol, UDim2.fromOffset(PANEL_W, BODY_H))
+	----------------------------------------------------------- body (1d/1e sweep 2026-08-04: cream, was the kit's dark UI.panel)
+	-- UI.panel bundled THREE things -- the dark "panel" surface, the hard
+	-- shadow, and a UIPadding of T.pad.panel on all four sides -- and ALL the
+	-- body geometry above (BODY_INNER_W = PANEL_W - T.pad.panel * 2, BODY_H =
+	-- T.pad.panel * 2 + BODY_CONTENT_H) is measured against that padding. The
+	-- cream swap reproduces shadow + padding by hand, and the padding MUST
+	-- stay T.pad.panel (16) -- NOT DailyPanel's panelWide 18 -- or
+	-- DISC_BAR_W/FILTER_W/SLOT_W all silently desync. The cream body keeps
+	-- the ink panel outline and carries no gloss (DailyPanel precedent).
+	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "cream", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
+	UI.hardShadow(body, T.shadowOffset.panel, T.radius.panel)
+	local bodyPad = Instance.new("UIPadding")
+	bodyPad.PaddingTop = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingBottom = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingLeft = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingRight = UDim.new(0, T.pad.panel)
+	bodyPad.Parent = body
 
 	----------------------------------------------------------- discovery bar + 100%-reward chip
 	local discRow = Instance.new("Frame")
@@ -483,15 +535,16 @@ function IndexPanel.Build(ctx)
 	rewardChip.ZIndex = 14
 	rewardChip.Parent = discRow
 	UI.corner(rewardChip, T.radius.small)
-	local rewardGradient = Instance.new("UIGradient")
-	rewardGradient.Rotation = 90
-	rewardGradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, T.hex("#3B4731")),
-		ColorSequenceKeypoint.new(1, T.hex("#26301F")),
-	})
-	rewardGradient.Parent = rewardChip
-	UI.stroke(rewardChip, T.stroke.control)
+	-- 1d/1e sweep (2026-08-04): the dark-green gradient is gone -- the chip
+	-- is a white card on the cream body now (BackgroundColor3 above already
+	-- IS white), bordered with the soft tan instead of ink. ONE stroke only
+	-- (this replaces the old ink UI.stroke call, it doesn't stack on it).
+	local rewardStroke = UI.stroke(rewardChip, 3)
+	rewardStroke.Color = CARD_BORDER
 
+	-- rewardArt keeps the Builders dark-slot placeholder look on the white
+	-- chip -- it reads as the intentional empty "mystery socket" for an
+	-- unauthored reward (1d/1e sweep judgment call), not a restyle miss.
 	local rewardArt = UI.artSlot(rewardChip, UDim2.fromOffset(30, 30), nil)
 	rewardArt.Name = "RewardArt"
 	rewardArt.AnchorPoint = Vector2.new(0, 0.5)
@@ -503,7 +556,7 @@ function IndexPanel.Build(ctx)
 	rewardLabel.BackgroundTransparency = 1
 	rewardLabel.FontFace = T.font.ui
 	rewardLabel.TextSize = 13 -- kit "Nunito 13 label"
-	rewardLabel.TextColor3 = T.color.textAccent
+	rewardLabel.TextColor3 = CREAM_INK -- 1d/1e sweep: textAccent gold vanished on the white chip; brown body ink instead
 	rewardLabel.Text = "100% REWARD: ?"
 	rewardLabel.Size = UDim2.new(1, -(10 + 30 + 10 + 10), 1, 0)
 	rewardLabel.Position = UDim2.new(0, 10 + 30 + 10, 0, 0)
@@ -539,7 +592,7 @@ function IndexPanel.Build(ctx)
 	grid.BorderSizePixel = 0
 	grid.ScrollingDirection = Enum.ScrollingDirection.Y
 	grid.ScrollBarThickness = 10
-	grid.ScrollBarImageColor3 = T.color.scrollThumb
+	grid.ScrollBarImageColor3 = Color3.fromHex("#c9b585") -- 1d/1e sweep (2026-08-04): scrollThumb's sage was tuned for the dark panel; a darker sibling of the card-border tan reads right on cream
 	grid.CanvasSize = UDim2.new()
 	grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	grid.ElasticBehavior = Enum.ElasticBehavior.Never
@@ -677,7 +730,23 @@ function IndexPanel.Build(ctx)
 		tile.LayoutOrder = order
 		tile.ClipsDescendants = true
 		tile.ZIndex = 15
-		UI.hardShadow(tile, T.shadowOffset.control, T.radius.inner)
+		-- 1d/1e sweep (2026-08-04): tiles are white cards with the soft tan
+		-- border on the cream body -- recolor the surface's OWN gradient and
+		-- stroke in place (never a second UI.stroke; the surface's children
+		-- are exactly one UICorner/UIGradient/UIStroke so FindFirstChildOfClass
+		-- is unambiguous). The old per-tile hardShadow is DROPPED, not just
+		-- restyled: Daily's cream cards are shadowless, and tiles rebuild
+		-- wholesale every render() -- the shadow churned up to ~42 extra
+		-- Frames plus three property connections each per paint.
+		local tileGrad = tile:FindFirstChildOfClass("UIGradient")
+		if tileGrad then
+			tileGrad.Color = ColorSequence.new(Color3.new(1, 1, 1))
+		end
+		local tileStroke = tile:FindFirstChildOfClass("UIStroke")
+		if tileStroke then
+			tileStroke.Color = CARD_BORDER
+			tileStroke.Thickness = 3
+		end
 
 		local reg = { holder = nil, name = e.Name, live = false }
 
@@ -687,7 +756,7 @@ function IndexPanel.Build(ctx)
 			artHolder.Position = UDim2.fromOffset(TILE_PAD, TILE_PAD)
 			artHolder.Size = UDim2.new(1, -TILE_PAD * 2, 0, CELL_H - NAME_H - TILE_PAD * 2)
 			artHolder.BackgroundColor3 = tier.Color -- tier-tinted backdrop doubles as the fallback swatch when no model/off-screen (IndexClient's own "wash" convention)
-			artHolder.BackgroundTransparency = 0.55
+			artHolder.BackgroundTransparency = 0.4 -- 1d/1e sweep (2026-08-04): 0.55 was tuned against the dark subPanel and went pastel-faint on white; tightened toward the tier colour (this also strengthens the virtualised fallback swatch)
 			artHolder.BorderSizePixel = 0
 			artHolder.ClipsDescendants = true
 			artHolder.ZIndex = tile.ZIndex + 1
@@ -699,7 +768,7 @@ function IndexPanel.Build(ctx)
 			nameLbl.BackgroundTransparency = 1
 			nameLbl.FontFace = T.font.display
 			nameLbl.TextSize = 14 -- kit "name 14"
-			nameLbl.TextColor3 = T.color.white
+			nameLbl.TextColor3 = CREAM_INK -- 1d/1e sweep: white-on-white after the tile flip; the ink contextual stroke below STAYS (Daily's on-light label convention)
 			nameLbl.Text = e.Name
 			nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 			nameLbl.Position = UDim2.new(0, TILE_PAD, 1, -TILE_PAD - NAME_H)
@@ -718,6 +787,12 @@ function IndexPanel.Build(ctx)
 			-- kit §3.5 "Undiscovered = overlay rgba(8,12,5,.72) + '?' 40px in
 			-- #7A8A66" -- NO thumbnail is fetched or rendered at all here (see
 			-- module header note); #7A8A66 is T.color.tabTop verbatim.
+			-- 1d/1e sweep (2026-08-04): deliberately UNTOUCHED. The dark cover
+			-- is the secrecy treatment, it fully hides the now-white tile bg,
+			-- and dark chips on cream are the shipped mock language (Daily's
+			-- #281608 timer pill). The tan tile stroke ringing a near-black
+			-- square reads as a face-down card -- flagged for playtest, not
+			-- changed blind.
 			local overlay = Instance.new("Frame")
 			overlay.Name = "UndiscoveredOverlay"
 			overlay.Size = UDim2.fromScale(1, 1)
@@ -858,10 +933,25 @@ function IndexPanel.Build(ctx)
 		chip.Position = UDim2.fromOffset((i - 1) * (FILTER_W + FILTER_GAP), 0)
 		chip.ZIndex = 14
 		chip.Parent = filterRow
-		UI.hardShadow(chip, T.shadowOffset.control, T.radius.small)
+		-- 1d/1e sweep (2026-08-04): the olive "tab" chips flip to white cards
+		-- on the cream body -- same in-place gradient/stroke recolor as the
+		-- grid tiles, and the hardShadow is dropped to match Daily's
+		-- flat-on-cream card language. The gold ActiveRing below is untouched
+		-- (a colored accent -- and it pops harder against white).
+		local chipGrad = chip:FindFirstChildOfClass("UIGradient")
+		if chipGrad then
+			chipGrad.Color = ColorSequence.new(Color3.new(1, 1, 1))
+		end
+		local chipStroke = chip:FindFirstChildOfClass("UIStroke")
+		if chipStroke then
+			chipStroke.Color = CARD_BORDER
+			chipStroke.Thickness = 3
+		end
 
 		-- kit "label 18" -- no exact token, documented gap (matches BackpackPanel precedent)
-		local label = UI.label(chip, def.label, "cardLabel", T.color.white)
+		-- 1d/1e sweep: label sits on a white chip now -> brown body ink (the
+		-- cardLabel style's contextual ink text-stroke stays, Daily precedent)
+		local label = UI.label(chip, def.label, "cardLabel", CREAM_INK)
 		label.Size = UDim2.fromScale(1, 1)
 		label.AutomaticSize = Enum.AutomaticSize.None
 		label.TextXAlignment = Enum.TextXAlignment.Center
@@ -919,6 +1009,26 @@ function IndexPanel.Build(ctx)
 		end)
 	end
 
+	----------------------------------------------------------- backdrop blur (1d/1e sweep 2026-08-04: dim + blur behind the panel)
+	-- The shell owns the dim scrim; the blur is per-panel, created/destroyed
+	-- on Visible. The name is UNIQUE per panel (panels can transition into
+	-- each other, and setBlur finds by name -- a shared name would let one
+	-- panel's close destroy another's live blur). Size is SET, not tweened --
+	-- BlurEffect.Size is not on the proven tween whitelist here (DailyPanel's
+	-- own note; TweenService is GuiObject-only in this place).
+	local BLUR_NAME = "IndexPanelBlur"
+	local function setBlur(on: boolean)
+		local existing = Lighting:FindFirstChild(BLUR_NAME)
+		if on and not existing then
+			local blur = Instance.new("BlurEffect")
+			blur.Name = BLUR_NAME
+			blur.Size = 8
+			blur.Parent = Lighting
+		elseif not on and existing then
+			existing:Destroy()
+		end
+	end
+
 	----------------------------------------------------------- wiring
 	closeBtn.MouseButton1Click:Connect(function()
 		ctx.closePanel()
@@ -930,13 +1040,33 @@ function IndexPanel.Build(ctx)
 		end
 	end
 
+	-- 1d/1e sweep (2026-08-04): setBlur wired ADDITIVELY into the existing
+	-- watcher -- the open-time refresh trio (refreshSupplySnap/render/
+	-- CanvasPosition reset) and the close-time markAllSeen() are the panel's
+	-- data contract (the NEW-ribbon lifecycle depends on markAllSeen firing
+	-- on close) and survive untouched.
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
 		if wrapper.Visible then
 			refreshSupplySnap()
 			render()
 			grid.CanvasPosition = Vector2.new(0, 0) -- CanvasPosition reset gotcha
+			setBlur(true)
 		else
+			setBlur(false)
 			markAllSeen()
+		end
+	end)
+
+	-- Belt-and-braces blur teardown (ported from DailyPanel's review catch):
+	-- any path that hides the HOST while this wrapper stays Visible (legacy
+	-- single-open force-closes, future shell changes) must still kill the
+	-- global BlurEffect -- it post-processes the whole screen regardless of
+	-- GUI visibility.
+	ctx.host:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not ctx.host.Visible then
+			setBlur(false)
+		elseif wrapper.Visible then
+			setBlur(true)
 		end
 	end)
 

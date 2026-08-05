@@ -2,6 +2,18 @@
 -- GoalsPanel: kit README §3.6 Goals panel -- a GameHUDPanels consumer module
 -- (StarterPlayer.StarterPlayerScripts.GameHUDPanels.GoalsPanel).
 --
+-- 2026-08-04 RESTYLE (1d/1e sweep): the visual recipe is now DailyPanel's --
+-- GREEN header (#7be04e -> #3fae1f, Goals' assigned accent; purple moved to
+-- Daily), cream body, white quest-row cards / tab chips / icon slots with the
+-- tan #e5d3ac border and #4a3416 body ink, Daily's soft-green Claimed
+-- palette, and a per-panel backdrop BlurEffect ("GoalsPanelBlur"). KEPT
+-- AS-IS: the dark inset progress tracks and reward chips (the sanctioned
+-- dark-chip-on-cream treatment -- same archetype as Daily's timer pill --
+-- with their white in-chip labels), green Claim / blue VIEW / disabled
+-- In-progress buttons, the gold active-tab ring, and EVERY remote, state
+-- table, tab switch, bob driver and countdown wire below: this was a
+-- recolor/re-surface pass, zero wiring changes.
+--
 -- Contract (kit README section: ctx from GameHUDClient):
 --   return { Id = "goals", Build = function(ctx) -> Frame }
 -- Build is called ONCE lazily on first open; the shell parents the returned
@@ -79,7 +91,11 @@
 -- Kit-token gaps (documented, not fabricated): §3.6 names two colours with
 -- no matching ReplicatedStorage.Modules.UIKit.Tokens entry -- the header
 -- icon-slot backing (#F0D2FF -> #DDB2F6) and the refresh chip
--- (#5B1D8C -> #3A0F5C bg, #E7C8FF label). Built via T.hex(...) (part of
+-- (#5B1D8C -> #3A0F5C bg, #E7C8FF label). The 1d/1e sweep (2026-08-04)
+-- retinted both into the green accent family (plate #DFF7D2 -> #B9EBA2,
+-- refresh chip #1E6E10 -> #124708 bg + #D6F5C8 label) -- same gap class,
+-- same lightness relationships; only the hue follows the new header
+-- accent. Built via T.hex(...) (part of
 -- Tokens' own public surface, same helper Tokens.lua uses internally to
 -- build every other gradient) rather than a raw Color3 literal, so this
 -- still reads as "Tokens/Builders only" per the task brief. Quest-row
@@ -96,10 +112,13 @@
 -- shared Tokens module would ripple into every other panel, out of scope).
 --
 -- HardShadow-in-UIListLayout trap (see PassPanel's report, bug 3): each
--- quest row is wrapped in a non-list-managed "RowSlot" container that holds
--- both the visual row card AND its UI.hardShadow sibling -- the vertical
--- UIListLayout driving the rows scroll only ever sees one child per quest,
--- never the untracked shadow Frame UI.hardShadow parents alongside it.
+-- quest row is wrapped in a non-list-managed "RowSlot" container so the
+-- vertical UIListLayout driving the rows scroll only ever sees one child
+-- per quest. Originally the wrapper hid the card's UI.hardShadow sibling
+-- from the list; the 1d/1e sweep (2026-08-04) dropped that shadow (cream
+-- cards are shadowless, per DailyPanel) but the wrapper STAYS -- it is the
+-- list's one-child-per-quest contract and the only safe home for any
+-- future shadow/overhang siblings.
 --
 -- Idle-bob driver: exactly ONE Heartbeat connection drives every currently-
 -- rendered Claim button's ±5px bob (kit README §4, T.tween.bobPeriod =
@@ -123,6 +142,7 @@
 local RunService = game:GetService("RunService")
 local TextService = game:GetService("TextService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting") -- 1d/1e sweep (2026-08-04): hosts the per-panel backdrop BlurEffect
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local SeasonConfig = require(modules:WaitForChild("SeasonConfig"))
 
@@ -159,6 +179,20 @@ end
 local function nextMidnightRemaining(t: number): number
 	return (86400 - (t % 86400)) % 86400
 end
+
+----------------------------------------------------------------- 1d/1e sweep palette (2026-08-04; ink/outline stays the kit's)
+-- Same recipe DailyPanel shipped: cream body, white cards with the tan
+-- border, brown body ink. Goals' assigned header accent is GREEN (Daily
+-- took the purple). The claimed trio is Daily's claimed-card palette
+-- VERBATIM so "claimed = soft green" reads as one language across every
+-- cream panel.
+local HEADER_TOP = Color3.fromHex("#7be04e")
+local HEADER_BOT = Color3.fromHex("#3fae1f")
+local CARD_BORDER = Color3.fromHex("#e5d3ac") -- borders of cards INSIDE the body only; the panel outline stays kit ink
+local BODY_INK = Color3.fromHex("#4a3416") -- text sitting directly on cream / white cards (never on dark sub-surfaces)
+local CLAIMED_BG = Color3.fromHex("#e9f7e4")
+local CLAIMED_BORDER = Color3.fromHex("#bfe3b1")
+local CLAIMED_TEXT = Color3.fromHex("#6da35e")
 
 function GoalsPanel.Build(ctx)
 	local T = ctx.Tokens
@@ -218,15 +252,27 @@ function GoalsPanel.Build(ctx)
 	panelCol.ZIndex = 10
 	panelCol.Parent = wrapper
 
-	----------------------------------------------------------- header (common shell, README §3) -- purple, quest surface
+	----------------------------------------------------------- header (common shell, README §3) -- green since the 1d/1e sweep
 	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "purple", T.radius.panel, T.stroke.panel)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
+	-- 1d/1e sweep (2026-08-04): Goals' accent is green (#7be04e -> #3fae1f);
+	-- the "purple" kind above is only the seed gradient. Recolored IN PLACE --
+	-- the exact FindFirstChildOfClass pattern DailyPanel's header ships (its
+	-- purple has no UI.surface kind either). One UIGradient per surface, so
+	-- the lookup is unambiguous.
+	local headerGrad = header:FindFirstChildOfClass("UIGradient")
+	if headerGrad then
+		headerGrad.Color = ColorSequence.new(HEADER_TOP, HEADER_BOT)
+	end
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
 
-	-- icon-slot backing plate (#F0D2FF -> #DDB2F6, kit-token gap -- see module header)
+	-- icon-slot backing plate -- kit-token gap, see module header. 1d/1e sweep
+	-- (2026-08-04): retinted from the purple pair (#F0D2FF -> #DDB2F6) to a
+	-- light-green pair at the same lightness, so the plate keeps tracking the
+	-- header accent the way it always did. Structure untouched.
 	local iconPlate = Instance.new("Frame")
 	iconPlate.Name = "SectionIconPlate"
 	iconPlate.AnchorPoint = Vector2.new(0, 0.5)
@@ -240,8 +286,8 @@ function GoalsPanel.Build(ctx)
 	local iconPlateGradient = Instance.new("UIGradient")
 	iconPlateGradient.Rotation = 90
 	iconPlateGradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, T.hex("#F0D2FF")),
-		ColorSequenceKeypoint.new(1, T.hex("#DDB2F6")),
+		ColorSequenceKeypoint.new(0, T.hex("#DFF7D2")),
+		ColorSequenceKeypoint.new(1, T.hex("#B9EBA2")),
 	})
 	iconPlateGradient.Parent = iconPlate
 	UI.stroke(iconPlate, T.stroke.control)
@@ -264,7 +310,12 @@ function GoalsPanel.Build(ctx)
 	closeBtn.Position = UDim2.new(1, -12, 0.5, 0)
 	closeBtn.ZIndex = header.ZIndex + 2
 
-	-- refresh chip (#5B1D8C -> #3A0F5C bg, #E7C8FF label -- kit-token gap, see module header)
+	-- refresh chip -- kit-token gap, see module header. 1d/1e sweep
+	-- (2026-08-04): dark purple (#5B1D8C -> #3A0F5C) retinted to dark green
+	-- (#1E6E10 -> #124708) + pale-green label. It STAYS a dark chip: this is
+	-- header furniture, the same archetype as DailyPanel's dark timer pill --
+	-- never flipped white. The white countdown value below stays white for
+	-- the same reason (it sits ON the dark chip).
 	local REFRESH_W, REFRESH_H = 190, 58
 	local refreshChip = Instance.new("Frame")
 	refreshChip.Name = "RefreshChip"
@@ -279,13 +330,13 @@ function GoalsPanel.Build(ctx)
 	local refreshGradient = Instance.new("UIGradient")
 	refreshGradient.Rotation = 90
 	refreshGradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, T.hex("#5B1D8C")),
-		ColorSequenceKeypoint.new(1, T.hex("#3A0F5C")),
+		ColorSequenceKeypoint.new(0, T.hex("#1E6E10")),
+		ColorSequenceKeypoint.new(1, T.hex("#124708")),
 	})
 	refreshGradient.Parent = refreshChip
 	UI.stroke(refreshChip, T.stroke.control)
 
-	local refreshLabel = UI.label(refreshChip, "REFRESH", "meta", T.hex("#E7C8FF"))
+	local refreshLabel = UI.label(refreshChip, "REFRESH", "meta", T.hex("#D6F5C8"))
 	refreshLabel.Name = "RefreshLabel"
 	refreshLabel.AnchorPoint = Vector2.new(0, 0.5)
 	refreshLabel.Position = UDim2.new(0, 12, 0.5, -12)
@@ -303,11 +354,26 @@ function GoalsPanel.Build(ctx)
 	refreshValue.TextXAlignment = Enum.TextXAlignment.Left
 	refreshValue.ZIndex = refreshChip.ZIndex + 1
 
-	----------------------------------------------------------- body (common shell, README §3)
-	local body = UI.panel(panelCol, UDim2.fromOffset(PANEL_W, BODY_H))
+	----------------------------------------------------------- body (common shell, README §3) -- cream since the 1d/1e sweep
+	-- 1d/1e sweep (2026-08-04): UI.panel (dark "panel" surface) -> the cream
+	-- surface DailyPanel ships. UI.panel BUNDLED the hard shadow and a 16px
+	-- UIPadding, so both are rebuilt by hand below. The padding MUST stay
+	-- T.pad.panel (16), NOT DailyPanel's panelWide (18): BODY_H, BODY_INNER_W
+	-- -> TAB_W, and ROW_CONTENT_W are all measured against 16 -- copying
+	-- Daily's 18 would shift every child 2px and overflow the row flex math.
+	-- The panel outline keeps the kit ink stroke (the tan #e5d3ac border is
+	-- for cards INSIDE the body only, per the cream recipe).
+	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "cream", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
+	UI.hardShadow(body, T.shadowOffset.panel, T.radius.panel)
+	local bodyPad = Instance.new("UIPadding")
+	bodyPad.PaddingTop = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingBottom = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingLeft = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingRight = UDim.new(0, T.pad.panel)
+	bodyPad.Parent = body
 
 	----------------------------------------------------------- tabs
 	local TAB_DEFS = { "Daily", "Goals", "Season" }
@@ -332,6 +398,29 @@ function GoalsPanel.Build(ctx)
 		btn.ZIndex = 14
 		btn.Parent = tabsRow
 		tabButtons[id] = btn
+
+		-- 1d/1e sweep (2026-08-04): the olive "tab" chip goes white-card on
+		-- the cream body -- recolored IN PLACE, zero wiring. NOTE the target:
+		-- FindFirstChildOfClass on the BUTTON hits its border UIStroke; the
+		-- label's contextual text stroke lives on the TextLabel child and
+		-- stays ink (the same brown-ink-with-ink-stroke combo Daily's tinted
+		-- card labels ship). Gloss/Shade strips stay: white gloss on white is
+		-- invisible and the 0.82-transparency shade reads as a subtle bottom
+		-- bevel. The gold active ring below is untouched -- it pops harder on
+		-- white than it ever did on olive.
+		local tabGrad = btn:FindFirstChildOfClass("UIGradient")
+		if tabGrad then
+			tabGrad.Color = ColorSequence.new(Color3.new(1, 1, 1))
+		end
+		local tabStroke = btn:FindFirstChildOfClass("UIStroke")
+		if tabStroke then
+			tabStroke.Color = CARD_BORDER
+			tabStroke.Thickness = 3
+		end
+		local tabLabel = btn:FindFirstChildOfClass("TextLabel")
+		if tabLabel then
+			tabLabel.TextColor3 = BODY_INK
+		end
 
 		-- static active-state ring (kit README §3.6 "active gold ring") --
 		-- same inset/radius convention as UIKit.Builders.claimRing, but NO
@@ -362,7 +451,9 @@ function GoalsPanel.Build(ctx)
 	scroll.BorderSizePixel = 0
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 	scroll.ScrollBarThickness = 10
-	scroll.ScrollBarImageColor3 = T.color.scrollThumb
+	-- 1d/1e sweep (2026-08-04): the kit's sage thumb all but vanished on
+	-- cream; #c9b585 is the tan card-border's darker sibling. Cosmetic only.
+	scroll.ScrollBarImageColor3 = Color3.fromHex("#c9b585")
 	scroll.CanvasSize = UDim2.new()
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.ElasticBehavior = Enum.ElasticBehavior.Never
@@ -467,6 +558,20 @@ function GoalsPanel.Build(ctx)
 		local slot = UI.surface(parent, UDim2.fromOffset(ICON_W, ICON_W), "slot", T.radius.small, T.stroke.control)
 		slot.Name = "IconSlot"
 		slot.ZIndex = parent.ZIndex + 1
+		-- 1d/1e sweep (2026-08-04): dark "slot" backing -> white mini-card.
+		-- This is card-internal BACKING, not a currency chip (those stay dark
+		-- below) -- and the very same goals icon already reads fine on the
+		-- header's light plate. Season's full-colour emoji glyphs read fine on
+		-- white too. Recolored in place; art/emoji structure untouched.
+		local slotGrad = slot:FindFirstChildOfClass("UIGradient")
+		if slotGrad then
+			slotGrad.Color = ColorSequence.new(Color3.new(1, 1, 1))
+		end
+		local slotStroke = slot:FindFirstChildOfClass("UIStroke")
+		if slotStroke then
+			slotStroke.Color = CARD_BORDER
+			slotStroke.Thickness = 3
+		end
 		if emoji then
 			local glyph = UI.label(slot, emoji, "buttonL", T.color.white)
 			glyph.Name = "Glyph"
@@ -487,23 +592,26 @@ function GoalsPanel.Build(ctx)
 	end
 
 	-- "claimed" is built by hand (not UI.button) because UI.button forces
-	-- white label text for every non-"disabled" variant, but the kit's
-	-- Claimed state needs the muted #9FAE8B (T.color.textClaimed) label on
-	-- the subPanel-gradient (#4A5840->#2E3825) background -- an exact
-	-- token match kit §3.6 happens to share with the existing subPanel
-	-- surface kind, just not reachable through UI.button's variant map.
+	-- white label text for every non-"disabled" variant, and a Claimed state
+	-- needs a muted label -- unreachable through UI.button's variant map.
+	-- That reason predates the restyle and survives it. 1d/1e sweep
+	-- (2026-08-04): the old dark subPanel chip (#4A5840->#2E3825 + #9FAE8B
+	-- text) is now DailyPanel's claimed-card palette VERBATIM (#e9f7e4 bg /
+	-- #bfe3b1 border / #6da35e text) so "claimed = soft green" is one
+	-- language across every cream panel. Flat colour, so the old gradient is
+	-- simply not created; still exactly ONE UI.stroke call on this Frame.
 	local function buildClaimedButton(parent: Frame): Frame
 		local b = Instance.new("Frame")
 		b.Name = "ClaimedButton"
 		b.Size = UDim2.fromOffset(ACTION_W, ACTION_H)
-		b.BackgroundColor3 = T.color.white
+		b.BackgroundColor3 = CLAIMED_BG
 		b.BorderSizePixel = 0
 		b.ZIndex = parent.ZIndex + 1
 		b.Parent = parent
 		UI.corner(b, T.radius.control)
-		UI.gradient(b, T.gradient.subPanel)
-		UI.stroke(b, T.stroke.control)
-		local l = UI.label(b, "Claimed \u{2713}", "cardLabel", T.color.textClaimed)
+		local st = UI.stroke(b, 3)
+		st.Color = CLAIMED_BORDER
+		local l = UI.label(b, "Claimed \u{2713}", "cardLabel", CLAIMED_TEXT)
 		l.Size = UDim2.fromScale(1, 1)
 		l.AutomaticSize = Enum.AutomaticSize.None
 		l.TextXAlignment = Enum.TextXAlignment.Center
@@ -571,10 +679,11 @@ function GoalsPanel.Build(ctx)
 	}
 
 	local function buildQuestRow(order: number, vm: RowVM)
-		-- HardShadow-in-UIListLayout trap (see PassPanel report bug 3): the
-		-- real card + its UI.hardShadow sibling both live inside this
-		-- non-list-managed RowSlot, so rowsList's vertical UIListLayout only
-		-- ever counts ONE child per quest.
+		-- RowSlot wrapper (PassPanel report bug 3's HardShadow-in-UIListLayout
+		-- trap): KEPT through the 1d/1e sweep even though the card's hard
+		-- shadow is now gone -- the wrapper is the rows list's one-child-per-
+		-- quest contract, and the only safe place to hang shadow-like or
+		-- overhang siblings should any come back.
 		local slot = Instance.new("Frame")
 		slot.Name = "RowSlot" .. order
 		slot.LayoutOrder = order
@@ -586,7 +695,21 @@ function GoalsPanel.Build(ctx)
 		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.control, T.stroke.control)
 		card.Name = "Card"
 		card.ZIndex = 15
-		UI.hardShadow(card, T.shadowOffset.control, T.radius.control)
+		-- 1d/1e sweep (2026-08-04): olive "row" card -> white card with the
+		-- tan border, recolored IN PLACE (the surface's own gradient/stroke;
+		-- one of each exists). The UI.hardShadow call is DROPPED -- never
+		-- created, not destroyed post-hoc (hardShadow wires Position/
+		-- Destroying connections that must not be half-torn) -- matching
+		-- Daily's flat-on-cream card language.
+		local cardGrad = card:FindFirstChildOfClass("UIGradient")
+		if cardGrad then
+			cardGrad.Color = ColorSequence.new(Color3.new(1, 1, 1))
+		end
+		local cardStroke = card:FindFirstChildOfClass("UIStroke")
+		if cardStroke then
+			cardStroke.Color = CARD_BORDER
+			cardStroke.Thickness = 3
+		end
 
 		local pad = Instance.new("UIPadding")
 		pad.PaddingLeft = UDim.new(0, ROW_PAD_X)
@@ -616,7 +739,12 @@ function GoalsPanel.Build(ctx)
 		centerCol.ZIndex = 15
 		centerCol.Parent = card
 
-		local title = UI.label(centerCol, vm.Title, "cardLabel", T.color.white)
+		-- 1d/1e sweep (2026-08-04): the title reads against the white card
+		-- now -- body ink, not white (its ink contextual text stroke stays,
+		-- same as Daily's tinted card labels). The meta label further down
+		-- stays WHITE: it sits on the dark/green progress track, a colored
+		-- sub-surface, exactly like the reward chip's white value text.
+		local title = UI.label(centerCol, vm.Title, "cardLabel", BODY_INK)
 		title.Name = "Title"
 		title.Position = UDim2.fromOffset(0, 0)
 		title.Size = UDim2.new(1, 0, 0, 24)
@@ -761,6 +889,26 @@ function GoalsPanel.Build(ctx)
 		countdownRunning = false -- loop above checks this + wrapper.Visible every iteration and exits on its own
 	end
 
+	----------------------------------------------------------- backdrop blur (1d/1e sweep 2026-08-04: dim + blur behind the panel)
+	-- Copied from DailyPanel: the shell owns the dim scrim; the blur is
+	-- per-panel and UNIQUELY NAMED -- Pass's Quests button opens THIS panel
+	-- over Pass's close, so a shared BlurEffect name would let one panel's
+	-- teardown destroy the other's live blur (setBlur finds by name). Size is
+	-- SET, never tweened -- BlurEffect.Size is not on the proven tween
+	-- whitelist in this place.
+	local BLUR_NAME = "GoalsPanelBlur"
+	local function setBlur(on: boolean)
+		local existing = Lighting:FindFirstChild(BLUR_NAME)
+		if on and not existing then
+			local blur = Instance.new("BlurEffect")
+			blur.Name = BLUR_NAME
+			blur.Size = 8
+			blur.Parent = Lighting
+		elseif not on and existing then
+			existing:Destroy()
+		end
+	end
+
 	----------------------------------------------------------- data wiring (server-confirmed only)
 	local function applyDaily(daily)
 		if typeof(daily) ~= "table" then
@@ -832,7 +980,8 @@ function GoalsPanel.Build(ctx)
 
 	-- Fires every time the panel becomes visible: refreshes Season (mirrors
 	-- SeasonClient/PassPanel's own open-time refresh), pulls a fresh Daily
-	-- snapshot, starts the bob driver + countdown. QuestState has no
+	-- snapshot, starts the bob driver + countdown, and (1d/1e sweep
+	-- 2026-08-04) raises/kills the backdrop blur. QuestState has no
 	-- client-fire request path (QuestHandler only pushes on join + its own
 	-- 3s poll) so Goals milestones rely on that passive push alone.
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
@@ -841,9 +990,25 @@ function GoalsPanel.Build(ctx)
 			pullDarrelDaily()
 			ensureBobDriver()
 			startCountdown()
+			setBlur(true)
 		else
 			stopBobDriver()
 			stopCountdown()
+			setBlur(false)
+		end
+	end)
+
+	-- Belt-and-braces blur teardown (1d/1e sweep 2026-08-04; same review
+	-- catch DailyPanel carries): any path that hides the HOST while this
+	-- wrapper stays Visible (legacy single-open force-closes, future shell
+	-- changes) must still kill the BlurEffect -- it post-processes the WHOLE
+	-- screen regardless of GUI visibility. Blur only: the bob/countdown
+	-- loops predate this watcher and keep their own wrapper.Visible gating.
+	ctx.host:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not ctx.host.Visible then
+			setBlur(false)
+		elseif wrapper.Visible then
+			setBlur(true)
 		end
 	end)
 

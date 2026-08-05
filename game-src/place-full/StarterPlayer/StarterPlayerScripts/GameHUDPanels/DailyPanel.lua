@@ -339,11 +339,21 @@ function DailyPanel.Build(ctx)
 
 	local cardsList = Instance.new("UIListLayout")
 	cardsList.FillDirection = Enum.FillDirection.Horizontal
+	-- centred, not left-aligned: a zero-milestone window (e.g. days 22..28)
+	-- has no wide grand card, and the flex math leaves ~42px of slack that
+	-- read as a left-shifted row (review catch)
+	cardsList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	cardsList.SortOrder = Enum.SortOrder.LayoutOrder
 	cardsList.Padding = UDim.new(0, CARD_GAP)
 	cardsList.Parent = cardsRow
 
 	----------------------------------------------------------- card furniture (mock 1e states)
+	-- OVERHANG FURNITURE IS PARENTED TO THE SLOT, NOT THE CARD (review catch):
+	-- the card carries an 8px UIPadding for its labels, and UIPadding shifts
+	-- ALL children -- badges/tags meant to overhang the card's edge were being
+	-- pulled 8px inward. The slot has identical bounds to the card (same size,
+	-- centred) and no padding, so slot-relative offsets land exactly on the
+	-- card's true edges.
 	-- Corner badge (mock: 24px circle at top -9 / right -7, 2.5px white ring)
 	-- shared by CLAIMED (green check) and LOCKED (plum lock).
 	local function buildCornerBadge(card: Frame, fill: Color3, glyphText: string)
@@ -355,7 +365,7 @@ function DailyPanel.Build(ctx)
 		badge.BackgroundColor3 = fill
 		badge.BorderSizePixel = 0
 		badge.ZIndex = card.ZIndex + 8
-		badge.Parent = card
+		badge.Parent = card.Parent -- the slot; see the furniture note above
 		UI.corner(badge, 14)
 		local ring = Instance.new("UIStroke")
 		ring.Thickness = 2.5
@@ -382,7 +392,7 @@ function DailyPanel.Build(ctx)
 		tag.BackgroundColor3 = TAG_PINK
 		tag.BorderSizePixel = 0
 		tag.ZIndex = card.ZIndex + 8
-		tag.Parent = card
+		tag.Parent = card.Parent -- the slot; see the furniture note above
 		UI.corner(tag, 10)
 		local ring = Instance.new("UIStroke")
 		ring.Thickness = 2.5
@@ -531,8 +541,9 @@ function DailyPanel.Build(ctx)
 
 		if isGrand then
 			-- mock day-7 MEGA GIFT: rainbow border (shared-Heartbeat ring) +
-			-- purple lettering; the gift art replaces the coin
-			UI.rainbowRing(card, T.radius.control + 2)
+			-- purple lettering; the gift art replaces the coin. Ring rides the
+			-- slot (unpadded, same bounds) per the furniture note above.
+			UI.rainbowRing(slot, T.radius.control + 2)
 			art.Image = T.icons.daily
 			local mega = UI.label(card, "MEGA GIFT", "chip", MEGA_TEXT)
 			mega.Name = "MegaLabel"
@@ -542,6 +553,10 @@ function DailyPanel.Build(ctx)
 			mega.AutomaticSize = Enum.AutomaticSize.None
 			mega.TextXAlignment = Enum.TextXAlignment.Center
 			mega.ZIndex = card.ZIndex + 2
+			-- a milestone that is ALSO the claimable TODAY: the breathing CLAIM
+			-- pill owns the card's foot -- hide the lettering rather than let
+			-- the pill slice it (review catch; same convention as rewardLabel)
+			mega.Visible = not isToday
 		end
 	end
 
@@ -788,6 +803,22 @@ function DailyPanel.Build(ctx)
 				end
 				motionInstancesByGen[gen] = nil
 			end
+		end
+	end)
+
+	-- Belt-and-braces for the blur/countdown teardown (review catch): the
+	-- shell's openPanel now hides every other panel unconditionally, but any
+	-- path that hides the HOST while this wrapper stays Visible (legacy
+	-- single-open force-closes, future shell changes) must still kill the
+	-- global BlurEffect -- it post-processes the whole screen regardless of
+	-- GUI visibility.
+	ctx.host:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not ctx.host.Visible then
+			setBlur(false)
+			stopCountdown()
+		elseif wrapper.Visible then
+			setBlur(true)
+			startCountdown()
 		end
 	end)
 

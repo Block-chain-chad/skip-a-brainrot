@@ -9,6 +9,18 @@
 -- open/close after that -- this module never sets its own Parent or drives
 -- its own open/close animation.
 --
+-- 2026-08-04 RESTYLE (1d/1e sweep): visual-only pass to the shipped cream
+-- recipe (reference: DailyPanel) -- orange header #ffb02e -> #ff7d00
+-- (Settings' per-panel accent), cream body (padding stays EXACTLY
+-- T.pad.panel 16 per side -- the BODY_H/BODY_INNER_W math below depends on
+-- it, do NOT copy DailyPanel's panelWide 18), white row cards with 3px
+-- #e5d3ac borders and #4a3416 labels, cream-readable redeem feedback
+-- colours, and a per-panel backdrop BlurEffect ("SettingsPanelBlur").
+-- Every control keeps its kit look (slider tracks/knobs, quality tab
+-- buttons, toggle switches, rarity chips, footer buttons, the dark redeem
+-- box), and ALL wiring -- saves, seams, applySettings, the drag machine --
+-- is byte-identical to the previous version.
+--
 -- ============================================================================
 -- SCOPE (task-10-brief, kit README §3.3 MINUS Reset Data):
 --   AUDIO    -- Music / Sound FX sliders. Live SoundKit.SetCategoryVolume
@@ -92,6 +104,14 @@ local SettingsPanel = { Id = "settings" }
 
 local QUALITY_OPTIONS = { "Low", "Medium", "High" }
 local QUALITY_SET = { Low = true, Medium = true, High = true }
+
+----------------------------------------------------------- mock palette (1d/1e sweep 2026-08-04; ink and controls stay the kit's)
+local HEADER_TOP = Color3.fromHex("#ffb02e") -- Settings' per-panel accent: neutral orange
+local HEADER_BOT = Color3.fromHex("#ff7d00")
+local CARD_BORDER = Color3.fromHex("#e5d3ac") -- white row-card border on cream
+local BODY_INK = Color3.fromHex("#4a3416") -- body-text-on-cream (same ink DailyPanel's hintLabel uses)
+local MSG_GREEN = Color3.fromHex("#3fae1f") -- redeem success on cream (DailyPanel's CHECK_GREEN)
+local MSG_RED = Color3.fromHex("#A8140F") -- redeem failure on cream (the kit red gradient's bottom stop)
 
 ----------------------------------------------------------- GRAPHICS: client-local Lighting toggles, nil-guarded
 -- Confirmed live before writing this: game.Lighting currently has NEITHER a
@@ -268,11 +288,20 @@ function SettingsPanel.Build(ctx)
 	panelCol.ZIndex = 10
 	panelCol.Parent = wrapper
 
-	----------------------------------------------------------- header (common shell, README §3 -- gold; §3.3 calls out no special colour for Settings)
+	----------------------------------------------------------- header (common shell, README §3 -- kit gold shell, 1d/1e orange)
 	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "gold", T.radius.panel, T.stroke.panel)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
+	-- 1d/1e sweep (2026-08-04): §3.3 gave Settings no special colour, but the
+	-- cream restyle assigns each panel its own accent -- Settings is neutral
+	-- orange #ffb02e -> #ff7d00. UI.surface has no orange kind, so the "gold"
+	-- call above stays as the seed shell and its gradient is recoloured in
+	-- place (same pattern DailyPanel's purple header uses).
+	local headerGrad = header:FindFirstChildOfClass("UIGradient")
+	if headerGrad then
+		headerGrad.Color = ColorSequence.new(HEADER_TOP, HEADER_BOT)
+	end
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
 
@@ -297,11 +326,25 @@ function SettingsPanel.Build(ctx)
 		ctx.closePanel()
 	end)
 
-	----------------------------------------------------------- body (common shell, README §3)
-	local body = UI.panel(panelCol, UDim2.fromOffset(PANEL_W, BODY_H))
+	----------------------------------------------------------- body (common shell, README §3 -- 1d/1e sweep 2026-08-04: cream, was the kit dark panel)
+	-- UI.panel bundled THREE things -- the dark "panel" surface, its
+	-- hardShadow, and a baked-in 16px UIPadding -- so the cream swap has to
+	-- recreate all three explicitly. The padding is EXACTLY T.pad.panel (16)
+	-- per side, NOT DailyPanel's panelWide (18): BODY_H above is
+	-- `T.pad.panel * 2 + BODY_CONTENT_H` and BODY_INNER_W is
+	-- `PANEL_W - T.pad.panel * 2`, so a copied 18 would overflow the 10-item
+	-- list stack by 4px and desync every row's width math.
+	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "cream", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
+	UI.hardShadow(body, T.shadowOffset.panel, T.radius.panel)
+	local bodyPad = Instance.new("UIPadding")
+	bodyPad.PaddingTop = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingBottom = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingLeft = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingRight = UDim.new(0, T.pad.panel)
+	bodyPad.Parent = body
 
 	local bodyList = Instance.new("UIListLayout")
 	bodyList.FillDirection = Enum.FillDirection.Vertical
@@ -332,7 +375,10 @@ function SettingsPanel.Build(ctx)
 
 	local function sectionHeader(text)
 		local slot = listSlot(SECTION_HEADER_H)
-		local l = UI.label(slot, text, "cardLabel", T.color.textAccent)
+		-- 1d/1e sweep (2026-08-04): was T.color.textAccent -- that gold was
+		-- tuned for the old dark panel and nearly vanishes on cream even with
+		-- the cardLabel ink stroke; #4a3416 is the mock's body-on-cream ink.
+		local l = UI.label(slot, text, "cardLabel", BODY_INK)
 		l.Name = "SectionHeader"
 		l.Size = UDim2.new(1, 0, 1, 0)
 		l.AutomaticSize = Enum.AutomaticSize.None
@@ -342,6 +388,27 @@ function SettingsPanel.Build(ctx)
 		-- only TextSize is overridden, the stroke already matches exactly.
 		l.TextSize = 18
 		l.ZIndex = 15
+	end
+
+	----------------------------------------------------------- shared white-card recolor (1d/1e sweep 2026-08-04)
+	-- The three row cards (slider/toggle/skip-reveal) flip from the kit's
+	-- dark "row" surface to the mock's white card: flat white + soft #e5d3ac
+	-- border. Recolor-in-place on the surface's OWN children -- the row
+	-- gradient is destroyed (Builders' surface base BackgroundColor3 is
+	-- already white underneath it) and the EXISTING UIStroke is recoloured;
+	-- NEVER call UI.stroke a second time on the card (that would stack two
+	-- strokes). Controls ON the cards -- tracks, knobs, switches, chips --
+	-- keep their kit looks; dark chips read fine on cream (DailyPanel's dark
+	-- timer pill is the shipped precedent).
+	local function whiteCard(card: Frame)
+		local grad = card:FindFirstChildOfClass("UIGradient")
+		if grad then
+			grad:Destroy()
+		end
+		local stroke = card:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			stroke.Color = CARD_BORDER
+		end
 	end
 
 	----------------------------------------------------------- FIX F4 shared drag-end watcher
@@ -374,10 +441,15 @@ function SettingsPanel.Build(ctx)
 	----------------------------------------------------------- slider row (AUDIO)
 	local function buildSliderRow(labelText, key, initialValue)
 		local slot = listSlot(SLIDER_ROW_H)
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
+		-- 1d/1e sweep (2026-08-04): white card via whiteCard; strokeW 3 (was
+		-- T.stroke.control 4 -- the soft #e5d3ac border reads lighter than
+		-- ink). The card hardShadow is gone -- cream-body cards are shadowless
+		-- in the shipped Daily look, and `slot` isn't list-managed so the drop
+		-- can't disturb the stack (the knob keeps ITS shadow; it's a control).
+		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, 3)
 		card.Name = "SliderRow_" .. key
 		card.ZIndex = 15
-		UI.hardShadow(card, T.shadowOffset.control, T.radius.inner)
+		whiteCard(card)
 
 		local ROW_PAD_X = 14 -- kit gives no explicit slider-row padding; spacing-scale token, same class of ad hoc gap other panels document
 		local pad = Instance.new("UIPadding")
@@ -389,7 +461,7 @@ function SettingsPanel.Build(ctx)
 		local LABEL_W, VALUE_W, INNER_GAP = 150, 56, T.pad.gap -- kit "label column 150" / "value column 56"
 		local TRACK_W = CONTENT_W - LABEL_W - VALUE_W - INNER_GAP * 2
 
-		local label = UI.label(card, labelText, "cardLabel", T.color.white)
+		local label = UI.label(card, labelText, "cardLabel", BODY_INK) -- 1d/1e sweep (2026-08-04): was white -- white-on-white after the card flip
 		label.Name = "Label"
 		label.AnchorPoint = Vector2.new(0, 0.5)
 		label.Position = UDim2.new(0, 0, 0.5, 0)
@@ -423,7 +495,7 @@ function SettingsPanel.Build(ctx)
 		UI.stroke(knob, T.stroke.control)
 		UI.hardShadow(knob, 3, 17) -- kit "hard shadow 0 3" -- knob's parent (`card`) isn't list-managed, so no wrapper trap here
 
-		local valueLabel = UI.label(card, "0%", "cardLabel", T.color.white)
+		local valueLabel = UI.label(card, "0%", "cardLabel", BODY_INK) -- 1d/1e sweep (2026-08-04): on the white card now
 		valueLabel.Name = "Value"
 		valueLabel.AnchorPoint = Vector2.new(1, 0.5)
 		valueLabel.Position = UDim2.new(1, 0, 0.5, 0)
@@ -583,10 +655,10 @@ function SettingsPanel.Build(ctx)
 	----------------------------------------------------------- toggle row (GAMEPLAY)
 	local function buildToggleRow(labelText, initialOn, onToggle)
 		local slot = listSlot(TOGGLE_ROW_H)
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
+		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, 3)
 		card.Name = "ToggleRow"
 		card.ZIndex = 15
-		UI.hardShadow(card, T.shadowOffset.control, T.radius.inner)
+		whiteCard(card) -- 1d/1e sweep (2026-08-04): white card, no hardShadow -- see buildSliderRow's note; the switch keeps its full kit look
 
 		local ROW_PAD_X = 14
 		local pad = Instance.new("UIPadding")
@@ -596,7 +668,7 @@ function SettingsPanel.Build(ctx)
 
 		local SWITCH_W, SWITCH_H = 86, 38 -- kit "switch 86x38"
 
-		local label = UI.label(card, labelText, "cardLabel", T.color.white)
+		local label = UI.label(card, labelText, "cardLabel", BODY_INK) -- 1d/1e sweep (2026-08-04): was white -- white-on-white after the card flip
 		label.Name = "Label"
 		label.AnchorPoint = Vector2.new(0, 0.5)
 		label.Position = UDim2.new(0, 0, 0.5, 0)
@@ -723,10 +795,10 @@ function SettingsPanel.Build(ctx)
 	-- vocabulary as the switches above it.
 	local function buildSkipRevealRow()
 		local slot = listSlot(SKIPREV_ROW_H)
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
+		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, 3)
 		card.Name = "SkipRevealRow"
 		card.ZIndex = 15
-		UI.hardShadow(card, T.shadowOffset.control, T.radius.inner)
+		whiteCard(card) -- 1d/1e sweep (2026-08-04): white card, no hardShadow -- see buildSliderRow's note; all 8 chips keep their tier/OFF looks
 
 		local ROW_PAD_X = 14
 		local pad = Instance.new("UIPadding")
@@ -734,7 +806,7 @@ function SettingsPanel.Build(ctx)
 		pad.PaddingRight = UDim.new(0, ROW_PAD_X)
 		pad.Parent = card
 
-		local label = UI.label(card, "Skip Catch Animation", "cardLabel", T.color.white)
+		local label = UI.label(card, "Skip Catch Animation", "cardLabel", BODY_INK) -- 1d/1e sweep (2026-08-04): was white -- white-on-white after the card flip
 		label.Name = "Label"
 		label.Position = UDim2.new(0, 0, 0, 8)
 		label.Size = UDim2.new(1, 0, 0, 22)
@@ -907,7 +979,9 @@ function SettingsPanel.Build(ctx)
 		goBtn.Position = UDim2.fromOffset(BOX_W + T.pad.gapTight, 0)
 		goBtn.ZIndex = 15
 
-		local msg = UI.label(inputRow, "", "meta", T.color.textMuted)
+		-- 1d/1e sweep (2026-08-04): msg floats on the transparent inputRow,
+		-- i.e. directly on the cream body -- textMuted was a dark-panel pick.
+		local msg = UI.label(inputRow, "", "meta", BODY_INK)
 		msg.Name = "Message"
 		msg.AnchorPoint = Vector2.new(0, 1)
 		msg.Position = UDim2.new(0, 2, 0, -4)
@@ -943,7 +1017,10 @@ function SettingsPanel.Build(ctx)
 				return
 			end
 			msg.Text = r.Message
-			msg.TextColor3 = r.Success == true and T.color.claimRing or T.hex("#FF8A7A")
+			-- 1d/1e sweep (2026-08-04): both originals were light-on-dark
+			-- picks (claimRing #7CE04A / salmon #FF8A7A) that wash out on
+			-- cream; colours only, the Success/Message handling is untouched.
+			msg.TextColor3 = r.Success == true and MSG_GREEN or MSG_RED
 			if r.Success == true then
 				box.Text = ""
 			end
@@ -998,6 +1075,50 @@ function SettingsPanel.Build(ctx)
 		skipRevealCtl.setValue()
 		syncState()
 	end
+
+	----------------------------------------------------------- backdrop blur (1d/1e sweep 2026-08-04: dim + blur behind the panel)
+	-- Same per-panel BlurEffect recipe as DailyPanel: the shell owns the dim
+	-- scrim, the blur is per-panel, created/destroyed on Visible. The NAME is
+	-- unique per panel -- setBlur create/destroys by name in Lighting, so a
+	-- shared name would let one panel's close destroy another's live blur.
+	-- Size is SET, never tweened (BlurEffect.Size is not on the proven tween
+	-- whitelist here). Lighting is already imported at module top for
+	-- applyQuality; this block only ever touches its OWN named BlurEffect, so
+	-- it cannot interact with the Bloom/SunRays lookups (different classes).
+	local BLUR_NAME = "SettingsPanelBlur"
+	local function setBlur(on: boolean)
+		local existing = Lighting:FindFirstChild(BLUR_NAME)
+		if on and not existing then
+			local blur = Instance.new("BlurEffect")
+			blur.Name = BLUR_NAME
+			blur.Size = 8
+			blur.Parent = Lighting
+		elseif not on and existing then
+			existing:Destroy()
+		end
+	end
+
+	-- Settings has no per-open refresh, countdown or motion to drive, so this
+	-- watcher is minimal AND NEW (the panel previously had no Visible watcher
+	-- at all) -- view-only, additive; the closeBtn/Destroying wiring above is
+	-- untouched.
+	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
+		setBlur(wrapper.Visible)
+	end)
+
+	-- Belt-and-braces (same review catch DailyPanel carries): any path that
+	-- hides the HOST while this wrapper stays Visible (legacy single-open
+	-- force-closes, future shell changes) must still kill the global
+	-- BlurEffect -- it post-processes the whole screen regardless of GUI
+	-- visibility. Restore it when the host returns and we're still the
+	-- visible panel.
+	ctx.host:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not ctx.host.Visible then
+			setBlur(false)
+		elseif wrapper.Visible then
+			setBlur(true)
+		end
+	end)
 
 	return wrapper
 end

@@ -2,6 +2,21 @@
 -- PassPanel: kit README §3.1 Season Pass panel -- a GameHUDPanels consumer
 -- module (StarterPlayer.StarterPlayerScripts.GameHUDPanels.PassPanel).
 --
+-- 1d/1e sweep (2026-08-04), following DailyPanel's shipped cream recipe:
+-- the body flips from the kit's dark panel to the mock's cream (hand-built
+-- UIPadding stays T.pad.panel 16 per side -- NOT Daily's panelWide 18 --
+-- because ROW_CONTENT_W and the xpTrack flex width are measured against
+-- 16); FREE reward cards flip to flat white + 3px #e5d3ac border + #4a3416
+-- ink and wear Daily's corner-badge lock / claimed-green treatments; a
+-- per-panel backdrop BlurEffect ("PassPanelBlur") rides the Visible
+-- watcher. The HEADER IS DELIBERATELY UNTOUCHED -- gold IS this panel's
+-- assigned accent (purple went to Daily) -- and so is every gold/olive/
+-- dark piece of chrome: pass cards, ticket/level/tier badges, the rotated
+-- label blocks, the dark XP track, the disabled CTA and the side column
+-- (which floats OUTSIDE the cream body over the dimmed world, so its
+-- white text stays white). ZERO wiring changed: remotes, state writes,
+-- the hasServerState badge gate and the render flow are byte-identical.
+--
 -- Contract (kit README section: ctx from GameHUDClient):
 --   return { Id = "pass", Build = function(ctx) -> Frame }
 -- Build is called ONCE lazily on first open; the shell parents the returned
@@ -46,6 +61,7 @@
 -- revisit when itemized rewards exist.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting") -- 1d/1e sweep: the backdrop BlurEffect lives here
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local SeasonConfig = require(modules:WaitForChild("SeasonConfig"))
 
@@ -62,6 +78,20 @@ local function shortCash(n: number): string
 	end
 	return "$" .. tostring(n)
 end
+
+----------------------------------------------------------------- 1d/1e sweep palette (2026-08-04; ink stays the kit's)
+-- Consumed ONLY by the FREE column and the scrollbar -- the gold pass
+-- column keeps its kit tokens untouched. The claimed/lock constants are
+-- DailyPanel's shipped mock values verbatim; #e5d3ac/#4a3416 are the
+-- sweep's card-border / body-on-cream ink pair.
+local CARD_BORDER = Color3.fromHex("#e5d3ac") -- soft border for white cards INSIDE the cream body (the body itself keeps the ink panel stroke)
+local CARD_TEXT = Color3.fromHex("#4a3416") -- body ink on cream/white surfaces
+local CLAIMED_BG = Color3.fromHex("#e9f7e4")
+local CLAIMED_BORDER = Color3.fromHex("#bfe3b1")
+local CLAIMED_TEXT = Color3.fromHex("#6da35e")
+local CHECK_GREEN = Color3.fromHex("#3fae1f")
+local LOCK_BADGE = Color3.fromHex("#5c5470") -- Daily's plum locked-badge fill
+local SCROLL_THUMB_TAN = Color3.fromHex("#c9b585") -- darker sibling of CARD_BORDER, for the thumb on cream
 
 function PassPanel.Build(ctx)
 	local T = ctx.Tokens
@@ -154,11 +184,27 @@ function PassPanel.Build(ctx)
 	questsBtn.Position = UDim2.new(1, -12 - T.size.closeButton.X - 14, 0.5, 0)
 	questsBtn.ZIndex = header.ZIndex + 2
 
-	----------------------------------------------------------- body (common shell, README §3)
-	local body = UI.panel(panelCol, UDim2.fromOffset(PANEL_W, BODY_H)) -- UI.panel adds the 16px UIPadding this whole layout is measured against
+	----------------------------------------------------------- body (mock 1d/1e cream -- restyled 2026-08-04)
+	-- Was UI.panel (kit dark). UI.panel bundles THREE things -- the "panel"
+	-- surface, a hardShadow and a UIPadding -- so the cream swap rebuilds
+	-- all three by hand. Padding is T.pad.panel (16) per side, NOT
+	-- DailyPanel's panelWide 18: ROW_CONTENT_W (928, geometry block above)
+	-- and the xpTrack flex width below are measured against 16, so 18 would
+	-- shift every child 2px and overflow the progress row. The cream
+	-- surface KEEPS the ink T.stroke.panel border (#e5d3ac is only for
+	-- cards INSIDE the body) and carries no gloss -- both per the shipped
+	-- Daily recipe.
+	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "cream", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
+	UI.hardShadow(body, T.shadowOffset.panel, T.radius.panel)
+	local bodyPad = Instance.new("UIPadding")
+	bodyPad.PaddingTop = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingBottom = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingLeft = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingRight = UDim.new(0, T.pad.panel)
+	bodyPad.Parent = body
 
 	----------------------------------------------------------- progress row
 	local progressRow = Instance.new("Frame")
@@ -281,7 +327,7 @@ function PassPanel.Build(ctx)
 	scroll.BorderSizePixel = 0
 	scroll.ScrollingDirection = Enum.ScrollingDirection.X
 	scroll.ScrollBarThickness = 10
-	scroll.ScrollBarImageColor3 = T.color.scrollThumb
+	scroll.ScrollBarImageColor3 = SCROLL_THUMB_TAN -- 1d/1e sweep: the kit's sage thumb was tuned for the dark panel and sat low-contrast on cream; cosmetic only
 	scroll.CanvasSize = UDim2.new()
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.X
 	scroll.ElasticBehavior = Enum.ElasticBehavior.Never
@@ -406,6 +452,40 @@ function PassPanel.Build(ctx)
 		glyph.ZIndex = lock.ZIndex + 1
 	end
 
+	-- 1d/1e sweep (2026-08-04): DailyPanel's 28px corner badge (2.5px white
+	-- ring + glyph) for the FREE column's white cards -- plum lock when
+	-- LOCKED, green check when CLAIMED (the kit's grey lockBadge stays on
+	-- the gold pass column, where it has contrast). Parented to the CARD,
+	-- not the slot: Daily's slot-parenting trick exists because ITS cards
+	-- carry an 8px UIPadding that drags overhang furniture inward; these
+	-- cards have no UIPadding, so card-relative offsets already land on the
+	-- true edges (the kit lockBadge above banks on the same fact).
+	local function buildCornerBadge(card: Frame, fill: Color3, glyphText: string)
+		local badge = Instance.new("Frame")
+		badge.Name = "CornerBadge"
+		badge.AnchorPoint = Vector2.new(1, 0)
+		badge.Position = UDim2.new(1, 8, 0, -8)
+		badge.Size = UDim2.fromOffset(28, 28)
+		badge.BackgroundColor3 = fill
+		badge.BorderSizePixel = 0
+		badge.ZIndex = card.ZIndex + 8
+		badge.Parent = card
+		UI.corner(badge, 14)
+		local ring = Instance.new("UIStroke")
+		ring.Thickness = 2.5
+		ring.Color = Color3.fromRGB(255, 255, 255)
+		ring.Parent = badge
+		local glyph = UI.label(badge, glyphText, "chip", T.color.white)
+		glyph.Name = "Glyph"
+		glyph.AnchorPoint = Vector2.new(0.5, 0.5)
+		glyph.Position = UDim2.fromScale(0.5, 0.5)
+		glyph.Size = UDim2.fromScale(1, 1)
+		glyph.AutomaticSize = Enum.AutomaticSize.None
+		glyph.TextXAlignment = Enum.TextXAlignment.Center
+		glyph.TextSize = 15
+		glyph.ZIndex = badge.ZIndex + 1
+	end
+
 	local function buildClaimPill(card: Frame, tier: number)
 		local pill = UI.button(card, "CLAIM", "green", UDim2.new(1, -16, 0, T.size.claimPill), "buttonM")
 		pill.Name = "ClaimPill"
@@ -420,40 +500,10 @@ function PassPanel.Build(ctx)
 		end)
 	end
 
-	local function buildClaimedOverlay(card: Frame)
-		local overlay = Instance.new("Frame")
-		overlay.Name = "ClaimedOverlay"
-		overlay.Size = UDim2.fromScale(1, 1)
-		overlay.BackgroundColor3 = Color3.fromRGB(12, 18, 8)
-		overlay.BackgroundTransparency = 0.42 -- rgba(12,18,8,.58) -- .58 is the design file's OPACITY, so transparency = 1-0.58
-		overlay.BorderSizePixel = 0
-		overlay.ZIndex = card.ZIndex + 6
-		overlay.Parent = card
-		UI.corner(overlay, T.radius.control)
-
-		local check = Instance.new("Frame")
-		check.Name = "CheckCircle"
-		check.AnchorPoint = Vector2.new(0.5, 0.5)
-		check.Position = UDim2.fromScale(0.5, 0.5)
-		check.Size = UDim2.fromOffset(62, 62)
-		check.BackgroundColor3 = T.color.white
-		check.BorderSizePixel = 0
-		check.ZIndex = overlay.ZIndex + 1
-		check.Parent = overlay
-		UI.corner(check, 31)
-		UI.gradient(check, T.gradient.green)
-		UI.stroke(check, T.stroke.control)
-
-		local mark = UI.label(check, "\u{2713}", "buttonL", T.color.white)
-		mark.Name = "Check"
-		mark.AnchorPoint = Vector2.new(0.5, 0.5)
-		mark.Position = UDim2.fromScale(0.5, 0.5)
-		mark.Size = UDim2.fromScale(1, 1)
-		mark.AutomaticSize = Enum.AutomaticSize.None
-		mark.TextXAlignment = Enum.TextXAlignment.Center
-		mark.TextSize = 34
-		mark.ZIndex = check.ZIndex + 1
-	end
+	-- (buildClaimedOverlay -- the near-black rgba(12,18,8,.58) scrim + white
+	-- check circle -- was removed in the 1d/1e sweep: CLAIMED is reachable
+	-- from the free column only, and its treatment is now the claimed-green
+	-- recolor inside buildRewardCard's state machine below.)
 
 	local function buildRewardCard(parent: Frame, tier: number, def, track: string)
 		local isPass = track == "pass"
@@ -477,9 +527,35 @@ function PassPanel.Build(ctx)
 		local card = UI.surface(slot, UDim2.fromOffset(CARD_W, CARD_H), isPass and "passCard" or "freeCard", T.radius.control, T.stroke.control)
 		card.Name = (isPass and "Pass" or "Free") .. "Card" .. tier
 		card.ZIndex = 15
-		UI.hardShadow(card, T.shadowOffset.control, T.radius.control)
+		if isPass then
+			-- gold pass cards keep the full kit treatment (passCard gradient,
+			-- ink stroke, hard shadow) -- they ARE the panel's accent.
+			UI.hardShadow(card, T.shadowOffset.control, T.radius.control)
+		else
+			-- 1d/1e sweep (2026-08-04): the freeCard grey ramp read muddy on
+			-- the cream body -- recolor the surface's OWN gradient/stroke in
+			-- place (DailyPanel's header pattern; a UI.surface frame's only
+			-- direct UIGradient/UIStroke children are its own, so
+			-- FindFirstChildOfClass is unambiguous, and no second UI.stroke is
+			-- ever attached). Flat white + 3px #e5d3ac soft border, and NO
+			-- hard shadow: Daily's cream-body cards ship shadowless. The
+			-- `slot` wrapper above stays regardless -- it is the row's
+			-- child-count contract either way.
+			local grad = card:FindFirstChildOfClass("UIGradient")
+			if grad then
+				grad.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+			end
+			local border = card:FindFirstChildOfClass("UIStroke")
+			if border then
+				border.Color = CARD_BORDER
+				border.Thickness = 3
+			end
+		end
 
-		local textColor = isPass and T.color.textOnGoldCard or T.color.textOnLight
+		-- 1d/1e sweep: free-column ink is the mock's body-on-cream #4a3416
+		-- (textOnLight was tuned for the old grey ramp); the gold column
+		-- keeps textOnGoldCard.
+		local textColor = isPass and T.color.textOnGoldCard or CARD_TEXT
 
 		local name = UI.label(card, shortCash(def.Cash), "cardLabel", textColor)
 		name.Name = "NameLabel"
@@ -515,14 +591,41 @@ function PassPanel.Build(ctx)
 		local unlocked = (not isPass) and (state.XP >= SeasonConfig.ThresholdFor(tier))
 		local claimed = (not isPass) and (state.Claimed[tostring(tier)] == true)
 
-		if isPass or not unlocked then
+		-- Same branches as ever ("isPass or not unlocked" merely split in two
+		-- so each column wears its own lock) -- only the badge builders and
+		-- the CLAIMED skin changed in the 1d/1e sweep. No wiring lives here
+		-- beyond buildClaimPill's untouched SeasonClaim connect.
+		if isPass then
+			-- always LOCKED (no passOwned backing data -- module header). The
+			-- kit's grey lockBadge keeps its contrast on gold: unchanged.
 			buildLockBadge(card)
+		elseif not unlocked then
+			-- 1d/1e sweep: the grey kit badge goes near-invisible on the flat
+			-- white card -- locked FREE cards wear Daily's plum corner lock.
+			buildCornerBadge(card, LOCK_BADGE, "\u{1F512}")
 		elseif not claimed then
 			UI.claimRing(card)
 			buildClaimPill(card, tier)
 			qty.Visible = false -- CLAIMABLE: hide qty chip to give CLAIM pill room
 		else
-			buildClaimedOverlay(card)
+			-- CLAIMED -- free column only (gold can never get here, see above).
+			-- 1d/1e sweep: the old near-black scrim overlay read heavy on a
+			-- white card; adopt DailyPanel's claimed language instead -- soft
+			-- green card, #bfe3b1 border, green corner check -- so "claimed =
+			-- soft green" is one language across the cream panels. The recolor
+			-- rides the SAME gradient/stroke instances the white flip above
+			-- already touched (thickness is already 3 from that flip).
+			local grad = card:FindFirstChildOfClass("UIGradient")
+			if grad then
+				grad.Color = ColorSequence.new(CLAIMED_BG)
+			end
+			local border = card:FindFirstChildOfClass("UIStroke")
+			if border then
+				border.Color = CLAIMED_BORDER
+			end
+			name.TextColor3 = CLAIMED_TEXT
+			qty.TextColor3 = CLAIMED_TEXT
+			buildCornerBadge(card, CHECK_GREEN, "\u{2713}")
 		end
 	end
 
@@ -609,6 +712,26 @@ function PassPanel.Build(ctx)
 		end
 	end
 
+	----------------------------------------------------------- backdrop blur (mock 1d/1e: dim + blur behind the panel)
+	-- 1d/1e sweep (2026-08-04): DailyPanel's setBlur block with a UNIQUE
+	-- name -- questsBtn transitions Pass -> Goals, and setBlur destroys by
+	-- NAME in Lighting, so a shared name would let one panel's close kill
+	-- the other's live blur. The shell owns the dim scrim; the blur is
+	-- per-panel. Size is SET, not tweened -- BlurEffect.Size is not on the
+	-- proven tween whitelist in this place.
+	local BLUR_NAME = "PassPanelBlur"
+	local function setBlur(on: boolean)
+		local existing = Lighting:FindFirstChild(BLUR_NAME)
+		if on and not existing then
+			local blur = Instance.new("BlurEffect")
+			blur.Name = BLUR_NAME
+			blur.Size = 8
+			blur.Parent = Lighting
+		elseif not on and existing then
+			existing:Destroy()
+		end
+	end
+
 	----------------------------------------------------------- wiring
 	closeBtn.MouseButton1Click:Connect(function()
 		ctx.closePanel()
@@ -633,9 +756,28 @@ function PassPanel.Build(ctx)
 	-- Request a fresh state every time this panel becomes visible (mirrors
 	-- SeasonClient's own open-time refresh) -- covers both the very first
 	-- open (Build is lazy, called from inside openPanel) and every reopen.
+	-- 1d/1e sweep (2026-08-04): visibility now ALSO drives the backdrop
+	-- blur, additively -- the open-time FireServer refresh is untouched.
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
 		if wrapper.Visible then
 			ctx.remotes.SeasonState:FireServer()
+			setBlur(true)
+		else
+			setBlur(false)
+		end
+	end)
+
+	-- Belt-and-braces for the blur teardown (DailyPanel review catch): any
+	-- path that hides the HOST while this wrapper stays Visible (legacy
+	-- single-open force-closes, future shell changes) must still kill the
+	-- global BlurEffect -- it post-processes the whole screen regardless of
+	-- GUI visibility -- and restore it when the host returns with this
+	-- panel still the visible one.
+	ctx.host:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not ctx.host.Visible then
+			setBlur(false)
+		elseif wrapper.Visible then
+			setBlur(true)
 		end
 	end)
 

@@ -115,9 +115,16 @@ local function makeRockViewport(med, rock)
 end
 RunService.RenderStepped:Connect(function()
 	local a = os.clock() * 0.8
-	for _, mdl in ipairs(spinParts) do
+	-- backwards + prune: every rebuild destroys the page's viewports, and a
+	-- table that only ever grows would pin every dead Model for the session
+	-- and walk them all each frame (review catch; same convention as
+	-- UIKit.Builders' ringActive driver)
+	for i = #spinParts, 1, -1 do
+		local mdl = spinParts[i]
 		if mdl.Parent then
 			mdl:PivotTo(CFrame.Angles(0, a, 0) * CFrame.Angles(math.rad(-8), 0, 0))
+		else
+			table.remove(spinParts, i)
 		end
 	end
 end)
@@ -409,17 +416,22 @@ local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, onClick,
 	n.ZIndex = card.ZIndex + 2
 	n.Parent = card
 
+	-- two wrapped lines, not one truncated one: an upgrade's desc + level
+	-- stat ("Better rarity rolls  Lv. 3/12 +15%") never fits 184px at 11px
+	-- (review catch); rocks use a single line and are unaffected
 	local info = Instance.new("TextLabel")
 	info.Name = "Info"
-	info.Size = UDim2.new(1, -16, 0, 14)
-	info.Position = UDim2.new(0, 8, 0, 106)
+	info.Size = UDim2.new(1, -16, 0, 28)
+	info.Position = UDim2.new(0, 8, 0, 104)
 	info.BackgroundTransparency = 1
 	info.Font = Enum.Font.GothamMedium
 	info.TextSize = 11
 	info.TextXAlignment = Enum.TextXAlignment.Center
+	info.TextYAlignment = Enum.TextYAlignment.Top
+	info.TextWrapped = true
 	info.TextTruncate = Enum.TextTruncate.AtEnd
 	info.TextColor3 = MUTED_TEXT
-	info.Text = statLine and (infoLine .. "   " .. statLine) or infoLine
+	info.Text = statLine and (infoLine .. "  \u{2022}  " .. statLine) or infoLine
 	info.ZIndex = card.ZIndex + 2
 	info.Parent = card
 
@@ -642,6 +654,11 @@ end
 local function closeMerchant()
 	frame.Visible = false
 	current = nil
+	-- clicking the X means the cursor was ON it -- MouseLeave never fires for
+	-- a hidden button, so the hover pose (54px, 90deg) would stick for the
+	-- next open (review catch). Snap the rest pose back explicitly.
+	closeBtn.Size = UDim2.fromOffset(48, 48)
+	closeBtn.Rotation = 0
 end
 closeBtn.MouseButton1Click:Connect(closeMerchant)
 

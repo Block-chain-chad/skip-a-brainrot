@@ -1292,13 +1292,23 @@ function openPanel(id)
 	-- legacy-closing behaviour (both hang off host's Visible transition -- see
 	-- the watcher near the bottom of this file). Only the panel CONTENT is
 	-- conditional now; the shell state changes below are unconditional.
-	if currentPanelId and currentPanelId ~= id then
-		if panelInstances[currentPanelId] then
-			panelInstances[currentPanelId].Visible = false
+	--
+	-- Review catch (2026-08-04, panel-restyle round): hide EVERY other panel
+	-- unconditionally, not just panelInstances[currentPanelId]. closePanel
+	-- nils currentPanelId synchronously and DEFERS its wrapper hide behind
+	-- closeGen; an openPanel within that 0.12s window bumps closeGen (killing
+	-- the deferred hide) while this branch used to skip (currentPanelId
+	-- already nil) -- stranding the previous wrapper Visible=true forever:
+	-- panels stacked, and DailyPanel's backdrop blur + countdown never tore
+	-- down (their teardown rides wrapper.Visible). Iterating everything is
+	-- idempotent and closes the race whatever the bookkeeping says.
+	for otherId, inst in pairs(panelInstances) do
+		if otherId ~= id and inst.Visible then
+			inst.Visible = false
 		end
-		if placeholderForId == currentPanelId then
-			destroyPlaceholder()
-		end
+	end
+	if placeholderForId and placeholderForId ~= id then
+		destroyPlaceholder()
 	end
 
 	local frame
