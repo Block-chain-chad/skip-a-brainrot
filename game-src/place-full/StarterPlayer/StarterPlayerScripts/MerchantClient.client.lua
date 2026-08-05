@@ -460,16 +460,21 @@ end
 
 ---------------------------------------------------------------- prompts
 local gameWorld = Workspace:WaitForChild("GameWorld")
-local promptParts = {}
-for _, m in ipairs(MerchantConfig) do
+-- A merchant can stand in more than one world. `Stall` is the primary and
+-- `AltStalls` lists the copies (the Frozen Tundra hub). Each one binds the SAME
+-- handler, so the shop behaves identically wherever it is opened from.
+local promptParts = {}          -- [Id] = { part, part, ... }
+local function bindStall(m, stallName)
 	task.spawn(function()
-		local stall = gameWorld:WaitForChild(m.Stall, 30)
+		local stall = gameWorld:WaitForChild(stallName, 30)
 		if not stall then return end
 		local part = stall:WaitForChild("PromptPart", 30)
 		if not part then return end
 		local prompt = part:WaitForChild(m.Prompt, 30)
 		if not prompt then return end
-		promptParts[m.Id] = part
+		local list = promptParts[m.Id]
+		if not list then list = {}; promptParts[m.Id] = list end
+		table.insert(list, part)
 		prompt.Triggered:Connect(function(who)
 			if who ~= player then return end
 			if frame.Visible and current and current.Id == m.Id then
@@ -485,16 +490,24 @@ for _, m in ipairs(MerchantConfig) do
 		end)
 	end)
 end
+for _, m in ipairs(MerchantConfig) do
+	bindStall(m, m.Stall)
+	for _, alt in ipairs(m.AltStalls or {}) do bindStall(m, alt) end
+end
 
 -- walk away -> close
 RunService.Heartbeat:Connect(function()
 	if not frame.Visible or not current then return end
-	local part = promptParts[current.Id]
+	local list = promptParts[current.Id]
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
-	if part and hrp and (hrp.Position - part.Position).Magnitude > 24 then
-		closeMerchant()
+	if not list or not hrp then return end
+	-- nearest, not first: the same merchant now exists in two worlds 11k studs apart
+	local nearest = math.huge
+	for _, part in ipairs(list) do
+		nearest = math.min(nearest, (hrp.Position - part.Position).Magnitude)
 	end
+	if nearest > 24 then closeMerchant() end
 end)
 
 ---------------------------------------------------------------- data

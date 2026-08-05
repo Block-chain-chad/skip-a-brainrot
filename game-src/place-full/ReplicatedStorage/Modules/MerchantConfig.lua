@@ -3,6 +3,9 @@ return {
 	{
 		Id = "RockDealer",
 		Stall = "ShopStall",
+		-- Rocco also keeps a stall in the Frozen Tundra hub. Listing it here rather
+		-- than hardcoding it in the client means adding a third world is config-only.
+		AltStalls = { "TundraShopStall" },
 		Prompt = "ShopPrompt",
 		Npc = "Rocco the Rock Dealer",
 		Title = "\u{1F48E} ROCK SHOP",
@@ -22,6 +25,7 @@ return {
 	{
 		Id = "Upgrader",
 		Stall = "UpgradeStall",
+		AltStalls = { "TundraUpgradeStall" },
 		Prompt = "UpgradePrompt",
 		Npc = "Enzo the Upgrader",
 		Title = "\u{2728} UPGRADES",
