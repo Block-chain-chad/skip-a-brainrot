@@ -1,5 +1,22 @@
 -- Unified merchant shop: press E at a merchant to see what they sell.
 -- Driven by MerchantConfig, so adding a merchant = adding a config entry.
+--
+-- 2026-08-04 RESTYLE (user handoff "Roblox game theme UI redesign", option
+-- 1d): the panel wears the mock's look -- cream body, per-merchant gradient
+-- header bar, overlapping red close circle, page chips styled as the mock's
+-- tabs, and a 3x2 grid of white cards with price rows + chunky green BUY.
+-- ONLY the visual tree changed. The prompt binding (bindStall + AltStalls,
+-- the concurrent session's multi-world work), walk-away close, open/close
+-- flow, SideRail registration, data wiring and the BuyRock/EquipRock/
+-- BuyUpgrade remotes are untouched.
+-- Deliberate deviations from the mock, called out in the round report:
+--   - the mock's ROCKS/BOOSTS/PASSES tabs have no real counterpart (Rocco
+--     sells only rocks; Enzo only upgrades) -- the tab chips ARE the pager;
+--   - no NEW! tag (the game has no restock/new-item concept yet);
+--   - card icons are the live spinning 3D rock viewports, not emoji
+--     (STYLE_GUIDE: no emoji as icons; the kit's own art rule);
+--   - locked/equip states keep their distinct button colours -- the mock
+--     only drew the buyable state.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -17,13 +34,32 @@ local MerchantDialog = require(ReplicatedStorage.Modules.MerchantDialog)
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
 
-local P = UITheme.Palette
 local BLACK = Color3.fromRGB(0, 0, 0)
 local FONT = UITheme.Font
 local state = { Cash = 0, OwnedRocks = {}, EquippedRock = "", Upgrades = {} }
 local current = nil
 local page = 1
-local PER_PAGE = 8   -- cards per shop page (2x4 grid); the panel + list are sized to fit exactly this
+local PER_PAGE = 6   -- mock 1d: 3x2 grid per page (was 2x4 of 8)
+
+---------------------------------------------------------------- mock 1d palette
+local CREAM_TOP = Color3.fromHex("#fff9ec")
+local CREAM_BOT = Color3.fromHex("#ffedcd")
+local CARD_BORDER = Color3.fromHex("#e5d3ac")
+local BODY_TEXT = Color3.fromHex("#4a3416")
+local MUTED_TEXT = Color3.fromHex("#a08654")
+local PRICE_AMBER = Color3.fromHex("#b47607")
+local BUY_TOP = Color3.fromHex("#79e254")
+local BUY_BOT = Color3.fromHex("#35a91c")
+local EQUIP_TOP = Color3.fromHex("#58a6ff")
+local EQUIP_BOT = Color3.fromHex("#1f6fe0")
+local DONE_TOP = Color3.fromHex("#8fa378")
+local DONE_BOT = Color3.fromHex("#54643c")
+local LOCK_TOP = Color3.fromRGB(150, 156, 170)
+local LOCK_BOT = Color3.fromRGB(94, 100, 114)
+local TAB_GOLD_TOP = Color3.fromHex("#ffdf5e")
+local TAB_GOLD_BOT = Color3.fromHex("#f7a721")
+local CLOSE_TOP = Color3.fromHex("#ff6161")
+local CLOSE_BOT = Color3.fromHex("#d61f1f")
 
 local function short(n)
 	n = math.floor(n)
@@ -32,13 +68,6 @@ local function short(n)
 	elseif n >= 1e3 then return string.format("%.1fK", n/1e3) end
 	return tostring(n)
 end
-local function blackRim(o, thick)
-	for _, s in ipairs(o:GetChildren()) do
-		if s:IsA("UIStroke") and s.ApplyStrokeMode ~= Enum.ApplyStrokeMode.Contextual then
-			s.Color = BLACK; s.Thickness = thick or 3; s.Transparency = 0
-		end
-	end
-end
 local function inkText(o, thick)
 	local st = Instance.new("UIStroke")
 	st.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
@@ -46,13 +75,17 @@ local function inkText(o, thick)
 	st.Parent = o
 	return st
 end
+-- display-only: MerchantConfig titles carry a leading emoji ("\u{1F48E} ROCK
+-- SHOP"); the style guide bans emoji icons, so strip anything before the
+-- first A-Z for the header wordmark. Config itself is untouched.
+local function titleWord(s)
+	return (tostring(s or ""):gsub("^[^%a]+", ""))
+end
 
 ---------------------------------------------------------------- rock previews (3D)
 local spinParts = {}
 -- Rock previews come from ReplicatedStorage.Modules.RockDesign, the same builder
--- the thrown rock and Rocco's shelf use. This replaces a local ROCK_PREVIEW table
--- that specified DIFFERENT shapes and materials from the thrown rock, so a rock
--- could look like one object in the shop and another in your hand.
+-- the thrown rock and Rocco's shelf use -- one source of truth for rock looks.
 local function makeRockViewport(med, rock)
 	local vp = Instance.new("ViewportFrame")
 	vp.Size = UDim2.new(1, 0, 1, 0)
@@ -89,26 +122,41 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
----------------------------------------------------------------- panel (campfire style)
-local CF = UITheme.Camp
+---------------------------------------------------------------- panel (mock 1d)
+local FRAME_W, FRAME_H = 680, 620
+local HEADER_H = 58
+local BLURB_H = 20
+local CHIPS_H = 38
+local GRID_TOP = HEADER_H + 8 + BLURB_H + 6 + CHIPS_H + 6
 
 local frame = Instance.new("Frame")
 frame.Name = "MerchantFrame"
 frame.AnchorPoint = Vector2.new(0.5, 0.5)
 frame.Position = UDim2.new(0.5, 0, 0.5, 0)
-frame.Size = UDim2.fromOffset(664, 720)   -- room for one 2x4 page (compact cards) plus the page bar
+frame.Size = UDim2.fromOffset(FRAME_W, FRAME_H)
+frame.BackgroundColor3 = CREAM_TOP
+frame.BorderSizePixel = 0
 frame.Visible = false
 frame.ZIndex = 10
 frame.Parent = gui
--- The rail sits at DisplayOrder 6 and this panel at 0, so the six rail cards were
--- drawing straight over the shop's left-hand column. Registering it means the rail
--- folds away while the shop is open, exactly as it does for the Index and Backpack.
+-- The rail sits at DisplayOrder 6 and this panel at 0; registering it means
+-- the legacy rail folds away while the shop is open (single-open registry).
 SideRail.registerPanel(frame)
-UITheme.campPanel(frame)
+UITheme.corner(frame, 24)
+do
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new(CREAM_TOP, CREAM_BOT)
+	grad.Parent = frame
+	local ink = Instance.new("UIStroke")
+	ink.Thickness = 4
+	ink.Color = BLACK
+	ink.Transparency = 0.05
+	ink.Parent = frame
+end
 
 -- Short-viewport guard: shrink and push the panel down so it never covers the
 -- top TabBar band (146px) and keeps a 40px bottom margin. Anchor stays (0.5, 0.5).
-local FRAME_H = 720
 local hudScale = Instance.new("UIScale")
 hudScale.Name = "HudFixScale"
 hudScale.Parent = frame
@@ -123,30 +171,176 @@ end
 gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
 relayout()
 
--- carved-wood banner that overhangs the panel top
-local ribbon, title = UITheme.ribbon(frame, "SHOP", 0.62)
+-- header bar: per-merchant gradient (mock: orange for the shop), title
+-- wordmark centred, clipped to the panel's rounded top by its own corner
+local headerBar = Instance.new("Frame")
+headerBar.Name = "HeaderBar"
+headerBar.Size = UDim2.new(1, 0, 0, HEADER_H)
+headerBar.Position = UDim2.fromOffset(0, 0)
+headerBar.BackgroundColor3 = Color3.fromHex("#ffb02e")
+headerBar.BorderSizePixel = 0
+headerBar.ZIndex = 12
+headerBar.Parent = frame
+UITheme.corner(headerBar, 22)
+local headerGrad = Instance.new("UIGradient")
+headerGrad.Rotation = 90
+headerGrad.Color = ColorSequence.new(Color3.fromHex("#ffb02e"), Color3.fromHex("#ff7d00"))
+headerGrad.Parent = headerBar
+do
+	-- square off the header's bottom corners: a plain strip overlapping its
+	-- lower half, carrying the gradient's bottom colour band
+	local squareOff = Instance.new("Frame")
+	squareOff.Name = "SquareOff"
+	squareOff.AnchorPoint = Vector2.new(0, 1)
+	squareOff.Position = UDim2.new(0, 0, 1, 0)
+	squareOff.Size = UDim2.new(1, 0, 0, 16)
+	squareOff.BackgroundColor3 = Color3.fromHex("#ff8a10")
+	squareOff.BorderSizePixel = 0
+	squareOff.ZIndex = 12
+	squareOff.Parent = headerBar
+end
+local headerInk = Instance.new("UIStroke")
+headerInk.Thickness = 3
+headerInk.Color = BLACK
+headerInk.Transparency = 0.05
+headerInk.Parent = headerBar
+
+local title = Instance.new("TextLabel")
+title.Name = "Title"
+title.AnchorPoint = Vector2.new(0.5, 0.5)
+title.Position = UDim2.new(0.5, 0, 0.5, 0)
+title.Size = UDim2.new(1, -140, 1, 0)
+title.BackgroundTransparency = 1
+title.Font = FONT
+title.TextSize = 30
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Text = "SHOPS"
+title.ZIndex = 14
+title.Parent = headerBar
+inkText(title, 3)
+
+-- mock close: 48px red circle overlapping the top-right corner, white ring
+local closeBtn = Instance.new("TextButton")
+closeBtn.Name = "CloseButton"
+closeBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+closeBtn.Position = UDim2.new(1, -8, 0, 8)
+closeBtn.Size = UDim2.fromOffset(48, 48)
+closeBtn.Text = "\u{2715}"
+closeBtn.TextSize = 20
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.AutoButtonColor = false
+closeBtn.BackgroundColor3 = CLOSE_TOP
+closeBtn.BorderSizePixel = 0
+closeBtn.Font = FONT
+closeBtn.ZIndex = 18
+closeBtn.Parent = frame
+UITheme.corner(closeBtn, 24)
+do
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new(CLOSE_TOP, CLOSE_BOT)
+	grad.Parent = closeBtn
+	local ring = Instance.new("UIStroke")
+	ring.Thickness = 3.5
+	ring.Color = Color3.fromRGB(255, 255, 255)
+	ring.Parent = closeBtn
+end
+inkText(closeBtn, 2.5)
+-- mock hover: scale 1.12 + rotate 90deg. Size+Rotation only (UIScale tweens
+-- are dead in this place; Rotation is verified live).
+local TweenService = game:GetService("TweenService")
+closeBtn.MouseEnter:Connect(function()
+	TweenService:Create(closeBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Size = UDim2.fromOffset(54, 54), Rotation = 90 }):Play()
+end)
+closeBtn.MouseLeave:Connect(function()
+	TweenService:Create(closeBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Size = UDim2.fromOffset(48, 48), Rotation = 0 }):Play()
+end)
 
 local blurb = Instance.new("TextLabel")
-blurb.Size = UDim2.new(1, -44, 0, 20)
-blurb.Position = UDim2.new(0, 22, 0, 46)
+blurb.Name = "Blurb"
+blurb.Size = UDim2.new(1, -44, 0, BLURB_H)
+blurb.Position = UDim2.new(0, 22, 0, HEADER_H + 8)
 blurb.BackgroundTransparency = 1
-blurb.Font = FONT
-blurb.TextSize = 14
-blurb.TextColor3 = CF.muted
+blurb.Font = Enum.Font.GothamMedium
+blurb.TextSize = 13
+blurb.TextColor3 = MUTED_TEXT
 blurb.ZIndex = 12
 blurb.Parent = frame
-inkText(blurb, 1.8)
 
-local closeBtn = Instance.new("TextButton")
-closeBtn.Parent = frame
-UITheme.styleClose(closeBtn)
-closeBtn.ZIndex = 18
-closeBtn.TextSize = 18
-blackRim(closeBtn, 3)
+---------------------------------------------------------------- page chips (mock tab row, driving the pager)
+local chipRow = Instance.new("Frame")
+chipRow.Name = "PageChips"
+chipRow.AnchorPoint = Vector2.new(0.5, 0)
+chipRow.Position = UDim2.new(0.5, 0, 0, HEADER_H + 8 + BLURB_H + 6)
+chipRow.Size = UDim2.new(1, -44, 0, CHIPS_H)
+chipRow.BackgroundTransparency = 1
+chipRow.ZIndex = 14
+chipRow.Parent = frame
+local chipList = Instance.new("UIListLayout")
+chipList.FillDirection = Enum.FillDirection.Horizontal
+chipList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+chipList.VerticalAlignment = Enum.VerticalAlignment.Center
+chipList.SortOrder = Enum.SortOrder.LayoutOrder
+chipList.Padding = UDim.new(0, 10)
+chipList.Parent = chipRow
 
+local rebuild -- forward-declared; chips call it on page change
+
+local function renderPageChips(totalPages)
+	for _, c in ipairs(chipRow:GetChildren()) do
+		if c:IsA("TextButton") then c:Destroy() end
+	end
+	chipRow.Visible = totalPages > 1
+	if totalPages <= 1 then return end
+	for n = 1, totalPages do
+		local active = n == page
+		local chip = Instance.new("TextButton")
+		chip.Name = "PageChip" .. n
+		chip.LayoutOrder = n
+		chip.Size = UDim2.fromOffset(64, 34)
+		chip.AutoButtonColor = false
+		chip.Text = "PAGE " .. n
+		chip.TextSize = 14
+		chip.Font = FONT
+		chip.BorderSizePixel = 0
+		chip.ZIndex = 15
+		chip.Parent = chipRow
+		UITheme.corner(chip, 12)
+		if active then
+			chip.BackgroundColor3 = TAB_GOLD_TOP
+			local grad = Instance.new("UIGradient")
+			grad.Rotation = 90
+			grad.Color = ColorSequence.new(TAB_GOLD_TOP, TAB_GOLD_BOT)
+			grad.Parent = chip
+			chip.TextColor3 = Color3.fromRGB(255, 255, 255)
+			local ink = Instance.new("UIStroke")
+			ink.Thickness = 3
+			ink.Color = BLACK
+			ink.Transparency = 0.05
+			ink.Parent = chip
+			inkText(chip, 2)
+		else
+			chip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			chip.TextColor3 = MUTED_TEXT
+			local border = Instance.new("UIStroke")
+			border.Thickness = 3
+			border.Color = CARD_BORDER
+			border.Parent = chip
+			chip.Activated:Connect(function()
+				page = n
+				rebuild()
+			end)
+		end
+	end
+end
+
+---------------------------------------------------------------- card grid
 local list = Instance.new("ScrollingFrame")
-list.Size = UDim2.new(1, -36, 0, 590)   -- fixed to one 2x4 page (590 = 4 rows of 140 + 10 gap); no in-page scroll
-list.Position = UDim2.new(0, 18, 0, 74)
+list.Name = "CardGrid"
+list.Size = UDim2.new(1, -44, 0, 398)   -- one 3x2 page (2 rows of 192 + 14 gap); no in-page scroll
+list.Position = UDim2.new(0, 22, 0, GRID_TOP)
 list.BackgroundTransparency = 1
 list.BorderSizePixel = 0
 list.ScrollBarThickness = 6
@@ -155,188 +349,199 @@ list.AutomaticCanvasSize = Enum.AutomaticSize.Y
 list.ZIndex = 11
 list.Parent = frame
 local layout = Instance.new("UIGridLayout")
-layout.CellSize = UDim2.fromOffset(300, 140)
-layout.CellPadding = UDim2.fromOffset(14, 10)
+layout.CellSize = UDim2.fromOffset(200, 192)
+layout.CellPadding = UDim2.fromOffset(14, 14)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 layout.Parent = list
 
----------------------------------------------------------------- pagination bar
--- The rock ladder is long now, so the shop is paged (PER_PAGE cards each). This bar
--- sits under the grid; rebuild() shows it only when there is more than one page.
-local pageBar = Instance.new("Frame")
-pageBar.Name = "PageBar"
-pageBar.AnchorPoint = Vector2.new(0.5, 1)
-pageBar.Position = UDim2.new(0.5, 0, 1, -14)
-pageBar.Size = UDim2.fromOffset(320, 34)
-pageBar.BackgroundTransparency = 1
-pageBar.ZIndex = 14
-pageBar.Visible = false
-pageBar.Parent = frame
-
-local function pageArrow(glyph, anchorX, posX)
-	local b = Instance.new("TextButton")
-	b.AnchorPoint = Vector2.new(anchorX, 0.5)
-	b.Position = UDim2.new(posX, 0, 0.5, 0)
-	b.Size = UDim2.fromOffset(52, 30)
-	b.Text = glyph
-	b.TextSize = 18
-	b.ZIndex = 15
-	b.Parent = pageBar
-	UITheme.campButton(b, CF.amber1, CF.amber2)
-	return b
-end
-local prevBtn = pageArrow("\u{25C0}", 0, 0)
-local nextBtn = pageArrow("\u{25B6}", 1, 1)
-
-local pageLabel = Instance.new("TextLabel")
-pageLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-pageLabel.Position = UDim2.fromScale(0.5, 0.5)
-pageLabel.Size = UDim2.fromOffset(170, 30)
-pageLabel.BackgroundTransparency = 1
-pageLabel.Font = FONT
-pageLabel.TextSize = 16
-pageLabel.TextColor3 = CF.cream
-pageLabel.Text = "Page 1 / 1"
-pageLabel.ZIndex = 15
-pageLabel.Parent = pageBar
-inkText(pageLabel, 2)
-
----------------------------------------------------------------- card builder
--- each card gets its own accent, carried through the border, the title colour
--- and the sunburst behind the icon -- that trio is what sells the style.
-local ACCENTS = {
-	{ CF.amber1, CF.amber2 },
-	{ CF.pine1,  CF.pine2  },
-	{ CF.lake1,  CF.lake2  },
-	{ CF.ember1, CF.ember2 },
-	{ CF.berry1, CF.berry2 },
-}
-
-local function makeRow(order, swatch, name, desc, btnText, btnTop, btnBot, onClick, dim, previewBuilder, pillA, pillB)
-	local acc = ACCENTS[((order - 1) % #ACCENTS) + 1]
-	local card, outer = UITheme.accentCard(list, acc[1], 14)
-	outer.LayoutOrder = order
-	outer.ZIndex = 11
+---------------------------------------------------------------- card builder (mock 1d white card)
+-- Signature kept close to the old makeRow so rebuild()'s item closures stay
+-- recognisable: order, name, infoLine, button spec, click, preview builder,
+-- optional price (nil hides the price row), optional statLine (upgrades).
+local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, onClick, previewBuilder, price, statLine)
+	local card = Instance.new("Frame")
+	card.Name = "Card" .. order
+	card.LayoutOrder = order
+	card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	card.BorderSizePixel = 0
 	card.ZIndex = 12
-	if dim then card.BackgroundTransparency = 0.2 end
+	card.Parent = list
+	UITheme.corner(card, 18)
+	local border = Instance.new("UIStroke")
+	border.Thickness = 3
+	border.Color = CARD_BORDER
+	border.Parent = card
 
-	-- icon tile: sunburst backdrop + medallion (or the 3D rock preview)
+	-- icon tile: dark display case holding the 3D preview (or a glyph)
 	local icon = Instance.new("Frame")
-	icon.Size = UDim2.fromOffset(58, 58)
-	icon.Position = UDim2.new(0, 12, 0, 12)
-	icon.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	icon.Name = "IconTile"
+	icon.AnchorPoint = Vector2.new(0.5, 0)
+	icon.Position = UDim2.new(0.5, 0, 0, 10)
+	icon.Size = UDim2.fromOffset(72, 72)
+	icon.BackgroundColor3 = Color3.fromRGB(26, 30, 40)
 	icon.BorderSizePixel = 0
 	icon.ClipsDescendants = true
 	icon.ZIndex = card.ZIndex + 1
 	icon.Parent = card
-	UITheme.corner(icon, 10)
-	UITheme.sunburst(icon, acc[1], 12)
-	UITheme.ink(icon, 3)
-
+	UITheme.corner(icon, 12)
+	do
+		local rim = Instance.new("UIStroke")
+		rim.Thickness = 2.5
+		rim.Color = CARD_BORDER
+		rim.Parent = icon
+	end
 	if previewBuilder then
-		local holder = Instance.new("Frame")
-		holder.Size = UDim2.fromScale(1, 1)
-		holder.BackgroundTransparency = 1
-		holder.ClipsDescendants = true
-		holder.ZIndex = icon.ZIndex + 3
-		holder.Parent = icon
-		previewBuilder(holder)
-	else
-		local dot = Instance.new("Frame")
-		dot.AnchorPoint = Vector2.new(0.5, 0.5)
-		dot.Position = UDim2.fromScale(0.5, 0.5)
-		dot.Size = UDim2.fromOffset(46, 46)
-		dot.BackgroundColor3 = swatch
-		dot.BorderSizePixel = 0
-		dot.ZIndex = icon.ZIndex + 3
-		dot.Parent = icon
-		UITheme.corner(dot, 23)
-		UITheme.ink(dot, 2.5)
-		UITheme.gloss(dot, 20, 0.55)
+		previewBuilder(icon)
 	end
 
 	local n = Instance.new("TextLabel")
-	n.Size = UDim2.new(1, -88, 0, 22)
-	n.Position = UDim2.new(0, 80, 0, 10)
+	n.Name = "Name"
+	n.Size = UDim2.new(1, -16, 0, 20)
+	n.Position = UDim2.new(0, 8, 0, 86)
 	n.BackgroundTransparency = 1
 	n.Font = FONT
-	n.TextSize = 17
-	n.TextXAlignment = Enum.TextXAlignment.Left
+	n.TextSize = 16
+	n.TextXAlignment = Enum.TextXAlignment.Center
 	n.TextTruncate = Enum.TextTruncate.AtEnd
-	n.TextColor3 = acc[1]
+	n.TextColor3 = BODY_TEXT
 	n.Text = name
 	n.ZIndex = card.ZIndex + 2
 	n.Parent = card
-	UITheme.inkText(n, 2.8)
 
-	local d = Instance.new("TextLabel")
-	d.Size = UDim2.new(1, -90, 0, 32)
-	d.Position = UDim2.new(0, 80, 0, 32)
-	d.BackgroundTransparency = 1
-	d.Font = Enum.Font.GothamMedium
-	d.TextSize = 12
-	d.TextXAlignment = Enum.TextXAlignment.Left
-	d.TextYAlignment = Enum.TextYAlignment.Top
-	d.TextWrapped = true
-	d.TextColor3 = CF.muted
-	d.Text = desc
-	d.ZIndex = card.ZIndex + 2
-	d.Parent = card
-	UITheme.inkText(d, 1.6)
+	local info = Instance.new("TextLabel")
+	info.Name = "Info"
+	info.Size = UDim2.new(1, -16, 0, 14)
+	info.Position = UDim2.new(0, 8, 0, 106)
+	info.BackgroundTransparency = 1
+	info.Font = Enum.Font.GothamMedium
+	info.TextSize = 11
+	info.TextXAlignment = Enum.TextXAlignment.Center
+	info.TextTruncate = Enum.TextTruncate.AtEnd
+	info.TextColor3 = MUTED_TEXT
+	info.Text = statLine and (infoLine .. "   " .. statLine) or infoLine
+	info.ZIndex = card.ZIndex + 2
+	info.Parent = card
 
-	-- "Lv. 3" / "x1.4" stat pills, like the reference
-	local function pill(txt, xOff)
-		local f = Instance.new("Frame")
-		f.Size = UDim2.fromOffset(74, 22)
-		f.Position = UDim2.new(0, xOff, 0, 66)
-		f.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-		f.BorderSizePixel = 0
-		f.ZIndex = card.ZIndex + 2
-		f.Parent = card
-		UITheme.corner(f, 7)
-		UITheme.gradient(f, CF.panelTop, CF.panelBot, 90)
-		UITheme.ink(f, 2.5)
-		local t = Instance.new("TextLabel")
-		t.Size = UDim2.fromScale(1, 1)
-		t.BackgroundTransparency = 1
-		t.Font = FONT
-		t.TextSize = 13
-		t.TextColor3 = CF.cream
-		t.Text = txt
-		t.ZIndex = f.ZIndex + 1
-		t.Parent = f
-		UITheme.inkText(t, 2)
+	-- price row (mock: coin + amber amount), hidden when price is nil
+	if price then
+		local priceRow = Instance.new("Frame")
+		priceRow.Name = "PriceRow"
+		priceRow.AnchorPoint = Vector2.new(0.5, 0)
+		priceRow.Position = UDim2.new(0.5, 0, 0, 122)
+		priceRow.Size = UDim2.fromOffset(120, 18)
+		priceRow.BackgroundTransparency = 1
+		priceRow.ZIndex = card.ZIndex + 2
+		priceRow.Parent = card
+		local coin = Instance.new("ImageLabel")
+		coin.Name = "Coin"
+		coin.AnchorPoint = Vector2.new(1, 0.5)
+		coin.Position = UDim2.new(0.5, -34, 0.5, 0)
+		coin.Size = UDim2.fromOffset(18, 18)
+		coin.BackgroundTransparency = 1
+		coin.ScaleType = Enum.ScaleType.Fit
+		coin.ZIndex = priceRow.ZIndex + 1
+		coin.Parent = priceRow
+		-- the kit's imported coin art; falls back to a plain gold dot if the
+		-- Tokens module or its icon id is ever unavailable
+		local okCoin = pcall(function()
+			local T = require(ReplicatedStorage.Modules.UIKit.Tokens)
+			coin.Image = T.icons.coin
+		end)
+		if not okCoin or coin.Image == "" then
+			coin.BackgroundTransparency = 0
+			coin.BackgroundColor3 = Color3.fromHex("#ffc531")
+			UITheme.corner(coin, 9)
+		end
+		local amount = Instance.new("TextLabel")
+		amount.Name = "Amount"
+		amount.AnchorPoint = Vector2.new(0, 0.5)
+		amount.Position = UDim2.new(0.5, -28, 0.5, 0)
+		amount.Size = UDim2.fromOffset(90, 18)
+		amount.BackgroundTransparency = 1
+		amount.Font = FONT
+		amount.TextSize = 15
+		amount.TextXAlignment = Enum.TextXAlignment.Left
+		amount.TextColor3 = PRICE_AMBER
+		amount.Text = "$" .. short(price)
+		amount.ZIndex = priceRow.ZIndex + 1
+		amount.Parent = priceRow
 	end
-	if pillA then pill(pillA, 80) end
-	if pillB then pill(pillB, 160) end
+
+	-- chunky action button (mock BUY): gradient fill, ink border, hard shadow
+	local shadow = Instance.new("Frame")
+	shadow.Name = "BtnShadow"
+	shadow.AnchorPoint = Vector2.new(0.5, 1)
+	shadow.Position = UDim2.new(0.5, 0, 1, -8)
+	shadow.Size = UDim2.new(1, -24, 0, 34)
+	shadow.BackgroundColor3 = Color3.fromHex("#1c7a2e")
+	shadow.BackgroundTransparency = 0.1
+	shadow.BorderSizePixel = 0
+	shadow.ZIndex = card.ZIndex + 1
+	shadow.Parent = card
+	UITheme.corner(shadow, 12)
 
 	local b = Instance.new("TextButton")
+	b.Name = "ActionButton"
 	b.AnchorPoint = Vector2.new(0.5, 1)
-	b.Position = UDim2.new(0.5, 0, 1, -8)
-	b.Size = UDim2.new(1, -22, 0, 32)
+	b.Position = UDim2.new(0.5, 0, 1, -12)
+	b.Size = UDim2.new(1, -24, 0, 34)
 	b.Text = btnText
-	b.TextSize = 15
+	b.TextSize = 16
+	b.TextColor3 = Color3.fromRGB(255, 255, 255)
+	b.AutoButtonColor = false
+	b.BackgroundColor3 = btnTop
+	b.BorderSizePixel = 0
+	b.Font = FONT
 	b.ZIndex = card.ZIndex + 2
 	b.Parent = card
-	UITheme.campButton(b, btnTop, btnBot)
+	UITheme.corner(b, 12)
+	do
+		local grad = Instance.new("UIGradient")
+		grad.Rotation = 90
+		grad.Color = ColorSequence.new(btnTop, btnBot)
+		grad.Parent = b
+		local ink = Instance.new("UIStroke")
+		ink.Thickness = 3
+		ink.Color = BLACK
+		ink.Transparency = 0.05
+		ink.Parent = b
+	end
+	inkText(b, 2.2)
+	-- shadow tint follows the button's own dark shade
+	shadow.BackgroundColor3 = btnBot:Lerp(BLACK, 0.35)
 	if onClick then
 		b.Activated:Connect(onClick)
-	else
-		b.AutoButtonColor = false
+		-- mock hover lift: -2px, Position-driven
+		b.MouseEnter:Connect(function()
+			TweenService:Create(b, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ Position = UDim2.new(0.5, 0, 1, -14) }):Play()
+		end)
+		b.MouseLeave:Connect(function()
+			TweenService:Create(b, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ Position = UDim2.new(0.5, 0, 1, -12) }):Play()
+		end)
 	end
 	return card
 end
 
 ---------------------------------------------------------------- rebuild
-local function rebuild()
+rebuild = function()
 	for _, c in ipairs(list:GetChildren()) do
 		if c:IsA("GuiObject") then c:Destroy() end
 	end
-	if not current then pageBar.Visible = false; return end
-	title.Text = current.Title
+	if not current then chipRow.Visible = false; return end
+	title.Text = titleWord(current.Title)
 	blurb.Text = current.Npc .. "  \u{2022}  " .. current.Blurb
-	UITheme.setColors(title, current.Accent[1], current.Accent[2])
+	-- per-merchant header gradient (config Accent pair); mock's shop orange
+	-- comes straight from Rocco's own accent colours
+	if current.Accent then
+		headerGrad.Color = ColorSequence.new(current.Accent[1], current.Accent[2])
+		local squareOff = headerBar:FindFirstChild("SquareOff")
+		if squareOff then
+			squareOff.BackgroundColor3 = current.Accent[1]:Lerp(current.Accent[2], 0.7)
+		end
+	end
 
 	-- Build a flat list of render closures so pagination is Kind-agnostic: each entry
 	-- draws exactly one card when called with its on-page order (1..PER_PAGE).
@@ -349,25 +554,26 @@ local function rebuild()
 			local prevRock = RockConfig[i - 1]
 			local unlocked = (i == 1) or (prevRock ~= nil and state.OwnedRocks[prevRock.Id] == true)
 			items[i] = function(order)
-				local txt, top, bot, cb
+				local txt, top, bot, cb, price
 				if equipped then
-					txt, top, bot = "EQUIPPED", P.green1, P.green2
+					txt, top, bot = "EQUIPPED", DONE_TOP, DONE_BOT
 				elseif owned then
-					txt, top, bot = "EQUIP", P.blue1, P.blue2
+					txt, top, bot = "EQUIP", EQUIP_TOP, EQUIP_BOT
 					cb = function() remotes.EquipRock:FireServer(rock.Id) end
 				elseif not unlocked then
-					txt, top, bot = "\u{1F512} LOCKED", Color3.fromRGB(150,156,170), Color3.fromRGB(94,100,114)
+					txt, top, bot = "LOCKED", LOCK_TOP, LOCK_BOT
 					-- no cb -> disabled button
 				else
-					txt, top, bot = "$" .. short(rock.Price), Color3.fromRGB(255,216,96), Color3.fromRGB(238,148,24)
+					txt, top, bot = "BUY", BUY_TOP, BUY_BOT
+					price = rock.Price
 					cb = function() remotes.BuyRock:FireServer(rock.Id) end
 				end
 				local desc = ("Up to %dm  \u{2022}  %.2fx luck"):format(rock.MaxDistance, rock.Luck)
 				if not owned and not unlocked and prevRock then
-					desc = ("\u{1F512} Buy the %s first"):format(prevRock.Id)
+					desc = ("Buy the %s first"):format(prevRock.Id)
 				end
-				makeRow(order, rock.Color, rock.Id, desc, txt, top, bot, cb, not owned,
-					function(med) makeRockViewport(med, rock) end)
+				makeCard(order, rock.Id, desc, txt, top, bot, cb,
+					function(med) makeRockViewport(med, rock) end, price)
 			end
 		end
 	elseif current.Kind == "Upgrade" then
@@ -378,12 +584,12 @@ local function rebuild()
 				local pct = math.floor(lvl * up.PerLevel * 100 + 0.5)
 				local txt, top, bot, cb
 				if not price then
-					txt, top, bot = "MAXED", Color3.fromRGB(150,156,170), Color3.fromRGB(94,100,114)
+					txt, top, bot = "MAXED", LOCK_TOP, LOCK_BOT
 				else
-					txt, top, bot = "$" .. short(price), CF.amber1, CF.amber2
+					txt, top, bot = "BUY", BUY_TOP, BUY_BOT
 					cb = function() remotes.BuyUpgrade:FireServer(up.Id) end
 				end
-				makeRow(order, current.Accent[1], up.Name, up.Desc, txt, top, bot, cb, price ~= nil and lvl == 0,
+				makeCard(order, up.Name, up.Desc, txt, top, bot, cb,
 					function(holder)
 						local e = Instance.new("TextLabel")
 						e.Size = UDim2.fromScale(1, 1)
@@ -394,7 +600,7 @@ local function rebuild()
 						e.ZIndex = holder.ZIndex + 1
 						e.Parent = holder
 					end,
-					("Lv. %d/%d"):format(lvl, up.MaxLevel), ("+%d%%"):format(pct))
+					price, ("Lv. %d/%d  +%d%%"):format(lvl, up.MaxLevel, pct))
 			end
 		end
 	end
@@ -410,8 +616,7 @@ local function rebuild()
 		items[i](order)
 	end
 
-	pageBar.Visible = totalPages > 1
-	pageLabel.Text = ("Page %d / %d"):format(page, totalPages)
+	renderPageChips(totalPages)
 end
 
 ---------------------------------------------------------------- open / close
@@ -424,12 +629,6 @@ local function firstRelevantPage(m)
 	end
 	return 1
 end
-local function changePage(delta)
-	page += delta
-	rebuild()   -- rebuild re-clamps page and re-renders
-end
-prevBtn.Activated:Connect(function() changePage(-1) end)
-nextBtn.Activated:Connect(function() changePage(1) end)
 
 local function openMerchant(m)
 	current = m

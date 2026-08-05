@@ -78,6 +78,9 @@ T.gradient = {
 	slot      = seq({ { pos = 0, hex = "#37432D" }, { pos = 1, hex = "#232C1C" } }),
 
 	freeCard  = seq({ { pos = 0, hex = "#F7F7F1" }, { pos = 0.55, hex = "#DEDED4" }, { pos = 1, hex = "#B2B4A8" } }),
+	-- 2026-08-04 panel redesign (user handoff 1d/1e): the mock's cream panel
+	-- surface, shared by the Daily panel and the merchant shop
+	cream     = seq({ { pos = 0, hex = "#FFF9EC" }, { pos = 1, hex = "#FFEDCD" } }),
 	passCard  = seq({ { pos = 0, hex = "#FFE066" }, { pos = 0.55, hex = "#F7B62C" }, { pos = 1, hex = "#D8860E" } }),
 	lockBadge = seq({ { pos = 0, hex = "#F2F2EC" }, { pos = 1, hex = "#C2C4B8" } }),
 	knob      = seq({ { pos = 0, hex = "#FFF0A8" }, { pos = 1, hex = "#FFC531" } }),
@@ -132,7 +135,8 @@ T.size = {
 	-- 1080 panel centred on the 1350 canvas starts at x=135, overlapping it by 93px.
 	-- 860 leaves a 245px gutter and clears the rail by 17px, and is derived from the
 	-- row itself: art 64 + gap 12 + name 196 + gap 12 + action 132, plus the odds column.
-	panelWidth    = { pass = 960, backpack = 960, settings = 700, daily = 900, index = 940, goals = 860, eggs = 940 },
+	-- daily = 800 (2026-08-04, mock 1e; was 900 pre-restyle)
+	panelWidth    = { pass = 960, backpack = 960, settings = 700, daily = 800, index = 940, goals = 860, eggs = 940 },
 	panelRightGutter = 132, -- reserves the nav rail
 }
 

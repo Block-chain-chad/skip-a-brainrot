@@ -1,10 +1,28 @@
 --!strict
--- DailyPanel: kit README §3.4 + §5 "Daily" Daily Rewards panel -- a
--- GameHUDPanels consumer module (StarterPlayer.StarterPlayerScripts.
--- GameHUDPanels.DailyPanel).
+-- DailyPanel: Daily Rewards panel -- a GameHUDPanels consumer module
+-- (StarterPlayer.StarterPlayerScripts.GameHUDPanels.DailyPanel).
 --
--- Contract (kit README section: ctx from GameHUDClient), identical to
--- PassPanel/GoalsPanel:
+-- 2026-08-04 RESTYLE (user handoff "Roblox game theme UI redesign", option
+-- 1e): the visual recipe is now the mock's -- purple header, cream body,
+-- centred dark "NEXT REWARD IN" timer pill, and STATE-COLOURED day cards
+-- (green claimed card + corner check, gold glowing TODAY card + pink tag +
+-- breathing CLAIM, lavender locked card + corner lock, rainbow MEGA GIFT
+-- milestone) -- replacing the kit's dark overlay treatment. ALL data wiring,
+-- the rolling 30-day window math, the claim-resolve motion and the countdown
+-- are unchanged from the previous version; read the sections below before
+-- assuming anything about the data model.
+-- Deliberate deviations from the mock, called out in the round report:
+--   - kit family header (92px, icon + title + in-header close) kept instead
+--     of the mock's 58px header + overlapping close circle -- family
+--     consistency with every other GameHUDPanels panel;
+--   - outlines use the kit's ink #16170F (vs mock #1c1333 -- same near-black,
+--     the mock's real mandate was "no brown #2e1a08");
+--   - no hourglass emoji in the timer pill (STYLE_GUIDE: no emoji as icons);
+--   - the task-11 USER DECISION streak count ("N day streak!") survives in
+--     the timer row's right slot; the old "Day N" gold chip is dropped (the
+--     TODAY card carries the day number now).
+--
+-- Contract (identical to PassPanel/GoalsPanel):
 --   return { Id = "daily", Build = function(ctx) -> Frame }
 -- Build is called ONCE lazily on first open; the shell parents the returned
 -- Frame into ctx.host and owns Visible toggling on every open/close after
@@ -28,66 +46,39 @@
 --         or, once claimed, the day that WAS just claimed (Claimable=false;
 --         the server does NOT advance NextDay on claim -- see the CLAIMED/
 --         TODAY/LOCKED note below).
---       Rewards = DAILY_REWARDS verbatim, a 30-ENTRY escalating table (NOT
---         7 -- see the kit-vs-data note below), milestone spikes on cycle
---         days 7/14/21/30, indices 1..7 are literally {500,1000,2500,5000,
---         10000,25000,100000}.
+--       Rewards = DAILY_REWARDS verbatim, a 30-ENTRY escalating table,
+--         milestone spikes on cycle days 7/14/21/30.
 --   remotes.DailyClaim  -- RemoteEvent, client -> server, FireServer() with
 --     NO ARGUMENTS (verbatim: `remotes.DailyClaim:FireServer()`). Server
 --     validates LastClaimDay and, on success, re-sends DailyState with the
 --     new Streak/NextDay/JustClaimed. NEVER flip a card's state locally --
 --     only the next DailyState push may change what a card renders as.
 --
--- KIT-VS-DATA: the kit's Daily screen (§3.4/§5 + captures/daily.png) is
--- drawn for a plain 7-day week (a fixed "Day 1..Day 7" row, day 7 = the
--- once-only GRAND finale). The real game ships a 30-DAY escalating cycle
--- that repeats forever (streakDayFor wraps `% #DAILY_REWARDS`), i.e. the
--- exact same "kit assumed a smaller ladder than the game actually has"
--- situation PassPanel's report documents for SeasonConfig (kit says 50
--- tiers, game ships 25) -- but Daily's kit layout is a FIXED 7-card row with
--- no scroll (unlike Pass's horizontal ScrollingFrame track), so there is no
--- literal "show all 30" option that still matches kit geometry.
--- Resolution: the 7 cards are a ROLLING WEEKLY WINDOW aligned to whichever
+-- ROLLING WEEKLY WINDOW (mock draws a plain 7-day week; the game ships a
+-- repeating 30-day cycle): the 7 cards are a window aligned to whichever
 -- week of the 30-day cycle NextDay currently falls in --
 --   weekBase = floor((NextDay - 1) / 7) * 7   (0, 7, 14, 21, or 28)
 --   slot i (1..7) shows raw day (weekBase + i), reward-table index
 --   wrapDay(weekBase + i) = ((weekBase + i - 1) % #Rewards) + 1
--- wrapDay only affects the ragged tail past day 30 (weekBase=28 gives raw
--- days 29..35, wrapping 31..35 back to reward indices 1..5) -- the CLAIMED/
--- TODAY/LOCKED comparison below always uses the RAW (unwrapped) day number
--- against NextDay, which is safe because weekBase is derived FROM NextDay
--- (NextDay always falls inside [weekBase+1, weekBase+7] by construction, so
--- no cross-cycle ambiguity), while the WRAPPED index is what's shown on the
--- card and used to look up the reward value -- this keeps every card's
--- number and dollar amount always real/current regardless of how deep into
--- the 30-day cycle the player is, rather than freezing the row at a
--- perpetually-stale literal days-1-7 view once the player passes day 7.
--- GRAND rainbow-ring/ribbon treatment (kit §3.4/§5) is MILESTONE-based (post-
--- review FIX 1), not positional: gated on MILESTONES[wrapDay(slotDay)] --
--- the server's real 7/14/21/30 milestone days (legacy DailyRewardClient's own
--- table, copied verbatim) -- so it can land on ANY slot 1..7 depending on
--- where NextDay's window falls (e.g. NextDay=30 puts the real GRAND on slot
--- 2, raw day 30, not slot 7). A window can also contain ZERO milestones
--- (e.g. NextDay=22..28 -> weekBase 21 -> raw days 22..28 hit none of
--- 7/14/21/30) -- correctly, no card gets the ring/ribbon that render.
+-- wrapDay only affects the ragged tail past day 30. The CLAIMED/TODAY/LOCKED
+-- comparison always uses the RAW (unwrapped) day number against NextDay
+-- (safe: weekBase is derived FROM NextDay so NextDay always falls inside
+-- [weekBase+1, weekBase+7]), while the WRAPPED index is what's shown on the
+-- card and used for the reward lookup.
+-- MEGA GIFT (mock's day-7 card) is MILESTONE-based, not positional: gated on
+-- MILESTONES[wrapDay(slotDay)] -- the server's real 7/14/21/30 milestone
+-- days -- so it can land on ANY slot 1..7 depending on the window, and a
+-- window can contain zero milestones.
 --
--- CLAIMED/TODAY/LOCKED adaptation (kit §5 Daily): the kit's literal formula
--- is `day < streakDay -> CLAIMED`, `day == streakDay and not claimedToday
--- -> TODAY`, `else LOCKED` -- written for a model where streakDay itself
--- advances the instant you claim. This server's NextDay does NOT advance on
--- claim (it stays equal to the day just banked; only Claimable flips to
--- false) -- so day==streakDay-but-already-claimed must resolve to CLAIMED,
--- not fall through to kit's literal "else LOCKED". Adapted here as:
+-- CLAIMED/TODAY/LOCKED adaptation: NextDay does NOT advance on claim (it
+-- stays equal to the day just banked; only Claimable flips) -- so:
 --   isClaimed = slotDay < NextDay or (slotDay == NextDay and not Claimable)
 --   isToday   = slotDay == NextDay and Claimable
 --   isLocked  = not isClaimed and not isToday
--- (claimedToday = not Claimable, matching ctx.state.daily's own field name).
 --
 -- FreezeAvailable/UsedFreeze ARE part of the real payload (captured into
--- `state` below for completeness) but the kit gives Daily no UI slot for a
--- streak-freeze mechanic at all -- not rendered, a deliberate kit-exact
--- scope decision (same class as PassPanel leaving Skip hidden for a missing
--- gamepass id).
+-- `state` below for completeness) but neither the kit nor the mock gives
+-- Daily a streak-freeze UI slot -- not rendered, deliberate scope decision.
 --
 -- MODULE-TOP-LEVEL CAPTURE (race fix): GameHUDPanels modules are required
 -- once, early, during GameHUDClient's startup panelsFolder loop -- but
@@ -95,34 +86,24 @@
 -- fires its ONE unprompted join-time DailyState push ~1s after profile load,
 -- which typically lands well before a player ever opens this panel -- a
 -- listener registered INSIDE Build() would permanently miss it (there is no
--- pull/request path for this remote, see above), leaving the panel stuck on
--- its zero/placeholder paint until the player's first claim. Fixed by
--- connecting remotes.DailyState.OnClientEvent at MODULE TOP LEVEL (below,
--- outside Build) -- this runs at require() time, before that 1s server
--- delay can possibly elapse -- capturing into `capturedState` regardless of
--- whether Build() has run yet. Build() seeds its render-facing `state` from
--- whatever already arrived (via applyServerState(capturedState, false) --
--- the `false` suppresses claim-resolve motion for what is a catch-up paint,
--- not a live claim) and registers itself for all future pushes.
+-- pull/request path for this remote, see above). Fixed by connecting
+-- remotes.DailyState.OnClientEvent at MODULE TOP LEVEL (below, outside
+-- Build), capturing into `capturedState` regardless of whether Build() has
+-- run yet. Build() seeds from whatever already arrived (allowMotion=false:
+-- a catch-up paint, not a live claim).
 --
--- Claim-resolve motion (kit README §4): scrim fades in 120ms -> check pops
--- 220ms Back/Out -> reward icon flies to the coin pill 380ms Quint/Out, then
--- "the pill's own pop handles the counter" -- GameHUDClient's applyCash()
--- already pops coinPill whenever Cash increases via remotes.DataUpdated, so
--- no cash-pill code is needed here at all, just the flight. T.tween.pop and
--- T.tween.fly match the 220ms Back/Out and 380ms Quint/Out legs exactly; the
--- 120ms scrim fade has no matching T.tween entry (same class of untokenised
--- kit-timing gap GoalsPanel's own refresh chip colours document) so it's a
--- literal TweenInfo. ONE generation counter (claimMotionGen) guards the
--- whole scrim->check->fly chain's delayed callbacks, same convention
--- EggShopClient's playReveal()/skip() uses for its shake->crack->creature
--- phases -- it is decorative-only: render() below already paints the true
--- CLAIMED state immediately and unconditionally from server data, the
--- motion just layers a transient flourish on top of that already-correct
--- card.
+-- Claim-resolve motion: scrim fades in 120ms -> check pops 220ms Back/Out
+-- (T.tween.pop) -> coin flies to the coin pill 380ms Quint/Out
+-- (T.tween.fly); GameHUDClient's applyCash() already pops the coin pill on
+-- the DataUpdated cash increase, so no cash-pill code is needed here. ONE
+-- generation counter (claimMotionGen) guards the chain's delayed callbacks;
+-- decorative-only -- render() paints the true CLAIMED state immediately from
+-- server data. This matches the mock's "CLAIM: fly a coin burst toward the
+-- currency counter and bump the counter" behavior note verbatim.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local GuiService = game:GetService("GuiService") -- FIX F6 (2026-07-30 fix wave): GetGuiInset() compensation for the fly-to-pill coin, see playClaimResolveMotion
+local Lighting = game:GetService("Lighting")
+local GuiService = game:GetService("GuiService") -- FIX F6: GetGuiInset() compensation for the fly-to-pill coin, see playClaimResolveMotion
 
 local DailyPanel = { Id = "daily" }
 
@@ -146,23 +127,36 @@ local function formatHMS(totalSeconds: number): string
 	return string.format("%02d:%02d:%02d", h, m, s)
 end
 
--- Quote-copied verbatim from GoalsPanel (same formula, same reasoning: pure
--- so it's trivially probeable against a known epoch; os.time() is UTC-based
--- in Roblox and matches DarrelService.utcDay/SeasonPassHandler.currentDay's
--- own `math.floor(os.time() / 86400)` day math; the outer `% 86400` matters
--- because a naive `86400 - (t % 86400)` reads 86400 ("24:00:00") at the
--- exact instant t lands ON a day boundary instead of 0 ("00:00:00")).
+-- Pure so it's trivially probeable; os.time() is UTC-based in Roblox and
+-- matches the server's `math.floor(os.time() / 86400)` day math; the outer
+-- `% 86400` keeps an exact day boundary reading 0 rather than 86400.
 local function nextMidnightRemaining(t: number): number
 	return (86400 - (t % 86400)) % 86400
 end
 
--- FIX 1 (post-review): the server's real GRAND-tier milestone days --
--- copied verbatim from the legacy DailyRewardClient's own table. Spacing is
--- 7,7,7,9 (NOT a flat "every 7th day"), so a fixed "slot 7 of the window"
--- treatment drifts off the real milestones after week 3 -- see renderCards()
--- below, which gates isGrand on MILESTONES[wrapDay(slotDay)] instead of a
--- literal `i == 7`.
+-- The server's real milestone days (spacing 7,7,7,9 -- NOT a flat "every
+-- 7th"), copied verbatim from the legacy DailyRewardClient's table.
 local MILESTONES = { [7] = true, [14] = true, [21] = true, [30] = true }
+
+----------------------------------------------------------------- mock palette (option 1e; ink stays the kit's)
+local CLAIMED_BG = Color3.fromHex("#e9f7e4")
+local CLAIMED_BORDER = Color3.fromHex("#bfe3b1")
+local CLAIMED_TEXT = Color3.fromHex("#6da35e")
+local TODAY_TOP = Color3.fromHex("#fff8dc")
+local TODAY_BOT = Color3.fromHex("#ffe9a8")
+local TODAY_TEXT = Color3.fromHex("#8a6410")
+local TODAY_GLOW = Color3.fromHex("#ffd23e")
+local LOCKED_BG = Color3.fromHex("#eae4f2")
+local LOCKED_BORDER = Color3.fromHex("#cfc4dd")
+local LOCKED_TEXT = Color3.fromHex("#8d81a3")
+local LOCK_BADGE = Color3.fromHex("#5c5470")
+local MEGA_TEXT = Color3.fromHex("#8f2fe0")
+local TAG_PINK = Color3.fromHex("#ff3d7a")
+local TIMER_BG = Color3.fromHex("#281608")
+local TIMER_GOLD = Color3.fromHex("#ffd23e")
+local HEADER_TOP = Color3.fromHex("#b06bff")
+local HEADER_BOT = Color3.fromHex("#6c1fd6")
+local CHECK_GREEN = Color3.fromHex("#3fae1f")
 
 ----------------------------------------------------------------- module-top-level capture (see header note)
 local remotesTop = ReplicatedStorage:WaitForChild("Remotes")
@@ -182,20 +176,21 @@ function DailyPanel.Build(ctx)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
 
-	----------------------------------------------------------- geometry (kit README §3.4, exact where tokenised)
-	local PANEL_W = T.size.panelWidth.daily -- 900
+	----------------------------------------------------------- geometry
+	local PANEL_W = T.size.panelWidth.daily -- 800 (mock 1e; was 900 pre-restyle)
 	local HEADER_H = T.size.headerHeight -- 92
 	local BODY_TOP = HEADER_H + 12
-	local BODY_PAD = T.pad.panelWide -- 18 ("padding 18 on Daily", kit §3)
-	local STREAK_ROW_H = 44 -- matches the "Day N" chip's own height44
-	local ROW_GAP = T.pad.gap -- 12 (kit gives no explicit streak-row-to-cards gap; reusing the shared spacing-scale token, same convention PassPanel/GoalsPanel use for their own untokenised gaps)
+	local BODY_PAD = T.pad.panelWide -- 18
+	local TIMER_ROW_H = 44 -- mock's centred timer-pill line (was the streak row)
+	local ROW_GAP = T.pad.gap -- 12
 	local CARD_H = T.size.dayCard -- 196
-	local CARD_GAP = T.pad.gap -- 12 ("Row of cards, gap 12")
-	local BODY_CONTENT_H = STREAK_ROW_H + ROW_GAP + CARD_H
+	local CARD_GAP = 10 -- mock 1e "gap 10" (was T.pad.gap 12)
+	local BODY_CONTENT_H = TIMER_ROW_H + ROW_GAP + CARD_H
 	local BODY_H = BODY_PAD * 2 + BODY_CONTENT_H
 	local GROUP_H = BODY_TOP + BODY_H
 
-	-- days 1-6 flex:1, day 7 flex:1.45 (kit §3.4) -- usable width after 6 gaps, split by flex ratio
+	-- mock 1e: normal cards flex evenly, the milestone card is wider (118 vs
+	-- 84 at reference scale = 1.40; the pre-restyle 1.45 is kept -- same read)
 	local BODY_INNER_W = PANEL_W - BODY_PAD * 2
 	local USABLE_CARDS_W = BODY_INNER_W - CARD_GAP * 6
 	local FLEX_UNITS = 6 + 1.45
@@ -205,16 +200,12 @@ function DailyPanel.Build(ctx)
 
 	----------------------------------------------------------- module-local state (server-confirmed only)
 	local state = { Streak = 0, NextDay = 1, Rewards = {} :: { number }, Claimable = false, FreezeAvailable = false }
-	local cardFrames: { [number]: Frame } = {} -- rewardIdx (1..#Rewards) -> currently-rendered card Frame, rebuilt every render()
+	local cardFrames: { [number]: Frame } = {} -- rewardIdx -> currently-rendered card Frame, rebuilt every render()
 	local claimMotionGen = 0
-	-- FIX 2: every live instance a claim-resolve motion has created (scrim/
-	-- check/coin), keyed by the generation that created it -- lets the
-	-- wrapper Visible watcher below force-destroy an in-flight flourish's
-	-- instances immediately on panel close instead of waiting for its own
-	-- delayed cleanup (the coin in particular is parented to the ScreenGui,
-	-- OUTSIDE wrapper's hierarchy, so it is not even hidden by wrapper.
-	-- Visible = false on its own -- it would otherwise keep visibly flying
-	-- across the screen after the panel closes).
+	-- Every live instance a claim-resolve motion has created (scrim/check/
+	-- coin), keyed by generation -- lets the wrapper Visible watcher below
+	-- force-destroy an in-flight flourish immediately on panel close (the
+	-- coin is parented to the ScreenGui, OUTSIDE wrapper's hierarchy).
 	local motionInstancesByGen: { [number]: { Instance } } = {}
 
 	----------------------------------------------------------- root
@@ -233,11 +224,18 @@ function DailyPanel.Build(ctx)
 	panelCol.ZIndex = 10
 	panelCol.Parent = wrapper
 
-	----------------------------------------------------------- header (common shell, README §3) -- default gold, Daily has no override
+	----------------------------------------------------------- header (kit family shell, mock 1e purple)
 	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "gold", T.radius.panel, T.stroke.panel)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
+	-- mock 1e header gradient #b06bff -> #6c1fd6 -- recolor the surface's
+	-- gradient in place (UI.surface has no purple kind; same recolor pattern
+	-- the timer chip always used)
+	local headerGrad = header:FindFirstChildOfClass("UIGradient")
+	if headerGrad then
+		headerGrad.Color = ColorSequence.new(HEADER_TOP, HEADER_BOT)
+	end
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
 
@@ -247,7 +245,7 @@ function DailyPanel.Build(ctx)
 	headerIcon.Position = UDim2.new(0, 12, 0.5, 0)
 	headerIcon.ZIndex = header.ZIndex + 2
 
-	local headerTitle = UI.label(header, "Daily Rewards", "panelTitle", T.color.white)
+	local headerTitle = UI.label(header, "DAILY REWARDS", "panelTitle", T.color.white)
 	headerTitle.Name = "Title"
 	headerTitle.AnchorPoint = Vector2.new(0, 0.5)
 	headerTitle.Position = UDim2.new(0, 12 + 62 + 14, 0.5, 0)
@@ -259,55 +257,8 @@ function DailyPanel.Build(ctx)
 	closeBtn.Position = UDim2.new(1, -12, 0.5, 0)
 	closeBtn.ZIndex = header.ZIndex + 2
 
-	-- RESETS IN chip (kit §3.4: "height 58, radius 14, #3B4731 -> #26301F").
-	-- Width has no explicit kit spec -- ad hoc 190, same class of gap
-	-- GoalsPanel's own refresh chip documents (untokenised colour + width).
-	local TIMER_W, TIMER_H = 190, 58
-	local timerChip = Instance.new("Frame")
-	timerChip.Name = "ResetsInChip"
-	timerChip.AnchorPoint = Vector2.new(1, 0.5)
-	timerChip.Position = UDim2.new(1, -12 - T.size.closeButton.X - 14, 0.5, 0)
-	timerChip.Size = UDim2.fromOffset(TIMER_W, TIMER_H)
-	timerChip.BackgroundColor3 = T.color.white
-	timerChip.BorderSizePixel = 0
-	timerChip.ZIndex = header.ZIndex + 2
-	timerChip.Parent = header
-	UI.corner(timerChip, T.radius.inner) -- FIX 4: kit §3.4 says radius 14 (T.radius.inner) in its own comment above -- was T.radius.small (12), contradicting it
-	local timerGradient = Instance.new("UIGradient")
-	timerGradient.Rotation = 90
-	timerGradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, T.hex("#3B4731")),
-		ColorSequenceKeypoint.new(1, T.hex("#26301F")),
-	})
-	timerGradient.Parent = timerChip
-	UI.stroke(timerChip, T.stroke.control)
-
-	local timerLabel = UI.label(timerChip, "RESETS IN", "meta", T.color.textMuted)
-	timerLabel.Name = "ResetsInLabel"
-	timerLabel.AnchorPoint = Vector2.new(0, 0.5)
-	timerLabel.Position = UDim2.new(0, 12, 0.5, -12)
-	timerLabel.Size = UDim2.new(1, -24, 0, 16)
-	timerLabel.AutomaticSize = Enum.AutomaticSize.None
-	timerLabel.TextXAlignment = Enum.TextXAlignment.Left
-	timerLabel.ZIndex = timerChip.ZIndex + 1
-
-	local timerValue = UI.label(timerChip, "00:00:00", "cardLabel", T.color.white)
-	timerValue.Name = "ResetsInValue"
-	timerValue.AnchorPoint = Vector2.new(0, 0.5)
-	timerValue.Position = UDim2.new(0, 12, 0.5, 12)
-	timerValue.Size = UDim2.new(1, -24, 0, 22)
-	timerValue.AutomaticSize = Enum.AutomaticSize.None
-	timerValue.TextXAlignment = Enum.TextXAlignment.Left
-	timerValue.ZIndex = timerChip.ZIndex + 1
-
-	----------------------------------------------------------- body (common shell, README §3 -- padding 18 on Daily)
-	-- Hand-rolled instead of UI.panel() because UI.panel() hardcodes
-	-- T.pad.panel (16) on all four sides; Daily's kit-specified 18 has no
-	-- override param on the shared builder (editing UIKit.Builders itself
-	-- would ripple into every other panel's body padding -- out of scope,
-	-- same reasoning PassPanel/GoalsPanel give for their own kit-vs-shared-
-	-- Builders gaps).
-	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "panel", T.radius.panel, T.stroke.panel)
+	----------------------------------------------------------- body (mock 1e cream)
+	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "cream", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
@@ -319,52 +270,60 @@ function DailyPanel.Build(ctx)
 	bodyPad.PaddingRight = UDim.new(0, BODY_PAD)
 	bodyPad.Parent = body
 
-	----------------------------------------------------------- streak row
-	local streakRow = Instance.new("Frame")
-	streakRow.Name = "StreakRow"
-	streakRow.Position = UDim2.fromOffset(0, 0)
-	streakRow.Size = UDim2.new(1, 0, 0, STREAK_ROW_H)
-	streakRow.BackgroundTransparency = 1
-	streakRow.ZIndex = 14
-	streakRow.Parent = body
+	----------------------------------------------------------- timer row (mock 1e: centred dark pill; streak hint keeps its user-decided slot on the right)
+	local timerRow = Instance.new("Frame")
+	timerRow.Name = "TimerRow"
+	timerRow.Position = UDim2.fromOffset(0, 0)
+	timerRow.Size = UDim2.new(1, 0, 0, TIMER_ROW_H)
+	timerRow.BackgroundTransparency = 1
+	timerRow.ZIndex = 14
+	timerRow.Parent = body
 
-	local loginLabel = UI.label(streakRow, "Login streak", "buttonM", T.color.white)
-	loginLabel.Name = "LoginStreakLabel"
-	loginLabel.AnchorPoint = Vector2.new(0, 0.5)
-	loginLabel.Position = UDim2.new(0, 0, 0.5, 0)
-	loginLabel.Size = UDim2.fromOffset(200, 30)
-	loginLabel.AutomaticSize = Enum.AutomaticSize.None
-	loginLabel.TextXAlignment = Enum.TextXAlignment.Left
-	loginLabel.ZIndex = 15
+	local TIMER_W, TIMER_H = 280, 40
+	local timerChip = Instance.new("Frame")
+	timerChip.Name = "TimerChip"
+	timerChip.AnchorPoint = Vector2.new(0.5, 0.5)
+	timerChip.Position = UDim2.new(0.5, 0, 0.5, 0)
+	timerChip.Size = UDim2.fromOffset(TIMER_W, TIMER_H)
+	timerChip.BackgroundColor3 = TIMER_BG
+	timerChip.BackgroundTransparency = 0.1 -- mock rgba(40,22,8,.9); static, never tweened
+	timerChip.BorderSizePixel = 0
+	timerChip.ZIndex = 14
+	timerChip.Parent = timerRow
+	UI.corner(timerChip, T.radius.pill)
+	local timerStroke = Instance.new("UIStroke")
+	timerStroke.Thickness = 2.5
+	timerStroke.Color = Color3.fromRGB(255, 255, 255)
+	timerStroke.Transparency = 0.1 -- mock 2.5px white(.9) ring
+	timerStroke.Parent = timerChip
 
-	-- "Day N" chip: shows state.NextDay (the reward-cycle slot currently
-	-- highlighted TODAY/about-to-claim in the card row below), not the raw
-	-- uncapped Streak counter -- keeps the chip's number and the row's
-	-- highlighted card's own "Day N" label always in visual agreement,
-	-- matching the reference capture (chip "Day 4" <-> the Day 4 card is the
-	-- one with the green ring). A raw Streak (e.g. "Day 37" after five
-	-- 30-day cycles) would desync from whichever card is actually glowing.
-	local DAY_CHIP_W, DAY_CHIP_H = 110, 44
-	local dayChip = UI.surface(streakRow, UDim2.fromOffset(DAY_CHIP_W, DAY_CHIP_H), "goldSmall", T.radius.inner, T.stroke.control)
-	dayChip.Name = "DayChip"
-	dayChip.AnchorPoint = Vector2.new(0, 0.5)
-	dayChip.Position = UDim2.new(0, 210, 0.5, 0)
-	dayChip.ZIndex = 15
-	UI.gloss(dayChip, T.radius.inner)
-	local dayChipLabel = UI.label(dayChip, "Day 1", "value", T.color.white)
-	dayChipLabel.Name = "DayChipLabel"
-	dayChipLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-	dayChipLabel.Position = UDim2.fromScale(0.5, 0.5)
-	dayChipLabel.Size = UDim2.fromScale(1, 1)
-	dayChipLabel.AutomaticSize = Enum.AutomaticSize.None
-	dayChipLabel.TextXAlignment = Enum.TextXAlignment.Center
-	dayChipLabel.ZIndex = dayChip.ZIndex + 2
+	local timerLabel = UI.label(timerChip, "NEXT REWARD IN", "meta", T.color.white)
+	timerLabel.Name = "TimerLabel"
+	timerLabel.AnchorPoint = Vector2.new(0, 0.5)
+	timerLabel.Position = UDim2.new(0, 16, 0.5, 0)
+	timerLabel.Size = UDim2.fromOffset(150, 18)
+	timerLabel.AutomaticSize = Enum.AutomaticSize.None
+	timerLabel.TextXAlignment = Enum.TextXAlignment.Left
+	timerLabel.TextTransparency = 0.25 -- mock white-75%
+	timerLabel.ZIndex = 15
 
-	local hintLabel = UI.label(streakRow, "Miss a day and the streak restarts at Day 1", "meta", T.color.textMuted)
+	local timerValue = UI.label(timerChip, "00:00:00", "cardLabel", TIMER_GOLD)
+	timerValue.Name = "TimerValue"
+	timerValue.AnchorPoint = Vector2.new(1, 0.5)
+	timerValue.Position = UDim2.new(1, -16, 0.5, 0)
+	timerValue.Size = UDim2.fromOffset(100, 22)
+	timerValue.AutomaticSize = Enum.AutomaticSize.None
+	timerValue.TextXAlignment = Enum.TextXAlignment.Right
+	timerValue.ZIndex = 15
+
+	-- USER DECISION (task 11), kept through the restyle: the raw uncapped
+	-- streak count, right-aligned in this row. #4a3416 -- the mock's own
+	-- body-text-on-cream colour (white was for the old dark panel surface).
+	local hintLabel = UI.label(timerRow, "", "meta", Color3.fromHex("#4a3416"))
 	hintLabel.Name = "HintLabel"
 	hintLabel.AnchorPoint = Vector2.new(1, 0.5)
 	hintLabel.Position = UDim2.new(1, 0, 0.5, 0)
-	hintLabel.Size = UDim2.fromOffset(430, 20)
+	hintLabel.Size = UDim2.fromOffset(220, 20)
 	hintLabel.AutomaticSize = Enum.AutomaticSize.None
 	hintLabel.TextXAlignment = Enum.TextXAlignment.Right
 	hintLabel.ZIndex = 15
@@ -372,7 +331,7 @@ function DailyPanel.Build(ctx)
 	----------------------------------------------------------- cards row
 	local cardsRow = Instance.new("Frame")
 	cardsRow.Name = "CardsRow"
-	cardsRow.Position = UDim2.fromOffset(0, STREAK_ROW_H + ROW_GAP)
+	cardsRow.Position = UDim2.fromOffset(0, TIMER_ROW_H + ROW_GAP)
 	cardsRow.Size = UDim2.new(1, 0, 0, CARD_H)
 	cardsRow.BackgroundTransparency = 1
 	cardsRow.ZIndex = 14
@@ -384,91 +343,142 @@ function DailyPanel.Build(ctx)
 	cardsList.Padding = UDim.new(0, CARD_GAP)
 	cardsList.Parent = cardsRow
 
-	----------------------------------------------------------- day-card state overlays (kit §5 Daily -- own numbers, distinct from PassPanel's Pass-tier overlay)
-	local function buildClaimedOverlay(card: Frame)
-		local overlay = Instance.new("Frame")
-		overlay.Name = "ClaimedOverlay"
-		overlay.Size = UDim2.fromScale(1, 1)
-		overlay.BackgroundColor3 = Color3.fromRGB(8, 12, 5) -- FIX 5: kit Daily spec value rgba(8,12,5) -- was Color3.fromRGB(12,18,8), an off-kit approximation
-		overlay.BackgroundTransparency = 0.38 -- kit §5 Daily "overlay .62" opacity -> transparency = 1-0.62
-		overlay.BorderSizePixel = 0
-		overlay.ZIndex = card.ZIndex + 6
-		overlay.Parent = card
-		UI.corner(overlay, T.radius.control)
-
-		local check = Instance.new("Frame")
-		check.Name = "CheckCircle"
-		check.AnchorPoint = Vector2.new(0.5, 0.5)
-		check.Position = UDim2.fromScale(0.5, 0.5)
-		check.Size = UDim2.fromOffset(56, 56) -- kit §5 Daily "56px check" (Pass's own CLAIMED check is 62px)
-		check.BackgroundColor3 = T.color.white
-		check.BorderSizePixel = 0
-		check.ZIndex = overlay.ZIndex + 1
-		check.Parent = overlay
-		UI.corner(check, 28)
-		UI.gradient(check, T.gradient.green)
-		UI.stroke(check, T.stroke.control)
-
-		local mark = UI.label(check, "\u{2713}", "buttonL", T.color.white)
-		mark.Name = "Check"
-		mark.AnchorPoint = Vector2.new(0.5, 0.5)
-		mark.Position = UDim2.fromScale(0.5, 0.5)
-		mark.Size = UDim2.fromScale(1, 1)
-		mark.AutomaticSize = Enum.AutomaticSize.None
-		mark.TextXAlignment = Enum.TextXAlignment.Center
-		mark.TextSize = 30
-		mark.ZIndex = check.ZIndex + 1
-	end
-
-	local function buildLockedOverlay(card: Frame)
-		local overlay = Instance.new("Frame")
-		overlay.Name = "LockedOverlay"
-		overlay.Size = UDim2.fromScale(1, 1)
-		overlay.BackgroundColor3 = Color3.fromRGB(8, 12, 5) -- FIX 5: kit Daily spec value rgba(8,12,5) -- was Color3.fromRGB(12,18,8), an off-kit approximation
-		overlay.BackgroundTransparency = 0.58 -- kit §5 Daily "overlay .42" opacity -> transparency = 1-0.42
-		overlay.BorderSizePixel = 0
-		overlay.ZIndex = card.ZIndex + 6
-		overlay.Parent = card
-		UI.corner(overlay, T.radius.control)
-
-		local glyph = UI.label(overlay, "\u{1F512}", "cardLabel", T.color.white)
-		glyph.Name = "LockGlyph"
+	----------------------------------------------------------- card furniture (mock 1e states)
+	-- Corner badge (mock: 24px circle at top -9 / right -7, 2.5px white ring)
+	-- shared by CLAIMED (green check) and LOCKED (plum lock).
+	local function buildCornerBadge(card: Frame, fill: Color3, glyphText: string)
+		local badge = Instance.new("Frame")
+		badge.Name = "CornerBadge"
+		badge.AnchorPoint = Vector2.new(1, 0)
+		badge.Position = UDim2.new(1, 8, 0, -8)
+		badge.Size = UDim2.fromOffset(28, 28)
+		badge.BackgroundColor3 = fill
+		badge.BorderSizePixel = 0
+		badge.ZIndex = card.ZIndex + 8
+		badge.Parent = card
+		UI.corner(badge, 14)
+		local ring = Instance.new("UIStroke")
+		ring.Thickness = 2.5
+		ring.Color = Color3.fromRGB(255, 255, 255)
+		ring.Parent = badge
+		local glyph = UI.label(badge, glyphText, "chip", T.color.white)
+		glyph.Name = "Glyph"
 		glyph.AnchorPoint = Vector2.new(0.5, 0.5)
 		glyph.Position = UDim2.fromScale(0.5, 0.5)
 		glyph.Size = UDim2.fromScale(1, 1)
 		glyph.AutomaticSize = Enum.AutomaticSize.None
 		glyph.TextXAlignment = Enum.TextXAlignment.Center
-		glyph.TextSize = 44 -- kit §5 Daily "centred 44px lock"
-		glyph.ZIndex = overlay.ZIndex + 1
+		glyph.TextSize = 15
+		glyph.ZIndex = badge.ZIndex + 1
+	end
+
+	-- TODAY's pink tag pill, centred over the card's top edge (mock: -13).
+	local function buildTodayTag(card: Frame)
+		local tag = Instance.new("Frame")
+		tag.Name = "TodayTag"
+		tag.AnchorPoint = Vector2.new(0.5, 0.5)
+		tag.Position = UDim2.new(0.5, 0, 0, -13)
+		tag.Size = UDim2.fromOffset(64, 24)
+		tag.BackgroundColor3 = TAG_PINK
+		tag.BorderSizePixel = 0
+		tag.ZIndex = card.ZIndex + 8
+		tag.Parent = card
+		UI.corner(tag, 10)
+		local ring = Instance.new("UIStroke")
+		ring.Thickness = 2.5
+		ring.Color = Color3.fromRGB(255, 255, 255)
+		ring.Parent = tag
+		local word = UI.label(tag, "TODAY", "chip", T.color.white)
+		word.Name = "Word"
+		word.AnchorPoint = Vector2.new(0.5, 0.5)
+		word.Position = UDim2.fromScale(0.5, 0.5)
+		word.Size = UDim2.fromScale(1, 1)
+		word.AutomaticSize = Enum.AutomaticSize.None
+		word.TextXAlignment = Enum.TextXAlignment.Center
+		word.TextSize = 12
+		word.ZIndex = tag.ZIndex + 1
 	end
 
 	local function buildClaimPill(card: Frame)
-		-- kit §5 Daily "CLAIM at bottom -16" -- protrudes BELOW the card
-		-- (unlike PassPanel's inset "-8" claim pill), so the reward label is
-		-- hidden for this state to give it room (same convention PassPanel's
-		-- CLAIMABLE state hides its qty chip).
-		local pill = UI.button(card, "CLAIM", "green", UDim2.new(1, -16, 0, 44), "buttonM") -- FIX 3: kit states.md Daily spec pins CLAIM pill height at 44 (also the touch minimum) -- T.size.claimPill is 38, shared with other panels' claim pills; hardcoded here per review, not changing the shared token (would ripple into every other panel)
+		-- CLAIM protrudes below the card; height 44 = the touch minimum. The
+		-- mock's 1.4s pulse rides Size (AnchorPoint 0.5,1: width grows about
+		-- the centre, height grows upward -- no position compensation) because
+		-- UIScale tweens do not run in this place.
+		local pill = UI.button(card, "CLAIM", "green", UDim2.new(1, -16, 0, 44), "buttonM")
 		pill.Name = "ClaimPill"
 		pill.AnchorPoint = Vector2.new(0.5, 1)
 		pill.Position = UDim2.new(0.5, 0, 1, 16)
 		pill.ZIndex = card.ZIndex + 6
+		TweenService:Create(pill,
+			TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Size = UDim2.new(1, -8, 0, 47) }):Play()
 		-- The ONE DailyClaim:FireServer call site in this module, fired with
-		-- NO ARGUMENTS (verbatim signature). No local state mutation here --
-		-- the card only re-renders CLAIMED once the server pushes a fresh
-		-- DailyState with Claimable == false.
+		-- NO ARGUMENTS. No local state mutation -- the card only re-renders
+		-- CLAIMED once the server pushes a fresh DailyState.
 		pill.MouseButton1Click:Connect(function()
 			ctx.remotes.DailyClaim:FireServer()
 		end)
 	end
 
-	----------------------------------------------------------- day card builder
+	----------------------------------------------------------- day card builder (mock 1e state-coloured cards)
 	local function buildDayCard(slot: Frame, slotDay: number, rewardIdx: number, isGrand: boolean)
 		local w = isGrand and CARD_W_GRAND or CARD_W_NORMAL
-		local card = UI.surface(slot, UDim2.fromOffset(w, CARD_H), "row", T.radius.control, T.stroke.control)
-		card.Name = "DayCard" .. rewardIdx
-		card.ZIndex = 15
-		UI.hardShadow(card, T.shadowOffset.control, T.radius.control)
 
+		-- kit adaptation of the mock states -- see module header note
+		local isClaimed = slotDay < state.NextDay or (slotDay == state.NextDay and not state.Claimable)
+		local isToday = slotDay == state.NextDay and state.Claimable
+
+		-- TODAY's gold glow: a static halo frame behind the card (the mock's
+		-- box-shadow ring; layered-frame convention, no blur primitives here)
+		if isToday then
+			local halo = Instance.new("Frame")
+			halo.Name = "TodayHalo"
+			halo.AnchorPoint = Vector2.new(0.5, 0.5)
+			halo.Position = UDim2.new(0.5, 0, 0.5, 0)
+			halo.Size = UDim2.fromOffset(w + 12, CARD_H + 12)
+			halo.BackgroundColor3 = TODAY_GLOW
+			halo.BackgroundTransparency = 0.45
+			halo.BorderSizePixel = 0
+			halo.ZIndex = 14
+			halo.Parent = slot
+			UI.corner(halo, T.radius.control + 4)
+		end
+
+		local card = Instance.new("Frame")
+		card.Name = "DayCard" .. rewardIdx
+		card.AnchorPoint = Vector2.new(0.5, 0.5)
+		card.Position = UDim2.new(0.5, 0, 0.5, 0)
+		card.Size = UDim2.fromOffset(w, CARD_H)
+		card.BorderSizePixel = 0
+		card.ZIndex = 15
+		card.Parent = slot
+		UI.corner(card, T.radius.control)
+
+		-- state colouring (mock 1e)
+		local textColor: Color3
+		if isToday then
+			card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			local grad = Instance.new("UIGradient")
+			grad.Rotation = 90
+			grad.Color = ColorSequence.new(TODAY_TOP, TODAY_BOT)
+			grad.Parent = card
+			UI.stroke(card, 3.5) -- ink border
+			textColor = TODAY_TEXT
+		elseif isClaimed then
+			card.BackgroundColor3 = CLAIMED_BG
+			local st = UI.stroke(card, 3)
+			st.Color = CLAIMED_BORDER
+			textColor = CLAIMED_TEXT
+		elseif isGrand then
+			card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			UI.stroke(card, 3)
+			textColor = MEGA_TEXT
+		else
+			card.BackgroundColor3 = LOCKED_BG
+			local st = UI.stroke(card, 3)
+			st.Color = LOCKED_BORDER
+			textColor = LOCKED_TEXT
+		end
 		local pad = Instance.new("UIPadding")
 		pad.PaddingTop = UDim.new(0, 8)
 		pad.PaddingBottom = UDim.new(0, 8)
@@ -476,7 +486,7 @@ function DailyPanel.Build(ctx)
 		pad.PaddingRight = UDim.new(0, 8)
 		pad.Parent = card
 
-		local dayLabel = UI.label(card, "Day " .. tostring(rewardIdx), "cardLabel", T.color.white)
+		local dayLabel = UI.label(card, "DAY " .. tostring(rewardIdx), "cardLabel", textColor)
 		dayLabel.Name = "DayLabel"
 		dayLabel.Position = UDim2.fromOffset(0, 0)
 		dayLabel.Size = UDim2.new(1, 0, 0, 24)
@@ -484,12 +494,19 @@ function DailyPanel.Build(ctx)
 		dayLabel.TextXAlignment = Enum.TextXAlignment.Center
 		dayLabel.ZIndex = card.ZIndex + 2
 
-		local art = UI.artSlot(card, UDim2.new(1, 0, 1, -(24 + 6 + 20 + 6)), nil)
-		art.Name = "ArtSlot" -- day1..7.png still-placeholder slots (README §6.2) -- no per-day art exists yet
+		-- coin art (kit icon, not emoji); dimmed for claimed/locked per mock.
+		-- UI.artSlot returns the ImageLabel ITSELF, not a container.
+		local art = UI.artSlot(card, UDim2.new(1, 0, 1, -(24 + 6 + 20 + 6)), T.icons.coin)
+		art.Name = "ArtSlot"
 		art.Position = UDim2.new(0, 0, 0, 24 + 6)
 		art.ZIndex = card.ZIndex + 1
+		if isClaimed then
+			art.ImageTransparency = 0.5
+		elseif not isToday and not isGrand then
+			art.ImageTransparency = 0.55
+		end
 
-		local rewardLabel = UI.label(card, shortCash(state.Rewards[rewardIdx] or 0), "chip", T.color.textAccent)
+		local rewardLabel = UI.label(card, shortCash(state.Rewards[rewardIdx] or 0), "chip", textColor)
 		rewardLabel.Name = "RewardLabel"
 		rewardLabel.AnchorPoint = Vector2.new(0, 1)
 		rewardLabel.Position = UDim2.new(0, 0, 1, 0)
@@ -500,27 +517,31 @@ function DailyPanel.Build(ctx)
 
 		cardFrames[rewardIdx] = card
 
-		-- kit §5 Daily adaptation -- see module header note.
-		local isClaimed = slotDay < state.NextDay or (slotDay == state.NextDay and not state.Claimable)
-		local isToday = slotDay == state.NextDay and state.Claimable
-
 		if isClaimed then
-			buildClaimedOverlay(card)
+			buildCornerBadge(card, CHECK_GREEN, "\u{2713}")
 		elseif isToday then
-			UI.claimRing(card)
+			buildTodayTag(card)
 			buildClaimPill(card)
 			rewardLabel.Visible = false
-		else
-			buildLockedOverlay(card)
+		elseif not isGrand then
+			-- mock's day-7 card wears no lock badge -- the rainbow treatment
+			-- IS its locked look
+			buildCornerBadge(card, LOCK_BADGE, "\u{1F512}")
 		end
 
 		if isGrand then
-			UI.rainbowRing(card, 20)
-			local ribbon = UI.ribbon(card, "GRAND", "GRAND") -- RIBBON_VARIANT.GRAND = "purple"
-			ribbon.Name = "GrandRibbon"
-			ribbon.AnchorPoint = Vector2.new(0, 0)
-			ribbon.Position = UDim2.new(0, -6, 0, -10) -- kit §3.4 "top -10 / left -6"
-			ribbon.ZIndex = card.ZIndex + 8
+			-- mock day-7 MEGA GIFT: rainbow border (shared-Heartbeat ring) +
+			-- purple lettering; the gift art replaces the coin
+			UI.rainbowRing(card, T.radius.control + 2)
+			art.Image = T.icons.daily
+			local mega = UI.label(card, "MEGA GIFT", "chip", MEGA_TEXT)
+			mega.Name = "MegaLabel"
+			mega.AnchorPoint = Vector2.new(0.5, 1)
+			mega.Position = UDim2.new(0.5, 0, 1, -20)
+			mega.Size = UDim2.new(1, 0, 0, 18)
+			mega.AutomaticSize = Enum.AutomaticSize.None
+			mega.TextXAlignment = Enum.TextXAlignment.Center
+			mega.ZIndex = card.ZIndex + 2
 		end
 	end
 
@@ -542,10 +563,8 @@ function DailyPanel.Build(ctx)
 		for i = 1, 7 do
 			local slotDay = weekBase + i
 			local rewardIdx = wrapDay(slotDay)
-			-- FIX 1: milestone-true GRAND, not positional -- gate on the SAME
-			-- wrapped reward index the card's reward-value lookup/label use, so
-			-- the ring/ribbon follows the real milestone wherever it falls in
-			-- this window (see MILESTONES + header note above).
+			-- milestone-true MEGA GIFT, not positional -- gated on the SAME
+			-- wrapped reward index the reward lookup uses
 			local isGrand = MILESTONES[rewardIdx] == true
 
 			local slot = Instance.new("Frame")
@@ -561,14 +580,7 @@ function DailyPanel.Build(ctx)
 	end
 
 	local function render()
-		dayChipLabel.Text = "Day " .. tostring(state.NextDay)
-		-- USER DECISION (task 11): show the raw, uncapped streak count in the
-		-- streak row's right-aligned hint slot (kit §3.4 "right-aligned hint
-		-- Nunito 15 #C9D6B4" -- hintLabel above), replacing the kit's static
-		-- "Miss a day..." copy. state.Streak is captured in applyServerState
-		-- but was never rendered anywhere until now. Guarded against nil for
-		-- safety even though applyServerState currently normalises it to 0.
-		if state.Streak then
+		if state.Streak and state.Streak > 0 then
 			hintLabel.Text = tostring(state.Streak) .. " day streak!"
 		else
 			hintLabel.Text = ""
@@ -576,16 +588,16 @@ function DailyPanel.Build(ctx)
 		renderCards()
 	end
 
-	----------------------------------------------------------- claim-resolve motion (kit README §4 -- see module header note)
+	----------------------------------------------------------- claim-resolve motion (unchanged through the restyle -- see module header note)
 	local function playClaimResolveMotion(claimedDayIdx: number)
 		local card = cardFrames[claimedDayIdx]
 		if not card then
-			return -- the window has scrolled off this day; render() already shows the true state, just skip the flourish
+			return -- window scrolled off this day; render() already shows the true state
 		end
 
 		claimMotionGen += 1
 		local myGen = claimMotionGen
-		local myInstances: { Instance } = {} -- FIX 2: every live instance this generation creates (scrim/check/coin), so a mid-flight panel close can force-destroy them immediately
+		local myInstances: { Instance } = {}
 		motionInstancesByGen[myGen] = myInstances
 
 		local scrim = Instance.new("Frame")
@@ -616,7 +628,7 @@ function DailyPanel.Build(ctx)
 			check.BorderSizePixel = 0
 			check.ZIndex = scrim.ZIndex + 1
 			check.Parent = card
-			table.insert(myInstances, check) -- FIX 2
+			table.insert(myInstances, check)
 			UI.corner(check, 28)
 			UI.gradient(check, T.gradient.green)
 			UI.stroke(check, T.stroke.control)
@@ -632,32 +644,17 @@ function DailyPanel.Build(ctx)
 			mark.TextSize = 30
 			mark.ZIndex = check.ZIndex + 1
 
-			TweenService:Create(checkScale, T.tween.pop, { Scale = 1 }):Play() -- kit §4 "check pops 220ms Back/Out" -- T.tween.pop verbatim
+			TweenService:Create(checkScale, T.tween.pop, { Scale = 1 }):Play()
 
 			task.delay(T.tween.pop.Time, function()
 				if myGen ~= claimMotionGen or not card.Parent then
 					return
 				end
 
-				-- fly the reward icon to the coin pill (kit §4 "380ms
-				-- Quint/Out" -- T.tween.fly verbatim). Parented directly into
-				-- the ScreenGui (NOT into ctx.host, which lives inside the
-				-- UIScale-scaled canvas) so its Position can use ctx.
-				-- pillAnchor's/card's real screen-space AbsolutePosition 1:1,
-				-- with no scale-factor conversion needed.
+				-- fly the coin to the pill (parented to the ScreenGui so raw
+				-- AbsolutePosition maps 1:1; FIX F6 inset compensation)
 				local screenGui = ctx.host:FindFirstAncestorOfClass("ScreenGui")
 				if screenGui then
-					-- FIX F6 (2026-07-30 fix wave, Task-4 canvas measurements): both
-					-- endpoints below are AbsolutePosition reads written straight back
-					-- as raw Position offsets into `screenGui`, which is GameHUD's own
-					-- ScreenGui (IgnoreGuiInset = true, see GameHUDClient's Canvas
-					-- setup). AbsolutePosition itself does not carry the topbar inset
-					-- baked in, but a raw offset placed into an IgnoreGuiInset=true
-					-- ScreenGui IS measured from the true top of the physical screen
-					-- -- so both fromCenter and target used to render ~58px too high
-					-- (GameHUDClient's own Bug B fix hit the identical skew on the
-					-- Canvas root and fixed it the same way: add the inset back).
-					-- Read once here, at flight time, not cached module-wide.
 					local insetY = GuiService:GetGuiInset().Y
 					local fromCenter = card.AbsolutePosition + card.AbsoluteSize / 2
 					local coin = UI.artSlot(screenGui, UDim2.fromOffset(40, 40), T.icons.coin)
@@ -666,27 +663,21 @@ function DailyPanel.Build(ctx)
 					coin.Position = UDim2.fromOffset(fromCenter.X, fromCenter.Y + insetY)
 					coin.ZIndex = T.zindex.toast
 					coin.Parent = screenGui
-					table.insert(myInstances, coin) -- FIX 2: parented to the ScreenGui, NOT under card/wrapper -- the one instance not hidden by wrapper.Visible = false on its own, so it must be tracked + force-destroyed on close
+					table.insert(myInstances, coin)
 					local target = ctx.pillAnchor("coin")
 					local flyTween = TweenService:Create(coin, T.tween.fly, {
 						Position = UDim2.fromOffset(target.X, target.Y + insetY),
 						Size = UDim2.fromOffset(16, 16),
 					})
-					-- generation-guarded (EggShopClient's skip() pattern):
-					-- each flight owns its own `coin` instance and always
-					-- destroys it on arrival regardless of myGen -- the guard
-					-- exists so nothing else tied to "the current flourish"
-					-- (e.g. a future landing sound/pop) ever fires against a
-					-- flight a newer claim has already superseded.
 					flyTween.Completed:Connect(function()
 						if coin and coin.Parent then
 							coin:Destroy()
 						end
-						motionInstancesByGen[myGen] = nil -- FIX 2: natural completion -- coin outlives scrim/check by design (380ms fly vs 120ms fades), so it is the true last step of the flow
+						motionInstancesByGen[myGen] = nil
 					end)
 					flyTween:Play()
 				else
-					motionInstancesByGen[myGen] = nil -- FIX 2: no ScreenGui found, no coin flight -- scrim/check are the whole flow, clear now
+					motionInstancesByGen[myGen] = nil
 				end
 
 				TweenService:Create(scrim, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -715,9 +706,6 @@ function DailyPanel.Build(ctx)
 		state.Claimable = s.Claimable == true
 		state.FreezeAvailable = s.FreezeAvailable == true
 
-		-- kit README §5 client state shape -- keep the shared ctx.state.daily
-		-- table current for any other consumer (same convention PassPanel/
-		-- GoalsPanel use for ctx.state.pass/ctx.state.goals).
 		ctx.state.daily.streakDay = state.NextDay
 		ctx.state.daily.claimedToday = not state.Claimable
 
@@ -728,9 +716,6 @@ function DailyPanel.Build(ctx)
 		end
 	end
 
-	-- Catch-up seed from whatever the module-top-level listener already
-	-- captured (allowMotion=false: this is a paint, never a live claim -- see
-	-- module header note on the capture race).
 	if capturedState then
 		applyServerState(capturedState, false)
 	end
@@ -738,7 +723,7 @@ function DailyPanel.Build(ctx)
 		applyServerState(s, true)
 	end)
 
-	----------------------------------------------------------- refresh countdown (1s loop, STRICTLY gated on wrapper.Visible -- quote-copied gating pattern from GoalsPanel)
+	----------------------------------------------------------- refresh countdown (1s loop, gated on wrapper.Visible)
 	local countdownRunning = false
 	local function tickCountdown()
 		timerValue.Text = formatHMS(nextMidnightRemaining(os.time()))
@@ -757,7 +742,24 @@ function DailyPanel.Build(ctx)
 		end)
 	end
 	local function stopCountdown()
-		countdownRunning = false -- loop above checks this + wrapper.Visible every iteration and exits on its own
+		countdownRunning = false
+	end
+
+	----------------------------------------------------------- backdrop blur (mock 1d/1e: dim + blur(3px) behind the panel)
+	-- The shell owns the dim scrim; the blur is per-panel. Created/destroyed
+	-- on Visible (covers close, force-close and ESC alike). Size is SET, not
+	-- tweened -- BlurEffect.Size is not on the proven tween whitelist here.
+	local BLUR_NAME = "DailyPanelBlur"
+	local function setBlur(on: boolean)
+		local existing = Lighting:FindFirstChild(BLUR_NAME)
+		if on and not existing then
+			local blur = Instance.new("BlurEffect")
+			blur.Name = BLUR_NAME
+			blur.Size = 8
+			blur.Parent = Lighting
+		elseif not on and existing then
+			existing:Destroy()
+		end
 	end
 
 	----------------------------------------------------------- wiring
@@ -765,28 +767,18 @@ function DailyPanel.Build(ctx)
 		ctx.closePanel()
 	end)
 
-	-- NOTE: unlike PassPanel/GoalsPanel's SeasonState, there is no
-	-- remotes.DailyState:FireServer() refresh request to make here -- the
-	-- server never listens for one (see module header note). Visibility only
-	-- needs to drive the countdown loop; state itself arrives passively via
-	-- the module-top-level listener above.
+	-- No refresh request to make on open: the server never listens for one
+	-- (see module header). Visibility drives the countdown, the blur, and
+	-- in-flight claim-motion cleanup.
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
 		if wrapper.Visible then
 			startCountdown()
+			setBlur(true)
 		else
 			stopCountdown()
-			-- FIX 2: a mid-flight claim-resolve motion (scrim/check parented
-			-- under `card`, coin parented directly under the ScreenGui --
-			-- see playClaimResolveMotion) does NOT get hidden by the panel
-			-- closing on its own: the coin in particular lives OUTSIDE the
-			-- wrapper's hierarchy entirely (parented to the ScreenGui so its
-			-- Position can use raw AbsolutePosition), so it would otherwise
-			-- keep visibly flying across the screen after the player closes
-			-- the panel. Bump the generation so every in-flight delayed
-			-- continuation (check-pop stage, fly stage, Completed handler)
-			-- sees a stale myGen and no-ops, AND destroy every currently-
-			-- tracked live motion instance immediately rather than waiting
-			-- for its own delayed cleanup to get around to it.
+			setBlur(false)
+			-- force-destroy any in-flight claim flourish (the coin lives
+			-- OUTSIDE wrapper's hierarchy and would keep flying otherwise)
 			claimMotionGen += 1
 			for gen, instances in pairs(motionInstancesByGen) do
 				for _, inst in ipairs(instances) do
@@ -799,7 +791,7 @@ function DailyPanel.Build(ctx)
 		end
 	end)
 
-	render() -- initial paint (zero/seeded state) before this line's caller (openPanel) even shows the frame
+	render() -- initial paint (zero/seeded state) before openPanel shows the frame
 
 	return wrapper
 end
