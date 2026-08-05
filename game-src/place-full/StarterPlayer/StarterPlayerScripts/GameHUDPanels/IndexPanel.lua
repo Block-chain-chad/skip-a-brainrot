@@ -349,12 +349,18 @@ function IndexPanel.Build(ctx)
 
 	local FILTER_H = 44 -- kit "Filter chips height 44"
 	local FILTER_GAP = 9 -- kit "gap 9"
+	-- USER (2026-08-04): the initials were unreadable -- "C-R / E-L / M+" asks
+	-- the player to decode a key that is nowhere on screen. Spelled out; the
+	-- chips are BODY_INNER_W/5 ~= 174px wide, which fits the longest of these
+	-- with room to spare. The `id`s are untouched: sourceFor() and the saved
+	-- ctx.state.index.filter both key off them, so renaming ids would silently
+	-- reset every player's remembered filter.
 	local FILTER_DEFS = {
 		{ id = "All", label = "All" },
 		{ id = "Catchable", label = "Catchable" },
-		{ id = "CR", label = "C-R" },
-		{ id = "EL", label = "E-L" },
-		{ id = "Mplus", label = "M+" },
+		{ id = "CR", label = "Common-Rare" },
+		{ id = "EL", label = "Epic-Legendary" },
+		{ id = "Mplus", label = "Mythic+" },
 	}
 	local FILTER_W = (BODY_INNER_W - FILTER_GAP * (#FILTER_DEFS - 1)) / #FILTER_DEFS
 

@@ -1053,11 +1053,16 @@ function BackpackPanel.Build(ctx)
 		row.ZIndex = 14
 		row.Parent = contentHost
 
+		-- USER (2026-08-04): initials spelled out here too, so the Bag and the
+		-- Index name the same rarity bands the same way. These chips are much
+		-- tighter than the Index's (GRID_COL_W/5 ~= 98px vs 174px), so the label
+		-- below is set to shrink-to-fit rather than truncate -- see the
+		-- TextScaled block. `id`s untouched: tierFilter keys off them.
 		local CHIP_DEFS = {
 			{ id = "All", label = "All" },
-			{ id = "CR", label = "C-R" },
-			{ id = "EL", label = "E-L" },
-			{ id = "Mplus", label = "M+" },
+			{ id = "CR", label = "Common-Rare" },
+			{ id = "EL", label = "Epic-Legendary" },
+			{ id = "Mplus", label = "Mythic+" },
 			{ id = "Held", label = "Held" },
 		}
 		local chipW = (GRID_COL_W - CHIP_GAP * (#CHIP_DEFS - 1)) / #CHIP_DEFS
@@ -1080,6 +1085,20 @@ function BackpackPanel.Build(ctx)
 			label.AutomaticSize = Enum.AutomaticSize.None
 			label.TextXAlignment = Enum.TextXAlignment.Center
 			label.ZIndex = chip.ZIndex + 1
+			-- Shrink-to-fit, capped at the kit's 18: "Epic-Legendary" is ~140px of
+			-- text in a ~98px chip, so a fixed size would overflow (and truncating
+			-- would put the initials right back). Short labels ("All", "Held")
+			-- still render at the full 18 -- TextScaled only ever scales DOWN
+			-- against the constraint's max. Padding keeps the long ones off the
+			-- chip's rounded edges.
+			label.TextScaled = true
+			local cap = Instance.new("UITextSizeConstraint")
+			cap.MaxTextSize = T.text.cardLabel[1]
+			cap.Parent = label
+			local lpad = Instance.new("UIPadding")
+			lpad.PaddingLeft = UDim.new(0, 5)
+			lpad.PaddingRight = UDim.new(0, 5)
+			lpad.Parent = label
 
 			if tierFilter == def.id then
 				local ring = Instance.new("Frame")
