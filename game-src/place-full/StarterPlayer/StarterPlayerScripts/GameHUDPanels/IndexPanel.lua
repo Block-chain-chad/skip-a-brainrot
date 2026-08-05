@@ -9,16 +9,39 @@
 -- open/close after that -- this module never sets its own Parent or drives
 -- its own open/close animation.
 --
--- 2026-08-04 1d/1e SWEEP RESTYLE: blue header (#58a6ff -> #1f6fe0), cream
+-- 2026-08-04 1d/1e SWEEP RESTYLE (SUPERSEDED, see below): blue header, cream
 -- body (hand-built 16px T.pad.panel padding -- NOT DailyPanel's panelWide 18,
 -- because every body measurement below is computed against T.pad.panel),
--- white grid tiles / filter chips with the soft #e5d3ac border and #4a3416
--- ink text, tier-colour washes KEPT (tightened 0.55 -> 0.4 for the white
--- backing), undiscovered "?" covers kept dark verbatim (secrecy treatment),
--- tide chip ported to DailyPanel's dark timer-pill colours, per-panel
--- backdrop BlurEffect ("IndexPanelBlur"). ALL data wiring -- discovery,
--- seen/NEW lifecycle, supply snapshot, viewport virtualisation, filters --
--- is byte-identical to the pre-sweep version; recolor/re-surface only.
+-- white grid tiles / filter chips with a soft tan border and brown ink text,
+-- tier-colour washes KEPT, tide chip ported to DailyPanel's dark timer-pill
+-- colours, per-panel backdrop BlurEffect ("IndexPanelBlur").
+--
+-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide) REPLACES THE CREAM ABOVE:
+-- the guide's window body is light gray (#A9A9A9), its header bar is RED
+-- (#F96B57 -> #C84535 -- this panel's assigned blue is gone along with every
+-- other per-panel accent), and every card / slot / row is a DARK gray slot
+-- (#4A4A4A -> #363636) inside the 4px #202020 ink outline. Concretely here:
+-- body surface kind "cream" -> "window" (same colours after the shared token
+-- swap, honest name), header gradient -> T.gradient.header, grid tiles ->
+-- kind "slot", filter chips and the 100%-reward chip -> the same dark slot
+-- with the kit's own ink stroke, every ink-on-cream label back to white.
+-- Note the shape of the diff: the per-file gradient/stroke OVERRIDES are
+-- DELETED rather than retargeted -- T.gradient.slot/tab and UI.stroke's
+-- default #202020 already carry the guide, so the tiles and chips inherit it
+-- and this file no longer owns a chrome colour at all. CREAM_INK (#4a3416)
+-- and CARD_BORDER (#e5d3ac) are therefore gone, not repointed.
+--
+-- The ONE place the guide cannot be taken literally is the silhouette: an
+-- undiscovered entry renders its model pure BLACK, and black on a dark slot
+-- is nothing at all. Undiscovered tiles therefore keep a near-WHITE art plate
+-- inside their dark frame (SILHOUETTE_PLATE_MIX below) -- which is precisely
+-- what the cream build already put on screen (tier.Color at 0.86 over a white
+-- tile resolves to ~12% rarity tint on white), so the silhouette's own pixels
+-- are unchanged and only its surround went dark. Discovered tiles keep their
+-- tier wash verbatim; rarity/tier colour is data, and the guide never touches
+-- data. ALL data wiring -- discovery, seen/NEW lifecycle, supply snapshot,
+-- viewport virtualisation, filters, the RarityWord/NoPolish pair -- is
+-- byte-identical to the pre-sweep version; recolor/re-surface only.
 --
 -- ============================================================================
 -- DATA (StarterPlayer.StarterPlayerScripts.IndexClient read FULLY, live,
@@ -146,14 +169,17 @@ local BrainrotThumb = require(modules:WaitForChild("BrainrotThumb"))
 
 local IndexPanel = { Id = "index" }
 
------------------------------------------------------------ 1d/1e sweep palette (2026-08-04; ink stays the kit's)
--- Index's assigned header accent is BLUE (Daily owns purple, Pass gold,
--- Goals green); the cream/white-card trio below is exactly what DailyPanel
--- shipped -- cream body, white cards with a soft tan border, brown body ink.
-local HEADER_TOP = Color3.fromHex("#58a6ff")
-local HEADER_BOT = Color3.fromHex("#1f6fe0")
-local CREAM_INK = Color3.fromHex("#4a3416") -- body text on cream / on white cards
-local CARD_BORDER = Color3.fromHex("#e5d3ac") -- soft border on white cards (panel outline stays kit ink)
+----------------------------------------------------------- palette (style replacement 2026-08-04, Pet-Sim guide)
+-- The per-panel accent palette is GONE. The guide gives every panel the same
+-- red header and the same gray window, so this module no longer owns a header
+-- colour (T.gradient.header, applied in Build where Tokens is in scope), no
+-- card border (UI.stroke's own #202020 ink is the guide's outline) and no body
+-- ink (nothing in this panel's chrome ends up on the light window -- every
+-- label here lands on a dark slot, so they are all plain white; T.color.
+-- textOnWindow is deliberately unused rather than sprinkled). HEADER_TOP/
+-- HEADER_BOT (blue), CREAM_INK (#4a3416) and CARD_BORDER (#e5d3ac) are deleted.
+-- What survives below is what the guide has no opinion about: the silhouette
+-- treatment and the tide pill.
 
 -- SILHOUETTE INDEX (user reference video, 2026-08-04): an undiscovered entry
 -- shows the REAL model rendered pure black -- shape visible, identity hidden --
@@ -166,7 +192,22 @@ local CARD_BORDER = Color3.fromHex("#e5d3ac") -- soft border on white cards (pan
 --      eyes and teeth on the colour-only variant
 local SILHOUETTE_INK = Color3.fromRGB(12, 10, 18)
 local NO_LIGHT = Color3.new(0, 0, 0)
-local TIDE_BG = Color3.fromHex("#281608") -- DailyPanel's TIMER_BG, ported with the whole pill treatment
+
+-- Style replacement (2026-08-04, Pet-Sim guide) SILHOUETTE CARVE-OUT: the
+-- guide's tile is a dark slot, and SILHOUETTE_INK on a dark slot is invisible.
+-- The undiscovered art plate stays LIGHT -- tier.Color mixed this far toward
+-- white, painted near-opaque so it no longer borrows the tile behind it. The
+-- mix is picked to reproduce the cream build's own effective plate (tier.Color
+-- at BackgroundTransparency 0.86 over a white tile == ~12% tint on white), so
+-- the silhouette reads exactly as it did before the tile went dark.
+local PLATE_WHITE = Color3.new(1, 1, 1)
+local SILHOUETTE_PLATE_MIX = 0.88
+
+-- Tide pill: DailyPanel's warm #281608 was a cream-era brown and goes muddy
+-- against the guide's red header -- the pill keeps its dark-pill ROLE at the
+-- guide's neutral slot ink instead (style replacement 2026-08-04). The gold
+-- countdown value stays: a value accent, not chrome.
+local TIDE_BG = Color3.fromHex("#363636")
 local TIDE_GOLD = Color3.fromHex("#ffd23e") -- DailyPanel's TIMER_GOLD countdown value
 
 ----------------------------------------------------------- availability (IndexClient lines 64-83, verbatim)
@@ -336,6 +377,18 @@ function IndexPanel.Build(ctx)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
 
+	-- STYLE REPLACEMENT REPAIR (2026-08-04): see the note in PassPanel -- the
+	-- cream constants were deleted but several call sites survived, turning
+	-- into nil globals that crashed Build behind openPanel's pcall (the panel
+	-- just never opened). Re-declared as their guide successors:
+	--   borders -> the guide's 4px #202020 outline. NOTE the tile-stroke site
+	--     lerps tier.Color TOWARD this, so unknown tiles now mute toward the
+	--     dark outline instead of toward tan -- which is what the guide's dark
+	--     chrome wants anyway.
+	--   ink     -> white, because these chips/tiles are dark slots now
+	local CARD_BORDER = T.color.outline
+	local CREAM_INK = T.color.white
+
 	----------------------------------------------------------- geometry (kit README §3.5, exact where tokenised)
 	local PANEL_W = T.size.panelWidth.index -- 940
 	local HEADER_H = T.size.headerHeight -- 92
@@ -407,13 +460,15 @@ function IndexPanel.Build(ctx)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
-	-- 1d/1e sweep (2026-08-04): Index's accent is blue -- recolor the gold
-	-- surface's gradient IN PLACE (UI.surface has no blue panel kind; same
-	-- pattern DailyPanel's purple header uses). Shell, gloss, shadow, icon,
-	-- title and close button are untouched.
+	-- Style replacement (2026-08-04, Pet-Sim guide): every panel header is the
+	-- guide's RED bar now -- Index's blue, Daily's purple, Pass's gold and
+	-- Goals' green all collapse into T.gradient.header. Still recoloured IN
+	-- PLACE off the "gold" base surface (UI.surface has no header kind), same
+	-- one-line pattern as before. Shell, gloss, shadow, icon, title and close
+	-- button are untouched.
 	local headerGrad = header:FindFirstChildOfClass("UIGradient")
 	if headerGrad then
-		headerGrad.Color = ColorSequence.new(HEADER_TOP, HEADER_BOT)
+		headerGrad.Color = T.gradient.header
 	end
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
@@ -447,11 +502,11 @@ function IndexPanel.Build(ctx)
 	tideChip.AnchorPoint = Vector2.new(1, 0.5)
 	tideChip.Position = UDim2.new(1, -12 - T.size.closeButton.X - 14, 0.5, 0)
 	tideChip.Size = UDim2.fromOffset(TIDE_W, TIDE_H)
-	-- 1d/1e sweep (2026-08-04): the old dark-GREEN gradient (#3B4731 ->
-	-- #26301F) was picked against the gold header and goes muddy on the new
-	-- blue one; the chip keeps its dark-pill ROLE but ports DailyPanel's
-	-- timer-pill colours verbatim -- solid #281608 at .9 alpha plus a 2.5px
-	-- white(.9) ring instead of the ink stroke. Static, never tweened.
+	-- Dark pill: solid TIDE_BG at .9 alpha plus a 2.5px white(.9) ring instead
+	-- of an ink stroke. The style replacement (2026-08-04, Pet-Sim guide) keeps
+	-- that ring deliberately -- it IS the guide's 1-2px #FFFFFF inner keyline,
+	-- and it is the only thing separating the pill from the red bar behind it
+	-- (see TIDE_BG for the brown -> neutral move). Static, never tweened.
 	tideChip.BackgroundColor3 = TIDE_BG
 	tideChip.BackgroundTransparency = 0.1
 	tideChip.BorderSizePixel = 0
@@ -465,7 +520,8 @@ function IndexPanel.Build(ctx)
 	tideStroke.Parent = tideChip
 
 	-- caption goes white-75% (DailyPanel's timerLabel treatment) -- textMuted
-	-- was a green-tinted pick that read off next to blue (1d/1e sweep)
+	-- was a green-tinted pick that read off against the header accent; white
+	-- is still right on the guide's red bar (style replacement 2026-08-04)
 	local tideLabel = UI.label(tideChip, "TIDE CHANGES IN", "meta", T.color.white)
 	tideLabel.Name = "TideLabel"
 	tideLabel.AnchorPoint = Vector2.new(0, 0.5)
@@ -476,7 +532,7 @@ function IndexPanel.Build(ctx)
 	tideLabel.TextTransparency = 0.25 -- mock white-75%
 	tideLabel.ZIndex = tideChip.ZIndex + 1
 
-	local tideValue = UI.label(tideChip, "--", "cardLabel", TIDE_GOLD) -- 1d/1e sweep: gold countdown value, matching Daily's pill
+	local tideValue = UI.label(tideChip, "--", "cardLabel", TIDE_GOLD) -- gold countdown value, matching Daily's pill
 	tideValue.Name = "TideValue"
 	tideValue.AnchorPoint = Vector2.new(0, 0.5)
 	tideValue.Position = UDim2.new(0, 12, 0.5, 12)

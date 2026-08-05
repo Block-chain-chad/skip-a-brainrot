@@ -19,27 +19,44 @@ end
 
 T.hex = hex
 
+-- ============================================================================
+-- 2026-08-04 STYLE REPLACEMENT -- "Roblox Simulator UI Style Guide" (user
+-- .docx): Pet-Simulator-inspired. This REPLACES the olive/cream families that
+-- came before it; the tokens keep their names so every panel inherits the new
+-- look without a rewrite, and the old hexes are recorded inline so any single
+-- surface can be walked back.
+--   window  #D6D6D6 -> #A9A9A9   (was cream #FFF9EC -> #FFEDCD)
+--   header  #F96B57 -> #C84535   (was per-panel accents)
+--   slots   #4A4A4A -> #363636   (was white cards / olive rows)
+--   outline #202020 4px + a 1-2px white inner keyline
+-- ============================================================================
 ------------------------------------------------------------------- colours
 T.color = {
-	outline        = hex("#16170F"),
+	outline        = hex("#202020"), -- guide "outer stroke 4px dark gray" (was #16170F)
+	innerKeyline   = hex("#FFFFFF"), -- guide "inner stroke 1-2px white"
 
-	panelTop       = hex("#414E36"),
-	panelBottom    = hex("#2B3423"),
-	subPanelTop    = hex("#4A5840"),
-	subPanelBottom = hex("#2E3825"),
-	rowTop         = hex("#4E5C3B"),
-	rowBottom      = hex("#333E24"),
-	tabTop         = hex("#7A8A66"),
-	tabBottom      = hex("#4E5C3B"),
-	trackTop       = hex("#1B2114"),
-	trackBottom    = hex("#26301C"),
-	slotTop        = hex("#37432D"),
-	slotBottom     = hex("#232C1C"),
+	-- the window itself + its darker furniture (guide: light gray window,
+	-- dark gray slots -- the inversion of the cream sweep it replaces)
+	panelTop       = hex("#D6D6D6"),
+	panelBottom    = hex("#A9A9A9"),
+	subPanelTop    = hex("#C4C4C4"),
+	subPanelBottom = hex("#9C9C9C"),
+	rowTop         = hex("#4A4A4A"),
+	rowBottom      = hex("#363636"),
+	tabTop         = hex("#BEBEBE"),
+	tabBottom      = hex("#9C9C9C"),
+	trackTop       = hex("#2E2E2E"),
+	trackBottom    = hex("#3A3A3A"),
+	slotTop        = hex("#4A4A4A"),
+	slotBottom     = hex("#363636"),
+	headerTop      = hex("#F96B57"),
+	headerBottom   = hex("#C84535"),
 
 	white          = hex("#FFFFFF"),
-	textMuted      = hex("#C9D6B4"),
+	textMuted      = hex("#D8D8D8"), -- was olive #C9D6B4; muted white reads on both the gray window and the dark slots
 	textAccent     = hex("#FFD84D"),
-	textOnLight    = hex("#1E2317"),
+	textOnLight    = hex("#2A2A2A"), -- was #1E2317; ink for text sitting on the light gray window
+	textOnWindow   = hex("#2A2A2A"), -- explicit alias for the above, for new code
 	textOnGoldCard = hex("#3A2A05"),
 	textOnGoldChrome = hex("#5A4A12"),
 	textDisabled   = hex("#B8C4A4"),
@@ -64,23 +81,29 @@ T.scrimAlpha = 0.50
 T.gradient = {
 	gold      = seq({ { pos = 0, hex = "#FFE87A" }, { pos = 0.55, hex = "#FFC531" }, { pos = 1, hex = "#E08A0C" } }),
 	goldSmall = seq({ { pos = 0, hex = "#FFE066" }, { pos = 0.52, hex = "#FFC531" }, { pos = 1, hex = "#E8930F" } }),
-	green     = seq({ { pos = 0, hex = "#A6EE72" }, { pos = 0.52, hex = "#5FC22F" }, { pos = 1, hex = "#317F16" } }),
+	green     = seq({ { pos = 0, hex = "#83E34A" }, { pos = 1, hex = "#4FB42E" } }), -- guide green
 	purple    = seq({ { pos = 0, hex = "#DE93FF" }, { pos = 0.52, hex = "#B04CEC" }, { pos = 1, hex = "#7C1CC0" } }),
-	red       = seq({ { pos = 0, hex = "#FF8A7A" }, { pos = 0.52, hex = "#E23A2C" }, { pos = 1, hex = "#A8140F" } }),
-	blue      = seq({ { pos = 0, hex = "#6FD8FF" }, { pos = 0.52, hex = "#2A93E0" }, { pos = 1, hex = "#125FA8" } }),
+	red       = seq({ { pos = 0, hex = "#FF6B6B" }, { pos = 1, hex = "#D83E3E" } }), -- guide red
+	blue      = seq({ { pos = 0, hex = "#56B7FF" }, { pos = 1, hex = "#2E81D8" } }), -- guide blue
 	gem       = seq({ { pos = 0, hex = "#D98BFF" }, { pos = 0.52, hex = "#A93FE6" }, { pos = 1, hex = "#7A1CB8" } }),
 
-	panel     = seq({ { pos = 0, hex = "#414E36" }, { pos = 1, hex = "#2B3423" } }),
-	subPanel  = seq({ { pos = 0, hex = "#4A5840" }, { pos = 1, hex = "#2E3825" } }),
-	row       = seq({ { pos = 0, hex = "#4E5C3B" }, { pos = 1, hex = "#333E24" } }),
-	tab       = seq({ { pos = 0, hex = "#7A8A66" }, { pos = 1, hex = "#4E5C3B" } }),
-	track     = seq({ { pos = 0, hex = "#1B2114" }, { pos = 1, hex = "#26301C" } }),
-	slot      = seq({ { pos = 0, hex = "#37432D" }, { pos = 1, hex = "#232C1C" } }),
+	-- guide: light gray window, dark gray slots/rows, red header bar
+	panel     = seq({ { pos = 0, hex = "#D6D6D6" }, { pos = 1, hex = "#A9A9A9" } }),
+	subPanel  = seq({ { pos = 0, hex = "#C4C4C4" }, { pos = 1, hex = "#9C9C9C" } }),
+	row       = seq({ { pos = 0, hex = "#4A4A4A" }, { pos = 1, hex = "#363636" } }),
+	tab       = seq({ { pos = 0, hex = "#BEBEBE" }, { pos = 1, hex = "#9C9C9C" } }),
+	track     = seq({ { pos = 0, hex = "#2E2E2E" }, { pos = 1, hex = "#3A3A3A" } }),
+	slot      = seq({ { pos = 0, hex = "#4A4A4A" }, { pos = 1, hex = "#363636" } }),
+	-- the guide's red header bar, and the window gradient under its own name
+	header    = seq({ { pos = 0, hex = "#F96B57" }, { pos = 1, hex = "#C84535" } }),
+	window    = seq({ { pos = 0, hex = "#D6D6D6" }, { pos = 1, hex = "#A9A9A9" } }),
 
 	freeCard  = seq({ { pos = 0, hex = "#F7F7F1" }, { pos = 0.55, hex = "#DEDED4" }, { pos = 1, hex = "#B2B4A8" } }),
-	-- 2026-08-04 panel redesign (user handoff 1d/1e): the mock's cream panel
-	-- surface, shared by the Daily panel and the merchant shop
-	cream     = seq({ { pos = 0, hex = "#FFF9EC" }, { pos = 1, hex = "#FFEDCD" } }),
+	-- LEGACY ALIAS. Was the 1d/1e cream body (#FFF9EC -> #FFEDCD); now points
+	-- at the guide's window gray so any surface still asking for "cream"
+	-- inherits the new style instead of standing out as the last cream panel
+	-- in the game. New code should ask for "window".
+	cream     = seq({ { pos = 0, hex = "#D6D6D6" }, { pos = 1, hex = "#A9A9A9" } }),
 	passCard  = seq({ { pos = 0, hex = "#FFE066" }, { pos = 0.55, hex = "#F7B62C" }, { pos = 1, hex = "#D8860E" } }),
 	lockBadge = seq({ { pos = 0, hex = "#F2F2EC" }, { pos = 1, hex = "#C2C4B8" } }),
 	knob      = seq({ { pos = 0, hex = "#FFF0A8" }, { pos = 1, hex = "#FFC531" } }),
@@ -91,10 +114,13 @@ T.gradient = {
 }
 
 ------------------------------------------------------------------- geometry
-T.stroke = { panel = 5, control = 4, chip = 3.5, hairline = 3 }
+-- guide: "outer stroke 4px dark gray, inner stroke 1-2px white"
+T.stroke = { panel = 4, control = 3, chip = 3, hairline = 2, inner = 2 }
 
+-- guide: "Panels 8px, Buttons 10-14px, Slots 8px" -- the whole family tightens
+-- from the old 22/16/14 chunky-cartoon radii
 T.radius = {
-	panel = 22, control = 16, inner = 14, small = 12, chip = 11, slot = 10, art = 9, pill = 999,
+	panel = 8, control = 12, inner = 10, small = 10, chip = 10, slot = 8, art = 8, pill = 999,
 }
 
 -- Hard offset shadow = stroke + 1
@@ -141,19 +167,26 @@ T.size = {
 }
 
 ------------------------------------------------------------------- type
+-- guide: "GothamBold" for everything. NOTE: StarterPlayerScripts.UIPolish
+-- force-sets the legacy .Font property on EVERY TextLabel in the game and
+-- would overwrite these FontFaces on the next frame -- its own FONT constant
+-- was moved in lockstep with this one. Changing one without the other is a
+-- silent no-op.
 T.font = {
-	display = Font.fromEnum(Enum.Font.FredokaOne),
-	ui      = Font.fromEnum(Enum.Font.GothamBlack),
+	display = Font.fromEnum(Enum.Font.GothamBold),
+	ui      = Font.fromEnum(Enum.Font.GothamBold),
 }
 
 -- { size, textStrokeThickness }
+-- guide: "Titles 28-34, Buttons 18-24, Labels 14-18" -- everything steps down
+-- from the old 44/32/24 display sizes. Stroke weights drop with them.
 T.text = {
-	panelTitle = { 44, 5 },
-	buttonL    = { 32, 4 },
-	buttonM    = { 24, 3.5 },
-	value      = { 26, 3.5 },
-	cardLabel  = { 20, 3 },
-	chip       = { 14, 2.5 },
+	panelTitle = { 32, 3 },
+	buttonL    = { 24, 2.5 },
+	buttonM    = { 20, 2 },
+	value      = { 22, 2 },
+	cardLabel  = { 17, 2 },
+	chip       = { 14, 1.5 },
 	railLabel  = { 20, 4 }, -- v2 NEW (README 3.7 "Fredoka One 20 / stroke 4") -- v1 rail labels reused the smaller "chip" style (14/2.5), sized for the button-plate design
 	meta       = { 14, 0 },   -- Nunito/Gotham, no stroke
 }

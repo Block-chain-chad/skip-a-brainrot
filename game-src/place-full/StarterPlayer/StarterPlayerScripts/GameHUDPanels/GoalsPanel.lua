@@ -2,17 +2,28 @@
 -- GoalsPanel: kit README §3.6 Goals panel -- a GameHUDPanels consumer module
 -- (StarterPlayer.StarterPlayerScripts.GameHUDPanels.GoalsPanel).
 --
--- 2026-08-04 RESTYLE (1d/1e sweep): the visual recipe is now DailyPanel's --
--- GREEN header (#7be04e -> #3fae1f, Goals' assigned accent; purple moved to
--- Daily), cream body, white quest-row cards / tab chips / icon slots with the
--- tan #e5d3ac border and #4a3416 body ink, Daily's soft-green Claimed
--- palette, and a per-panel backdrop BlurEffect ("GoalsPanelBlur"). KEPT
--- AS-IS: the dark inset progress tracks and reward chips (the sanctioned
--- dark-chip-on-cream treatment -- same archetype as Daily's timer pill --
--- with their white in-chip labels), green Claim / blue VIEW / disabled
--- In-progress buttons, the gold active-tab ring, and EVERY remote, state
--- table, tab switch, bob driver and countdown wire below: this was a
--- recolor/re-surface pass, zero wiring changes.
+-- 2026-08-04 STYLE REPLACEMENT (Pet-Sim guide) -- SUPERSEDES the 1d/1e cream
+-- sweep this file used to carry. The guide's chrome is three greys and one
+-- red: a light-grey WINDOW body (#D6D6D6 -> #A9A9A9) where cream was, a RED
+-- header bar (#F96B57 -> #C84535) where Goals' assigned green was, and DARK
+-- slots (#4A4A4A -> #363636) where the white-card-with-tan-border was. So
+-- every quest-row card, tab chip and icon slot flips light -> dark, and their
+-- labels flip from #4a3416 body ink back to WHITE. Those dark families now
+-- live in Tokens (T.gradient.row/slot/tab, plus window/header), which means
+-- this pass mostly DELETES the cream sweep's per-surface overrides rather
+-- than retargeting them -- the surfaces inherit the guide by just being
+-- UI.surface/UI.button calls again. Only the header pair and the two
+-- hand-built pieces of header furniture still need literals.
+-- KEPT AS-IS (identity, not chrome): the soft-green Claimed pill, the gold
+-- active-tab ring, green Claim / blue VIEW / disabled In-progress buttons,
+-- the dark inset progress tracks and reward chips with their white in-chip
+-- labels, and the per-panel backdrop BlurEffect ("GoalsPanelBlur"). EVERY
+-- remote, state table, tab switch, bob driver and countdown wire below is
+-- untouched: this was a recolour pass, zero wiring changes.
+--
+-- (Historical, so the diff reads: the 1d/1e sweep this replaced put a GREEN
+-- header #7be04e -> #3fae1f on a cream body with white cards, the tan
+-- #e5d3ac card border and #4a3416 body ink.)
 --
 -- Contract (kit README section: ctx from GameHUDClient):
 --   return { Id = "goals", Build = function(ctx) -> Frame }
@@ -91,14 +102,17 @@
 -- Kit-token gaps (documented, not fabricated): §3.6 names two colours with
 -- no matching ReplicatedStorage.Modules.UIKit.Tokens entry -- the header
 -- icon-slot backing (#F0D2FF -> #DDB2F6) and the refresh chip
--- (#5B1D8C -> #3A0F5C bg, #E7C8FF label). The 1d/1e sweep (2026-08-04)
--- retinted both into the green accent family (plate #DFF7D2 -> #B9EBA2,
--- refresh chip #1E6E10 -> #124708 bg + #D6F5C8 label) -- same gap class,
--- same lightness relationships; only the hue follows the new header
--- accent. Built via T.hex(...) (part of
--- Tokens' own public surface, same helper Tokens.lua uses internally to
--- build every other gradient) rather than a raw Color3 literal, so this
--- still reads as "Tokens/Builders only" per the task brief. Quest-row
+-- (#5B1D8C -> #3A0F5C bg, #E7C8FF label). The 1d/1e sweep retinted both to
+-- track whatever the header accent was (green); the style replacement
+-- (2026-08-04, Pet-Sim guide) STOPS chasing the accent hue and drops both
+-- onto the guide's one DARK SLOT family (#4A4A4A -> #363636) with white
+-- labels. Reasoning: the guide names exactly one inset-on-chrome treatment,
+-- both of these ARE inset-on-chrome (a backing plate and a dark pill), and a
+-- red-tinted plate on a red header would have been an invented hue family the
+-- guide never specifies -- the same fabrication this comment block exists to
+-- prevent. It also retires two of the four ad-hoc palettes this file carried.
+-- The T.icons PNGs were drawn for the kit's original dark surfaces, so the
+-- goals icon reads on a dark plate by construction. Quest-row
 -- reward-chip background has NO colour spec at all in §3.6 (only geometry:
 -- "height 52, radius 12, 30px icon + value 20") -- rendered with the
 -- `track` gradient (closest existing dark-inset token; the same family the
@@ -115,10 +129,11 @@
 -- quest row is wrapped in a non-list-managed "RowSlot" container so the
 -- vertical UIListLayout driving the rows scroll only ever sees one child
 -- per quest. Originally the wrapper hid the card's UI.hardShadow sibling
--- from the list; the 1d/1e sweep (2026-08-04) dropped that shadow (cream
--- cards are shadowless, per DailyPanel) but the wrapper STAYS -- it is the
--- list's one-child-per-quest contract and the only safe home for any
--- future shadow/overhang siblings.
+-- from the list; the 1d/1e sweep dropped that shadow and the style
+-- replacement (2026-08-04, Pet-Sim guide) keeps it dropped -- the guide's
+-- dark slots are flat, their 4px ink outline does the separating. The
+-- wrapper STAYS regardless: it is the list's one-child-per-quest contract
+-- and the only safe home for any future shadow/overhang siblings.
 --
 -- Idle-bob driver: exactly ONE Heartbeat connection drives every currently-
 -- rendered Claim button's ±5px bob (kit README §4, T.tween.bobPeriod =
@@ -180,16 +195,31 @@ local function nextMidnightRemaining(t: number): number
 	return (86400 - (t % 86400)) % 86400
 end
 
------------------------------------------------------------------ 1d/1e sweep palette (2026-08-04; ink/outline stays the kit's)
--- Same recipe DailyPanel shipped: cream body, white cards with the tan
--- border, brown body ink. Goals' assigned header accent is GREEN (Daily
--- took the purple). The claimed trio is Daily's claimed-card palette
--- VERBATIM so "claimed = soft green" reads as one language across every
--- cream panel.
-local HEADER_TOP = Color3.fromHex("#7be04e")
-local HEADER_BOT = Color3.fromHex("#3fae1f")
-local CARD_BORDER = Color3.fromHex("#e5d3ac") -- borders of cards INSIDE the body only; the panel outline stays kit ink
-local BODY_INK = Color3.fromHex("#4a3416") -- text sitting directly on cream / white cards (never on dark sub-surfaces)
+----------------------------------------------------------------- style replacement palette (2026-08-04, Pet-Sim guide)
+-- Deliberately SHORT. Every card / slot / row / tab surface in this file is
+-- built through UI.surface or UI.button, and Tokens' row/slot/tab families
+-- are already the guide's dark grey -- so those surfaces need no literal at
+-- all any more and the cream sweep's overrides on them are simply deleted.
+-- What survives here is only what Tokens genuinely cannot supply: the header
+-- accent (a per-panel decision the kit has no token for -- see the header
+-- build) and the dark family for the two header-furniture Frames that are
+-- hand-built rather than UI.surface'd.
+--
+-- GONE, on purpose: CARD_BORDER (#e5d3ac) and BODY_INK (#4a3416). Cards are
+-- dark now, so their labels go back to WHITE (UI.label / UI.button's own
+-- default) and their outlines back to the kit ink #202020 that UI.stroke
+-- already paints from T.color.outline. Nothing in this panel sits directly
+-- on the light-grey window body -- the title is on the red header, every
+-- other label is on a dark slot, chip or progress track -- so the guide's
+-- T.color.textOnWindow has no use site here and is not referenced.
+local HEADER_TOP = Color3.fromHex("#F96B57")
+local HEADER_BOT = Color3.fromHex("#C84535")
+local SLOT_TOP = Color3.fromHex("#4A4A4A") -- guide dark slot, ONLY for the hand-built header furniture + the scroll thumb
+local SLOT_BOT = Color3.fromHex("#363636")
+-- Claimed trio: UNCHANGED by the style replacement. Soft-green "claimed" is
+-- quest-state IDENTITY, not chrome -- exactly like the gold active-tab ring,
+-- the green Claim button and the blue VIEW button, all of which also survive
+-- the swap untouched. It reads better on the dark card than it did on white.
 local CLAIMED_BG = Color3.fromHex("#e9f7e4")
 local CLAIMED_BORDER = Color3.fromHex("#bfe3b1")
 local CLAIMED_TEXT = Color3.fromHex("#6da35e")
@@ -197,6 +227,15 @@ local CLAIMED_TEXT = Color3.fromHex("#6da35e")
 function GoalsPanel.Build(ctx)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
+
+	-- STYLE REPLACEMENT REPAIR (2026-08-04): see the note in PassPanel -- the
+	-- cream constants were deleted but several call sites survived, turning
+	-- into nil globals that crashed Build behind openPanel's pcall (the panel
+	-- just never opened). Re-declared as their guide successors:
+	--   borders -> the guide's 4px #202020 outline
+	--   ink     -> white, because these rows/cards are dark slots now
+	local CARD_BORDER = T.color.outline
+	local BODY_INK = T.color.white
 	-- Darrel's drawn face, for the Daily tab's reward chips. Not part of ctx
 	-- (which carries only the kit's own Tokens/Builders), and pcall'd so a
 	-- missing module costs an icon rather than the whole panel.
@@ -227,7 +266,13 @@ function GoalsPanel.Build(ctx)
 	local CHIP_ICON_W = 30
 	local CHIP_PAD_L, CHIP_PAD_R, CHIP_GAP = 10, 12, 8
 	local ROW_PAD_X = 12 -- kit "padding 0 12"
-	local ROW_CONTENT_W = PANEL_W - T.pad.panel * 2 - ROW_PAD_X * 2
+	-- The rows scroll reserves its own bar width (VerticalScrollBarInset,
+	-- below) instead of floating the bar over the rows: with a full slate of
+	-- quests the bar used to land ON TOP of the right-hand action buttons,
+	-- because the rows were sized to the scroll's whole width. Counted here so
+	-- the row flex math and the reserved strip can never drift apart.
+	local SCROLLBAR_W = 10
+	local ROW_CONTENT_W = PANEL_W - T.pad.panel * 2 - SCROLLBAR_W - ROW_PAD_X * 2
 
 	----------------------------------------------------------- module-local state (server-confirmed only)
 	local activeTab = ctx.state.goals.tab or "Daily"
@@ -450,7 +495,9 @@ function GoalsPanel.Build(ctx)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-	scroll.ScrollBarThickness = 10
+	scroll.ScrollBarThickness = SCROLLBAR_W
+	-- Inset the canvas by the bar rather than overlaying it on the rows.
+	scroll.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
 	-- 1d/1e sweep (2026-08-04): the kit's sage thumb all but vanished on
 	-- cream; #c9b585 is the tan card-border's darker sibling. Cosmetic only.
 	scroll.ScrollBarImageColor3 = Color3.fromHex("#c9b585")
@@ -474,6 +521,19 @@ function GoalsPanel.Build(ctx)
 		if bobConn then
 			bobConn:Disconnect()
 			bobConn = nil
+		end
+		-- Park every live button back on its base position. The driver writes
+		-- Position every frame, so whatever offset the final frame happened to
+		-- write would otherwise stay frozen there -- a Claim button sitting a
+		-- few px out of line with its neighbours from the moment the panel
+		-- closes until the driver's next tick after it reopens.
+		for i = #bobActive, 1, -1 do
+			local e = bobActive[i]
+			if e.frame.Parent then
+				e.frame.Position = e.base
+			else
+				table.remove(bobActive, i)
+			end
 		end
 	end
 
@@ -515,8 +575,12 @@ function GoalsPanel.Build(ctx)
 		return CHIP_PAD_L + CHIP_ICON_W + CHIP_GAP + textW + CHIP_PAD_R
 	end
 
-	local function buildRewardChip(parent: Frame, iconKey: string, text: string): (Frame, number)
-		local w = measureChipWidth(text)
+	-- widthOverride: every row on a tab is built at the SAME chip width (the
+	-- widest that tab needs -- see the renderers), so the progress tracks to
+	-- their left all end on one vertical line instead of stepping in and out
+	-- row by row with the length of the reward text.
+	local function buildRewardChip(parent: Frame, iconKey: string, text: string, widthOverride: number?): (Frame, number)
+		local w = math.max(measureChipWidth(text), widthOverride or 0)
 		local chip = UI.surface(parent, UDim2.fromOffset(w, CHIP_H), "track", T.radius.small, T.stroke.control)
 		chip.Name = "RewardChip"
 		chip.ZIndex = parent.ZIndex + 1
@@ -644,8 +708,14 @@ function GoalsPanel.Build(ctx)
 			if onClaim then
 				btn.MouseButton1Click:Connect(onClaim)
 			end
-			registerBob(slot)
-			return slot
+			-- NOT registered here: the caller has not positioned this slot yet.
+			-- registerBob snapshots frame.Position as the bob's base, so
+			-- registering now captures the default (0, 0) and the driver then
+			-- overwrites the real position every frame -- which is exactly what
+			-- shot every Claim button clean out of its row and left it bobbing
+			-- off the left edge of the panel. Handed back to buildQuestRow,
+			-- which registers it once it is in place.
+			return slot, slot
 		elseif kind == "claimed" then
 			return buildClaimedButton(parent)
 		elseif kind == "view" then
@@ -675,6 +745,7 @@ function GoalsPanel.Build(ctx)
 		RewardIconKey: string,
 		RewardText: string,
 		Action: string, -- "claim" | "inprogress" | "claimed" | "view"
+		ChipW: number?, -- shared reward-chip width for the whole tab
 		OnClaim: (() -> ())?,
 	}
 
@@ -720,13 +791,17 @@ function GoalsPanel.Build(ctx)
 		icon.AnchorPoint = Vector2.new(0, 0.5)
 		icon.Position = UDim2.new(0, 0, 0.5, 0)
 
-		local reward, chipW = buildRewardChip(card, vm.RewardIconKey, vm.RewardText)
+		local reward, chipW = buildRewardChip(card, vm.RewardIconKey, vm.RewardText, vm.ChipW)
 		reward.AnchorPoint = Vector2.new(1, 0.5)
 		reward.Position = UDim2.new(1, -(ACTION_W + ROW_GAP_INNER), 0.5, 0)
 
-		local action = buildActionButton(card, vm.Action, vm.OnClaim, vm.OnClaim)
+		local action, bobFrame = buildActionButton(card, vm.Action, vm.OnClaim, vm.OnClaim)
 		action.AnchorPoint = Vector2.new(1, 0.5)
 		action.Position = UDim2.new(1, 0, 0.5, 0)
+		-- Only now that AnchorPoint/Position are final -- see buildActionButton.
+		if bobFrame then
+			registerBob(bobFrame)
+		end
 
 		local centerX = ICON_W + ROW_GAP_INNER
 		local centerW = ROW_CONTENT_W - ICON_W - ROW_GAP_INNER - chipW - ROW_GAP_INNER - ACTION_W - ROW_GAP_INNER
@@ -734,7 +809,7 @@ function GoalsPanel.Build(ctx)
 		centerCol.Name = "CenterColumn"
 		centerCol.AnchorPoint = Vector2.new(0, 0.5)
 		centerCol.Position = UDim2.new(0, centerX, 0.5, 0)
-		centerCol.Size = UDim2.fromOffset(math.max(centerW, 40), 56)
+		centerCol.Size = UDim2.fromOffset(math.max(centerW, 40), 52) -- title 24 + 4 gap + track 24, so the pair sits dead centre in the row
 		centerCol.BackgroundTransparency = 1
 		centerCol.ZIndex = 15
 		centerCol.Parent = card
@@ -777,13 +852,24 @@ function GoalsPanel.Build(ctx)
 				c:Destroy()
 			end
 		end
+		-- Every registered bob belonged to a row that just went away. The
+		-- driver prunes destroyed frames on its own next tick, but clearing
+		-- here means a re-render never carries a frame's worth of dead entries
+		-- and a tab switch off Goals lets the driver stop immediately.
+		table.clear(bobActive)
 	end
 
 	----------------------------------------------------------- per-tab renderers
 	local function renderDaily()
 		clearRows()
+		-- One chip width for the whole tab: the widest reward it has to show.
+		local chipW = 0
+		for _, q in ipairs(dailyQuests) do
+			chipW = math.max(chipW, measureChipWidth("+" .. tostring(q.Reward or 0)))
+		end
 		for i, q in ipairs(dailyQuests) do
 			buildQuestRow(i, {
+				ChipW = chipW,
 				Icon = T.icons.goals,
 				Title = q.Text or "",
 				Progress = q.Progress or 0,
@@ -797,10 +883,15 @@ function GoalsPanel.Build(ctx)
 
 	local function renderGoals()
 		clearRows()
+		local chipW = 0
+		for _, q in ipairs(goalsQuests) do
+			chipW = math.max(chipW, measureChipWidth(shortCash(q.Reward or 0)))
+		end
 		for i, q in ipairs(goalsQuests) do
 			local met = q.Met == true
 			local claimed = q.Claimed == true
 			buildQuestRow(i, {
+				ChipW = chipW,
 				Icon = T.icons.goals,
 				Title = q.Desc or "",
 				Progress = met and 1 or 0,
@@ -818,6 +909,13 @@ function GoalsPanel.Build(ctx)
 
 	local function renderSeason()
 		clearRows()
+		local chipW = 0
+		for _, qid in ipairs(seasonIds) do
+			local d = SeasonConfig.PoolById[qid]
+			if d then
+				chipW = math.max(chipW, measureChipWidth("+" .. tostring(d.XP) .. " XP"))
+			end
+		end
 		local order = 0
 		for _, qid in ipairs(seasonIds) do
 			local def = SeasonConfig.PoolById[qid]
@@ -825,6 +923,7 @@ function GoalsPanel.Build(ctx)
 				order += 1
 				local pr = seasonProgress[qid] or { P = 0, D = false }
 				buildQuestRow(order, {
+					ChipW = chipW,
 					Emoji = def.Icon,
 					Title = def.Name,
 					Progress = pr.P or 0,

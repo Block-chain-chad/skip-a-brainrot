@@ -10,16 +10,35 @@
 -- its own open/close animation.
 --
 -- 2026-08-04 RESTYLE (1d/1e sweep): visual-only pass to the shipped cream
--- recipe (reference: DailyPanel) -- orange header #ffb02e -> #ff7d00
--- (Settings' per-panel accent), cream body (padding stays EXACTLY
--- T.pad.panel 16 per side -- the BODY_H/BODY_INNER_W math below depends on
--- it, do NOT copy DailyPanel's panelWide 18), white row cards with 3px
--- #e5d3ac borders and #4a3416 labels, cream-readable redeem feedback
--- colours, and a per-panel backdrop BlurEffect ("SettingsPanelBlur").
--- Every control keeps its kit look (slider tracks/knobs, quality tab
--- buttons, toggle switches, rarity chips, footer buttons, the dark redeem
--- box), and ALL wiring -- saves, seams, applySettings, the drag machine --
--- is byte-identical to the previous version.
+-- recipe -- orange header, cream body, white row cards with #e5d3ac borders
+-- and #4a3416 ink labels, plus a per-panel backdrop BlurEffect
+-- ("SettingsPanelBlur"). SUPERSEDED the same day by the style replacement
+-- below; noted rather than deleted because two things it established are
+-- still load-bearing and NOT part of the replacement: the blur block, and
+-- the body padding warning (EXACTLY T.pad.panel 16 per side -- the
+-- BODY_H/BODY_INNER_W math below depends on it, do NOT copy DailyPanel's
+-- panelWide 18).
+--
+-- 2026-08-04 STYLE REPLACEMENT (Pet-Sim guide, "Roblox Simulator UI Style
+-- Guide"): the cream look is gone game-wide. Three changes land in THIS file
+-- and nothing else does:
+--   1. header  -- per-panel accents are dead; Settings' orange #ffb02e ->
+--                 #ff7d00 becomes the guide's one red bar (T.gradient.header)
+--   2. body    -- UI.surface kind "cream" -> "window": same shared token
+--                 (cream is now a legacy alias for it), honest name, and the
+--                 colour underneath is the guide's light gray
+--   3. rows    -- the three row cards (slider / toggle / skip-reveal) stop
+--                 being white+tan and go back to being a plain dark kit "row"
+--                 surface, which IS the guide's dark slot; their labels, the
+--                 value readouts and the section headers return to white.
+-- Everything else here is inherited, not edited: T.radius / T.stroke /
+-- T.font all moved in the shared Tokens pass, so the slider tracks + knobs,
+-- the quality tab buttons, the toggle switches, the 8 per-rarity chips, the
+-- footer buttons and the dark redeem box pick up the new numbers for free
+-- and are untouched below. The ONE label that still deliberately reads dark
+-- is the redeem message, because it floats directly on the light-gray window
+-- instead of on a card (T.color.textOnWindow). ALL wiring -- saves, seams,
+-- applySettings, the drag machine, the blur watchers -- is byte-identical.
 --
 -- ============================================================================
 -- SCOPE (task-10-brief, kit README §3.3 MINUS Reset Data):
@@ -105,13 +124,17 @@ local SettingsPanel = { Id = "settings" }
 local QUALITY_OPTIONS = { "Low", "Medium", "High" }
 local QUALITY_SET = { Low = true, Medium = true, High = true }
 
------------------------------------------------------------ mock palette (1d/1e sweep 2026-08-04; ink and controls stay the kit's)
-local HEADER_TOP = Color3.fromHex("#ffb02e") -- Settings' per-panel accent: neutral orange
-local HEADER_BOT = Color3.fromHex("#ff7d00")
-local CARD_BORDER = Color3.fromHex("#e5d3ac") -- white row-card border on cream
-local BODY_INK = Color3.fromHex("#4a3416") -- body-text-on-cream (same ink DailyPanel's hintLabel uses)
-local MSG_GREEN = Color3.fromHex("#3fae1f") -- redeem success on cream (DailyPanel's CHECK_GREEN)
-local MSG_RED = Color3.fromHex("#A8140F") -- redeem failure on cream (the kit red gradient's bottom stop)
+----------------------------------------------------------- local palette (style replacement 2026-08-04, Pet-Sim guide)
+-- Four of the six 1d/1e constants are DELETED, not repointed, because the
+-- guide's values for them all live in Tokens now and the file reaches them
+-- through T inside Build: HEADER_TOP/HEADER_BOT (-> T.gradient.header),
+-- CARD_BORDER #e5d3ac (-> UI.stroke's own T.color.outline), BODY_INK #4a3416
+-- (-> T.color.white on the dark row slots, T.color.textOnWindow for the one
+-- label on the window). Only the two redeem-feedback inks stay local -- they
+-- are semantic status colours with no token, re-pointed from the cream-era
+-- pair to the guide's accent green/red bottom stops.
+local MSG_GREEN = Color3.fromHex("#4FB42E") -- redeem success -- guide accent green (was #3fae1f, tuned for cream)
+local MSG_RED = Color3.fromHex("#D83E3E") -- redeem failure -- guide accent red (was #A8140F, the kit red gradient's bottom stop)
 
 ----------------------------------------------------------- GRAPHICS: client-local Lighting toggles, nil-guarded
 -- Confirmed live before writing this: game.Lighting currently has NEITHER a
@@ -250,6 +273,14 @@ function SettingsPanel.Build(ctx)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
 
+	-- STYLE REPLACEMENT REPAIR (2026-08-04): see the note in PassPanel. This
+	-- panel's two survivors sit in code Build does NOT reach (the redeem-code
+	-- result handler), so it built fine and would have crashed later, in the
+	-- player's hands, instead of at open time -- the worse failure. Re-declared
+	-- as their guide successors.
+	local CARD_BORDER = T.color.outline
+	local BODY_INK = T.color.white
+
 	----------------------------------------------------------- geometry (kit README §3.3, exact where tokenised)
 	local PANEL_W = T.size.panelWidth.settings -- 700
 	local HEADER_H = T.size.headerHeight -- 92
@@ -288,19 +319,22 @@ function SettingsPanel.Build(ctx)
 	panelCol.ZIndex = 10
 	panelCol.Parent = wrapper
 
-	----------------------------------------------------------- header (common shell, README §3 -- kit gold shell, 1d/1e orange)
+	----------------------------------------------------------- header (common shell, README §3 -- kit gold shell, guide RED since the style replacement)
 	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "gold", T.radius.panel, T.stroke.panel)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
-	-- 1d/1e sweep (2026-08-04): §3.3 gave Settings no special colour, but the
-	-- cream restyle assigns each panel its own accent -- Settings is neutral
-	-- orange #ffb02e -> #ff7d00. UI.surface has no orange kind, so the "gold"
-	-- call above stays as the seed shell and its gradient is recoloured in
-	-- place (same pattern DailyPanel's purple header uses).
+	-- style replacement (2026-08-04, Pet-Sim guide): per-panel accents are
+	-- dead. §3.3 never gave Settings a colour of its own; 1d/1e invented one
+	-- (neutral orange #ffb02e -> #ff7d00) and the guide takes it back -- EVERY
+	-- panel wears the same red bar (#F96B57 -> #C84535 = T.gradient.header).
+	-- The "gold" seed above stays exactly as it was: UI.surface just needs a
+	-- T.gradient key to construct with, and the shell's corner/gloss/shadow/
+	-- stroke are all colour-independent, so this remains a single in-place
+	-- gradient swap on the surface's OWN UIGradient -- nothing is added.
 	local headerGrad = header:FindFirstChildOfClass("UIGradient")
 	if headerGrad then
-		headerGrad.Color = ColorSequence.new(HEADER_TOP, HEADER_BOT)
+		headerGrad.Color = T.gradient.header
 	end
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
@@ -326,15 +360,20 @@ function SettingsPanel.Build(ctx)
 		ctx.closePanel()
 	end)
 
-	----------------------------------------------------------- body (common shell, README §3 -- 1d/1e sweep 2026-08-04: cream, was the kit dark panel)
-	-- UI.panel bundled THREE things -- the dark "panel" surface, its
-	-- hardShadow, and a baked-in 16px UIPadding -- so the cream swap has to
-	-- recreate all three explicitly. The padding is EXACTLY T.pad.panel (16)
+	----------------------------------------------------------- body (common shell, README §3 -- the guide's light-gray WINDOW since the style replacement)
+	-- UI.panel bundled THREE things -- the kit "panel" surface, its hardShadow
+	-- and a baked-in 16px UIPadding -- so opting out of it (1d/1e did, to get a
+	-- non-panel body colour) means recreating all three explicitly, which is
+	-- why they are spelled out below. The padding is EXACTLY T.pad.panel (16)
 	-- per side, NOT DailyPanel's panelWide (18): BODY_H above is
 	-- `T.pad.panel * 2 + BODY_CONTENT_H` and BODY_INNER_W is
 	-- `PANEL_W - T.pad.panel * 2`, so a copied 18 would overflow the 10-item
 	-- list stack by 4px and desync every row's width math.
-	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "cream", T.radius.panel, T.stroke.panel)
+	-- style replacement (2026-08-04, Pet-Sim guide): kind "cream" -> "window".
+	-- Zero visual delta at the call site -- the shared Tokens pass repointed
+	-- cream at the window gray and kept it as a legacy alias -- this is purely
+	-- the honest name for what the surface now is (#D6D6D6 -> #A9A9A9).
+	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
@@ -375,10 +414,14 @@ function SettingsPanel.Build(ctx)
 
 	local function sectionHeader(text)
 		local slot = listSlot(SECTION_HEADER_H)
-		-- 1d/1e sweep (2026-08-04): was T.color.textAccent -- that gold was
-		-- tuned for the old dark panel and nearly vanishes on cream even with
-		-- the cardLabel ink stroke; #4a3416 is the mock's body-on-cream ink.
-		local l = UI.label(slot, text, "cardLabel", BODY_INK)
+		-- style replacement (2026-08-04, Pet-Sim guide): WHITE. History here is
+		-- gold (kit, tuned for the old dark panel) -> #4a3416 ink (1d/1e, for
+		-- cream) -> white. These three words are the one bit of card-less text
+		-- that still wants a light fill: they sit on the light-gray window, so
+		-- the cardLabel ink stroke does the legibility work, and white-inside-
+		-- #202020 is exactly the guide's all-caps section treatment. (The other
+		-- on-window label, the redeem message, goes the other way -- see it.)
+		local l = UI.label(slot, text, "cardLabel", T.color.white)
 		l.Name = "SectionHeader"
 		l.Size = UDim2.new(1, 0, 1, 0)
 		l.AutomaticSize = Enum.AutomaticSize.None
@@ -390,26 +433,19 @@ function SettingsPanel.Build(ctx)
 		l.ZIndex = 15
 	end
 
-	----------------------------------------------------------- shared white-card recolor (1d/1e sweep 2026-08-04)
-	-- The three row cards (slider/toggle/skip-reveal) flip from the kit's
-	-- dark "row" surface to the mock's white card: flat white + soft #e5d3ac
-	-- border. Recolor-in-place on the surface's OWN children -- the row
-	-- gradient is destroyed (Builders' surface base BackgroundColor3 is
-	-- already white underneath it) and the EXISTING UIStroke is recoloured;
-	-- NEVER call UI.stroke a second time on the card (that would stack two
-	-- strokes). Controls ON the cards -- tracks, knobs, switches, chips --
-	-- keep their kit looks; dark chips read fine on cream (DailyPanel's dark
-	-- timer pill is the shipped precedent).
-	local function whiteCard(card: Frame)
-		local grad = card:FindFirstChildOfClass("UIGradient")
-		if grad then
-			grad:Destroy()
-		end
-		local stroke = card:FindFirstChildOfClass("UIStroke")
-		if stroke then
-			stroke.Color = CARD_BORDER
-		end
-	end
+	----------------------------------------------------------- row cards: NO recolour helper any more (style replacement 2026-08-04, Pet-Sim guide)
+	-- 1d/1e carried a `whiteCard(card)` helper that the three row builders
+	-- each called: it DESTROYED the row surface's UIGradient (exposing
+	-- Builders' flat white base underneath) and repainted the surface's own
+	-- UIStroke #e5d3ac. Both halves are now wrong, and both are simply gone
+	-- rather than re-pointed -- the guide's card IS a dark slot (#4A4A4A ->
+	-- #363636), which is precisely what T.gradient.row became in the shared
+	-- Tokens pass, and UI.stroke already paints T.color.outline (#202020).
+	-- So each row below is a bare `UI.surface(..., "row", ...)` that inherits
+	-- the whole look: one gradient, ONE stroke (never a second UI.stroke call
+	-- on top), no post-hoc repaint pass to keep in sync. Controls ON the
+	-- cards -- tracks, knobs, switches, the 8 rarity chips -- are untouched;
+	-- they were always kit-coloured and read against a dark card by design.
 
 	----------------------------------------------------------- FIX F4 shared drag-end watcher
 	-- (2026-07-30 fix wave) track.InputEnded (used inside buildSliderRow below)
@@ -441,15 +477,17 @@ function SettingsPanel.Build(ctx)
 	----------------------------------------------------------- slider row (AUDIO)
 	local function buildSliderRow(labelText, key, initialValue)
 		local slot = listSlot(SLIDER_ROW_H)
-		-- 1d/1e sweep (2026-08-04): white card via whiteCard; strokeW 3 (was
-		-- T.stroke.control 4 -- the soft #e5d3ac border reads lighter than
-		-- ink). The card hardShadow is gone -- cream-body cards are shadowless
-		-- in the shipped Daily look, and `slot` isn't list-managed so the drop
-		-- can't disturb the stack (the knob keeps ITS shadow; it's a control).
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, 3)
+		-- style replacement (2026-08-04, Pet-Sim guide): plain dark row slot,
+		-- no recolour call after it. The literal 3 that 1d/1e hardcoded here
+		-- (to soften the tan border away from T.stroke.control's then-4) goes
+		-- back to the token -- the shared pass retuned control to 3, so this is
+		-- the same pixel today but tracks the token from here on. The card
+		-- still gets no hardShadow: `slot` isn't list-managed so a drop
+		-- couldn't disturb the stack, the guide just doesn't shadow rows (the
+		-- knob keeps ITS shadow -- that's a control, not chrome).
+		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
 		card.Name = "SliderRow_" .. key
 		card.ZIndex = 15
-		whiteCard(card)
 
 		local ROW_PAD_X = 14 -- kit gives no explicit slider-row padding; spacing-scale token, same class of ad hoc gap other panels document
 		local pad = Instance.new("UIPadding")
@@ -461,7 +499,7 @@ function SettingsPanel.Build(ctx)
 		local LABEL_W, VALUE_W, INNER_GAP = 150, 56, T.pad.gap -- kit "label column 150" / "value column 56"
 		local TRACK_W = CONTENT_W - LABEL_W - VALUE_W - INNER_GAP * 2
 
-		local label = UI.label(card, labelText, "cardLabel", BODY_INK) -- 1d/1e sweep (2026-08-04): was white -- white-on-white after the card flip
+		local label = UI.label(card, labelText, "cardLabel", T.color.white) -- style replacement (2026-08-04): white again -- the card is a dark slot now
 		label.Name = "Label"
 		label.AnchorPoint = Vector2.new(0, 0.5)
 		label.Position = UDim2.new(0, 0, 0.5, 0)
@@ -495,7 +533,7 @@ function SettingsPanel.Build(ctx)
 		UI.stroke(knob, T.stroke.control)
 		UI.hardShadow(knob, 3, 17) -- kit "hard shadow 0 3" -- knob's parent (`card`) isn't list-managed, so no wrapper trap here
 
-		local valueLabel = UI.label(card, "0%", "cardLabel", BODY_INK) -- 1d/1e sweep (2026-08-04): on the white card now
+		local valueLabel = UI.label(card, "0%", "cardLabel", T.color.white) -- style replacement (2026-08-04): white on the dark row slot, matching Label above
 		valueLabel.Name = "Value"
 		valueLabel.AnchorPoint = Vector2.new(1, 0.5)
 		valueLabel.Position = UDim2.new(1, 0, 0.5, 0)
@@ -655,10 +693,12 @@ function SettingsPanel.Build(ctx)
 	----------------------------------------------------------- toggle row (GAMEPLAY)
 	local function buildToggleRow(labelText, initialOn, onToggle)
 		local slot = listSlot(TOGGLE_ROW_H)
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, 3)
+		-- style replacement (2026-08-04, Pet-Sim guide): dark row slot, fully
+		-- inherited, no recolour call -- see buildSliderRow's note for the
+		-- strokeW/hardShadow reasoning. The switch keeps its full kit look.
+		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
 		card.Name = "ToggleRow"
 		card.ZIndex = 15
-		whiteCard(card) -- 1d/1e sweep (2026-08-04): white card, no hardShadow -- see buildSliderRow's note; the switch keeps its full kit look
 
 		local ROW_PAD_X = 14
 		local pad = Instance.new("UIPadding")
@@ -668,7 +708,7 @@ function SettingsPanel.Build(ctx)
 
 		local SWITCH_W, SWITCH_H = 86, 38 -- kit "switch 86x38"
 
-		local label = UI.label(card, labelText, "cardLabel", BODY_INK) -- 1d/1e sweep (2026-08-04): was white -- white-on-white after the card flip
+		local label = UI.label(card, labelText, "cardLabel", T.color.white) -- style replacement (2026-08-04): white again -- the card is a dark slot now
 		label.Name = "Label"
 		label.AnchorPoint = Vector2.new(0, 0.5)
 		label.Position = UDim2.new(0, 0, 0.5, 0)
@@ -795,10 +835,12 @@ function SettingsPanel.Build(ctx)
 	-- vocabulary as the switches above it.
 	local function buildSkipRevealRow()
 		local slot = listSlot(SKIPREV_ROW_H)
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, 3)
+		-- style replacement (2026-08-04, Pet-Sim guide): dark row slot, fully
+		-- inherited, no recolour call -- see buildSliderRow's note. All 8 chips
+		-- keep their tier/OFF looks: those are rarity DATA, not chrome.
+		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
 		card.Name = "SkipRevealRow"
 		card.ZIndex = 15
-		whiteCard(card) -- 1d/1e sweep (2026-08-04): white card, no hardShadow -- see buildSliderRow's note; all 8 chips keep their tier/OFF looks
 
 		local ROW_PAD_X = 14
 		local pad = Instance.new("UIPadding")
@@ -806,7 +848,7 @@ function SettingsPanel.Build(ctx)
 		pad.PaddingRight = UDim.new(0, ROW_PAD_X)
 		pad.Parent = card
 
-		local label = UI.label(card, "Skip Catch Animation", "cardLabel", BODY_INK) -- 1d/1e sweep (2026-08-04): was white -- white-on-white after the card flip
+		local label = UI.label(card, "Skip Catch Animation", "cardLabel", T.color.white) -- style replacement (2026-08-04): white again -- the card is a dark slot now
 		label.Name = "Label"
 		label.Position = UDim2.new(0, 0, 0, 8)
 		label.Size = UDim2.new(1, 0, 0, 22)
@@ -979,9 +1021,13 @@ function SettingsPanel.Build(ctx)
 		goBtn.Position = UDim2.fromOffset(BOX_W + T.pad.gapTight, 0)
 		goBtn.ZIndex = 15
 
-		-- 1d/1e sweep (2026-08-04): msg floats on the transparent inputRow,
-		-- i.e. directly on the cream body -- textMuted was a dark-panel pick.
-		local msg = UI.label(inputRow, "", "meta", BODY_INK)
+		-- style replacement (2026-08-04, Pet-Sim guide): msg floats on the
+		-- transparent inputRow, i.e. directly on the light-gray WINDOW and not
+		-- on any card -- so it is the ONE label in this panel that stays dark,
+		-- and it uses the token minted for exactly that case
+		-- (T.color.textOnWindow) rather than 1d/1e's cream ink or the kit's
+		-- textMuted, which was a dark-panel pick to begin with.
+		local msg = UI.label(inputRow, "", "meta", T.color.textOnWindow)
 		msg.Name = "Message"
 		msg.AnchorPoint = Vector2.new(0, 1)
 		msg.Position = UDim2.new(0, 2, 0, -4)
@@ -1017,9 +1063,12 @@ function SettingsPanel.Build(ctx)
 				return
 			end
 			msg.Text = r.Message
-			-- 1d/1e sweep (2026-08-04): both originals were light-on-dark
-			-- picks (claimRing #7CE04A / salmon #FF8A7A) that wash out on
-			-- cream; colours only, the Success/Message handling is untouched.
+			-- style replacement (2026-08-04, Pet-Sim guide): third pass on this
+			-- one line. Kit shipped light-on-dark picks (claimRing #7CE04A /
+			-- salmon #FF8A7A), 1d/1e darkened them for cream, and the guide's
+			-- own accent green/red bottoms now hold the middle ground the
+			-- light-gray window needs. Colours ONLY -- the Success/Message
+			-- handling and the box clear below are untouched.
 			msg.TextColor3 = r.Success == true and MSG_GREEN or MSG_RED
 			if r.Success == true then
 				box.Text = ""

@@ -17,6 +17,17 @@
 --     (STYLE_GUIDE: no emoji as icons; the kit's own art rule);
 --   - locked/equip states keep their distinct button colours -- the mock
 --     only drew the buyable state.
+--
+-- 2026-08-04 STYLE REPLACEMENT (Pet-Sim guide): the cream/1d skin above is
+-- GONE. Window body is the guide's light gray, the header bar is ONE red for
+-- every merchant (the per-merchant Accent recolour is dropped -- Accent still
+-- feeds MerchantDialog), the white+tan cards are the guide's DARK slots with
+-- white type, corners tighten to panel 8 / slot 8 / control 12, and every
+-- surface stroke is the guide's #202020 with a white inner keyline on the
+-- window. Colour IDENTITIES survive untouched: BUY green, EQUIP blue, EQUIPPED
+-- olive, LOCKED gray, gold active tab, gold coin, the dark 3D display case.
+-- Still visual-only -- prompts, walk-away close, SideRail, the pager and the
+-- BuyRock/EquipRock/BuyUpgrade remotes are byte-for-byte the same.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -41,25 +52,42 @@ local current = nil
 local page = 1
 local PER_PAGE = 6   -- mock 1d: 3x2 grid per page (was 2x4 of 8)
 
----------------------------------------------------------------- mock 1d palette
-local CREAM_TOP = Color3.fromHex("#fff9ec")
-local CREAM_BOT = Color3.fromHex("#ffedcd")
-local CARD_BORDER = Color3.fromHex("#e5d3ac")
-local BODY_TEXT = Color3.fromHex("#4a3416")
-local MUTED_TEXT = Color3.fromHex("#a08654")
-local PRICE_AMBER = Color3.fromHex("#b47607")
-local BUY_TOP = Color3.fromHex("#79e254")
-local BUY_BOT = Color3.fromHex("#35a91c")
-local EQUIP_TOP = Color3.fromHex("#58a6ff")
-local EQUIP_BOT = Color3.fromHex("#1f6fe0")
-local DONE_TOP = Color3.fromHex("#8fa378")
+---------------------------------------------------------------- palette (style replacement 2026-08-04, Pet-Sim guide)
+-- These mirror T.gradient.window / T.gradient.header / T.gradient.slot and
+-- T.color.outline / innerKeyline / textOnWindow, but stay literals: this
+-- client has never required the Tokens module at load (only a pcall for the
+-- coin art), and it is not worth a new hard dependency for a colour table.
+local WINDOW_TOP = Color3.fromHex("#d6d6d6")   -- guide window body, top
+local WINDOW_BOT = Color3.fromHex("#a9a9a9")   -- guide window body, bottom
+local HEADER_TOP = Color3.fromHex("#f96b57")   -- guide header bar -- ONE red, every merchant
+local HEADER_BOT = Color3.fromHex("#c84535")
+local SLOT_TOP = Color3.fromHex("#4a4a4a")     -- guide card/slot/row, top
+local SLOT_BOT = Color3.fromHex("#363636")     -- guide card/slot/row, bottom
+local OUTLINE = Color3.fromHex("#202020")      -- guide outer border (was BLACK-on-tan)
+local KEYLINE = Color3.fromHex("#ffffff")      -- guide inner keyline
+-- card type used to be dark ink so it could sit on cream; the cards are DARK
+-- now, so it goes back to white. Only the blurb still sits straight on the
+-- light window, and it alone keeps the dark ink (= T.color.textOnWindow).
+local SLOT_TEXT = Color3.fromRGB(255, 255, 255)
+local SLOT_MUTED = Color3.fromHex("#c9c9c9")
+local TEXT_ON_WINDOW = Color3.fromHex("#202020")
+-- currency identity kept, brightened off the old cream-friendly #b47607: an
+-- amber that dark reads as mud on a #363636 slot.
+local PRICE_AMBER = Color3.fromHex("#ffc531")
+-- state identities, retuned to the guide's own accent pairs (green/blue/red)
+-- -- same three states, same reading, guide-exact hexes.
+local BUY_TOP = Color3.fromHex("#83e34a")
+local BUY_BOT = Color3.fromHex("#4fb42e")
+local EQUIP_TOP = Color3.fromHex("#56b7ff")
+local EQUIP_BOT = Color3.fromHex("#2e81d8")
+local DONE_TOP = Color3.fromHex("#8fa378")     -- EQUIPPED olive: no guide counterpart, left alone
 local DONE_BOT = Color3.fromHex("#54643c")
-local LOCK_TOP = Color3.fromRGB(150, 156, 170)
+local LOCK_TOP = Color3.fromRGB(150, 156, 170) -- LOCKED/MAXED gray, left alone
 local LOCK_BOT = Color3.fromRGB(94, 100, 114)
-local TAB_GOLD_TOP = Color3.fromHex("#ffdf5e")
+local TAB_GOLD_TOP = Color3.fromHex("#ffdf5e") -- active pager chip: gold is the selected-tab identity
 local TAB_GOLD_BOT = Color3.fromHex("#f7a721")
-local CLOSE_TOP = Color3.fromHex("#ff6161")
-local CLOSE_BOT = Color3.fromHex("#d61f1f")
+local CLOSE_TOP = Color3.fromHex("#ff6b6b")    -- guide red accent
+local CLOSE_BOT = Color3.fromHex("#d83e3e")
 
 local function short(n)
 	n = math.floor(n)
@@ -95,7 +123,7 @@ local function makeRockViewport(med, rock)
 	vp.LightDirection = Vector3.new(-0.6, -1, -0.4)
 	vp.ZIndex = med.ZIndex + 1
 	vp.Parent = med
-	UITheme.corner(vp, 12)
+	UITheme.corner(vp, 8)   -- guide: art 8, matched to the display case it fills
 
 	local model = RockDesign.Build(rock.Id, rock.Color)
 	model:PivotTo(CFrame.Angles(math.rad(-8), 0, 0))
@@ -129,7 +157,7 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
----------------------------------------------------------------- panel (mock 1d)
+---------------------------------------------------------------- panel (guide window)
 local FRAME_W, FRAME_H = 680, 620
 local HEADER_H = 58
 local BLURB_H = 20
@@ -141,7 +169,7 @@ frame.Name = "MerchantFrame"
 frame.AnchorPoint = Vector2.new(0.5, 0.5)
 frame.Position = UDim2.new(0.5, 0, 0.5, 0)
 frame.Size = UDim2.fromOffset(FRAME_W, FRAME_H)
-frame.BackgroundColor3 = CREAM_TOP
+frame.BackgroundColor3 = WINDOW_TOP
 frame.BorderSizePixel = 0
 frame.Visible = false
 frame.ZIndex = 10
@@ -149,17 +177,37 @@ frame.Parent = gui
 -- The rail sits at DisplayOrder 6 and this panel at 0; registering it means
 -- the legacy rail folds away while the shop is open (single-open registry).
 SideRail.registerPanel(frame)
-UITheme.corner(frame, 24)
+UITheme.corner(frame, 8)   -- guide: panels 8 (was the 1d mock's 24)
 do
 	local grad = Instance.new("UIGradient")
 	grad.Rotation = 90
-	grad.Color = ColorSequence.new(CREAM_TOP, CREAM_BOT)
+	grad.Color = ColorSequence.new(WINDOW_TOP, WINDOW_BOT)
 	grad.Parent = frame
 	local ink = Instance.new("UIStroke")
 	ink.Thickness = 4
-	ink.Color = BLACK
+	ink.Color = OUTLINE
 	ink.Transparency = 0.05
 	ink.Parent = frame
+	-- guide inner keyline: a UIStroke is one-per-instance, so the 2px white
+	-- line is its own inset ring. Active = false + no fill, so it neither eats
+	-- clicks nor covers content (it sits at the panel's own ZIndex, under the
+	-- 11+ chrome), and it is deliberately NOT a second stroke on `frame`.
+	local keyline = Instance.new("Frame")
+	keyline.Name = "InnerKeyline"
+	keyline.AnchorPoint = Vector2.new(0.5, 0.5)
+	keyline.Position = UDim2.fromScale(0.5, 0.5)
+	keyline.Size = UDim2.new(1, -8, 1, -8)
+	keyline.BackgroundTransparency = 1
+	keyline.BorderSizePixel = 0
+	keyline.Active = false
+	keyline.ZIndex = frame.ZIndex
+	keyline.Parent = frame
+	UITheme.corner(keyline, 6)
+	local line = Instance.new("UIStroke")
+	line.Thickness = 2
+	line.Color = KEYLINE
+	line.Transparency = 0.55
+	line.Parent = keyline
 end
 
 -- Short-viewport guard: shrink and push the panel down so it never covers the
@@ -178,37 +226,39 @@ end
 gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
 relayout()
 
--- header bar: per-merchant gradient (mock: orange for the shop), title
--- wordmark centred, clipped to the panel's rounded top by its own corner
+-- header bar: the guide's ONE red, every merchant (the per-merchant Accent
+-- gradient is gone -- see rebuild()), title wordmark centred, clipped to the
+-- panel's rounded top by its own corner
 local headerBar = Instance.new("Frame")
 headerBar.Name = "HeaderBar"
 headerBar.Size = UDim2.new(1, 0, 0, HEADER_H)
 headerBar.Position = UDim2.fromOffset(0, 0)
-headerBar.BackgroundColor3 = Color3.fromHex("#ffb02e")
+headerBar.BackgroundColor3 = HEADER_TOP
 headerBar.BorderSizePixel = 0
 headerBar.ZIndex = 12
 headerBar.Parent = frame
-UITheme.corner(headerBar, 22)
+UITheme.corner(headerBar, 8)   -- guide: matches the panel's own 8 (was 22)
 local headerGrad = Instance.new("UIGradient")
 headerGrad.Rotation = 90
-headerGrad.Color = ColorSequence.new(Color3.fromHex("#ffb02e"), Color3.fromHex("#ff7d00"))
+headerGrad.Color = ColorSequence.new(HEADER_TOP, HEADER_BOT)
 headerGrad.Parent = headerBar
 do
 	-- square off the header's bottom corners: a plain strip overlapping its
-	-- lower half, carrying the gradient's bottom colour band
+	-- lower half, carrying the gradient's bottom colour band. Height follows
+	-- the corner down (16 -> 10) now that the corner is the guide's 8.
 	local squareOff = Instance.new("Frame")
 	squareOff.Name = "SquareOff"
 	squareOff.AnchorPoint = Vector2.new(0, 1)
 	squareOff.Position = UDim2.new(0, 0, 1, 0)
-	squareOff.Size = UDim2.new(1, 0, 0, 16)
-	squareOff.BackgroundColor3 = Color3.fromHex("#ff8a10")
+	squareOff.Size = UDim2.new(1, 0, 0, 10)
+	squareOff.BackgroundColor3 = HEADER_TOP:Lerp(HEADER_BOT, 0.7)
 	squareOff.BorderSizePixel = 0
 	squareOff.ZIndex = 12
 	squareOff.Parent = headerBar
 end
 local headerInk = Instance.new("UIStroke")
 headerInk.Thickness = 3
-headerInk.Color = BLACK
+headerInk.Color = OUTLINE
 headerInk.Transparency = 0.05
 headerInk.Parent = headerBar
 
@@ -247,9 +297,10 @@ do
 	grad.Rotation = 90
 	grad.Color = ColorSequence.new(CLOSE_TOP, CLOSE_BOT)
 	grad.Parent = closeBtn
+	-- the white ring was already the guide's keyline; named as such now
 	local ring = Instance.new("UIStroke")
 	ring.Thickness = 3.5
-	ring.Color = Color3.fromRGB(255, 255, 255)
+	ring.Color = KEYLINE
 	ring.Parent = closeBtn
 end
 inkText(closeBtn, 2.5)
@@ -272,7 +323,8 @@ blurb.Position = UDim2.new(0, 22, 0, HEADER_H + 8)
 blurb.BackgroundTransparency = 1
 blurb.Font = Enum.Font.GothamMedium
 blurb.TextSize = 13
-blurb.TextColor3 = MUTED_TEXT
+-- the one label that sits straight on the light window, so it keeps dark ink
+blurb.TextColor3 = TEXT_ON_WINDOW
 blurb.ZIndex = 12
 blurb.Parent = frame
 
@@ -314,8 +366,9 @@ local function renderPageChips(totalPages)
 		chip.BorderSizePixel = 0
 		chip.ZIndex = 15
 		chip.Parent = chipRow
-		UITheme.corner(chip, 12)
+		UITheme.corner(chip, 10)   -- guide: chip 10 (was 12)
 		if active then
+			-- gold selected tab: identity, untouched by the style replacement
 			chip.BackgroundColor3 = TAB_GOLD_TOP
 			local grad = Instance.new("UIGradient")
 			grad.Rotation = 90
@@ -324,16 +377,22 @@ local function renderPageChips(totalPages)
 			chip.TextColor3 = Color3.fromRGB(255, 255, 255)
 			local ink = Instance.new("UIStroke")
 			ink.Thickness = 3
-			ink.Color = BLACK
+			ink.Color = OUTLINE
 			ink.Transparency = 0.05
 			ink.Parent = chip
 			inkText(chip, 2)
 		else
-			chip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			chip.TextColor3 = MUTED_TEXT
+			-- unselected tab was white + tan; it is the guide's dark slot now,
+			-- which is also what makes the gold active chip pop off the row
+			chip.BackgroundColor3 = SLOT_TOP
+			local grad = Instance.new("UIGradient")
+			grad.Rotation = 90
+			grad.Color = ColorSequence.new(SLOT_TOP, SLOT_BOT)
+			grad.Parent = chip
+			chip.TextColor3 = SLOT_MUTED
 			local border = Instance.new("UIStroke")
 			border.Thickness = 3
-			border.Color = CARD_BORDER
+			border.Color = OUTLINE
 			border.Parent = chip
 			chip.Activated:Connect(function()
 				page = n
@@ -362,7 +421,7 @@ layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 layout.Parent = list
 
----------------------------------------------------------------- card builder (mock 1d white card)
+---------------------------------------------------------------- card builder (guide dark slot)
 -- Signature kept close to the old makeRow so rebuild()'s item closures stay
 -- recognisable: order, name, infoLine, button spec, click, preview builder,
 -- optional price (nil hides the price row), optional statLine (upgrades).
@@ -370,14 +429,22 @@ local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, onClick,
 	local card = Instance.new("Frame")
 	card.Name = "Card" .. order
 	card.LayoutOrder = order
-	card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	-- style replacement: flat white + tan border -> the guide's dark slot
+	-- gradient + #202020 outline. Still ONE stroke on the card.
+	card.BackgroundColor3 = SLOT_TOP
 	card.BorderSizePixel = 0
 	card.ZIndex = 12
 	card.Parent = list
-	UITheme.corner(card, 18)
+	UITheme.corner(card, 8)   -- guide: slots 8 (was 18)
+	do
+		local grad = Instance.new("UIGradient")
+		grad.Rotation = 90
+		grad.Color = ColorSequence.new(SLOT_TOP, SLOT_BOT)
+		grad.Parent = card
+	end
 	local border = Instance.new("UIStroke")
 	border.Thickness = 3
-	border.Color = CARD_BORDER
+	border.Color = OUTLINE
 	border.Parent = card
 
 	-- icon tile: dark display case holding the 3D preview (or a glyph)
@@ -391,11 +458,14 @@ local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, onClick,
 	icon.ClipsDescendants = true
 	icon.ZIndex = card.ZIndex + 1
 	icon.Parent = card
-	UITheme.corner(icon, 12)
+	UITheme.corner(icon, 8)   -- guide: art 8 (was 12)
 	do
+		-- the display case is darker than the slot it now sits in, so the tan
+		-- rim becomes the guide's white keyline -- a #202020 rim would vanish
 		local rim = Instance.new("UIStroke")
-		rim.Thickness = 2.5
-		rim.Color = CARD_BORDER
+		rim.Thickness = 2
+		rim.Color = KEYLINE
+		rim.Transparency = 0.4
 		rim.Parent = icon
 	end
 	if previewBuilder then
@@ -411,7 +481,7 @@ local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, onClick,
 	n.TextSize = 16
 	n.TextXAlignment = Enum.TextXAlignment.Center
 	n.TextTruncate = Enum.TextTruncate.AtEnd
-	n.TextColor3 = BODY_TEXT
+	n.TextColor3 = SLOT_TEXT
 	n.Text = name
 	n.ZIndex = card.ZIndex + 2
 	n.Parent = card
@@ -430,7 +500,7 @@ local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, onClick,
 	info.TextYAlignment = Enum.TextYAlignment.Top
 	info.TextWrapped = true
 	info.TextTruncate = Enum.TextTruncate.AtEnd
-	info.TextColor3 = MUTED_TEXT
+	info.TextColor3 = SLOT_MUTED
 	info.Text = statLine and (infoLine .. "  \u{2022}  " .. statLine) or infoLine
 	info.ZIndex = card.ZIndex + 2
 	info.Parent = card
@@ -507,7 +577,7 @@ local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, onClick,
 	b.Font = FONT
 	b.ZIndex = card.ZIndex + 2
 	b.Parent = card
-	UITheme.corner(b, 12)
+	UITheme.corner(b, 12)   -- guide: buttons 10-14, already in band
 	do
 		local grad = Instance.new("UIGradient")
 		grad.Rotation = 90
@@ -515,7 +585,7 @@ local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, onClick,
 		grad.Parent = b
 		local ink = Instance.new("UIStroke")
 		ink.Thickness = 3
-		ink.Color = BLACK
+		ink.Color = OUTLINE
 		ink.Transparency = 0.05
 		ink.Parent = b
 	end
@@ -545,15 +615,11 @@ rebuild = function()
 	if not current then chipRow.Visible = false; return end
 	title.Text = titleWord(current.Title)
 	blurb.Text = current.Npc .. "  \u{2022}  " .. current.Blurb
-	-- per-merchant header gradient (config Accent pair); mock's shop orange
-	-- comes straight from Rocco's own accent colours
-	if current.Accent then
-		headerGrad.Color = ColorSequence.new(current.Accent[1], current.Accent[2])
-		local squareOff = headerBar:FindFirstChild("SquareOff")
-		if squareOff then
-			squareOff.BackgroundColor3 = current.Accent[1]:Lerp(current.Accent[2], 0.7)
-		end
-	end
+	-- style replacement (2026-08-04, Pet-Sim guide): the header no longer
+	-- repaints itself from current.Accent -- the guide gives shop chrome ONE
+	-- red, so headerGrad/SquareOff keep the colours they were built with and
+	-- every merchant shares the bar. current.Accent is still live data and is
+	-- still read where it means something (MerchantDialog.Show, below).
 
 	-- Build a flat list of render closures so pagination is Kind-agnostic: each entry
 	-- draws exactly one card when called with its on-page order (1..PER_PAGE).

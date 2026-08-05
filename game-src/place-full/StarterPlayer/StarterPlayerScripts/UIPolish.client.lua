@@ -30,9 +30,14 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local FONT       = Enum.Font.FredokaOne
+-- 2026-08-04 STYLE REPLACEMENT ("Roblox Simulator UI Style Guide" .docx):
+-- GothamBold everywhere. This constant is the REAL font switch for the whole
+-- game -- the loop below force-sets the legacy .Font property on every label,
+-- which overrides any FontFace a panel sets, so UIKit.Tokens' T.font and this
+-- line must always move together (changing Tokens alone is a silent no-op).
+local FONT       = Enum.Font.GothamBold
 local WHITE      = Color3.fromRGB(255, 255, 255)
-local INK        = Color3.fromRGB(38, 28, 22)   -- outline that makes white legible
+local INK        = Color3.fromRGB(32, 32, 32)   -- outline that makes white legible (guide #202020)
 local STROKE_TAG = "UIPolishStroke"
 
 local function isText(o)

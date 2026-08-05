@@ -2,20 +2,26 @@
 -- PassPanel: kit README §3.1 Season Pass panel -- a GameHUDPanels consumer
 -- module (StarterPlayer.StarterPlayerScripts.GameHUDPanels.PassPanel).
 --
--- 1d/1e sweep (2026-08-04), following DailyPanel's shipped cream recipe:
--- the body flips from the kit's dark panel to the mock's cream (hand-built
--- UIPadding stays T.pad.panel 16 per side -- NOT Daily's panelWide 18 --
--- because ROW_CONTENT_W and the xpTrack flex width are measured against
--- 16); FREE reward cards flip to flat white + 3px #e5d3ac border + #4a3416
--- ink and wear Daily's corner-badge lock / claimed-green treatments; a
--- per-panel backdrop BlurEffect ("PassPanelBlur") rides the Visible
--- watcher. The HEADER IS DELIBERATELY UNTOUCHED -- gold IS this panel's
--- assigned accent (purple went to Daily) -- and so is every gold/olive/
--- dark piece of chrome: pass cards, ticket/level/tier badges, the rotated
--- label blocks, the dark XP track, the disabled CTA and the side column
--- (which floats OUTSIDE the cream body over the dimmed world, so its
--- white text stays white). ZERO wiring changed: remotes, state writes,
--- the hasServerState badge gate and the render flow are byte-identical.
+-- Style replacement (2026-08-04, Pet-Sim guide) -- supersedes the 1d/1e
+-- cream sweep this file shipped with. The body is the guide's light gray
+-- WINDOW now (UI.surface kind "cream" -> "window": same colours, honest
+-- name; the hand-built UIPadding still stays T.pad.panel per side -- NOT
+-- panelWide -- because ROW_CONTENT_W and the xpTrack flex width are
+-- measured against T.pad.panel, and 2px of drift overflows the progress
+-- row). The header drops its gold for the guide's one RED bar
+-- (T.gradient.header): a single red header on EVERY panel is the point of
+-- the guide, so this panel's "assigned accent" no longer governs chrome --
+-- only its content. FREE reward cards go from the sweep's flat white + tan
+-- border + dark ink to the guide's DARK slot (T.gradient.slot, ink
+-- outline, WHITE text) and, being dark again, take back the kit's hard
+-- shadow so both card rows match. Everything COLOURED is untouched: the
+-- gold pass cards, ticket/level/tier badges, the free/pass rotated label
+-- pair, the claim ring + green CLAIM pill, the claimed-green card skin,
+-- the rainbow side previews, the per-panel backdrop BlurEffect
+-- ("PassPanelBlur") that rides the Visible watcher. The side column still
+-- floats OUTSIDE the body over the dimmed world, so its white text stays
+-- white. ZERO wiring changed: remotes, state writes, the hasServerState
+-- badge gate, the blur watchers and the render flow are byte-identical.
 --
 -- Contract (kit README section: ctx from GameHUDClient):
 --   return { Id = "pass", Build = function(ctx) -> Frame }
@@ -79,23 +85,36 @@ local function shortCash(n: number): string
 	return "$" .. tostring(n)
 end
 
------------------------------------------------------------------ 1d/1e sweep palette (2026-08-04; ink stays the kit's)
--- Consumed ONLY by the FREE column and the scrollbar -- the gold pass
--- column keeps its kit tokens untouched. The claimed/lock constants are
--- DailyPanel's shipped mock values verbatim; #e5d3ac/#4a3416 are the
--- sweep's card-border / body-on-cream ink pair.
-local CARD_BORDER = Color3.fromHex("#e5d3ac") -- soft border for white cards INSIDE the cream body (the body itself keeps the ink panel stroke)
-local CARD_TEXT = Color3.fromHex("#4a3416") -- body ink on cream/white surfaces
+----------------------------------------------------------------- free-column state palette (style replacement 2026-08-04, Pet-Sim guide)
+-- All that survives the cream sweep, and only because both are IDENTITY,
+-- not chrome: the CLAIMED green skin (green = claimed is one language
+-- across these panels) and the plum corner lock (its 2.5px white ring is
+-- what carries it, so it reads on the dark slot exactly as it read on the
+-- old white card). Deleted with the cream: the tan card border, the
+-- dark-ink card text and the tan scrollbar thumb -- free cards are dark
+-- slots with white text now, so they read straight off T.gradient.slot /
+-- T.color.outline / T.color.white and need no file-local constants at all.
 local CLAIMED_BG = Color3.fromHex("#e9f7e4")
 local CLAIMED_BORDER = Color3.fromHex("#bfe3b1")
 local CLAIMED_TEXT = Color3.fromHex("#6da35e")
 local CHECK_GREEN = Color3.fromHex("#3fae1f")
 local LOCK_BADGE = Color3.fromHex("#5c5470") -- Daily's plum locked-badge fill
-local SCROLL_THUMB_TAN = Color3.fromHex("#c9b585") -- darker sibling of CARD_BORDER, for the thumb on cream
 
 function PassPanel.Build(ctx)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
+
+	-- STYLE REPLACEMENT REPAIR (2026-08-04): the cream constants were deleted
+	-- with the 1d/1e chrome, but a few of their CALL SITES further down survived
+	-- the pass and became nil globals -- Build crashed on the first one, and
+	-- because GameHUDClient.openPanel wraps Build in a pcall the panel simply
+	-- never opened, silently. Rather than delete those sites blind, the two
+	-- names are re-declared here pointing at their GUIDE successors, so every
+	-- surviving site reads true in the new style:
+	--   card/slot borders -> the guide's 4px #202020 outline
+	--   card body text    -> white, because those cards are dark slots now
+	local CARD_BORDER = T.color.outline
+	local BODY_INK = T.color.white
 
 	----------------------------------------------------------- geometry (kit README §3.1, exact)
 	local PANEL_W = T.size.panelWidth.pass -- 960
@@ -153,7 +172,12 @@ function PassPanel.Build(ctx)
 	sideCol.Parent = group
 
 	----------------------------------------------------------- header (common shell, README §3)
-	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "gold", T.radius.panel, T.stroke.panel)
+	-- Style replacement (2026-08-04, Pet-Sim guide): "gold" -> "header". The
+	-- guide ships ONE header colour for every panel, so gold stops being this
+	-- panel's chrome accent -- it stays its CONTENT accent (pass cards,
+	-- ticket/level/tier badges, the "Season Pass" label block below all keep
+	-- their gold tokens, and the guide's red never touches them).
+	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "header", T.radius.panel, T.stroke.panel)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
@@ -184,17 +208,19 @@ function PassPanel.Build(ctx)
 	questsBtn.Position = UDim2.new(1, -12 - T.size.closeButton.X - 14, 0.5, 0)
 	questsBtn.ZIndex = header.ZIndex + 2
 
-	----------------------------------------------------------- body (mock 1d/1e cream -- restyled 2026-08-04)
-	-- Was UI.panel (kit dark). UI.panel bundles THREE things -- the "panel"
-	-- surface, a hardShadow and a UIPadding -- so the cream swap rebuilds
-	-- all three by hand. Padding is T.pad.panel (16) per side, NOT
-	-- DailyPanel's panelWide 18: ROW_CONTENT_W (928, geometry block above)
-	-- and the xpTrack flex width below are measured against 16, so 18 would
-	-- shift every child 2px and overflow the progress row. The cream
-	-- surface KEEPS the ink T.stroke.panel border (#e5d3ac is only for
-	-- cards INSIDE the body) and carries no gloss -- both per the shipped
-	-- Daily recipe.
-	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "cream", T.radius.panel, T.stroke.panel)
+	----------------------------------------------------------- body (guide window gray -- style replacement 2026-08-04)
+	-- Still NOT UI.panel: UI.panel bundles THREE things -- the "panel"
+	-- surface, a hardShadow and a UIPadding -- and this panel needs its own
+	-- padding number, so all three stay hand-built. Padding is T.pad.panel
+	-- per side, NOT panelWide: ROW_CONTENT_W (geometry block above) and the
+	-- xpTrack flex width below are both measured against T.pad.panel, so a
+	-- wider pad would shift every child 2px and overflow the progress row.
+	-- Style replacement (2026-08-04, Pet-Sim guide): kind "cream" ->
+	-- "window" -- the same light-gray surface the legacy alias resolves to,
+	-- named for what the guide actually calls it. It keeps the ink
+	-- T.stroke.panel border (the guide's 4px outer border) and carries no
+	-- gloss: a flat body is what makes the dark slots on it pop.
+	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
@@ -327,7 +353,7 @@ function PassPanel.Build(ctx)
 	scroll.BorderSizePixel = 0
 	scroll.ScrollingDirection = Enum.ScrollingDirection.X
 	scroll.ScrollBarThickness = 10
-	scroll.ScrollBarImageColor3 = SCROLL_THUMB_TAN -- 1d/1e sweep: the kit's sage thumb was tuned for the dark panel and sat low-contrast on cream; cosmetic only
+	scroll.ScrollBarImageColor3 = T.color.outline -- style replacement (2026-08-04, Pet-Sim guide): the sweep's tan thumb went with the cream; the guide's ink is the highest-contrast thing that can sit on the gray window. Cosmetic only -- scrolling behaviour untouched.
 	scroll.CanvasSize = UDim2.new()
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.X
 	scroll.ElasticBehavior = Enum.ElasticBehavior.Never
@@ -375,12 +401,20 @@ function PassPanel.Build(ctx)
 		local y = 30 + 12 + (order - 1) * (unitH + 14)
 		local cardW = 176
 
-		local card = UI.surface(sideCol, UDim2.fromOffset(cardW, 212), "panel", 15, T.stroke.control)
+		-- Style replacement (2026-08-04, Pet-Sim guide): the two bare 15s here
+		-- were a literal corner radius from the loose-cornered era -- the guide
+		-- tightens T.radius.*, so a literal left in place would read visibly
+		-- rounder than every other card on screen. Tokenised, and the ring gets
+		-- +5 because it sits 5px OUTSIDE the card (UI.rainbowRing is a +10/-5
+		-- frame) -- same concentric-corner convention UI.claimRing uses for its
+		-- own +8/-4 ring. Colour is unchanged: "panel" follows the shared token
+		-- to the guide's gray automatically, and the rainbow ring is identity.
+		local card = UI.surface(sideCol, UDim2.fromOffset(cardW, 212), "panel", T.radius.control, T.stroke.control)
 		card.Name = "TierPreview" .. order
 		card.AnchorPoint = Vector2.new(0.5, 0)
 		card.Position = UDim2.new(0.5, 0, 0, y)
 		card.ZIndex = 14
-		UI.rainbowRing(card, 15)
+		UI.rainbowRing(card, T.radius.control + 5)
 
 		local art = UI.artSlot(card, UDim2.new(1, -16, 1, -16), track == "pass" and T.icons.pass or T.icons.coin)
 		art.Name = "ArtSlot"
@@ -436,7 +470,11 @@ function PassPanel.Build(ctx)
 
 	----------------------------------------------------------- reward-card state machine (kit README §5)
 	local function buildLockBadge(card: Frame)
-		local lock = UI.surface(card, UDim2.fromOffset(T.size.lockBadge, T.size.lockBadge), "lockBadge", 13, T.stroke.chip)
+		-- Style replacement (2026-08-04, Pet-Sim guide): literal 13 -> T.radius.chip,
+		-- for the same reason as the side previews above (tightened corners). The
+		-- lockBadge gradient itself is untouched -- it only ever lands on the GOLD
+		-- pass cards, where its light grey still has contrast.
+		local lock = UI.surface(card, UDim2.fromOffset(T.size.lockBadge, T.size.lockBadge), "lockBadge", T.radius.chip, T.stroke.chip)
 		lock.Name = "LockBadge"
 		lock.AnchorPoint = Vector2.new(1, 0)
 		lock.Position = UDim2.new(1, 8, 0, -8)
@@ -452,10 +490,15 @@ function PassPanel.Build(ctx)
 		glyph.ZIndex = lock.ZIndex + 1
 	end
 
-	-- 1d/1e sweep (2026-08-04): DailyPanel's 28px corner badge (2.5px white
-	-- ring + glyph) for the FREE column's white cards -- plum lock when
-	-- LOCKED, green check when CLAIMED (the kit's grey lockBadge stays on
-	-- the gold pass column, where it has contrast). Parented to the CARD,
+	-- DailyPanel's 28px corner badge (2.5px white ring + glyph) for the FREE
+	-- column -- plum lock when LOCKED, green check when CLAIMED (the kit's
+	-- grey lockBadge stays on the gold pass column, where it has contrast).
+	-- Style replacement (2026-08-04, Pet-Sim guide): kept as-is even though
+	-- the cards under it went from white to dark. The white ring is what
+	-- separates this badge from whatever it sits on, and half the badge
+	-- overhangs the card onto the gray window anyway -- it was never the
+	-- card colour doing the work. The 14 radius is geometry, not a corner
+	-- token: it is half of 28, i.e. a circle. Parented to the CARD,
 	-- not the slot: Daily's slot-parenting trick exists because ITS cards
 	-- carry an 8px UIPadding that drags overhang furniture inward; these
 	-- cards have no UIPadding, so card-relative offsets already land on the

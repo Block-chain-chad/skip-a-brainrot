@@ -2,8 +2,27 @@
 -- DailyPanel: Daily Rewards panel -- a GameHUDPanels consumer module
 -- (StarterPlayer.StarterPlayerScripts.GameHUDPanels.DailyPanel).
 --
+-- 2026-08-04 STYLE REPLACEMENT (user's "Roblox Simulator UI Style Guide",
+-- Pet-Sim inspired) -- supersedes the 1d/1e cream chrome below. THREE colour
+-- decisions, nothing structural:
+--   header  : T.gradient.header, the guide's red -- was the 1e purple
+--             #b06bff -> #6c1fd6, built as a "gold" surface and recoloured
+--             in place; "header" is a real surface kind now, so that dance
+--             is gone (one gradient, one stroke, no leftovers);
+--   body    : surface kind "window" (guide light gray #D6D6D6 -> #A9A9A9)
+--             -- was kind "cream", which is now only a legacy alias;
+--   hint    : T.color.textOnWindow -- was the hardcoded cream-ink #4a3416.
+-- Everything else in this file is COLOURED IDENTITY and survives verbatim:
+-- the four day-card states (claimed green, TODAY gold, locked lavender, MEGA
+-- purple + rainbow ring), the pink TODAY tag, the green CLAIM pill, the dark
+-- timer pill. The only literal GEOMETRY left is the mock's day-card furniture
+-- (card stroke 3/3.5, badge/tag corners 14/10, glyph text sizes) -- already
+-- inside the guide's 3-4px outline and 8-14 corner bands, so it stands; every
+-- other radius/stroke/type here rides the retuned tokens. ZERO wiring, data
+-- or motion changes.
+--
 -- 2026-08-04 RESTYLE (user handoff "Roblox game theme UI redesign", option
--- 1e): the visual recipe is now the mock's -- purple header, cream body,
+-- 1e): the visual recipe is the mock's -- accent header, panel body,
 -- centred dark "NEXT REWARD IN" timer pill, and STATE-COLOURED day cards
 -- (green claimed card + corner check, gold glowing TODAY card + pink tag +
 -- breathing CLAIM, lavender locked card + corner lock, rainbow MEGA GIFT
@@ -15,8 +34,9 @@
 --   - kit family header (92px, icon + title + in-header close) kept instead
 --     of the mock's 58px header + overlapping close circle -- family
 --     consistency with every other GameHUDPanels panel;
---   - outlines use the kit's ink #16170F (vs mock #1c1333 -- same near-black,
---     the mock's real mandate was "no brown #2e1a08");
+--   - outlines use the kit's ink T.color.outline (#202020 since the style
+--     replacement, was #16170F; vs mock #1c1333 -- same near-black, the
+--     mock's real mandate was "no brown #2e1a08");
 --   - no hourglass emoji in the timer pill (STYLE_GUIDE: no emoji as icons);
 --   - the task-11 USER DECISION streak count ("N day streak!") survives in
 --     the timer row's right slot; the old "Day N" gold chip is dropped (the
@@ -138,13 +158,20 @@ end
 -- 7th"), copied verbatim from the legacy DailyRewardClient's table.
 local MILESTONES = { [7] = true, [14] = true, [21] = true, [30] = true }
 
------------------------------------------------------------------ mock palette (option 1e; ink stays the kit's)
+----------------------------------------------------------------- mock palette (option 1e day-card STATES; ink rides T.color.outline)
+-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide): every hex still standing
+-- here is a STATE IDENTITY the guide explicitly leaves alone -- it is data
+-- about which day you're looking at, not panel chrome. The two chrome
+-- entries that used to sit in this block, HEADER_TOP/HEADER_BOT (the 1e
+-- purple header), are DELETED: the header takes T.gradient.header now.
+-- Read TODAY_TOP/TODAY_BOT as GOLD, not as the retired cream -- they are
+-- cream-adjacent by accident of the gold wash, and they stay.
 local CLAIMED_BG = Color3.fromHex("#e9f7e4")
 local CLAIMED_BORDER = Color3.fromHex("#bfe3b1")
 local CLAIMED_TEXT = Color3.fromHex("#6da35e")
-local TODAY_TOP = Color3.fromHex("#fff8dc")
-local TODAY_BOT = Color3.fromHex("#ffe9a8")
-local TODAY_TEXT = Color3.fromHex("#8a6410")
+local TODAY_TOP = Color3.fromHex("#fff8dc") -- TODAY gold wash (identity), NOT chrome cream
+local TODAY_BOT = Color3.fromHex("#ffe9a8") -- ditto
+local TODAY_TEXT = Color3.fromHex("#8a6410") -- ink on the gold card, stays dark for legibility
 local TODAY_GLOW = Color3.fromHex("#ffd23e")
 local LOCKED_BG = Color3.fromHex("#eae4f2")
 local LOCKED_BORDER = Color3.fromHex("#cfc4dd")
@@ -152,10 +179,8 @@ local LOCKED_TEXT = Color3.fromHex("#8d81a3")
 local LOCK_BADGE = Color3.fromHex("#5c5470")
 local MEGA_TEXT = Color3.fromHex("#8f2fe0")
 local TAG_PINK = Color3.fromHex("#ff3d7a")
-local TIMER_BG = Color3.fromHex("#281608")
+local TIMER_BG = Color3.fromHex("#281608") -- dark timer pill; already reads as the guide's dark family
 local TIMER_GOLD = Color3.fromHex("#ffd23e")
-local HEADER_TOP = Color3.fromHex("#b06bff")
-local HEADER_BOT = Color3.fromHex("#6c1fd6")
 local CHECK_GREEN = Color3.fromHex("#3fae1f")
 
 ----------------------------------------------------------------- module-top-level capture (see header note)
@@ -224,18 +249,16 @@ function DailyPanel.Build(ctx)
 	panelCol.ZIndex = 10
 	panelCol.Parent = wrapper
 
-	----------------------------------------------------------- header (kit family shell, mock 1e purple)
-	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "gold", T.radius.panel, T.stroke.panel)
+	----------------------------------------------------------- header (kit family shell, guide red)
+	-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide): the 1e purple bar is
+	-- retired for the guide's one red header. "header" is a real surface kind
+	-- (T.gradient.header) so the old build-as-"gold"-then-recolour-the-
+	-- UIGradient-in-place dance goes with it -- UI.surface lays down the single
+	-- gradient and the single ink stroke, nothing left to patch afterwards.
+	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "header", T.radius.panel, T.stroke.panel)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
-	-- mock 1e header gradient #b06bff -> #6c1fd6 -- recolor the surface's
-	-- gradient in place (UI.surface has no purple kind; same recolor pattern
-	-- the timer chip always used)
-	local headerGrad = header:FindFirstChildOfClass("UIGradient")
-	if headerGrad then
-		headerGrad.Color = ColorSequence.new(HEADER_TOP, HEADER_BOT)
-	end
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
 
@@ -257,8 +280,11 @@ function DailyPanel.Build(ctx)
 	closeBtn.Position = UDim2.new(1, -12, 0.5, 0)
 	closeBtn.ZIndex = header.ZIndex + 2
 
-	----------------------------------------------------------- body (mock 1e cream)
-	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "cream", T.radius.panel, T.stroke.panel)
+	----------------------------------------------------------- body (guide window gray)
+	-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide): kind "cream" -> "window".
+	-- "cream" still resolves (legacy alias pointing at the same window gray),
+	-- but the honest name is what ships -- nothing on this surface is cream.
+	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
@@ -317,9 +343,12 @@ function DailyPanel.Build(ctx)
 	timerValue.ZIndex = 15
 
 	-- USER DECISION (task 11), kept through the restyle: the raw uncapped
-	-- streak count, right-aligned in this row. #4a3416 -- the mock's own
-	-- body-text-on-cream colour (white was for the old dark panel surface).
-	local hintLabel = UI.label(timerRow, "", "meta", Color3.fromHex("#4a3416"))
+	-- streak count, right-aligned in this row. STYLE REPLACEMENT (2026-08-04,
+	-- Pet-Sim guide): T.color.textOnWindow, was the hardcoded cream-ink
+	-- #4a3416. This is the ONE label in the panel sitting directly on the body
+	-- surface, so it stays DARK -- the guide's white-on-dark rule is for text
+	-- on the dark slots, and white here would dissolve into the window gray.
+	local hintLabel = UI.label(timerRow, "", "meta", T.color.textOnWindow)
 	hintLabel.Name = "HintLabel"
 	hintLabel.AnchorPoint = Vector2.new(1, 0.5)
 	hintLabel.Position = UDim2.new(1, 0, 0.5, 0)
