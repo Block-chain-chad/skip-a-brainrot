@@ -154,6 +154,18 @@ local HEADER_TOP = Color3.fromHex("#58a6ff")
 local HEADER_BOT = Color3.fromHex("#1f6fe0")
 local CREAM_INK = Color3.fromHex("#4a3416") -- body text on cream / on white cards
 local CARD_BORDER = Color3.fromHex("#e5d3ac") -- soft border on white cards (panel outline stays kit ink)
+
+-- SILHOUETTE INDEX (user reference video, 2026-08-04): an undiscovered entry
+-- shows the REAL model rendered pure black -- shape visible, identity hidden --
+-- instead of the kit's flat "?" cover. Two mechanisms together, because either
+-- alone leaks (probed live at 4x on a real model):
+--   1. every BasePart recoloured black  -> kills self-illuminating Neon parts,
+--      which ignore scene lighting entirely (the fallback cube is Neon)
+--   2. the viewport's own light switched OFF -> kills Decals/Textures/
+--      SurfaceAppearance, which survive a Color change and rendered as white
+--      eyes and teeth on the colour-only variant
+local SILHOUETTE_INK = Color3.fromRGB(12, 10, 18)
+local NO_LIGHT = Color3.new(0, 0, 0)
 local TIDE_BG = Color3.fromHex("#281608") -- DailyPanel's TIMER_BG, ported with the whole pill treatment
 local TIDE_GOLD = Color3.fromHex("#ffd23e") -- DailyPanel's TIMER_GOLD countdown value
 
@@ -677,12 +689,23 @@ function IndexPanel.Build(ctx)
 		if t.live or not t.holder then
 			return
 		end
-		local vp = BrainrotThumb.add(t.holder, t.name, {
+		local opts = {
 			size = UDim2.fromScale(1, 1),
 			position = UDim2.fromScale(0, 0),
 			zIndex = t.holder.ZIndex + 1,
-		})
+		}
+		-- undiscovered tiles render the same master model, blacked out (see the
+		-- SILHOUETTE_INK note): the virtualiser treats both states identically,
+		-- so scrolling costs the same either way
+		if t.silhouette then
+			opts.silhouette = SILHOUETTE_INK
+		end
+		local vp = BrainrotThumb.add(t.holder, t.name, opts)
 		if vp then
+			if t.silhouette then
+				vp.Ambient = NO_LIGHT
+				vp.LightColor = NO_LIGHT
+			end
 			t.live = true
 		end
 	end
@@ -742,34 +765,58 @@ function IndexPanel.Build(ctx)
 		if tileGrad then
 			tileGrad.Color = ColorSequence.new(Color3.new(1, 1, 1))
 		end
+		-- SILHOUETTE INDEX: the border carries the RARITY colour (reference
+		-- video) rather than the flat tan -- it is what makes a wall of unknown
+		-- black shapes still readable as a rarity ladder at a glance. Unknown
+		-- entries wear it muted so the discovered ones still pop.
 		local tileStroke = tile:FindFirstChildOfClass("UIStroke")
 		if tileStroke then
-			tileStroke.Color = CARD_BORDER
+			tileStroke.Color = known and tier.Color or tier.Color:Lerp(CARD_BORDER, 0.55)
 			tileStroke.Thickness = 3
 		end
 
-		local reg = { holder = nil, name = e.Name, live = false }
+		local reg = { holder = nil, name = e.Name, live = false, silhouette = not known }
 
-		if known then
+		do
 			local artHolder = Instance.new("Frame")
 			artHolder.Name = "Art"
 			artHolder.Position = UDim2.fromOffset(TILE_PAD, TILE_PAD)
 			artHolder.Size = UDim2.new(1, -TILE_PAD * 2, 0, CELL_H - NAME_H - TILE_PAD * 2)
 			artHolder.BackgroundColor3 = tier.Color -- tier-tinted backdrop doubles as the fallback swatch when no model/off-screen (IndexClient's own "wash" convention)
-			artHolder.BackgroundTransparency = 0.4 -- 1d/1e sweep (2026-08-04): 0.55 was tuned against the dark subPanel and went pastel-faint on white; tightened toward the tier colour (this also strengthens the virtualised fallback swatch)
+			-- Discovered keeps the readable tier wash; an unknown entry's wash is
+			-- pushed almost to white so the BLACK silhouette on top has maximum
+			-- contrast (the reference video silhouettes sit on a dark tile and
+			-- rely on near-black-on-dark; on our cream cards the same shape reads
+			-- far better as ink-on-paper, which is the pokedex language anyway)
+			artHolder.BackgroundTransparency = known and 0.4 or 0.86
 			artHolder.BorderSizePixel = 0
 			artHolder.ClipsDescendants = true
 			artHolder.ZIndex = tile.ZIndex + 1
 			artHolder.Parent = tile
 			UI.corner(artHolder, T.radius.art)
 
+			-- Known -> the creature's NAME. Unknown -> its RARITY word in the
+			-- rarity colour (reference video): the one fact the index is willing
+			-- to give away about something you have never caught, and what makes
+			-- an unknown tile still worth reading.
+			-- NoPolish is REQUIRED here, not decoration: the game-wide UIPolish
+			-- sweep forces every unopted TextLabel to pure white, and its own
+			-- header names "rarity tiers and similar colour-coded text" as the
+			-- intended users of this escape hatch. Without it the rarity word
+			-- rendered white (verified live) and the 1d/1e sweep's dark tile-name
+			-- ink was being silently overridden too. Colours are therefore stated
+			-- explicitly for both states rather than assumed:
+			--   known   -> WHITE + ink stroke, which is also what the reference
+			--              video does, and what reads on the tier wash
+			--   unknown -> the RARITY colour, the whole point of the label
 			local nameLbl = Instance.new("TextLabel")
-			nameLbl.Name = "Name"
+			nameLbl.Name = known and "Name" or "RarityWord"
+			nameLbl:SetAttribute("NoPolish", true)
 			nameLbl.BackgroundTransparency = 1
 			nameLbl.FontFace = T.font.display
 			nameLbl.TextSize = 14 -- kit "name 14"
-			nameLbl.TextColor3 = CREAM_INK -- 1d/1e sweep: white-on-white after the tile flip; the ink contextual stroke below STAYS (Daily's on-light label convention)
-			nameLbl.Text = e.Name
+			nameLbl.TextColor3 = known and T.color.white or tier.Color
+			nameLbl.Text = known and e.Name or string.upper(tier.Name)
 			nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 			nameLbl.Position = UDim2.new(0, TILE_PAD, 1, -TILE_PAD - NAME_H)
 			nameLbl.Size = UDim2.new(1, -TILE_PAD * 2, 0, NAME_H)
@@ -783,39 +830,15 @@ function IndexPanel.Build(ctx)
 			nameStroke.Parent = nameLbl
 
 			reg.holder = artHolder
-		else
-			-- kit §3.5 "Undiscovered = overlay rgba(8,12,5,.72) + '?' 40px in
-			-- #7A8A66" -- NO thumbnail is fetched or rendered at all here (see
-			-- module header note); #7A8A66 is T.color.tabTop verbatim.
-			-- 1d/1e sweep (2026-08-04): deliberately UNTOUCHED. The dark cover
-			-- is the secrecy treatment, it fully hides the now-white tile bg,
-			-- and dark chips on cream are the shipped mock language (Daily's
-			-- #281608 timer pill). The tan tile stroke ringing a near-black
-			-- square reads as a face-down card -- flagged for playtest, not
-			-- changed blind.
-			local overlay = Instance.new("Frame")
-			overlay.Name = "UndiscoveredOverlay"
-			overlay.Size = UDim2.fromScale(1, 1)
-			overlay.BackgroundColor3 = Color3.fromRGB(8, 12, 5)
-			overlay.BackgroundTransparency = 0.28 -- 1 - .72
-			overlay.BorderSizePixel = 0
-			overlay.ZIndex = tile.ZIndex + 1
-			overlay.Parent = tile
-			UI.corner(overlay, T.radius.inner)
-
-			local q = Instance.new("TextLabel")
-			q.Name = "QuestionMark"
-			q.BackgroundTransparency = 1
-			q.FontFace = T.font.display
-			q.TextSize = 40 -- kit "'?' 40px"
-			q.TextColor3 = T.color.tabTop
-			q.Text = "?"
-			q.Size = UDim2.fromScale(1, 1)
-			q.TextXAlignment = Enum.TextXAlignment.Center
-			q.TextYAlignment = Enum.TextYAlignment.Center
-			q.ZIndex = overlay.ZIndex + 1
-			q.Parent = overlay
 		end
+		-- RETIRED 2026-08-04 (user reference video): the kit's flat "?" cover
+		-- (a rgba(8,12,5,.72) overlay + a 40px "?") lived here. Undiscovered
+		-- entries now render the REAL model as a black silhouette instead --
+		-- the treatment the legacy IndexClient always used and the kit-faithful
+		-- rebuild had deliberately dropped. Both states now share ONE art path
+		-- (the `do` block above), which is why the branch is gone rather than
+		-- rewritten: the only differences are the wash, the label and the
+		-- silhouette flag.
 
 		-- ribbon slot: NEW > LAST CHANCE > BACK IN > FOREST EGG (see ribbonFor)
 		local _, avStatus, avTs = availabilityOf(e.Name)
