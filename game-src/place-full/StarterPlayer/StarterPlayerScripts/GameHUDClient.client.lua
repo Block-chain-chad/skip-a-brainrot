@@ -320,7 +320,18 @@ local function glyphFallback(slot, key, textSize, plated)
 end
 
 ---------------------------------------------------------------- currency cluster
--- Top 18 / left 18, gap 12 (kit README 3.7). Hidden while any panel is open.
+-- Top 18 / left 18, gap 12 (kit README 3.7).
+--
+-- 2026-08-05: the cluster STAYS VISIBLE while a panel is open. It used to be
+-- hidden on every openPanel, so opening Goals (or any other panel) blanked
+-- your coin/gem counts -- which reads as the menu having eaten your currency,
+-- and is the exact opposite of what you want on a screen whose whole job is
+-- showing you what a reward costs or pays. It lives on the `chrome` layer
+-- (ZIndex 30), a SIBLING of the canvas (26) and scrim (25), so it already
+-- renders above an open panel with no z-fighting -- the same treatment the
+-- nav rail on that layer has always had. No panel reaches it either: the
+-- widest one is 960 design px on the 1350 canvas, leaving 195px gutters, and
+-- the cluster ends ~150px in.
 local currencyCluster = Instance.new("Frame")
 currencyCluster.Name = "CurrencyCluster"
 currencyCluster.Position = UDim2.fromOffset(18, 18)
@@ -898,7 +909,19 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	icon.ZIndex = item.ZIndex + 2
 	icon.Parent = item
 
-	local sticker = STICKER[cfg.id]
+	-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide): the emoji stickers are
+	-- RETIRED. The guide's rule is a thick ink outline on every icon, and a
+	-- colour emoji cannot carry one -- UIStroke (probed at 3px and 6px), the
+	-- legacy TextStroke and the UIPolish sweep are all no-ops on them, so an
+	-- emoji rail can never be in this style, only near it.
+	-- Setting STICKER_ENABLED = false hands every slot back to the art chain
+	-- below, which was never deleted: imported PNG art (T.icons, 8 ids live)
+	-- wins, then UIKit.IconArt's primitive drawings (16 icons, real ink
+	-- outlines -- exactly the "chunky vector icons" the guide asks for), then
+	-- the emoji glyphFallback as a last resort. Flip this back to true to
+	-- restore the 3a sticker look in one edit.
+	local STICKER_ENABLED = false
+	local sticker = STICKER_ENABLED and STICKER[cfg.id] or nil
 	if sticker then
 		-- redesign glyph wins over the old art chain (see STICKER above)
 		local glyph = Instance.new("TextLabel")
@@ -1333,7 +1356,6 @@ function openPanel(id)
 	currentPanelId = id
 	state.screen = ID_TO_SCREEN[id] or id
 	host.Visible = true
-	currencyCluster.Visible = false
 
 	frame.Visible = true
 	local scale = frame:FindFirstChildOfClass("UIScale")

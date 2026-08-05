@@ -1606,20 +1606,44 @@ do
 		local labelH = labelSize + 4
 		local room = MET.H - labelH - 2
 		local box = math.min(MET.W, room, math.floor(MET.H * 0.65))
-		local glyph = Instance.new("TextLabel")
-		glyph.Name = "StickerGlyph"
-		glyph.AnchorPoint = Vector2.new(0.5, 0.5)
-		glyph.Position = UDim2.new(0.5, 0, 0, math.floor(room * 0.5) + 2)
-		glyph.Size = UDim2.fromOffset(box, box)
-		glyph.BackgroundTransparency = 1
-		glyph.Font = Enum.Font.FredokaOne
-		glyph.TextSize = box
-		glyph.Text = spec.glyph
-		glyph.Rotation = spec.tilt or 0
-		glyph.ZIndex = btn.ZIndex + 3
-		-- emoji must not be re-coloured or outlined by the UIPolish sweep
-		glyph:SetAttribute("NoPolish", true)
-		glyph.Parent = btn
+		-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide): the emoji glyph is
+		-- retired for the same reason as the nav rail's -- a colour emoji cannot
+		-- carry the guide's mandatory ink outline (UIStroke/TextStroke/UIPolish
+		-- are all no-ops on them, probed live). UIKit.IconArt draws skip / shops
+		-- / plot from GUI primitives WITH outlines, so the tabs go back to that
+		-- artwork; the emoji stays only as the fallback when IconArt has no
+		-- entry for this tab (or fails to load), which is also what keeps this
+		-- safe if a future tab has no drawing yet.
+		local drew = nil
+		if IconArt and spec.icon and IconArt.has(spec.icon) then
+			local holder = Instance.new("Frame")
+			holder.Name = "StickerGlyph" -- name kept: applyStickerGlyph's own idempotency sweep looks for it
+			holder.AnchorPoint = Vector2.new(0.5, 0.5)
+			holder.Position = UDim2.new(0.5, 0, 0, math.floor(room * 0.5) + 2)
+			holder.Size = UDim2.fromOffset(box, box)
+			holder.BackgroundTransparency = 1
+			holder.Rotation = spec.tilt or 0
+			holder.ZIndex = btn.ZIndex + 3
+			holder.Parent = btn
+			IconArt.draw(holder, spec.icon, box, holder.ZIndex)
+			drew = holder
+		end
+		if not drew then
+			local glyph = Instance.new("TextLabel")
+			glyph.Name = "StickerGlyph"
+			glyph.AnchorPoint = Vector2.new(0.5, 0.5)
+			glyph.Position = UDim2.new(0.5, 0, 0, math.floor(room * 0.5) + 2)
+			glyph.Size = UDim2.fromOffset(box, box)
+			glyph.BackgroundTransparency = 1
+			glyph.Font = Enum.Font.FredokaOne
+			glyph.TextSize = box
+			glyph.Text = spec.glyph
+			glyph.Rotation = spec.tilt or 0
+			glyph.ZIndex = btn.ZIndex + 3
+			-- emoji must not be re-coloured or outlined by the UIPolish sweep
+			glyph:SetAttribute("NoPolish", true)
+			glyph.Parent = btn
+		end
 
 		local word = Instance.new("TextLabel")
 		word.Name = "StickerWord"
