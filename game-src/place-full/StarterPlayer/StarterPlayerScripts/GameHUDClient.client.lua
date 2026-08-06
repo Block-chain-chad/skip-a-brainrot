@@ -853,6 +853,19 @@ end
 -- The labels are GONE per that last line -- the icon art plus the active
 -- glow, badges and claim halos carry the meaning now.
 -- ============================================================================
+-- USER REFERENCE (2026-08-04): the sidebar art they want is a chunky icon on
+-- a CREAM plate inside a heavy near-black outline. In that reference the
+-- plate is part of the PNG (which is why the blueprint says "replace only
+-- the icon image") -- but the icons currently in T.icons are an older, plain,
+-- plate-less set, so until the real 512px art is uploaded the plate is drawn
+-- here instead, in the reference's own colours. When the new art lands:
+-- swap the T.icons ids and set RAIL_PLATE_DRAWN = false, and the artwork's
+-- baked plate takes over with nothing behind it.
+local RAIL_PLATE_DRAWN = true
+local RAIL_PLATE_TOP = Color3.fromHex("#F7E7C2")   -- cream, reference plate top
+local RAIL_PLATE_BOT = Color3.fromHex("#DFC28C")   -- warmer tan at the foot
+local RAIL_PLATE_INK = Color3.fromHex("#171310")   -- the reference's heavy outline
+local RAIL_PLATE_STROKE = 4                        -- thicker than the blueprint's 3: the reference outline is heavy
 local RAIL_BTN = 72          -- blueprint "64x64 or 72x72"; 72 keeps the imported 512px art legible
 local RAIL_BTN_GAP = 8       -- blueprint "8px between icons"
 local RAIL_HOVER = 1.08      -- blueprint hover scale
@@ -926,9 +939,10 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	plateShadow.Name = "PlateShadow"
 	plateShadow.Size = UDim2.fromScale(1, 1)
 	plateShadow.Position = UDim2.fromOffset(0, 4)
-	plateShadow.BackgroundColor3 = T.color.outline
-	plateShadow.BackgroundTransparency = 0.35
+	plateShadow.BackgroundColor3 = RAIL_PLATE_INK
+	plateShadow.BackgroundTransparency = 0.3
 	plateShadow.BorderSizePixel = 0
+	plateShadow.Visible = RAIL_PLATE_DRAWN
 	plateShadow.ZIndex = item.ZIndex
 	plateShadow.Parent = item
 	UI.corner(plateShadow, T.radius.control)
@@ -939,13 +953,18 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	local plate = Instance.new("Frame")
 	plate.Name = "Plate"
 	plate.Size = UDim2.fromScale(1, 1)
-	plate.BackgroundColor3 = T.color.white
+	plate.BackgroundColor3 = RAIL_PLATE_TOP
 	plate.BorderSizePixel = 0
+	plate.Visible = RAIL_PLATE_DRAWN
 	plate.ZIndex = item.ZIndex + 1
 	plate.Parent = item
 	UI.corner(plate, T.radius.control)
-	UI.gradient(plate, T.gradient.tab)
-	UI.stroke(plate, 3) -- blueprint "UIStroke 3px"
+	-- cream -> tan, the reference's own plate, NOT the guide's gray window
+	-- family: this stands in for artwork that will arrive with its plate
+	-- already painted on, so it follows the art, not the panel chrome.
+	UI.gradient(plate, ColorSequence.new(RAIL_PLATE_TOP, RAIL_PLATE_BOT))
+	local plateInk = UI.stroke(plate, RAIL_PLATE_STROKE)
+	plateInk.Color = RAIL_PLATE_INK
 	UI.gloss(plate, T.radius.control)
 
 	-- v2: no button plate -- the icon floats directly on the item column,
