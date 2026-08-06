@@ -839,15 +839,33 @@ end
 -- the left column keeps the on-screen position it already had. Three rows of
 -- full-size items is 306px against a ~532px band, so railScale sits back at
 -- 1.0 and the icons render at the kit's intended 66px again.
-local RAIL_ROWS = 4 -- was 3; the 7th item grows the grid DOWN, never right (see above)
-local RAIL_COLS = math.ceil(#RAIL_ORDER / RAIL_ROWS)
-local RAIL_ITEM_H = T.size.railIcon + RAIL_ICON_GAP + RAIL_LABEL_H
-local RAIL_W = RAIL_COLS * T.size.railItem + (RAIL_COLS - 1) * T.size.railGap
-local RAIL_H = RAIL_ROWS * RAIL_ITEM_H + (RAIL_ROWS - 1) * T.size.railGap
+-- ============================================================================
+-- 2026-08-04 SIDEBAR BLUEPRINT (user's "Roblox Simulator UI Blueprint (1:1)"
+-- .docx). Replaces the 2x4 grid of frameless labelled icons with the
+-- blueprint's sidebar: ONE column, vertically centred on the left edge,
+-- 72px plated buttons 8px apart, NO permanent labels.
+--   "Sidebar Position (0.02,0.5), AnchorPoint (0,0.5), width ~80px"
+--   "Button 64x64 or 72x72 ImageButton, UICorner, UIStroke 3px, UIGradient,
+--    Shadow"
+--   "Hover scale 1.00->1.08 (0.08s). Click 1.08->0.92->1.00"
+--   "Spacing 8px between icons, all same size"
+--   "Style ... no permanent labels"
+-- The labels are GONE per that last line -- the icon art plus the active
+-- glow, badges and claim halos carry the meaning now.
+-- ============================================================================
+local RAIL_BTN = 72          -- blueprint "64x64 or 72x72"; 72 keeps the imported 512px art legible
+local RAIL_BTN_GAP = 8       -- blueprint "8px between icons"
+local RAIL_HOVER = 1.08      -- blueprint hover scale
+local RAIL_PRESS = 0.92      -- blueprint click squash
+local RAIL_HOVER_TIME = 0.08 -- blueprint "(0.08s)"
+local RAIL_W = RAIL_BTN
+local RAIL_H = #RAIL_ORDER * RAIL_BTN + (#RAIL_ORDER - 1) * RAIL_BTN_GAP
 
 local rail = Instance.new("Frame")
 rail.Name = "NavRail"
-rail.AnchorPoint = if RAIL_ON_LEFT then Vector2.new(0, 0) else Vector2.new(1, 0)
+-- blueprint: AnchorPoint (0,0.5) -- the column is centred on the screen's
+-- vertical midline instead of hanging from a top clearance
+rail.AnchorPoint = if RAIL_ON_LEFT then Vector2.new(0, 0.5) else Vector2.new(1, 0.5)
 rail.Size = UDim2.fromOffset(RAIL_W, RAIL_H)
 rail.BackgroundTransparency = 1
 rail.ZIndex = T.zindex.rail
@@ -863,12 +881,18 @@ railScale.Parent = rail
 -- Fills the local forward-declared next to fit(), which calls this on every
 -- viewport change -- the band depends on the live viewport height.
 layoutRail = function()
+	-- The blueprint's 0.5 centring is taken literally, but the shrink-to-fit
+	-- guard stays: a single column of 7 buttons is 552px, and the band left
+	-- between the top TabBar and WheelClient's bottom-left toggle is smaller
+	-- than that on short windows. Scale down rather than overflow -- the same
+	-- rescue the grid layout needed.
 	local band = math.max(chrome.Size.Y.Offset - RAIL_TOP_CLEARANCE - RAIL_BOTTOM_RESERVE, 1)
 	railScale.Scale = math.min(1, band / RAIL_H)
+	-- blueprint "Position (0.02, 0.5)" -- a scale inset, not the old fixed 10px
 	if RAIL_ON_LEFT then
-		rail.Position = UDim2.new(0, T.size.railInset, 0, RAIL_TOP_CLEARANCE)
+		rail.Position = UDim2.new(0.02, 0, 0.5, 0)
 	else
-		rail.Position = UDim2.new(1, -T.size.railInset, 0, RAIL_TOP_CLEARANCE)
+		rail.Position = UDim2.new(0.98, 0, 0.5, 0)
 	end
 end
 layoutRail()
@@ -878,35 +902,66 @@ layoutRail()
 -- writes to its Position -- which had quietly been making the hover/press
 -- translate below a no-op (only the scale half of it was landing).
 for order, cfg in ipairs(RAIL_ORDER) do
-	local col = math.floor((order - 1) / RAIL_ROWS)
-	local row = (order - 1) % RAIL_ROWS
-
+	-- `item` is a transparent WRAPPER, centred in its slot, and every child
+	-- below sizes in SCALE units -- so the blueprint's hover/press scaling can
+	-- be driven by tweening this one frame's Size and the plate, shadow, icon
+	-- and glow all follow it. (It cannot ride a UIScale: UIScale tweens do not
+	-- run in this place -- which is why the old rail's "scale 1.03" hover was
+	-- a silent no-op the whole time it shipped.)
 	local item = Instance.new("Frame")
 	item.Name = cfg.id .. "Item"
 	item.LayoutOrder = order
-	item.Position = UDim2.fromOffset(
-		col * (T.size.railItem + T.size.railGap),
-		row * (RAIL_ITEM_H + T.size.railGap)
-	)
-	item.Size = UDim2.fromOffset(T.size.railItem, RAIL_ITEM_H)
+	item.AnchorPoint = Vector2.new(0.5, 0.5)
+	item.Position = UDim2.new(0.5, 0, 0, (order - 1) * (RAIL_BTN + RAIL_BTN_GAP) + RAIL_BTN / 2)
+	item.Size = UDim2.fromOffset(RAIL_BTN, RAIL_BTN)
 	item.BackgroundTransparency = 1
 	item.ZIndex = T.zindex.rail
 	item.Parent = rail
 
-	local itemScale = Instance.new("UIScale")
-	itemScale.Parent = item
+	-- blueprint "Shadow": the guide's hard offset shadow, as a scale-sized
+	-- sibling INSIDE the wrapper so it scales with the hover instead of
+	-- detaching from the plate (UI.hardShadow parents as an outside sibling
+	-- and copies a fixed Size -- wrong for a frame whose Size is tweened)
+	local plateShadow = Instance.new("Frame")
+	plateShadow.Name = "PlateShadow"
+	plateShadow.Size = UDim2.fromScale(1, 1)
+	plateShadow.Position = UDim2.fromOffset(0, 4)
+	plateShadow.BackgroundColor3 = T.color.outline
+	plateShadow.BackgroundTransparency = 0.35
+	plateShadow.BorderSizePixel = 0
+	plateShadow.ZIndex = item.ZIndex
+	plateShadow.Parent = item
+	UI.corner(plateShadow, T.radius.control)
+
+	-- blueprint "UICorner, UIStroke 3px, UIGradient" -- the plate the icon
+	-- sits on. This is the piece the 3a direction removed ("the icon IS the
+	-- button") and the blueprint brings back.
+	local plate = Instance.new("Frame")
+	plate.Name = "Plate"
+	plate.Size = UDim2.fromScale(1, 1)
+	plate.BackgroundColor3 = T.color.white
+	plate.BorderSizePixel = 0
+	plate.ZIndex = item.ZIndex + 1
+	plate.Parent = item
+	UI.corner(plate, T.radius.control)
+	UI.gradient(plate, T.gradient.tab)
+	UI.stroke(plate, 3) -- blueprint "UIStroke 3px"
+	UI.gloss(plate, T.radius.control)
 
 	-- v2: no button plate -- the icon floats directly on the item column,
 	-- top-aligned, with the label directly under it. USER (2026-07-30): and no
 	-- gold tile behind the art either. The slot is now a bare transparent host;
 	-- what goes in it is the kit's own icon artwork, matching captures/hud.png.
+	-- The art sits INSIDE the plate now, sized in scale so it rides the hover
+	-- with everything else. 0.74 leaves the plate's stroke and gloss visible
+	-- as a border around the icon rather than the art running to the edge.
 	local icon = Instance.new("Frame")
 	icon.Name = "IconSlot"
-	icon.AnchorPoint = Vector2.new(0.5, 0)
-	icon.Position = UDim2.new(0.5, 0, 0, 0)
-	icon.Size = UDim2.fromOffset(T.size.railIcon, T.size.railIcon)
+	icon.AnchorPoint = Vector2.new(0.5, 0.5)
+	icon.Position = UDim2.fromScale(0.5, 0.5)
+	icon.Size = UDim2.fromScale(0.74, 0.74)
 	icon.BackgroundTransparency = 1
-	icon.ZIndex = item.ZIndex + 2
+	icon.ZIndex = item.ZIndex + 3
 	icon.Parent = item
 
 	-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide): the emoji stickers are
@@ -979,29 +1034,13 @@ for order, cfg in ipairs(RAIL_ORDER) do
 		-- ancestor of IconArt's clip frames disables ClipsDescendants (probed
 		-- live at 4x -- the arch's keyline+purple rings render as FULL ovals
 		-- looping through the star). Review catch.
-		if cfg.id == "rebirth" then
-			local slotRest = icon.Position
-			task.delay(order * BOB_STAGGER, function()
-				if not icon.Parent then return end
-				TweenService:Create(icon,
-					TweenInfo.new(BOB_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-					{ Position = slotRest - UDim2.fromOffset(0, BOB_RISE) }):Play()
-			end)
-		end
+		-- The idle bob is RETIRED with the sticker era: the blueprint's motion
+		-- list is hover and click only, and one lone bobbing icon in a rail of
+		-- still ones reads as a glitch rather than life.
 	end
 
-	local label = UI.label(item, cfg.label, "railLabel", T.color.white)
-	label.Name = "Label"
-	label.AnchorPoint = Vector2.new(0.5, 0)
-	-- RAIL_ICON_GAP is the kit's smallest spacing-scale step -- README 3.7
-	-- gives no explicit icon-label gap ("label directly under it"). Both
-	-- constants feed layoutRail's height math too, so they stay in sync.
-	label.Position = UDim2.new(0.5, 0, 0, T.size.railIcon + RAIL_ICON_GAP)
-	label.Size = UDim2.new(1, 0, 0, RAIL_LABEL_H)
-	label.AutomaticSize = Enum.AutomaticSize.None
-	label.TextXAlignment = Enum.TextXAlignment.Center
-	label.TextYAlignment = Enum.TextYAlignment.Center
-	label.ZIndex = item.ZIndex + 2
+	-- NO LABEL: blueprint "no permanent labels". The art carries the meaning;
+	-- the active glow, the count badge and the claim halo carry the state.
 
 	-- Active state (kit README 3.7): "88px radial gold glow behind the
 	-- icon, rgba(255,232,122,.75) centre -> transparent at 72%". Roblox's
@@ -1012,11 +1051,13 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	local glow = Instance.new("Frame")
 	glow.Name = "ActiveGlow"
 	glow.AnchorPoint = Vector2.new(0.5, 0.5)
-	glow.Position = UDim2.new(0.5, 0, 0, T.size.railIcon / 2)
-	glow.Size = UDim2.fromOffset(T.size.railGlow, T.size.railGlow)
+	-- centred on the PLATE now (scale units), not hung off the old icon-slot
+	-- top edge, and sized in scale so it rides the hover with everything else
+	glow.Position = UDim2.fromScale(0.5, 0.5)
+	glow.Size = UDim2.fromScale(1.2, 1.2)
 	glow.BackgroundTransparency = 1
 	glow.Visible = false
-	glow.ZIndex = item.ZIndex + 1 -- behind the icon (item.ZIndex+2), above the transparent item bg
+	glow.ZIndex = item.ZIndex -- behind the plate
 	glow.Parent = item
 
 	local GLOW_RINGS = { -- {diameter fraction of railGlow, transparency} outer -> inner
@@ -1026,18 +1067,18 @@ for order, cfg in ipairs(RAIL_ORDER) do
 		{ 0.14, 0.25 }, -- innermost/most opaque, ~= rgba(255,232,122,.75)
 	}
 	for i, ringSpec in ipairs(GLOW_RINGS) do
-		local d = T.size.railGlow * ringSpec[1]
+		local d = ringSpec[1]
 		local glowRing = Instance.new("Frame")
 		glowRing.Name = "Ring" .. i
 		glowRing.AnchorPoint = Vector2.new(0.5, 0.5)
 		glowRing.Position = UDim2.fromScale(0.5, 0.5)
-		glowRing.Size = UDim2.fromOffset(d, d)
+		glowRing.Size = UDim2.fromScale(d, d)
 		glowRing.BackgroundColor3 = T.color.activeGlow
 		glowRing.BackgroundTransparency = ringSpec[2]
 		glowRing.BorderSizePixel = 0
 		glowRing.ZIndex = glow.ZIndex
 		glowRing.Parent = glow
-		UI.corner(glowRing, d / 2)
+		UI.corner(glowRing, 999) -- scale-sized now, so a pill radius keeps it round at any size
 	end
 
 	-- Claim halo (U3 port): SideRail's claim arbitration paints onto this --
@@ -1049,19 +1090,19 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	local claimHalo = Instance.new("Frame")
 	claimHalo.Name = "ClaimHalo"
 	claimHalo.AnchorPoint = Vector2.new(0.5, 0.5)
-	claimHalo.Position = UDim2.new(0.5, 0, 0, T.size.railIcon / 2)
-	claimHalo.Size = UDim2.fromOffset(RAIL_CLAIM_D, RAIL_CLAIM_D)
+	-- scale units, centred on the plate, same reason as ActiveGlow above
+	claimHalo.Position = UDim2.fromScale(0.5, 0.5)
+	claimHalo.Size = UDim2.fromScale(1.14, 1.14)
 	claimHalo.BackgroundColor3 = T.color.activeGlow
 	claimHalo.BackgroundTransparency = 0.35
 	claimHalo.BorderSizePixel = 0
 	claimHalo.Visible = false
-	claimHalo.ZIndex = item.ZIndex + 1 -- behind the icon, beside ActiveGlow
+	claimHalo.ZIndex = item.ZIndex -- behind the plate, beside ActiveGlow
 	claimHalo.Parent = item
-	UI.corner(claimHalo, RAIL_CLAIM_D / 2)
+	UI.corner(claimHalo, 999)
 
-	-- Hit target: invisible button covering icon + label -- comfortably
-	-- above the 44px minimum touch target regardless of the 66px icon
-	-- alone (kit README section 2: "touch targets never below 44 px").
+	-- Hit target: invisible button over the whole plate. 72px is well clear of
+	-- the 44px minimum touch target on its own now that the label is gone.
 	local hit = Instance.new("TextButton")
 	hit.Name = "Hit"
 	hit.Text = ""
@@ -1072,31 +1113,35 @@ for order, cfg in ipairs(RAIL_ORDER) do
 	hit.Parent = item
 	wireClick(hit, "uiClick")
 
-	-- Base position captured lazily on first use, not at build time: `item`
-	-- is a UIListLayout child and its list-computed Position isn't
-	-- guaranteed resolved yet in the same tick these instances are built,
-	-- but MouseEnter only ever fires after real rendering has happened.
-	local restPos = nil
-	local function basePos()
-		restPos = restPos or item.Position
-		return restPos
+	-- blueprint motion: "Hover scale 1.00->1.08 (0.08s). Click 1.08->0.92->
+	-- 1.00". Driven on the wrapper's SIZE, never a UIScale -- UIScale tweens
+	-- do not run in this place, which is exactly why the rail's previous
+	-- "scale 1.03" hover never actually scaled anything. AnchorPoint is
+	-- (0.5,0.5), so Size alone grows the button about its own centre with no
+	-- position compensation.
+	local REST_SIZE = UDim2.fromOffset(RAIL_BTN, RAIL_BTN)
+	local function sizeAt(mult)
+		return UDim2.fromOffset(math.round(RAIL_BTN * mult), math.round(RAIL_BTN * mult))
 	end
+	local HOVER_INFO = TweenInfo.new(RAIL_HOVER_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local hovering = false
 
 	hit.MouseEnter:Connect(function()
-		TweenService:Create(itemScale, T.tween.hover, { Scale = 1.03 }):Play()
-		TweenService:Create(item, T.tween.hover, { Position = basePos() - UDim2.fromOffset(0, 3) }):Play()
+		hovering = true
+		TweenService:Create(item, HOVER_INFO, { Size = sizeAt(RAIL_HOVER) }):Play()
 	end)
 	hit.MouseLeave:Connect(function()
-		TweenService:Create(itemScale, T.tween.hover, { Scale = 1.0 }):Play()
-		TweenService:Create(item, T.tween.hover, { Position = basePos() }):Play()
+		hovering = false
+		TweenService:Create(item, HOVER_INFO, { Size = REST_SIZE }):Play()
 	end)
 	hit.MouseButton1Down:Connect(function()
-		TweenService:Create(itemScale, T.tween.press, { Scale = 0.99 }):Play()
-		TweenService:Create(item, T.tween.press, { Position = basePos() + UDim2.fromOffset(0, 2) }):Play()
+		TweenService:Create(item, HOVER_INFO, { Size = sizeAt(RAIL_PRESS) }):Play()
 	end)
 	hit.MouseButton1Up:Connect(function()
-		TweenService:Create(itemScale, T.tween.press, { Scale = 1.03 }):Play()
-		TweenService:Create(item, T.tween.press, { Position = basePos() - UDim2.fromOffset(0, 3) }):Play()
+		-- release settles to whichever state the cursor is actually in, so a
+		-- click that drags off the button does not leave it stuck enlarged
+		TweenService:Create(item, HOVER_INFO,
+			{ Size = hovering and sizeAt(RAIL_HOVER) or REST_SIZE }):Play()
 	end)
 	hit.MouseButton1Click:Connect(function()
 		if cfg.id == "rebirth" then
@@ -1112,7 +1157,7 @@ for order, cfg in ipairs(RAIL_ORDER) do
 		end
 	end)
 
-	railItems[cfg.id] = { frame = item, glow = glow, scale = itemScale, claim = claimHalo }
+	railItems[cfg.id] = { frame = item, glow = glow, claim = claimHalo }
 end
 
 -- U3 port: these rail buttons are the claim surface now -- the legacy
