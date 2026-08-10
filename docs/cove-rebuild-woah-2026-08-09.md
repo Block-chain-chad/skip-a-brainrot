@@ -73,10 +73,14 @@ is created at runtime by the driver and never saved.
 - **T6 Eternal Skip** — Trail + PointLight + pitched-down `ambienceLake1` rumble on the
   Stone (3D rolloff 12→110). Four shore ambience anchors + spire wind, all SoundKit ids only,
   volumes stepped by the driver (never tweened). Orbit rate untouched.
-- **T7 edge** — 12 rim bulbs + core bulb round out the underside; 4 rim waterfalls
-  (azimuths 20/200/245/315) with 3 scrolling sheet segments each falling into the cloud;
-  3-layer cloud sea (y1936/1946/1956, discs d560/470/390 + 24 lumpy bumps), two layers
-  counter-rotating at 0.4°/s.
+- **T7 edge (REWORKED after the visual pass)** — the brief's premise was wrong: the island
+  does not float in sky, it sits in a **terrain ocean** (water surface measured y1999.5,
+  confirmed by voxel read + raycast). The cloud sea and rim waterfall sheets were built,
+  found to be permanently underwater/invisible, and REMOVED (47 parts). Kept: 12 rim bulbs +
+  core bulb (they read as the island's hull through the water). Added: a 16-part white foam
+  collar at the real waterline (r119, y1999.7). Net T7 = hull + foam; CoveDressing now
+  296 parts. The guardians at r138 stand in open sea on their plinths — colossi rising from
+  the water, which reads better than the plan.
 - **T8 islets** — 7 chunky islets, band r50–92, heights P+64…P+112, orbiting 0.9°/s; two
   carry props (mini palm, gold lantern). Not walkable (CanCollide false).
 - **T9 monuments** — IndexGate got colossal coral pillars, crossbar, gloss and an ink halo;
@@ -87,14 +91,14 @@ is created at runtime by the driver and never saved.
 
 | Probe | Result |
 |---|---|
-| V1 part budget | **PASS** — 327 ≤ 1,800 (whole rebuild: 847 parts incl. TradingCenter + HubPortal) |
+| V1 part budget | **PASS** — 296 ≤ 1,800 after the T7 rework (whole rebuild: ~816 parts incl. TradingCenter + HubPortal) |
 | V2 one driver | **PASS by construction** — CoveDriver is the only script under CoveDressing (V3), no other loops. The restored SkipLoop (base island, pre-round convention) keeps its own Heartbeat. |
 | V3 no stray scripts / all anchored | **PASS** — 0 / 0 |
 | V4 no ThrowZone | **PASS** — 0 anywhere in the new build |
 | V5 BoundsGuard containment | **PASS** — every walkable (deck, causeway, bridges) centre+corners inside the Trading region |
 | V6 sleep gate | **PASS (live)** — WorkCount delta 0 over 3s with the player in the valley; also observed asleep during the user's own playtest |
-| V7 islet drift | **PARTIAL** — orbit runs (awake @60Hz, drift-free by construction: position computed from absolute angle each frame); the 60s measurement window was cut short because Play was stopped at the machine |
-| V8 wake-ring cleanup | **CODE-VERIFIED ONLY** — settle path patched (rings finish fading on sleep); pooled, so part count is constant by design. Runtime check interrupted, same reason |
+| V7 islet drift | **PASS (final run)** — 79.5s window: max radius drift 0.0003 studs, height drift 0.000, angular-rate error 0.014° across all 7 islets |
+| V8 wake-ring cleanup | **PASS (final run)** — after leaving: Awake=false, 8/8 pooled rings at Transparency 1, WorkCount delta 0 over 2s |
 | V9 rarity colour byte-match | **PASS** — 6/6 |
 | V10 revert | **NOT RUN** — destroy+rebuild cycle skipped deliberately: Team Create live and the user was in and out of Play; revert is one Destroy + AuditBackups restore as designed |
 
@@ -104,9 +108,11 @@ character to exactly (8000, 2004.6, 7818) on the deck; the driver woke within 1.
 
 ## Five shots (camera positions — visual pass still owed)
 
-`screen_capture` timed out for the rest of the session after one good early capture
-(Studio backgrounded = render-throttled; known failure). **Nothing visual past the base-island
-shot was seen by the builder. The user is the visual verifier.** Suggested viewpoints:
+Captures came back once Studio was foregrounded. **Seen and confirmed by the builder:** the
+arrival frame (arch + sky beam + islets + guardians + gate + chest beams all composing), the
+guardian line (Tralalero over the boards pavilion, underglow reading), and the sea panorama
+(Patapim rising from the water, spire + all three chest beams). The user also walked the
+island live and approved. Viewpoints for reference:
 
 1. Arrival: cam (8000, 2007.6, 7812) → (8000, 2012, 8000)
 2. Under the arch: cam (8000, 2006, 7852) → (8000, 2030, 8000)
