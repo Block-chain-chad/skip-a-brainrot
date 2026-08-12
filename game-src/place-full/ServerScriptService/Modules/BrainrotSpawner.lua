@@ -167,7 +167,29 @@ function M.Spawn(plot, entryOrName, padIndex, mutation, uid)
 	storePrompt.ObjectText = entry.Name
 	storePrompt.KeyboardKeyCode = Enum.KeyCode.E
 	storePrompt.HoldDuration = 0.35
-	storePrompt.MaxActivationDistance = 9
+	-- REACH SCALES WITH THE BODY. The prompt anchors at the model's CENTRE
+	-- (buildModelVisual re-pivots there on purpose, just above), so a fixed reach is
+	-- really "distance from the middle of the creature". That is fine on a 6-stud
+	-- body, but a Massive is ~28 studs tall and ~25 wide: its centre sits 14 studs
+	-- up and its flank is 12 studs out, so standing as close as a player physically
+	-- can measured 18.3 studs to the anchor. Against a flat 9 the prompt could never
+	-- appear from ANY position you could stand in -- a placed Massive was impossible
+	-- to store. Measure out to the body's own surface instead and add the walk-up
+	-- margin, so "walk up to it and press E" means the same thing at every size.
+	-- Normal bodies come out under 9 and keep the original reach exactly.
+	local reach = 9
+	do
+		local bx = model:IsA("Model") and select(2, model:GetBoundingBox()) or model.Size
+		local halfW = math.max(bx.X, bx.Z) * 0.5
+		local halfH = math.max(bx.Y * 0.5 - 3, 0)   -- 3 studs ≈ where the player's root rides
+		-- Standoff GROWS with the body. You stop further from a 47-stud Kraken than from
+		-- a 5-stud popsicle -- its edge is nowhere near where your eye says it is -- so a
+		-- flat margin left the biggest models with barely any. Proportional keeps small
+		-- bodies at exactly 9 while the extremes get real room.
+		local standoff = 3 + halfW * 0.25
+		reach = math.max(reach, math.sqrt((halfW + standoff) ^ 2 + halfH ^ 2) + 2)
+	end
+	storePrompt.MaxActivationDistance = reach
 	storePrompt.RequiresLineOfSight = false
 	-- MUST stay parented to the top-level instance: InventoryClient reads the Uid off
 	-- prompt.Parent, so hanging this on a child part would silently break Store.
