@@ -1,0 +1,27 @@
+{
+  "projectId": "615e7452-5c7f-4bb2-9dd2-a77df1b46ec9",
+  "pkg": "@skip-a-brainrot/ui",
+  "globalName": "SkipABrainrotUI",
+  "shape": "package",
+  "buildCmd": "npm run build",
+  "srcDir": "src",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": "dist/styles.css",
+  "docsDir": "docs",
+  "extraFonts": ["dist/fonts.css"],
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "AccentCard": { "cardMode": "column" },
+    "CloseButton": { "cardMode": "column" },
+    "Icon": { "cardMode": "column" },
+    "Label": { "cardMode": "column" },
+    "NavRailItem": { "cardMode": "column" },
+    "Panel": { "cardMode": "column" },
+    "PanelHeader": { "cardMode": "column" },
+    "ProgressTrack": { "cardMode": "column" },
+    "QuestRow": { "cardMode": "column" },
+    "RarityTile": { "cardMode": "column" },
+    "RewardCard": { "cardMode": "column" },
+    "TabBar": { "cardMode": "column" }
+  }
+}

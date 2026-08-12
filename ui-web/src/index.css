@@ -1,0 +1,4 @@
+/* Everything a direct consumer of this package needs, in one import.
+   design-sync consumes ./styles.css instead and wires the fonts itself. */
+@import './fonts.css';
+@import './styles.css';
