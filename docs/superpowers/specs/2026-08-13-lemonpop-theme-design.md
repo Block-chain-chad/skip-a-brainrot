@@ -79,11 +79,27 @@ Warm-lemon derivations replacing olive/gray-era values; everything already warm 
 | `textClaimed` | `#9FAE8B` | `#9C8F6E` |
 | `gradient.gem`, `gradient.passCard`, `gradient.passLabel`, `gradient.knob`, `textOnGoldCard`, `textOnGoldChrome` | already warm gold / currency purple | **unchanged** |
 
+## 3b. Shops extension (added 2026-08-13: "use this theme for every shop")
+
+Every UI where the player buys or sells gets LemonPop, including the two shops that live outside the UIKit token system:
+
+**Already covered by the token swap — just added to the audit sweep (§4):**
+- Robux Shop panel (`GameHUDPanels/ShopPanel.lua`, UIKit family)
+- Egg Shop (`EggShopClient`, UIKit + a few `UITheme.Camp` accents — toasts, inkText; harmonize those during audit)
+- Skipper's Cove booth UI (`BoothClient`, UIKit Tokens/Builders)
+
+**New work — UITheme-driven shops:**
+
+1. **Bazaar shop + sell menus** (`ClientMain` "Bazaar menu chrome", palette `UITheme.Bazaar`). This section exists **only in Studio's UITheme** — the disk mirror predates it, so Studio is read first and the mirror re-synced after. Retint the `UITheme.Bazaar` palette values in place (it is shop-only by name), old values recorded inline: surfaces → LemonPop panel/subPanel, price/action pills → LemonPop gold/green families, outline → `#241F14`, header → LemonPop red (one red surface per shop window).
+2. **Cafe Merchant shop** (`MerchantClient`, Camp `CF` palette). `CF` is shared by ~12 client scripts (~58 call sites) including non-shop cafe UI (dialogue, darrel labels), so **CF itself is NOT retinted.** Instead, following the precedent of the additive Candy pack ("nothing on screen changes until something opts in; one-file revert"), add an additive **`M.Lemon`** palette table to UITheme carrying the LemonPop values, and repoint only MerchantClient's colour reads at it. Geometry and the cafe's Cartoon font stay; the wood header becomes the LemonPop red header — a deliberate vibe change that unifies all shops.
+
+**Still out of scope even for shops:** 3D world signage (plot signs, camp board, physical stands) — this extension covers shop *windows/panels*, not world props.
+
 ## 4. Audit sweep
 
 After the token swap, open **every** panel live in a Play test — `openPanel`'s pcall silently hides broken panels, so each must actually be opened and eyeballed:
 
-Bag (new plot-rack inventory), Goals, Pass, Daily, Index, Eggs + discovery covers, Pets, Keys, Tags, Settings, Charm Codex, Wheel, Rebirth, hotbar, HUD chrome (currency pills, quest bar, nav rail + IconArt), toasts.
+Bag (new plot-rack inventory), Goals, Pass, Daily, Index, Eggs + discovery covers, **Robux Shop**, **Bazaar shop + sell**, **Cafe Merchant**, **Cove booths**, Pets, Keys, Tags, Settings, Charm Codex, Wheel, Rebirth, hotbar, HUD chrome (currency pills, quest bar, nav rail + IconArt), toasts.
 
 Hunting for, per panel:
 - Hardcoded gray-era hexes that bypass Tokens (fix by pointing at tokens, not new literals).
@@ -99,7 +115,7 @@ Hunting for, per panel:
 
 ## 6. Out of scope
 
-- `UITheme.lua` world/cafe surfaces: Bazaar shop, merchant panel, campfire style pack, Skipper's Cove boards, plot signs, camp board.
+- `UITheme.lua` **non-shop** surfaces: the campfire/Camp style pack itself and its non-shop callers (cat dialogue, darrel labels, tutorial, etc.), Skipper's Cove trade boards, plot signs, camp board, and all 3D world signage. (Shops were pulled INTO scope 2026-08-13 — see §3b.)
 - Fonts (`T.font`) — the UIPolish lockstep constant stays untouched; changing one without the other is a silent no-op.
 - Geometry, radii, strokes-widths, shadows, padding, sizes, motion (`T.tween`), zindex, icon asset ids.
 - `ui-web/` React mirror sync (follow-up task).
