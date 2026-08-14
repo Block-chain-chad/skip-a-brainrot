@@ -150,6 +150,11 @@ function UI.label(parent: Instance, text: string, styleKey: string, color: Color
 end
 
 -- Panel / card surface. kind: "panel" | "subPanel" | "row" | "slot" | "tab" | "track"
+-- LemonPop: the kit's light grounds; every other kind is treated as dark/saturated
+local LIGHT_KINDS = {
+	panel = true, subPanel = true, slot = true, window = true, cream = true,
+	freeCard = true, lockBadge = true, knob = true, passCard = true,
+}
 function UI.surface(parent: Instance, size: UDim2, kind: string, radius: number?, strokeW: number?): Frame
 	local f = Instance.new("Frame")
 	f.Size = size
@@ -160,10 +165,12 @@ function UI.surface(parent: Instance, size: UDim2, kind: string, radius: number?
 	UI.corner(f, r)
 	UI.gradient(f, T.gradient[kind])
 	UI.stroke(f, strokeW or T.stroke.panel)
-	-- LemonPop 2026-08-13: row/track/tab are the kit's DARK (warm) grounds --
-	-- tag them once and UIPolish gives every label inside the white stroked
-	-- on-dark treatment; everything else defaults to dark unstroked ink.
-	if kind == "row" or kind == "track" or kind == "tab" then
+	-- LemonPop 2026-08-13: any surface that is not one of the kit's LIGHT
+	-- grounds is dark or saturated (rows, tracks, tabs, the red header, and
+	-- the action-gradient kinds panels use for header bars) -- tag it once and
+	-- UIPolish gives every label inside the white stroked on-dark treatment;
+	-- light surfaces default to dark unstroked ink.
+	if not LIGHT_KINDS[kind] then
 		f:SetAttribute("PolishOnDark", true)
 	end
 	return f

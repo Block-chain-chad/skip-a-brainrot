@@ -595,40 +595,47 @@ end
 -- changes until a shop script opts in by calling these instead of
 -- accentCard/campPanel/campButton.
 -- ===================================================================
+-- 2026-08-13 LEMONPOP RETINT (spec §3b "every shop"): the dark stall goes
+-- lemon-cream -- light window, warm outline, ONE red header per shop window
+-- (the per-shop bronze/green/pink header identities collapse into the red,
+-- deliberate). Old values inline. Text colours below assume the pack's
+-- builders now set NoPolish and follow the light/dark rule themselves.
 local BZ = {
-	ink        = Color3.fromRGB(10, 13, 19),
-	panelTop   = Color3.fromRGB(38, 46, 60),
-	panelBot   = Color3.fromRGB(19, 23, 32),
-	panelEdge  = Color3.fromRGB(7, 9, 13),
-	header1    = Color3.fromRGB(126, 219, 255),
-	header2    = Color3.fromRGB(26, 138, 214),
-	close1     = Color3.fromRGB(255, 100, 100),
-	close2     = Color3.fromRGB(204, 32, 32),
-	notice     = Color3.fromRGB(255, 122, 96),
-	cardTop    = Color3.fromRGB(35, 43, 56),
-	cardBot    = Color3.fromRGB(23, 28, 38),
-	cardEdge   = Color3.fromRGB(12, 16, 22),
-	iconTop    = Color3.fromRGB(48, 57, 74),
-	iconBot    = Color3.fromRGB(27, 32, 43),
-	title      = Color3.fromRGB(104, 232, 118),
-	desc       = Color3.fromRGB(224, 230, 240),
-	muted      = Color3.fromRGB(150, 158, 174),
-	stock      = Color3.fromRGB(255, 92, 92),
-	cash1      = Color3.fromRGB(200, 246, 96),
-	cash2      = Color3.fromRGB(92, 194, 40),
+	ink        = Color3.fromRGB(36, 31, 20),    -- #241F14 (was 10,13,19)
+	panelTop   = Color3.fromRGB(255, 251, 226), -- #FFFBE2 (was dark 38,46,60)
+	panelBot   = Color3.fromRGB(255, 217, 119), -- #FFD977 (was 19,23,32)
+	panelEdge  = Color3.fromRGB(36, 31, 20),    -- #241F14 (was 7,9,13)
+	header1    = Color3.fromRGB(255, 107, 92),  -- #FF6B5C the ONE red (was cyan 126,219,255)
+	header2    = Color3.fromRGB(216, 52, 44),   -- #D8342C (was 26,138,214)
+	close1     = Color3.fromRGB(255, 107, 107), -- #FF6B6B (was 255,100,100)
+	close2     = Color3.fromRGB(216, 62, 62),   -- #D83E3E (was 204,32,32)
+	notice     = Color3.fromRGB(194, 65, 12),   -- #C2410C accent ink on light (was salmon 255,122,96)
+	cardTop    = Color3.fromRGB(255, 246, 207), -- #FFF6CF subPanel (was 35,43,56)
+	cardBot    = Color3.fromRGB(247, 201, 92),  -- #F7C95C (was 23,28,38)
+	cardEdge   = Color3.fromRGB(36, 31, 20),    -- #241F14 (was 12,16,22)
+	iconTop    = Color3.fromRGB(255, 255, 255), -- #FFFFFF light art well (was 48,57,74)
+	iconBot    = Color3.fromRGB(255, 244, 217), -- #FFF4D9 (was 27,32,43)
+	title      = Color3.fromRGB(194, 65, 12),   -- #C2410C item names = accent on light (was green 104,232,118)
+	desc       = Color3.fromRGB(51, 38, 26),    -- #33261A ink on light (was 224,230,240)
+	muted      = Color3.fromRGB(122, 106, 82),  -- #7A6A52 (was 150,158,174)
+	stock      = Color3.fromRGB(216, 52, 44),   -- #D8342C warning red that reads on cream (was 255,92,92)
+	cash1      = Color3.fromRGB(131, 227, 74),  -- #83E34A LemonPop green (was 200,246,96)
+	cash2      = Color3.fromRGB(79, 180, 46),   -- #4FB42E (was 92,194,40)
 	cashText   = Color3.fromRGB(24, 44, 10),
-	gem1       = Color3.fromRGB(255, 194, 92),
-	gem2       = Color3.fromRGB(222, 120, 18),
+	gem1       = Color3.fromRGB(255, 197, 49),  -- #FFC531 LemonPop gold (was 255,194,92)
+	gem2       = Color3.fromRGB(224, 138, 12),  -- #E08A0C (was 222,120,18)
 	white      = Color3.fromRGB(255, 255, 255),
-	rivetTop   = Color3.fromRGB(90, 100, 118),
-	rivetBot   = Color3.fromRGB(30, 35, 46),
-	rowAltTop  = Color3.fromRGB(31, 38, 50),
-	rowAltBot  = Color3.fromRGB(19, 23, 32),
-	shadow     = Color3.fromRGB(6, 7, 10),
-	-- per-shop header identity so every stall doesn't read as the same cyan box
-	rockHeader1 = Color3.fromRGB(255, 199, 120), rockHeader2 = Color3.fromRGB(197, 122, 32),
-	sellHeader1 = Color3.fromRGB(168, 236, 130), sellHeader2 = Color3.fromRGB(58, 168, 76),
-	eggHeader1  = Color3.fromRGB(255, 156, 214), eggHeader2  = Color3.fromRGB(188, 72, 172),
+	rivetTop   = Color3.fromRGB(194, 168, 120), -- #C2A878 brass on cream (was 90,100,118)
+	rivetBot   = Color3.fromRGB(138, 115, 80),  -- #8A7350 (was 30,35,46)
+	rowAltTop  = Color3.fromRGB(255, 242, 192), -- #FFF2C0 alt stripe (was 31,38,50)
+	rowAltBot  = Color3.fromRGB(242, 193, 84),  -- #F2C154 (was 19,23,32)
+	shadow     = Color3.fromRGB(36, 31, 20),    -- #241F14 warm hard shadow (was 6,7,10)
+	-- per-shop header identity RETIRED under LemonPop's one-red-header rule --
+	-- keys kept so call sites don't change, all resolve to the red
+	-- (was rock 255,199,120/197,122,32; sell 168,236,130/58,168,76; egg 255,156,214/188,72,172)
+	rockHeader1 = Color3.fromRGB(255, 107, 92), rockHeader2 = Color3.fromRGB(216, 52, 44),
+	sellHeader1 = Color3.fromRGB(255, 107, 92), sellHeader2 = Color3.fromRGB(216, 52, 44),
+	eggHeader1  = Color3.fromRGB(255, 107, 92), eggHeader2  = Color3.fromRGB(216, 52, 44),
 }
 M.Bazaar = BZ
 M.BazaarFont = Enum.Font.FredokaOne
@@ -777,11 +784,12 @@ function M.bazaarHeader(parent, text, iconGlyph, accentTop, accentBot)
 	label.BackgroundTransparency = 1
 	label.Font = M.BazaarFont
 	label.Text = text or ""
-	label.TextColor3 = BZ.white
+	label.TextColor3 = BZ.white -- red header = dark ground: white + stroke stays
 	label.TextSize = 21
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.TextTruncate = Enum.TextTruncate.AtEnd
 	label.ZIndex = bar.ZIndex + 1
+	label:SetAttribute("NoPolish", true) -- LemonPop: the pack governs its own text
 	label.Parent = bar
 	bzTextStroke(label, 2)
 	return bar, label
@@ -817,6 +825,7 @@ function M.bazaarNotice(parent, text, yOffset)
 	-- Enum.Font has no italic Gotham; GothamBoldItalic threw for every caller
 	lbl.Font = Enum.Font.GothamBold
 	lbl.Text = text or ""
+	lbl:SetAttribute("NoPolish", true) -- LemonPop: accent ink on the light window
 	lbl.TextColor3 = BZ.notice
 	lbl.TextSize = 13
 	lbl.TextWrapped = true
@@ -878,8 +887,8 @@ function M.bazaarTitle(parent, text)
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.TextTruncate = Enum.TextTruncate.AtEnd
 	lbl.ZIndex = (parent.ZIndex or 1) + 1
+	lbl:SetAttribute("NoPolish", true) -- LemonPop: accent ink on a light card, UNSTROKED
 	lbl.Parent = parent
-	bzTextStroke(lbl, 1.6)
 	return lbl
 end
 
@@ -889,6 +898,7 @@ function M.bazaarDesc(parent, text)
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.Text = text or ""
+	lbl:SetAttribute("NoPolish", true) -- LemonPop: dark ink on light card
 	lbl.TextColor3 = BZ.desc
 	lbl.TextSize = 13
 	lbl.TextWrapped = true
@@ -906,6 +916,7 @@ function M.bazaarStock(parent, text)
 	-- see bazaarNotice: no italic Gotham exists
 	lbl.Font = Enum.Font.GothamBold
 	lbl.Text = text or ""
+	lbl:SetAttribute("NoPolish", true) -- LemonPop: warning red on light card
 	lbl.TextColor3 = BZ.stock
 	lbl.TextSize = 13
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -925,6 +936,7 @@ function M.bazaarPill(parent, text, kind)
 	btn.Text = text or ""
 	btn.TextSize = 16
 	btn.ZIndex = (parent.ZIndex or 1) + 1
+	btn:SetAttribute("NoPolish", true) -- LemonPop: pill governs its own label
 	btn.Parent = parent
 	M.corner(btn, 10)
 	if kind == "gem" then
@@ -954,6 +966,7 @@ function M.bazaarRestylePill(btn, c1, c2, textColor)
 	btn.BorderSizePixel = 0
 	btn.AutoButtonColor = true
 	btn.Font = Enum.Font.GothamBlack
+	btn:SetAttribute("NoPolish", true) -- LemonPop: caller-chosen pill colours survive the polish pass
 	btn.TextColor3 = textColor
 	M.corner(btn, 10)
 	M.gradient(btn, c1, c2, 90)
