@@ -1,34 +1,37 @@
 --!strict
--- PassPanel: kit README §3.1 Season Pass panel -- a GameHUDPanels consumer
--- module (StarterPlayer.StarterPlayerScripts.GameHUDPanels.PassPanel).
+-- PassPanel: the SEASON PASS panel -- a GameHUDPanels consumer module
+-- (StarterPlayer.StarterPlayerScripts.GameHUDPanels.PassPanel).
 --
--- Style replacement (2026-08-04, Pet-Sim guide) -- supersedes the 1d/1e
--- cream sweep this file shipped with. The body is the guide's light gray
--- WINDOW now (UI.surface kind "cream" -> "window": same colours, honest
--- name; the hand-built UIPadding still stays T.pad.panel per side -- NOT
--- panelWide -- because ROW_CONTENT_W and the xpTrack flex width are
--- measured against T.pad.panel, and 2px of drift overflows the progress
--- row). The header drops its gold for the guide's one RED bar
--- (T.gradient.header): a single red header on EVERY panel is the point of
--- the guide, so this panel's "assigned accent" no longer governs chrome --
--- only its content. FREE reward cards go from the sweep's flat white + tan
--- border + dark ink to the guide's DARK slot (T.gradient.slot, ink
--- outline, WHITE text) and, being dark again, take back the kit's hard
--- shadow so both card rows match. Everything COLOURED is untouched: the
--- gold pass cards, ticket/level/tier badges, the free/pass rotated label
--- pair, the claim ring + green CLAIM pill, the claimed-green card skin,
--- the rainbow side previews, the per-panel backdrop BlurEffect
--- ("PassPanelBlur") that rides the Visible watcher. The side column still
--- floats OUTSIDE the body over the dimmed world, so its white text stays
--- white. ZERO wiring changed: remotes, state writes, the hasServerState
--- badge gate, the blur watchers and the render flow are byte-identical.
+-- REFORMAT 2026-08-07 (design: docs/design-handoff/season-pass/). This was a
+-- HORIZONTAL filmstrip: three stacked rows -- free cards / tier badges / gold pass
+-- cards -- scrolling sideways, plus a "Max Rewards" column floating outside the
+-- body. It is now the design's LADDER: three columns, FREE TRACK | TIER | PREMIUM
+-- TRACK, scrolling VERTICALLY through all 50 tiers, so a player reads one tier
+-- ACROSS (what do I get here, free vs premium) instead of one track ALONG.
+--
+-- Two real bugs died with the old layout:
+--
+--   * THE PANEL IS FINALLY 960 WIDE. T.size.panelWidth.pass has always said 960,
+--     but the old build was 960 + 14 gap + 196 side column = 1170 and hung 90px off
+--     a 4:3 tablet. The side column is gone -- the MILESTONE row shows the top
+--     reward of BOTH tracks, which is the only thing those two preview cards were
+--     for -- so the token is true for the first time and GameHUDClient's panelFitW
+--     floor (960, see GameHUDClient:165-180) fits it exactly, with zero effect on
+--     any other panel's scale.
+--
+--   * FREE REWARD TEXT WAS INVISIBLE. The old card flipped its own gradient to flat
+--     white, then coloured its text with CARD_TEXT -- an undefined global left
+--     behind by the 2026-08-04 style repair, which re-declared CARD_BORDER and
+--     BODY_INK but missed that one. UI.label falls back to T.color.white when its
+--     colour argument is nil, so every free reward name was white on white. That
+--     whole code path is deleted; state now picks the surface kind UP FRONT rather
+--     than recolouring a built card's gradient afterwards.
 --
 -- Contract (kit README section: ctx from GameHUDClient):
 --   return { Id = "pass", Build = function(ctx) -> Frame }
--- Build is called ONCE lazily on first open; the shell parents the returned
--- Frame into ctx.host and owns Visible toggling on every open/close after
--- that -- this module never sets its own Parent or drives its own open/close
--- animation.
+-- Build is called ONCE lazily on first open; the shell parents the returned Frame
+-- into ctx.host and owns Visible toggling on every open/close after that -- this
+-- module never sets its own Parent and never drives its own open/close animation.
 --
 -- Data contract (read StarterPlayer.StarterPlayerScripts.SeasonClient +
 -- ServerScriptService.Modules.SeasonPassHandler FULLY before writing this):
@@ -42,36 +45,59 @@
 --         Day = number,
 --     })
 --   remotes.SeasonClaim  -- RemoteEvent
---     client -> server: SeasonClaim:FireServer(tier: number)
---     Server validates level/ownership and, on success, re-sends SeasonState
---     with the new Claimed table. NEVER flip Claimed locally -- only the
---     next SeasonState push may change what a card renders as.
+--     client -> server: SeasonClaim:FireServer(tier, track)
+--     Server validates level/ownership and, on success, re-sends SeasonState with
+--     the new Claimed table. NEVER flip Claimed locally -- only the next
+--     SeasonState push may change what a card renders as.
 --
--- IMPORTANT game-data note (this is why the panel deviates from a literal
--- two-track reading of the kit): ReplicatedStorage.Modules.SeasonConfig's own
--- header comment says "Free track only for now -- premium track needs a
--- gamepass id," SeasonPassHandler/PlayerDataManager have no `passOwned` field
--- anywhere, and SendState's payload never includes one either. The kit's
--- LOCKED/CLAIMABLE/CLAIMED state machine (README §5) still applies exactly --
--- passOwned is simply always false in this build, so every Season Pass (gold)
--- column card is permanently LOCKED and carries no claim wiring; only the
--- Free (white) column reads live unlock/claim state and is wired to
--- SeasonClaim. This mirrors the disabled "COMING SOON" bottom CTA, which is
--- gated on that same missing gamepass id per the task spec. SeasonConfig
--- ships one Cash reward per tier (no separate free/pass reward items), so
--- both columns render that tier's Cash value; the Season Pass column is a
--- locked preview of the same number until a real premium reward table and
--- gamepass exist.
+-- BOTH TRACKS ARE REAL DATA NOW. The header this replaces said SeasonConfig was
+-- "free track only for now" and shipped "one Cash reward per tier (no separate
+-- free/pass reward items)". Both went stale on 2026-08-07 when the track was
+-- extended to 50 tiers: SeasonConfig.Tiers and .PassTiers are 50 entries each,
+-- TierFor(track, i) reads either without the caller branching, and
+-- DescribeReward(def) is the ONE place that turns a tier into something
+-- displayable. Every reward string on this panel comes from it.
 --
--- SeasonConfig rewards are scalar cash -> quantity chip renders x1;
--- revisit when itemized rewards exist.
+-- WHAT IS DELIBERATELY INERT, and why. All three follow the precedent set by the
+-- egg shop's BUY DARRELS and the Charm Codex's EQUIP: draw the control in full,
+-- wire nothing, let it come alive on its own when the missing id appears.
+--   * UNLOCK PREMIUM -- GamepassConfig's SeasonPass entry is still GamepassId = 0,
+--     so GamepassService.Owns is false for everyone and SeasonPassHandler refuses
+--     track == "pass" server-side anyway. The premium column therefore renders
+--     LOCKED for every player and unlocks by itself the moment a real id is pasted
+--     in. The price on the button is READ FROM GamepassConfig, not hardcoded, so
+--     the button cannot drift from what the pass actually costs. (The design says
+--     799 R$; the catalog says 399. The catalog wins -- it is the thing players
+--     are actually charged.)
+--   * SKIP TIER -- no tier-skip dev product exists anywhere in this game, so its
+--     price is the design's 79 R$ with nothing behind it.
+--   * The countdown chip and the footer end-date -- SeasonConfig.SEASON.Ends is
+--     nil. They are OMITTED rather than faked; see the note in SeasonConfig.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting") -- 1d/1e sweep: the backdrop BlurEffect lives here
+local Lighting = game:GetService("Lighting") -- the backdrop BlurEffect lives here
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local SeasonConfig = require(modules:WaitForChild("SeasonConfig"))
+-- Egg tiers show the REAL egg model in a ViewportFrame rather than a flat icon.
+-- Same helper the Index and Backpack grids use for brainrots/pets.
+local BrainrotThumb = require(modules:WaitForChild("BrainrotThumb"))
+-- Darrel tiers draw the DARREL icon, which is a vector drawing rather than an
+-- image id. pcall'd like ClientMain does: a missing icon module must cost the
+-- icon, not the whole panel.
+local okIconArt, IconArt = pcall(function()
+	return require(modules:WaitForChild("UIKit"):WaitForChild("IconArt"))
+end)
+if not okIconArt then IconArt = nil end
+-- Same treatment: the premium button's price comes from the live catalog, but a
+-- missing catalog must not take the panel down with it.
+local okPasses, GamepassConfig = pcall(function()
+	return require(modules:WaitForChild("GamepassConfig"))
+end)
+if not okPasses then GamepassConfig = nil end
 
-local PassPanel = { Id = "pass" }
+-- Id is "passInner", NOT "pass": since 2026-08-07 the season pass is a TAB inside
+-- ProgressPanel rather than its own rail tile. See the matching note in GoalsPanel.
+local PassPanel = { Id = "passInner" }
 
 local function shortCash(n: number): string
 	n = math.floor(n or 0)
@@ -85,59 +111,98 @@ local function shortCash(n: number): string
 	return "$" .. tostring(n)
 end
 
------------------------------------------------------------------ free-column state palette (style replacement 2026-08-04, Pet-Sim guide)
--- All that survives the cream sweep, and only because both are IDENTITY,
--- not chrome: the CLAIMED green skin (green = claimed is one language
--- across these panels) and the plum corner lock (its 2.5px white ring is
--- what carries it, so it reads on the dark slot exactly as it read on the
--- old white card). Deleted with the cream: the tan card border, the
--- dark-ink card text and the tan scrollbar thumb -- free cards are dark
--- slots with white text now, so they read straight off T.gradient.slot /
--- T.color.outline / T.color.white and need no file-local constants at all.
-local CLAIMED_BG = Color3.fromHex("#e9f7e4")
-local CLAIMED_BORDER = Color3.fromHex("#bfe3b1")
-local CLAIMED_TEXT = Color3.fromHex("#6da35e")
-local CHECK_GREEN = Color3.fromHex("#3fae1f")
-local LOCK_BADGE = Color3.fromHex("#5c5470") -- Daily's plum locked-badge fill
+-- 1240 -> "1,240". The progress readout is the one place the design shows a raw
+-- XP number rather than shortCash's compact form.
+local function comma(n: number): string
+	local s = tostring(math.floor(n or 0))
+	local out = (s:reverse():gsub("(%d%d%d)", "%1,")):reverse()
+	if out:sub(1, 1) == "," then
+		out = out:sub(2)
+	end
+	return out
+end
 
-function PassPanel.Build(ctx)
+-- The design's subtitle under each reward name. Derived from the reward KIND, so
+-- it cannot drift from what the tier actually hands over.
+local function subtitleFor(rw, seasonNumber: number): string
+	if rw.kind == "Cash" then
+		return "INSTANT PAYOUT"
+	elseif rw.kind == "Darrels" then
+		return "PREMIUM CURRENCY"
+	elseif rw.kind == "Egg" then
+		return "HATCHERY"
+	elseif rw.kind == "Boost" then
+		return string.format("%d MINUTES", rw.minutes or 0)
+	elseif rw.kind == "Tag" then
+		return string.format("SEASON %02d TITLE", seasonNumber)
+	end
+	return ""
+end
+
+-- opts.embedded -- see the note on GoalsPanel.Build; same contract, same reason.
+-- 2026-08-10 INNER RESTYLE (design_handoff_hud_upgrade, PROGRESS/SEASON):
+-- sheet's ladder -- gold TIER plate + gold tier spine, 44-tall XP bar with
+-- the count on the track, violet UNLOCK plate instead of a caption, free
+-- track green / locked premium inert with greyed art, CLAIMED as a word.
+-- All state machine / claim wiring untouched.
+local UIKitFolder = game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("UIKit")
+local PC = require(UIKitFolder:WaitForChild("PanelChrome"))
+local S = require(UIKitFolder:WaitForChild("SpecTheme"))
+
+function PassPanel.Build(ctx, opts)
+	local EMBEDDED = (type(opts) == "table" and opts.embedded == true)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
 
-	-- STYLE REPLACEMENT REPAIR (2026-08-04): the cream constants were deleted
-	-- with the 1d/1e chrome, but a few of their CALL SITES further down survived
-	-- the pass and became nil globals -- Build crashed on the first one, and
-	-- because GameHUDClient.openPanel wraps Build in a pcall the panel simply
-	-- never opened, silently. Rather than delete those sites blind, the two
-	-- names are re-declared here pointing at their GUIDE successors, so every
-	-- surviving site reads true in the new style:
-	--   card/slot borders -> the guide's 4px #202020 outline
-	--   card body text    -> white, because those cards are dark slots now
-	local CARD_BORDER = T.color.outline
-	local BODY_INK = T.color.white
+	local SEASON = SeasonConfig.SEASON or { Number = 1, Name = "Season", Id = "SEASON", Ends = nil }
 
-	----------------------------------------------------------- geometry (kit README §3.1, exact)
+	----------------------------------------------------------- geometry (960 x 700)
+	-- 700 is PANEL_FIT_H in GameHUDClient; 960 is its panelFitW floor. Staying
+	-- inside BOTH means this panel never clips and never shrinks another panel.
 	local PANEL_W = T.size.panelWidth.pass -- 960
-	local SIDE_W = 196
-	local GAP_SIDE = 14
-	local CARD_W, CARD_H = T.size.rewardCard.X, T.size.rewardCard.Y -- 178, 186
-	local COL_GAP = T.pad.gridGap -- 11 (kit gives no explicit reward-card column gap; reusing the kit's own grid-gap token, same convention Backpack's grid uses)
-	local ROW_GAP = 8
-	local BADGE = T.size.tierBadge -- 58
+	-- Embedded, the header's 102px comes off the GROUP rather than out of the body:
+	-- BODY_H below is PANEL_H - BODY_TOP - footer, so shrinking both together leaves
+	-- the ladder exactly the height it has always been (560).
+	local PANEL_H = 700
+	local PAD = T.pad.panel -- 16
 	local HEADER_H = T.size.headerHeight -- 92
-	local BODY_TOP = HEADER_H + 12
-	local PROGRESS_H = 56
-	local TRACK_MARGIN = 14
-	local TRACK_H = CARD_H + ROW_GAP + BADGE + ROW_GAP + CARD_H -- 186+8+58+8+186 = 446
-	local BODY_CONTENT_H = PROGRESS_H + TRACK_MARGIN + TRACK_H -- 516
-	local BODY_H = T.pad.panel * 2 + BODY_CONTENT_H -- 548
-	local CTA_H = 74
-	local CTA_OVERLAP = 14
-	local GROUP_H = BODY_TOP + BODY_H + CTA_H - CTA_OVERLAP -- 712
-	local ROW_CONTENT_W = PANEL_W - T.pad.panel * 2 -- 928 (body's padded inner width)
+	local BODY_TOP = EMBEDDED and 0 or (HEADER_H + 10) -- 102
+	if EMBEDDED then PANEL_H = PANEL_H - (HEADER_H + 10) end
+	local FOOTER_H = 30
+	local FOOTER_GAP = 8
+	local BODY_H = PANEL_H - BODY_TOP - FOOTER_H - FOOTER_GAP -- 560
+	local INNER_W = PANEL_W - PAD * 2 -- 928
+	local INNER_H = BODY_H - PAD * 2 -- 528
+
+	local PROGRESS_H = 96 -- sheet: tier plate 200x96
+	local COLHEAD_H = 62  -- tall enough for the violet UNLOCK plate
+	local LADDER_TOP = PROGRESS_H + 10 + COLHEAD_H + 6 -- 104
+	local LADDER_H = INNER_H - LADDER_TOP -- 424
+
+	-- The vertical scrollbar sits INSIDE the scroll frame's width, so the row
+	-- content -- and therefore the column headers above it, which must line up --
+	-- is measured against the width minus the bar.
+	local SCROLLBAR_W = 10
+	local LADDER_W = INNER_W - SCROLLBAR_W -- 918
+	local TIER_COL_W = 108 -- sheet: the tier spine column
+	local COL_GAP = 16
+	local CARD_W = math.floor((LADDER_W - TIER_COL_W - COL_GAP * 2) / 2) -- 399
+	local FREE_X = 0
+	local TIER_X = CARD_W + COL_GAP -- 415
+	local PASS_X = TIER_X + TIER_COL_W + COL_GAP -- 519
+	local ROW_H = 104 -- sheet: reward row 104
+	local ROW_GAP = 12
+	local MILESTONE_H = 26
+
+	-- Reward-card internals
+	local PLATE = 66 -- sheet: icon 66
+	local PLATE_X = 10
+	local TEXT_X = PLATE_X + PLATE + 12 -- 82
+	local ACTION_W = 96
+	local TEXT_W = CARD_W - TEXT_X - ACTION_W - 22 -- 199
 
 	----------------------------------------------------------- module-local state (server-confirmed only)
-	local state = { XP = 0, Claimed = {} }
+	local state = { XP = 0, Claimed = {}, PassClaimed = {}, PassOwned = false }
 
 	----------------------------------------------------------- root
 	local wrapper = Instance.new("Frame")
@@ -146,41 +211,25 @@ function PassPanel.Build(ctx)
 	wrapper.BackgroundTransparency = 1
 	wrapper.ZIndex = 10
 
+	-- One column now. The old build wrapped this in a Group that also held a
+	-- 196px SideColumn floating outside the body; that is what made the panel's
+	-- real footprint 1170 while it advertised 960.
 	local group = Instance.new("Frame")
 	group.Name = "Group"
 	group.AnchorPoint = Vector2.new(0.5, 0.5)
 	group.Position = UDim2.fromScale(0.5, 0.5)
-	group.Size = UDim2.fromOffset(PANEL_W + GAP_SIDE + SIDE_W, GROUP_H)
+	group.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
 	group.BackgroundTransparency = 1
 	group.ZIndex = 10
 	group.Parent = wrapper
 
-	local panelCol = Instance.new("Frame")
-	panelCol.Name = "PanelColumn"
-	panelCol.Position = UDim2.fromOffset(0, 0)
-	panelCol.Size = UDim2.fromOffset(PANEL_W, GROUP_H)
-	panelCol.BackgroundTransparency = 1
-	panelCol.ZIndex = 10
-	panelCol.Parent = group
-
-	local sideCol = Instance.new("Frame")
-	sideCol.Name = "SideColumn"
-	sideCol.Position = UDim2.fromOffset(PANEL_W + GAP_SIDE, 0)
-	sideCol.Size = UDim2.fromOffset(SIDE_W, GROUP_H)
-	sideCol.BackgroundTransparency = 1
-	sideCol.ZIndex = 10
-	sideCol.Parent = group
-
-	----------------------------------------------------------- header (common shell, README §3)
-	-- Style replacement (2026-08-04, Pet-Sim guide): "gold" -> "header". The
-	-- guide ships ONE header colour for every panel, so gold stops being this
-	-- panel's chrome accent -- it stays its CONTENT accent (pass cards,
-	-- ticket/level/tier badges, the "Season Pass" label block below all keep
-	-- their gold tokens, and the guide's red never touches them).
-	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "header", T.radius.panel, T.stroke.panel)
+	----------------------------------------------------------- header
+	local header = UI.surface(group, UDim2.fromOffset(PANEL_W, HEADER_H), "header", T.radius.panel, T.stroke.panel)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
+	-- built then hidden when embedded -- see the matching note in GoalsPanel
+	header.Visible = not EMBEDDED
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
 
@@ -190,46 +239,100 @@ function PassPanel.Build(ctx)
 	headerIcon.Position = UDim2.new(0, 12, 0.5, 0)
 	headerIcon.ZIndex = header.ZIndex + 2
 
-	local headerTitle = UI.label(header, "Season Pass", "panelTitle", T.color.white)
+	local TITLE_X = 12 + 62 + 14 -- 88
+
+	-- HEADER BUDGET. Four controls share the right side with the title block, and
+	-- 960 is not generous. The first cut of this panel estimated the button widths
+	-- and SKIP TIER ended up UNDER the kicker by 39px on the live panel -- so these
+	-- are each label's real rendered TextBounds (148 / 239 / 63 design px, measured
+	-- in a Play session) plus 16px of padding, not guesses. The title block then
+	-- takes whatever is left and carries TextTruncate, so a longer season name
+	-- shortens the kicker instead of colliding with a button again.
+	local BTN_H = 56
+	local BTN_GAP = 10
+	local CLOSE_W = T.size.closeButton.X -- 74
+	local QUESTS_W = 80
+	local PREMIUM_W = 256
+	local SKIP_W = 164
+	local closeR = 12
+	local questsR = closeR + CLOSE_W + BTN_GAP -- 96
+	local premiumR = questsR + QUESTS_W + BTN_GAP -- 186
+	local skipR = premiumR + PREMIUM_W + BTN_GAP -- 452
+	local TITLE_W = PANEL_W - skipR - SKIP_W - 14 - TITLE_X -- 242
+
+	-- Kicker above the title: SEASON 01 . STILL WATER . 50 TIERS. Text is set in
+	-- render() because the tier count is read from SeasonConfig, not assumed.
+	local kicker = UI.label(header, "", "meta", T.color.white)
+	kicker.Name = "Kicker"
+	kicker.Position = UDim2.fromOffset(TITLE_X, 14)
+	kicker.Size = UDim2.fromOffset(TITLE_W, 20)
+	kicker.AutomaticSize = Enum.AutomaticSize.None
+	kicker.TextTruncate = Enum.TextTruncate.AtEnd
+	kicker.TextTransparency = 0.25
+	kicker.ZIndex = header.ZIndex + 2
+
+	local headerTitle = UI.label(header, "SEASON PASS", "panelTitle", T.color.white)
 	headerTitle.Name = "Title"
-	headerTitle.AnchorPoint = Vector2.new(0, 0.5)
-	headerTitle.Position = UDim2.new(0, 12 + 62 + 14, 0.5, 0)
+	headerTitle.Position = UDim2.fromOffset(TITLE_X, 34)
+	headerTitle.Size = UDim2.fromOffset(TITLE_W, 42)
+	headerTitle.AutomaticSize = Enum.AutomaticSize.None
+	headerTitle.TextTruncate = Enum.TextTruncate.AtEnd
 	headerTitle.ZIndex = header.ZIndex + 2
 
-	local closeBtn = UI.button(header, "X", "red", UDim2.fromOffset(T.size.closeButton.X, T.size.closeButton.Y), "buttonL")
+	local closeBtn = UI.button(header, "X", "red", UDim2.fromOffset(CLOSE_W, T.size.closeButton.Y), "buttonL")
 	closeBtn.Name = "CloseButton"
 	closeBtn.AnchorPoint = Vector2.new(1, 0.5)
-	closeBtn.Position = UDim2.new(1, -12, 0.5, 0)
+	closeBtn.Position = UDim2.new(1, -closeR, 0.5, 0)
 	closeBtn.ZIndex = header.ZIndex + 2
 
-	local questsBtn = UI.button(header, "Quests", "purple", UDim2.fromOffset(160, 66), "buttonL")
+	local questsBtn = UI.button(header, "Quests", "purple", UDim2.fromOffset(QUESTS_W, BTN_H), "buttonM")
 	questsBtn.Name = "QuestsButton"
 	questsBtn.AnchorPoint = Vector2.new(1, 0.5)
-	questsBtn.Position = UDim2.new(1, -12 - T.size.closeButton.X - 14, 0.5, 0)
+	questsBtn.Position = UDim2.new(1, -questsR, 0.5, 0)
 	questsBtn.ZIndex = header.ZIndex + 2
 
-	----------------------------------------------------------- body (guide window gray -- style replacement 2026-08-04)
-	-- Still NOT UI.panel: UI.panel bundles THREE things -- the "panel"
-	-- surface, a hardShadow and a UIPadding -- and this panel needs its own
-	-- padding number, so all three stay hand-built. Padding is T.pad.panel
-	-- per side, NOT panelWide: ROW_CONTENT_W (geometry block above) and the
-	-- xpTrack flex width below are both measured against T.pad.panel, so a
-	-- wider pad would shift every child 2px and overflow the progress row.
-	-- Style replacement (2026-08-04, Pet-Sim guide): kind "cream" ->
-	-- "window" -- the same light-gray surface the legacy alias resolves to,
-	-- named for what the guide actually calls it. It keeps the ink
-	-- T.stroke.panel border (the guide's 4px outer border) and carries no
-	-- gloss: a flat body is what makes the dark slots on it pop.
-	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
+	-- INERT (see module header). Price read from the catalog so it cannot drift.
+	local passPrice = 399
+	if GamepassConfig and GamepassConfig.ByKey and GamepassConfig.ByKey.SeasonPass then
+		passPrice = GamepassConfig.ByKey.SeasonPass.RobuxPrice or passPrice
+	end
+	local premiumBtn = UI.button(header, "UNLOCK PREMIUM  " .. passPrice .. " R$", "gold", UDim2.fromOffset(PREMIUM_W, BTN_H), "buttonM")
+	premiumBtn.Name = "UnlockPremiumButton"
+	premiumBtn.AnchorPoint = Vector2.new(1, 0.5)
+	premiumBtn.Position = UDim2.new(1, -premiumR, 0.5, 0)
+	premiumBtn.ZIndex = header.ZIndex + 2
+
+	local skipBtn = UI.button(header, "SKIP TIER  79 R$", "blue", UDim2.fromOffset(SKIP_W, BTN_H), "buttonM")
+	skipBtn.Name = "SkipTierButton"
+	skipBtn.AnchorPoint = Vector2.new(1, 0.5)
+	skipBtn.Position = UDim2.new(1, -skipR, 0.5, 0)
+	skipBtn.ZIndex = header.ZIndex + 2
+
+	----------------------------------------------------------- body
+	-- Still NOT UI.panel: UI.panel bundles surface + hardShadow + a UIPadding of
+	-- T.pad.panel, and every horizontal measurement in this file (INNER_W, and
+	-- LADDER_W under it) is taken against T.pad.panel specifically -- so the
+	-- padding stays hand-built to keep that relationship visible at the top of
+	-- the geometry block rather than buried in a builder.
+	local body = UI.surface(group, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
-	UI.hardShadow(body, T.shadowOffset.panel, T.radius.panel)
+	if EMBEDDED then
+		-- the spec shell's light ground is the visible surface
+		body.BackgroundTransparency = 1
+		local bg = body:FindFirstChildOfClass("UIGradient")
+		if bg then bg:Destroy() end
+		local bs = body:FindFirstChildOfClass("UIStroke")
+		if bs then bs:Destroy() end
+	else
+		UI.hardShadow(body, T.shadowOffset.panel, T.radius.panel)
+	end
 	local bodyPad = Instance.new("UIPadding")
-	bodyPad.PaddingTop = UDim.new(0, T.pad.panel)
-	bodyPad.PaddingBottom = UDim.new(0, T.pad.panel)
-	bodyPad.PaddingLeft = UDim.new(0, T.pad.panel)
-	bodyPad.PaddingRight = UDim.new(0, T.pad.panel)
+	bodyPad.PaddingTop = UDim.new(0, PAD)
+	bodyPad.PaddingBottom = UDim.new(0, PAD)
+	bodyPad.PaddingLeft = UDim.new(0, PAD)
+	bodyPad.PaddingRight = UDim.new(0, PAD)
 	bodyPad.Parent = body
 
 	----------------------------------------------------------- progress row
@@ -241,124 +344,160 @@ function PassPanel.Build(ctx)
 	progressRow.ZIndex = 14
 	progressRow.Parent = body
 
-	local ticketSlot = UI.surface(progressRow, UDim2.fromOffset(62, PROGRESS_H), "goldSmall", T.radius.small, T.stroke.control)
-	ticketSlot.Name = "TicketSlot"
-	ticketSlot.Position = UDim2.fromOffset(0, 0)
-	ticketSlot.ZIndex = 14
-	UI.gloss(ticketSlot, T.radius.small)
-	local ticketIcon = UI.artSlot(ticketSlot, UDim2.fromOffset(40, 34), T.icons.pass)
-	ticketIcon.Name = "TicketIcon"
-	ticketIcon.AnchorPoint = Vector2.new(0.5, 0.5)
-	ticketIcon.Position = UDim2.fromScale(0.5, 0.5)
-	ticketIcon.ZIndex = ticketSlot.ZIndex + 2
+	local TIER_PILL_W = 200
+	local tierPill = PC.plate({
+		name = "TierPill",
+		size = UDim2.fromOffset(TIER_PILL_W, PROGRESS_H),
+		colors = S.Action.Gold,
+		radius = 22,
+		outline = 6,
+		zIndex = 14,
+		parent = progressRow,
+	})
+	local tierCaption = PC.shout({
+		name = "TierCaption", text = "TIER", size = 20,
+		frameSize = UDim2.new(1, 0, 0, 22),
+		position = UDim2.new(0, 0, 0, 12),
+		zIndex = tierPill.ZIndex + 2, parent = tierPill,
+	})
+	local tierValue = PC.shout({
+		name = "TierValue", text = "0 / 0", size = 38,
+		frameSize = UDim2.new(1, 0, 0, 42),
+		position = UDim2.new(0, 0, 0, 40),
+		zIndex = tierPill.ZIndex + 2, parent = tierPill,
+	})
 
-	local LEVEL_W = 58
-	local xpTrackW = ROW_CONTENT_W - 62 - 12 - LEVEL_W - 12 -- "flex:1" remainder (Skip is hidden -- excluded from the flex budget per spec)
-	local xpTrack, xpFill = UI.track(progressRow, UDim2.fromOffset(xpTrackW, PROGRESS_H), "gold", T.radius.inner)
+	local STATUS_W = 300
+	local XP_X = TIER_PILL_W + 16
+	local XP_W = INNER_W - XP_X - 16 - STATUS_W -- 450
+
+	local xpCaption = UI.label(progressRow, "", "meta", T.color.textOnWindow)
+	xpCaption.Name = "XPCaption"
+	xpCaption.Position = UDim2.fromOffset(XP_X, 2)
+	xpCaption.ZIndex = 14
+	-- 2026-08-11 polish: the progress row's small print washed at the kit's
+	-- meta/chip sizes once the panel scale shrinks it (user nit, 2026-08-10
+	-- visual pass). Explicit sizes below; UIPolish re-strokes on TextSize
+	-- change so the ink outline follows the bump.
+	xpCaption.TextSize = 20
+
+	-- sheet: XP bar 44 tall, the count ON the track
+	local xpTrack, xpFill = UI.track(progressRow, UDim2.fromOffset(XP_W, 44), "gold", 22)
 	xpTrack.Name = "XPTrack"
-	xpTrack.Position = UDim2.fromOffset(62 + 12, 0)
+	xpTrack.Position = UDim2.fromOffset(XP_X, 28)
 	xpTrack.ZIndex = 14
-	local xpLabel = UI.label(xpTrack, "0 / 0", "value", T.color.white)
-	xpLabel.Name = "XPLabel"
-	xpLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-	xpLabel.Position = UDim2.fromScale(0.5, 0.5)
-	xpLabel.Size = UDim2.fromScale(1, 1)
-	xpLabel.AutomaticSize = Enum.AutomaticSize.None
-	xpLabel.TextXAlignment = Enum.TextXAlignment.Center
-	xpLabel.ZIndex = xpTrack.ZIndex + 3
 
-	local levelBadge = UI.surface(progressRow, UDim2.fromOffset(LEVEL_W, PROGRESS_H), "goldSmall", T.radius.inner, T.stroke.control)
-	levelBadge.Name = "LevelBadge"
-	levelBadge.Position = UDim2.fromOffset(62 + 12 + xpTrackW + 12, 0)
-	levelBadge.ZIndex = 14
-	UI.gloss(levelBadge, T.radius.inner)
-	local levelLabel = UI.label(levelBadge, "0", "value", T.color.white)
-	levelLabel.Name = "LevelLabel"
-	levelLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-	levelLabel.Position = UDim2.fromScale(0.5, 0.5)
-	levelLabel.Size = UDim2.fromScale(1, 1)
-	levelLabel.AutomaticSize = Enum.AutomaticSize.None
-	levelLabel.TextXAlignment = Enum.TextXAlignment.Center
-	levelLabel.ZIndex = levelBadge.ZIndex + 2
+	local xpLabel = PC.shout({
+		name = "XPLabel", text = "0 / 0", size = 20,
+		zIndex = xpTrack.ZIndex + 3, parent = xpTrack,
+	})
 
-	-- Skip button: HIDDEN per the task spec gate -- no tier-skip product id
-	-- exists anywhere in this game's remotes/config. Built to kit geometry so
-	-- it's ready the moment one ships; Visible=false until then.
-	local skipBtn = UI.button(progressRow, "Skip", "green", UDim2.fromOffset(150, PROGRESS_H), "buttonM")
-	skipBtn.Name = "SkipButton"
-	skipBtn.Position = UDim2.fromOffset(62 + 12 + xpTrackW + 12 + LEVEL_W + 12, 0)
-	skipBtn.ZIndex = 14
-	skipBtn.Visible = false
-	-- UI.button's non-disabled branch auto-parents a "HardShadow" sibling
-	-- into skipBtn.Parent (progressRow) -- that sibling does NOT inherit
-	-- skipBtn.Visible, so without this it would render as a stray dark
-	-- rectangle even while the button itself is hidden.
-	local skipShadow = progressRow:FindFirstChild("HardShadow")
-	if skipShadow then
-		skipShadow.Visible = false
+	-- Right-hand status stack. A UIListLayout centres whatever is present, which
+	-- is what lets the countdown line simply NOT EXIST while SEASON.Ends is nil
+	-- without leaving a hole where it would have been.
+	local statusCol = Instance.new("Frame")
+	statusCol.Name = "StatusColumn"
+	statusCol.Position = UDim2.fromOffset(INNER_W - STATUS_W, 0)
+	statusCol.Size = UDim2.fromOffset(STATUS_W, PROGRESS_H)
+	statusCol.BackgroundTransparency = 1
+	statusCol.ZIndex = 14
+	statusCol.Parent = progressRow
+
+	local statusList = Instance.new("UIListLayout")
+	statusList.FillDirection = Enum.FillDirection.Vertical
+	statusList.SortOrder = Enum.SortOrder.LayoutOrder
+	statusList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	statusList.VerticalAlignment = Enum.VerticalAlignment.Center
+	statusList.Padding = UDim.new(0, 3)
+	statusList.Parent = statusCol
+
+	local daysLabel: TextLabel? = nil
+	if type(SEASON.Ends) == "number" then
+		daysLabel = UI.label(statusCol, "", "chip", T.color.textAccent)
+		daysLabel.Name = "DaysLeft"
+		daysLabel.LayoutOrder = 1
+		daysLabel.TextXAlignment = Enum.TextXAlignment.Right
+		daysLabel.ZIndex = 14
+		daysLabel.TextSize = 20 -- see the wash note at xpCaption
 	end
 
-	----------------------------------------------------------- track area (label column + horizontal scroll)
-	local trackArea = Instance.new("Frame")
-	trackArea.Name = "TrackArea"
-	trackArea.Position = UDim2.fromOffset(0, PROGRESS_H + TRACK_MARGIN)
-	trackArea.Size = UDim2.new(1, 0, 0, TRACK_H)
-	trackArea.BackgroundTransparency = 1
-	trackArea.ZIndex = 14
-	trackArea.Parent = body
+	local claimStatus = UI.label(statusCol, "0 CLAIMED  0 READY", "chip", T.color.textOnWindow)
+	claimStatus.Name = "ClaimStatus"
+	claimStatus.LayoutOrder = 2
+	claimStatus.TextXAlignment = Enum.TextXAlignment.Right
+	claimStatus.ZIndex = 14
+	claimStatus.TextSize = 20 -- see the wash note at xpCaption
 
-	local LABEL_COL_W = 40
-	local labelCol = Instance.new("Frame")
-	labelCol.Name = "LabelColumn"
-	labelCol.Position = UDim2.fromOffset(0, 0)
-	labelCol.Size = UDim2.fromOffset(LABEL_COL_W, TRACK_H)
-	labelCol.BackgroundTransparency = 1
-	labelCol.ZIndex = 14
-	labelCol.Parent = trackArea
+	local xpSources = UI.label(statusCol, "XP FROM QUESTS  REBIRTHS  DAILY LOGIN", "meta", T.color.textMuted)
+	xpSources.Name = "XPSources"
+	xpSources.LayoutOrder = 3
+	xpSources.TextXAlignment = Enum.TextXAlignment.Right
+	xpSources.ZIndex = 14
+	xpSources.TextSize = 17 -- see the wash note at xpCaption
 
-	local freeBlock = UI.surface(labelCol, UDim2.fromOffset(LABEL_COL_W, 186), "freeLabel", T.radius.small, T.stroke.control)
-	freeBlock.Name = "FreeLabelBlock"
-	freeBlock.Position = UDim2.fromOffset(0, 0)
-	freeBlock.ZIndex = 14
-	local freeText = UI.label(freeBlock, "Free", "cardLabel", T.color.white)
-	freeText.Name = "FreeLabelText"
-	freeText.AnchorPoint = Vector2.new(0.5, 0.5)
-	freeText.Position = UDim2.fromScale(0.5, 0.5)
-	freeText.Size = UDim2.fromOffset(160, 30)
-	freeText.AutomaticSize = Enum.AutomaticSize.None
-	freeText.TextXAlignment = Enum.TextXAlignment.Center
-	freeText.Rotation = -90
-	freeText.ZIndex = freeBlock.ZIndex + 2
+	----------------------------------------------------------- column headers
+	local colHead = Instance.new("Frame")
+	colHead.Name = "ColumnHeaders"
+	colHead.Position = UDim2.fromOffset(0, PROGRESS_H + 10)
+	colHead.Size = UDim2.fromOffset(LADDER_W, COLHEAD_H)
+	colHead.BackgroundTransparency = 1
+	colHead.ZIndex = 14
+	colHead.Parent = body
 
-	local passBlock = UI.surface(labelCol, UDim2.fromOffset(LABEL_COL_W, 252), "passLabel", T.radius.small, T.stroke.control)
-	passBlock.Name = "PassLabelBlock"
-	passBlock.Position = UDim2.fromOffset(0, 186)
-	passBlock.ZIndex = 14
-	local passText = UI.label(passBlock, "Season Pass", "cardLabel", T.color.white)
-	passText.Name = "PassLabelText"
-	passText.AnchorPoint = Vector2.new(0.5, 0.5)
-	passText.Position = UDim2.fromScale(0.5, 0.5)
-	passText.Size = UDim2.fromOffset(220, 30)
-	passText.AutomaticSize = Enum.AutomaticSize.None
-	passText.TextXAlignment = Enum.TextXAlignment.Center
-	passText.Rotation = -90
-	passText.ZIndex = passBlock.ZIndex + 2
+	local function columnHeading(name: string, text: string, x: number, w: number, color: Color3)
+		local l = UI.label(colHead, text, "meta", color)
+		l.Name = name
+		l.Position = UDim2.fromOffset(x, 6)
+		l.Size = UDim2.fromOffset(w, 18)
+		l.AutomaticSize = Enum.AutomaticSize.None
+		l.TextXAlignment = Enum.TextXAlignment.Center
+		l.ZIndex = 14
+		return l
+	end
 
-	local SCROLL_X = LABEL_COL_W + 10 -- "Track area gap 10" -- horizontal gap between the label column and the scroll region
+	local freeHead = columnHeading("FreeHeading", "FREE TRACK \u{00B7} EVERYONE", FREE_X, CARD_W, S.Surface.ReadSub)
+	freeHead.Font = S.Font.Read
+	freeHead.TextSize = 20
+	freeHead:SetAttribute("NoPolish", true)
+	freeHead.Position = UDim2.fromOffset(FREE_X, COLHEAD_H - 24)
+	-- sheet: the price moves out of a caption and into a PLATE -- violet,
+	-- UNLOCK <price> over RETROACTIVE, sitting over the premium column
+	local unlockPlate = PC.plate({
+		name = "UnlockPlate",
+		size = UDim2.fromOffset(230, COLHEAD_H - 4),
+		position = UDim2.fromOffset(PASS_X + math.floor((CARD_W - 230) / 2), 0),
+		colors = S.Action.Premium,
+		radius = 18,
+		outline = 5,
+		zIndex = 14,
+		parent = colHead,
+	})
+	PC.shout({
+		name = "UnlockPrice", text = "UNLOCK " .. passPrice .. " R$", size = 22,
+		frameSize = UDim2.new(1, 0, 0, 24), position = UDim2.new(0, 0, 0, 6),
+		zIndex = 15, parent = unlockPlate,
+	})
+	PC.shout({
+		name = "UnlockKicker", text = "RETROACTIVE", size = 14,
+		frameSize = UDim2.new(1, 0, 0, 16), position = UDim2.new(0, 0, 1, -22),
+		zIndex = 15, parent = unlockPlate,
+	})
+
+	----------------------------------------------------------- ladder
 	local scroll = Instance.new("ScrollingFrame")
-	scroll.Name = "TrackScroll"
-	scroll.Position = UDim2.fromOffset(SCROLL_X, 0)
-	scroll.Size = UDim2.new(1, -SCROLL_X, 0, TRACK_H)
+	scroll.Name = "Ladder"
+	scroll.Position = UDim2.fromOffset(0, LADDER_TOP)
+	scroll.Size = UDim2.fromOffset(INNER_W, LADDER_H)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
-	scroll.ScrollingDirection = Enum.ScrollingDirection.X
-	scroll.ScrollBarThickness = 10
-	scroll.ScrollBarImageColor3 = T.color.outline -- style replacement (2026-08-04, Pet-Sim guide): the sweep's tan thumb went with the cream; the guide's ink is the highest-contrast thing that can sit on the gray window. Cosmetic only -- scrolling behaviour untouched.
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	scroll.ScrollBarThickness = SCROLLBAR_W - 2
+	scroll.ScrollBarImageColor3 = T.color.scrollThumb
 	scroll.CanvasSize = UDim2.new()
-	scroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.ElasticBehavior = Enum.ElasticBehavior.Never
 	scroll.ZIndex = 14
-	scroll.Parent = trackArea
+	scroll.Parent = body
 
 	local rowsList = Instance.new("UIListLayout")
 	rowsList.FillDirection = Enum.FillDirection.Vertical
@@ -366,370 +505,307 @@ function PassPanel.Build(ctx)
 	rowsList.Padding = UDim.new(0, ROW_GAP)
 	rowsList.Parent = scroll
 
-	local function buildRow(name: string, order: number, height: number): (Frame, UIListLayout)
-		local row = Instance.new("Frame")
-		row.Name = name
-		row.LayoutOrder = order
-		row.Size = UDim2.new(0, 0, 0, height)
-		row.AutomaticSize = Enum.AutomaticSize.X
-		row.BackgroundTransparency = 1
-		row.ZIndex = 14
-		row.Parent = scroll
-		local list = Instance.new("UIListLayout")
-		list.FillDirection = Enum.FillDirection.Horizontal
-		list.SortOrder = Enum.SortOrder.LayoutOrder
-		list.Padding = UDim.new(0, COL_GAP)
-		list.Parent = row
-		return row, list
-	end
-
-	local freeRow = buildRow("FreeRow", 1, CARD_H)
-	local badgeRow = buildRow("BadgeRow", 2, BADGE)
-	local passRow = buildRow("PassRow", 3, CARD_H)
-
-	----------------------------------------------------------- side column ("Max Rewards")
-	local sideLabel = UI.label(sideCol, "Max Rewards", "value", T.color.white)
-	sideLabel.Name = "MaxRewardsLabel"
-	sideLabel.Position = UDim2.fromOffset(0, 0)
-	sideLabel.Size = UDim2.new(1, 0, 0, 30)
-	sideLabel.AutomaticSize = Enum.AutomaticSize.None
-	sideLabel.TextXAlignment = Enum.TextXAlignment.Center
-	sideLabel.ZIndex = 14
-
-	local function buildTierPreview(order: number, track: string, footerText: string, footerColor: Color3)
-		local unitH = 212 + 8 + 20 + 4 + 22
-		local y = 30 + 12 + (order - 1) * (unitH + 14)
-		local cardW = 176
-
-		-- Style replacement (2026-08-04, Pet-Sim guide): the two bare 15s here
-		-- were a literal corner radius from the loose-cornered era -- the guide
-		-- tightens T.radius.*, so a literal left in place would read visibly
-		-- rounder than every other card on screen. Tokenised, and the ring gets
-		-- +5 because it sits 5px OUTSIDE the card (UI.rainbowRing is a +10/-5
-		-- frame) -- same concentric-corner convention UI.claimRing uses for its
-		-- own +8/-4 ring. Colour is unchanged: "panel" follows the shared token
-		-- to the guide's gray automatically, and the rainbow ring is identity.
-		local card = UI.surface(sideCol, UDim2.fromOffset(cardW, 212), "panel", T.radius.control, T.stroke.control)
-		card.Name = "TierPreview" .. order
-		card.AnchorPoint = Vector2.new(0.5, 0)
-		card.Position = UDim2.new(0.5, 0, 0, y)
-		card.ZIndex = 14
-		UI.rainbowRing(card, T.radius.control + 5)
-
-		local art = UI.artSlot(card, UDim2.new(1, -16, 1, -16), track == "pass" and T.icons.pass or T.icons.coin)
-		art.Name = "ArtSlot"
-		art.AnchorPoint = Vector2.new(0.5, 0.5)
-		art.Position = UDim2.fromScale(0.5, 0.5)
-		art.ZIndex = card.ZIndex + 2
-
-		local tierCount = #SeasonConfig.Tiers -- derived, not a literal "50" -- the kit mockup's "50" is a 25-tier track's own max, this game ships 25
-		local badge = UI.surface(card, UDim2.fromOffset(54, 54), "goldSmall", T.radius.inner, T.stroke.control)
-		badge.Name = "TierBadge"
-		badge.AnchorPoint = Vector2.new(1, 0)
-		badge.Position = UDim2.new(1, 12, 0, -12)
-		badge.ZIndex = card.ZIndex + 4
-		UI.gloss(badge, T.radius.inner)
-		local badgeLabel = UI.label(badge, tostring(tierCount), "value", T.color.white)
-		badgeLabel.Name = "TierBadgeLabel"
-		badgeLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-		badgeLabel.Position = UDim2.fromScale(0.5, 0.5)
-		badgeLabel.Size = UDim2.fromScale(1, 1)
-		badgeLabel.AutomaticSize = Enum.AutomaticSize.None
-		badgeLabel.TextXAlignment = Enum.TextXAlignment.Center
-		badgeLabel.ZIndex = badge.ZIndex + 2
-
-		local qty = UI.label(sideCol, "x1", "chip", T.color.white)
-		qty.Name = "Qty" .. order
-		qty.AnchorPoint = Vector2.new(0.5, 0)
-		qty.Position = UDim2.new(0.5, 0, 0, y + 212 + 8)
-		qty.Size = UDim2.new(1, 0, 0, 20)
-		qty.AutomaticSize = Enum.AutomaticSize.None
-		qty.TextXAlignment = Enum.TextXAlignment.Center
-		qty.ZIndex = 14
-
-		local footer = UI.label(sideCol, footerText, "cardLabel", footerColor)
-		footer.Name = "Footer" .. order
-		footer.AnchorPoint = Vector2.new(0.5, 0)
-		footer.Position = UDim2.new(0.5, 0, 0, y + 212 + 8 + 20 + 4)
-		footer.Size = UDim2.new(1, 0, 0, 22)
-		footer.AutomaticSize = Enum.AutomaticSize.None
-		footer.TextXAlignment = Enum.TextXAlignment.Center
-		footer.ZIndex = 14
-	end
-
-	buildTierPreview(1, "free", "Free", T.color.white)
-	buildTierPreview(2, "pass", "Season Pass", T.color.textAccent)
-
-	----------------------------------------------------------- bottom CTA (disabled -- no gamepass id yet, per spec)
-	local CTA_W = 320
-	local cta = UI.button(panelCol, "COMING SOON", "disabled", UDim2.fromOffset(CTA_W, CTA_H), "buttonL")
-	cta.Name = "CTAButton"
-	cta.AnchorPoint = Vector2.new(0.5, 0)
-	cta.Position = UDim2.new(0.5, 0, 0, BODY_TOP + BODY_H - CTA_OVERLAP)
-	cta.ZIndex = 16
-
-	----------------------------------------------------------- reward-card state machine (kit README §5)
-	local function buildLockBadge(card: Frame)
-		-- Style replacement (2026-08-04, Pet-Sim guide): literal 13 -> T.radius.chip,
-		-- for the same reason as the side previews above (tightened corners). The
-		-- lockBadge gradient itself is untouched -- it only ever lands on the GOLD
-		-- pass cards, where its light grey still has contrast.
-		local lock = UI.surface(card, UDim2.fromOffset(T.size.lockBadge, T.size.lockBadge), "lockBadge", T.radius.chip, T.stroke.chip)
-		lock.Name = "LockBadge"
-		lock.AnchorPoint = Vector2.new(1, 0)
-		lock.Position = UDim2.new(1, 8, 0, -8)
-		lock.ZIndex = card.ZIndex + 6
-		local glyph = UI.label(lock, "\u{1F512}", "chip", T.color.textOnLight)
-		glyph.Name = "Glyph"
-		glyph.AnchorPoint = Vector2.new(0.5, 0.5)
-		glyph.Position = UDim2.fromScale(0.5, 0.5)
-		glyph.Size = UDim2.fromScale(1, 1)
-		glyph.AutomaticSize = Enum.AutomaticSize.None
-		glyph.TextXAlignment = Enum.TextXAlignment.Center
-		glyph.TextSize = 22
-		glyph.ZIndex = lock.ZIndex + 1
-	end
-
-	-- DailyPanel's 28px corner badge (2.5px white ring + glyph) for the FREE
-	-- column -- plum lock when LOCKED, green check when CLAIMED (the kit's
-	-- grey lockBadge stays on the gold pass column, where it has contrast).
-	-- Style replacement (2026-08-04, Pet-Sim guide): kept as-is even though
-	-- the cards under it went from white to dark. The white ring is what
-	-- separates this badge from whatever it sits on, and half the badge
-	-- overhangs the card onto the gray window anyway -- it was never the
-	-- card colour doing the work. The 14 radius is geometry, not a corner
-	-- token: it is half of 28, i.e. a circle. Parented to the CARD,
-	-- not the slot: Daily's slot-parenting trick exists because ITS cards
-	-- carry an 8px UIPadding that drags overhang furniture inward; these
-	-- cards have no UIPadding, so card-relative offsets already land on the
-	-- true edges (the kit lockBadge above banks on the same fact).
-	local function buildCornerBadge(card: Frame, fill: Color3, glyphText: string)
-		local badge = Instance.new("Frame")
-		badge.Name = "CornerBadge"
-		badge.AnchorPoint = Vector2.new(1, 0)
-		badge.Position = UDim2.new(1, 8, 0, -8)
-		badge.Size = UDim2.fromOffset(28, 28)
-		badge.BackgroundColor3 = fill
-		badge.BorderSizePixel = 0
-		badge.ZIndex = card.ZIndex + 8
-		badge.Parent = card
-		UI.corner(badge, 14)
-		local ring = Instance.new("UIStroke")
-		ring.Thickness = 2.5
-		ring.Color = Color3.fromRGB(255, 255, 255)
-		ring.Parent = badge
-		local glyph = UI.label(badge, glyphText, "chip", T.color.white)
-		glyph.Name = "Glyph"
-		glyph.AnchorPoint = Vector2.new(0.5, 0.5)
-		glyph.Position = UDim2.fromScale(0.5, 0.5)
-		glyph.Size = UDim2.fromScale(1, 1)
-		glyph.AutomaticSize = Enum.AutomaticSize.None
-		glyph.TextXAlignment = Enum.TextXAlignment.Center
-		glyph.TextSize = 15
-		glyph.ZIndex = badge.ZIndex + 1
-	end
-
-	local function buildClaimPill(card: Frame, tier: number)
-		local pill = UI.button(card, "CLAIM", "green", UDim2.new(1, -16, 0, T.size.claimPill), "buttonM")
-		pill.Name = "ClaimPill"
-		pill.AnchorPoint = Vector2.new(0.5, 1)
-		pill.Position = UDim2.new(0.5, 0, 1, -8)
-		pill.ZIndex = card.ZIndex + 6
-		-- The ONE SeasonClaim:FireServer call site in this module. No local
-		-- state mutation here -- the card only re-renders CLAIMED once the
-		-- server pushes a fresh SeasonState with Claimed[tier] == true.
-		pill.MouseButton1Click:Connect(function()
-			ctx.remotes.SeasonClaim:FireServer(tier)
-		end)
-	end
-
-	-- (buildClaimedOverlay -- the near-black rgba(12,18,8,.58) scrim + white
-	-- check circle -- was removed in the 1d/1e sweep: CLAIMED is reachable
-	-- from the free column only, and its treatment is now the claimed-green
-	-- recolor inside buildRewardCard's state machine below.)
-
-	local function buildRewardCard(parent: Frame, tier: number, def, track: string)
+	----------------------------------------------------------- reward card
+	-- The state machine (kit README section 5) picks the surface kind BEFORE the
+	-- card is built. The old file built a card and then reached back in for its
+	-- UIGradient and UIStroke to recolour them, which is how the free column ended
+	-- up flat white with white text. Nothing here mutates a built card.
+	local function buildRewardCard(row: Frame, tier: number, track: string)
 		local isPass = track == "pass"
-		-- UI.hardShadow parents its shadow copy as a SIBLING of the frame you
-		-- pass it (`sh.Parent = frame.Parent`, see UIKit.Builders). `parent`
-		-- here is freeRow/passRow, which carries its own horizontal
-		-- UIListLayout -- calling UI.hardShadow directly on `card` would drop
-		-- an extra untracked Frame into that same list, silently doubling
-		-- each row's item count and corrupting the 178-wide column layout.
-		-- A non-list-managed `slot` wrapper (the actual list item) contains
-		-- both `card` and its shadow sibling, keeping the row's child count
-		-- exactly equal to the tier count.
-		local slot = Instance.new("Frame")
-		slot.Name = (isPass and "Pass" or "Free") .. "Slot" .. tier
-		slot.LayoutOrder = tier
-		slot.Size = UDim2.fromOffset(CARD_W, CARD_H)
-		slot.BackgroundTransparency = 1
-		slot.ZIndex = 15
-		slot.Parent = parent
 
-		local card = UI.surface(slot, UDim2.fromOffset(CARD_W, CARD_H), isPass and "passCard" or "freeCard", T.radius.control, T.stroke.control)
-		card.Name = (isPass and "Pass" or "Free") .. "Card" .. tier
-		card.ZIndex = 15
-		if isPass then
-			-- gold pass cards keep the full kit treatment (passCard gradient,
-			-- ink stroke, hard shadow) -- they ARE the panel's accent.
-			UI.hardShadow(card, T.shadowOffset.control, T.radius.control)
+		local claimMap = (isPass and state.PassClaimed or state.Claimed) or {}
+		local trackOpen = (not isPass) or state.PassOwned == true
+		local reached = state.XP >= SeasonConfig.ThresholdFor(tier)
+		local claimed = trackOpen and (claimMap[tostring(tier)] == true)
+		-- Premium is gated on the gamepass ON TOP of the XP threshold, so a player
+		-- who has passed tier 30 still sees the premium column locked until they
+		-- own it -- and then sees all 30 waiting, which is the "RETROACTIVE"
+		-- promise in the column heading.
+		local locked = (not trackOpen) or (not reached)
+		local claimable = trackOpen and reached and not claimed
+
+		-- sheet ramps: free track green, open premium gold, locked inert.
+		-- CLAIMED keeps its track's ramp -- the state is a WORD, not a colour.
+		local ramp
+		if locked then
+			ramp = S.Action.Inert
+		elseif isPass then
+			ramp = S.Action.Gold
 		else
-			-- 1d/1e sweep (2026-08-04): the freeCard grey ramp read muddy on
-			-- the cream body -- recolor the surface's OWN gradient/stroke in
-			-- place (DailyPanel's header pattern; a UI.surface frame's only
-			-- direct UIGradient/UIStroke children are its own, so
-			-- FindFirstChildOfClass is unambiguous, and no second UI.stroke is
-			-- ever attached). Flat white + 3px #e5d3ac soft border, and NO
-			-- hard shadow: Daily's cream-body cards ship shadowless. The
-			-- `slot` wrapper above stays regardless -- it is the row's
-			-- child-count contract either way.
-			local grad = card:FindFirstChildOfClass("UIGradient")
-			if grad then
-				grad.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
-			end
-			local border = card:FindFirstChildOfClass("UIStroke")
-			if border then
-				border.Color = CARD_BORDER
-				border.Thickness = 3
+			ramp = S.Action.GreenFill
+		end
+
+		local card = PC.plate({
+			name = (isPass and "Pass" or "Free") .. "Card" .. tier,
+			size = UDim2.fromOffset(CARD_W, ROW_H),
+			position = UDim2.fromOffset(isPass and PASS_X or FREE_X, 0),
+			colors = ramp,
+			radius = 24,
+			outline = 6,
+			zIndex = 15,
+			parent = row,
+			gloss = false,
+		})
+		if locked then
+			-- sheet: the row drops to 90% opacity; do NOT desaturate the whole
+			-- row (that loses the reward) -- the ART alone goes grey below
+			card.BackgroundTransparency = 0.1
+		end
+
+		local ink = locked and Color3.fromHex("B7C6D8") or S.Surface.ReadInk
+
+		if claimable then
+			UI.claimRing(card)
+		end
+
+		local tierDef = SeasonConfig.TierFor(track, tier)
+		local rw = SeasonConfig.DescribeReward(tierDef)
+
+		----------------------------------------------------- art plate
+		local plate = PC.plate({
+			name = "ArtPlate",
+			size = UDim2.fromOffset(PLATE, PLATE),
+			position = UDim2.new(0, PLATE_X, 0.5, 0),
+			anchor = Vector2.new(0, 0.5),
+			colors = locked and S.Action.Inert or { Color3.new(1, 1, 1), Color3.fromHex("FFF4D9") }, -- LemonPop light card (was #E4EDF7)
+			radius = 18,
+			outline = 5,
+			zIndex = card.ZIndex + 1,
+			parent = card,
+		})
+
+		local art
+		local eggMaster = (rw.kind == "Egg") and rw.model and BrainrotThumb.eggMaster(rw.model) or nil
+		if eggMaster then
+			art = BrainrotThumb.addMaster(plate, eggMaster, {
+				size = UDim2.new(1, -8, 1, -8),
+				position = UDim2.new(0, 4, 0, 4),
+				zIndex = plate.ZIndex + 1,
+			})
+		end
+		if not art and rw.kind == "Darrels" and IconArt and IconArt.has("darrel") then
+			-- The darrel has its OWN drawn icon -- the one on the HUD currency pill.
+			-- T.icons.gem is a generic purple gem and is not the same thing, so
+			-- these tiers would otherwise advertise the wrong currency.
+			local box = PLATE - 12
+			local host = Instance.new("Frame")
+			host.Name = "DarrelIcon"
+			host.AnchorPoint = Vector2.new(0.5, 0.5)
+			host.Position = UDim2.fromScale(0.5, 0.5)
+			host.Size = UDim2.fromOffset(box, box)
+			host.BackgroundTransparency = 1
+			host.ZIndex = plate.ZIndex + 1
+			host.Parent = plate
+			IconArt.draw(host, "darrel", box, host.ZIndex + 1)
+			art = host
+		end
+		if not art and rw.glyph then
+			-- Boost and tag tiers have no model and no icon art, so they get a
+			-- centred glyph.
+			local g = Instance.new("TextLabel")
+			g.Name = "Glyph"
+			g.AnchorPoint = Vector2.new(0.5, 0.5)
+			g.Position = UDim2.fromScale(0.5, 0.5)
+			g.Size = UDim2.new(1, -12, 1, -12)
+			g.BackgroundTransparency = 1
+			g.Font = Enum.Font.FredokaOne
+			g.TextScaled = true
+			g.Text = rw.glyph
+			g.ZIndex = plate.ZIndex + 1
+			g:SetAttribute("NoPolish", true) -- emoji must not be recoloured/outlined
+			g.Parent = plate
+			art = g
+		end
+		if not art then
+			art = UI.artSlot(plate, UDim2.new(1, -12, 1, -12), T.icons[rw.icon] or T.icons.coin)
+			art.AnchorPoint = Vector2.new(0.5, 0.5)
+			art.Position = UDim2.fromScale(0.5, 0.5)
+			art.ZIndex = plate.ZIndex + 1
+		end
+		art.Name = "ArtSlot"
+		if locked then
+			-- sheet: locked premium art at 40% grayscale (approximated with a
+			-- grey tint -- ImageColor3 is the only lever an ImageLabel has)
+			if art:IsA("ImageLabel") then
+				art.ImageColor3 = Color3.fromRGB(150, 150, 150)
+			elseif art:IsA("TextLabel") then
+				art.TextTransparency = 0.4
 			end
 		end
 
-		-- 1d/1e sweep: free-column ink is the mock's body-on-cream #4a3416
-		-- (textOnLight was tuned for the old grey ramp); the gold column
-		-- keeps textOnGoldCard.
-		local textColor = isPass and T.color.textOnGoldCard or CARD_TEXT
+		----------------------------------------------------- name + subtitle
+		local rewardText
+		if rw.kind == "Cash" then
+			rewardText = shortCash(rw.amount) .. " Cash"
+		elseif rw.kind == "Egg" then
+			-- An egg tier can hand over more than one; pass tier 50 gives twelve.
+			-- "x" not the multiplication sign: this game has been bitten by
+			-- glyphs the shipped fonts cannot render.
+			rewardText = rw.text .. "  x" .. tostring(rw.qty or 1)
+		else
+			rewardText = rw.text
+		end
 
-		local name = UI.label(card, shortCash(def.Cash), "cardLabel", textColor)
+		local name = UI.label(card, rewardText, "cardLabel", ink)
 		name.Name = "NameLabel"
-		name.Position = UDim2.new(0.5, 0, 0, 7)
-		name.AnchorPoint = Vector2.new(0.5, 0)
-		name.Size = UDim2.new(1, -16, 0, 24)
+		name.Position = UDim2.fromOffset(TEXT_X, 16)
+		name.Size = UDim2.fromOffset(TEXT_W, 22)
 		name.AutomaticSize = Enum.AutomaticSize.None
-		name.TextXAlignment = Enum.TextXAlignment.Center
+		name.TextXAlignment = Enum.TextXAlignment.Left
+		name.TextTruncate = Enum.TextTruncate.AtEnd
 		name.ZIndex = card.ZIndex + 2
 
-		local art = UI.artSlot(card, UDim2.new(1, -16, 1, -70), track == "pass" and T.icons.pass or T.icons.coin)
-		art.Name = "ArtSlot"
-		art.AnchorPoint = Vector2.new(0.5, 0)
-		art.Position = UDim2.new(0.5, 0, 0, 34)
-		art.ZIndex = card.ZIndex + 1
+		local sub = UI.label(card, subtitleFor(rw, SEASON.Number), "meta", locked and T.color.textDisabled or Color3.fromHex("2E5A38")) -- LemonPop: warm disabled taupe (was slate #8FA2B6)
+		sub.Name = "SubLabel"
+		sub.Position = UDim2.fromOffset(TEXT_X, 43)
+		sub.Size = UDim2.fromOffset(TEXT_W, 18)
+		sub.AutomaticSize = Enum.AutomaticSize.None
+		sub.TextXAlignment = Enum.TextXAlignment.Left
+		sub.TextTruncate = Enum.TextTruncate.AtEnd
+		sub.ZIndex = card.ZIndex + 2
 
-		-- Quantity chip (kit README §3.1): SeasonConfig rewards are scalar
-		-- cash -> quantity chip renders x1; revisit when itemized rewards
-		-- exist. Visible in LOCKED/CLAIMED; hidden in CLAIMABLE (state
-		-- machine below toggles it).
-		local qty = UI.label(card, "x1", "value", textColor)
-		qty.Name = "QtyChip"
-		qty.AnchorPoint = Vector2.new(1, 1)
-		qty.Position = UDim2.new(1, -8, 1, -6)
-		qty.Size = UDim2.fromOffset(36, 18)
-		qty.AutomaticSize = Enum.AutomaticSize.None
-		qty.TextXAlignment = Enum.TextXAlignment.Right
-		qty.ZIndex = card.ZIndex + 2
-
-		-- state machine (README §5): LOCKED / CLAIMABLE / CLAIMED. The pass
-		-- (gold) column is always LOCKED -- see the module header note on why
-		-- passOwned has no backing data in this build.
-		local unlocked = (not isPass) and (state.XP >= SeasonConfig.ThresholdFor(tier))
-		local claimed = (not isPass) and (state.Claimed[tostring(tier)] == true)
-
-		-- Same branches as ever ("isPass or not unlocked" merely split in two
-		-- so each column wears its own lock) -- only the badge builders and
-		-- the CLAIMED skin changed in the 1d/1e sweep. No wiring lives here
-		-- beyond buildClaimPill's untouched SeasonClaim connect.
-		if isPass then
-			-- always LOCKED (no passOwned backing data -- module header). The
-			-- kit's grey lockBadge keeps its contrast on gold: unchanged.
-			buildLockBadge(card)
-		elseif not unlocked then
-			-- 1d/1e sweep: the grey kit badge goes near-invisible on the flat
-			-- white card -- locked FREE cards wear Daily's plum corner lock.
-			buildCornerBadge(card, LOCK_BADGE, "\u{1F512}")
-		elseif not claimed then
-			UI.claimRing(card)
-			buildClaimPill(card, tier)
-			qty.Visible = false -- CLAIMABLE: hide qty chip to give CLAIM pill room
+		----------------------------------------------------- action
+		if claimable then
+			-- white plate on the coloured row: the one pressable thing on it
+			local pill = PC.pill({
+				name = "ClaimPill",
+				text = "CLAIM",
+				colors = { Color3.new(1, 1, 1), Color3.fromHex("FFF4D9") }, -- LemonPop light card (was #DCE6F0)
+				size = UDim2.fromOffset(ACTION_W + 20, 54),
+				position = UDim2.new(1, -10, 0.5, 0),
+				anchor = Vector2.new(1, 0.5),
+				textSize = 24,
+				zIndex = card.ZIndex + 6,
+				parent = card,
+			})
+			local pl = pill:FindFirstChild("Label")
+			if pl then pl.TextColor3 = Color3.fromHex("1F8B34") end
+			-- The ONE SeasonClaim:FireServer call site in this module. No local
+			-- state mutation here -- the card only re-renders CLAIMED once the
+			-- server pushes a fresh SeasonState with Claimed[tier] == true.
+			pill.MouseButton1Click:Connect(function()
+				-- track tells the server WHICH column; it re-checks gamepass
+				-- ownership itself, so a spoofed "pass" here still cannot claim
+				-- the paid track.
+				ctx.remotes.SeasonClaim:FireServer(tier, track)
+			end)
+		elseif claimed then
+			-- sheet: claimed is the WORD
+			local done = PC.shout({
+				name = "ClaimedMark", text = "CLAIMED", size = 22,
+				anchor = Vector2.new(1, 0.5),
+				position = UDim2.new(1, -16, 0.5, 0),
+				frameSize = UDim2.fromOffset(130, 26),
+				zIndex = card.ZIndex + 2, parent = card,
+			})
+			done.TextTransparency = 0.1
 		else
-			-- CLAIMED -- free column only (gold can never get here, see above).
-			-- 1d/1e sweep: the old near-black scrim overlay read heavy on a
-			-- white card; adopt DailyPanel's claimed language instead -- soft
-			-- green card, #bfe3b1 border, green corner check -- so "claimed =
-			-- soft green" is one language across the cream panels. The recolor
-			-- rides the SAME gradient/stroke instances the white flip above
-			-- already touched (thickness is already 3 from that flip).
-			local grad = card:FindFirstChildOfClass("UIGradient")
-			if grad then
-				grad.Color = ColorSequence.new(CLAIMED_BG)
-			end
-			local border = card:FindFirstChildOfClass("UIStroke")
-			if border then
-				border.Color = CLAIMED_BORDER
-			end
-			name.TextColor3 = CLAIMED_TEXT
-			qty.TextColor3 = CLAIMED_TEXT
-			buildCornerBadge(card, CHECK_GREEN, "\u{2713}")
+			-- The design's greyed "TIER 46" marker: what you must reach, said
+			-- plainly, instead of a dead button.
+			local marker = PC.shout({
+				name = "LockMarker",
+				text = (not trackOpen) and "LOCKED" or ("TIER " .. tier),
+				size = 20,
+				anchor = Vector2.new(1, 0.5),
+				position = UDim2.new(1, -16, 0.5, 0),
+				frameSize = UDim2.fromOffset(120, 24),
+				zIndex = card.ZIndex + 2, parent = card,
+			})
+			marker.TextTransparency = 0.25
 		end
 	end
 
-	local function buildTierBadge(parent: Frame, tier: number)
-		local col = Instance.new("Frame")
-		col.Name = "BadgeCol" .. tier
-		col.LayoutOrder = tier
-		col.Size = UDim2.fromOffset(CARD_W, BADGE)
-		col.BackgroundTransparency = 1
-		col.ZIndex = 15
-		col.Parent = parent
+	local function buildTierPill(row: Frame, tier: number)
+		-- sheet: the tier spine -- a gold plate column, 88 tall per row, the
+		-- one vertical rhythm holding both tracks together
+		local badge = PC.plate({
+			name = "TierBadge" .. tier,
+			size = UDim2.fromOffset(TIER_COL_W, 88),
+			position = UDim2.new(0, TIER_X + TIER_COL_W / 2, 0.5, 0),
+			anchor = Vector2.new(0.5, 0.5),
+			colors = S.Action.Gold,
+			radius = 22,
+			outline = 5,
+			zIndex = 15,
+			parent = row,
+		})
+		PC.shout({
+			name = "TierNumber", text = tostring(tier), size = 30,
+			zIndex = badge.ZIndex + 2, parent = badge,
+		})
+	end
 
-		local badge = UI.surface(col, UDim2.fromOffset(BADGE, BADGE), "goldSmall", T.radius.inner, T.stroke.control)
-		badge.Name = "TierBadge"
-		badge.AnchorPoint = Vector2.new(0.5, 0.5)
-		badge.Position = UDim2.fromScale(0.5, 0.5)
-		badge.ZIndex = 15
-		UI.gloss(badge, T.radius.inner)
-		local label = UI.label(badge, tostring(tier), "value", T.color.white)
-		label.Name = "TierNumber"
+	-- Full-width divider that announces the final tier, per the design.
+	local function buildMilestone(order: number, tier: number)
+		local strip = Instance.new("Frame")
+		strip.Name = "Milestone" .. tier
+		strip.LayoutOrder = order
+		strip.Size = UDim2.fromOffset(LADDER_W, MILESTONE_H)
+		strip.BackgroundTransparency = 1
+		strip.ZIndex = 15
+		strip.Parent = scroll
+
+		local label = UI.label(strip, "MILESTONE \u{00B7} TIER " .. tier, "chip", Color3.fromHex("B8860B"))
+		label.Name = "MilestoneLabel"
 		label.AnchorPoint = Vector2.new(0.5, 0.5)
 		label.Position = UDim2.fromScale(0.5, 0.5)
 		label.Size = UDim2.fromScale(1, 1)
 		label.AutomaticSize = Enum.AutomaticSize.None
 		label.TextXAlignment = Enum.TextXAlignment.Center
-		label.ZIndex = badge.ZIndex + 2
+		label.ZIndex = strip.ZIndex + 2
 	end
 
-	local function clearRow(row: Frame)
-		for _, c in ipairs(row:GetChildren()) do
-			if c:IsA("Frame") then
+	local function clearLadder()
+		for _, c in ipairs(scroll:GetChildren()) do
+			if c:IsA("GuiObject") then
 				c:Destroy()
 			end
 		end
 	end
 
-	-- Card count is driven by SeasonConfig.Tiers (currently 25), never a
-	-- literal, so a future config change resizes the track automatically.
-	local function renderTrack(): number
-		clearRow(freeRow)
-		clearRow(badgeRow)
-		clearRow(passRow)
-		local claimableCount = 0
-		for tier, def in ipairs(SeasonConfig.Tiers) do
-			buildRewardCard(freeRow, tier, def, "free")
-			buildTierBadge(badgeRow, tier)
-			buildRewardCard(passRow, tier, def, "pass")
-			local unlocked = state.XP >= SeasonConfig.ThresholdFor(tier)
-			local claimed = state.Claimed[tostring(tier)] == true
-			if unlocked and not claimed then
-				claimableCount += 1
+	-- Row count is driven by SeasonConfig.Tiers, never a literal, so a config
+	-- change resizes the ladder on its own.
+	local function renderLadder(): (number, number)
+		clearLadder()
+		local tierCount = #SeasonConfig.Tiers
+		local readyCount, claimedCount = 0, 0
+		for tier = 1, tierCount do
+			if tier == tierCount then
+				buildMilestone(tier * 10 - 5, tier)
+			end
+
+			local row = Instance.new("Frame")
+			row.Name = "TierRow" .. tier
+			row.LayoutOrder = tier * 10
+			row.Size = UDim2.fromOffset(LADDER_W, ROW_H)
+			row.BackgroundTransparency = 1
+			row.ZIndex = 15
+			row.Parent = scroll
+
+			buildRewardCard(row, tier, "free")
+			buildTierPill(row, tier)
+			buildRewardCard(row, tier, "pass")
+
+			local reached = state.XP >= SeasonConfig.ThresholdFor(tier)
+			if state.Claimed[tostring(tier)] == true then
+				claimedCount += 1
+			elseif reached then
+				readyCount += 1
+			end
+			if state.PassOwned then
+				if state.PassClaimed[tostring(tier)] == true then
+					claimedCount += 1
+				elseif reached then
+					readyCount += 1
+				end
 			end
 		end
-		return claimableCount
+		return readyCount, claimedCount
 	end
 
-	-- Gate for the rail-badge write below: render() also runs once at Build
-	-- time with the all-zero placeholder state, and that zero used to DESTROY
-	-- the correct join-time badge SeasonClient had already painted (review
-	-- catch) -- for the whole first-open server round trip on the rail that
-	-- stays visible above open panels.
+	-- Gate for the rail-badge write below: render() also runs once at Build time
+	-- with the all-zero placeholder state, and that zero used to DESTROY the
+	-- correct join-time badge SeasonClient had already painted.
 	local hasServerState = false
 
 	local function render()
@@ -738,30 +814,73 @@ function PassPanel.Build(ctx)
 		local tierNow = math.min(math.floor(state.XP / xpPerTier), tierCount)
 		local intoTier = state.XP - tierNow * xpPerTier
 
-		xpLabel.Text = string.format("%d / %d", intoTier, xpPerTier)
-		UI.setFill(xpFill, xpPerTier > 0 and (intoTier / xpPerTier) or 0, true)
-		levelLabel.Text = tostring(tierNow)
+		kicker.Text = string.format("SEASON %02d   %s   %d TIERS", SEASON.Number, string.upper(SEASON.Name), tierCount)
+		tierValue.Text = string.format("%d / %d", tierNow, tierCount)
+		if tierNow >= tierCount then
+			-- At the cap intoTier is 0, so the arithmetically-correct
+			-- "0 / 250 to tier 50" renders an EMPTY bar and reads like no
+			-- progress at the exact moment the track is finished.
+			xpCaption.Text = string.format("SEASON XP   %s / %s   TRACK COMPLETE", comma(state.XP), comma(tierCount * xpPerTier))
+			xpLabel.Text = "MAX"
+			UI.setFill(xpFill, 1, true)
+		else
+			xpCaption.Text = string.format("SEASON XP   %s / %s to tier %d", comma(intoTier), comma(xpPerTier), tierNow + 1)
+			xpLabel.Text = string.format("%d / %d", intoTier, xpPerTier)
+			UI.setFill(xpFill, xpPerTier > 0 and (intoTier / xpPerTier) or 0, true)
+		end
 
-		local claimableCount = renderTrack()
+		if daysLabel then
+			local left = math.max(0, math.ceil(((SEASON.Ends :: number) - os.time()) / 86400))
+			daysLabel.Text = string.format("%d DAYS LEFT", left)
+		end
 
-		-- Kit README §5 client state shape -- keep the shared ctx.state.pass
-		-- table current for any other consumer (e.g. a future badge/summary).
+		local readyCount, claimedCount = renderLadder()
+		claimStatus.Text = string.format("%d CLAIMED   %d READY", claimedCount, readyCount)
+
+		-- Kit README section 5 client state shape -- keep the shared ctx.state.pass
+		-- table current for any other consumer.
 		ctx.state.pass.level = tierNow
 		ctx.state.pass.xp = intoTier
 		ctx.state.pass.xpNeed = xpPerTier
 		ctx.state.pass.claimedFree = state.Claimed
 		if hasServerState then
-			ctx.setBadge("pass", claimableCount)
+			ctx.setBadge("pass", readyCount)
 		end
 	end
 
-	----------------------------------------------------------- backdrop blur (mock 1d/1e: dim + blur behind the panel)
-	-- 1d/1e sweep (2026-08-04): DailyPanel's setBlur block with a UNIQUE
-	-- name -- questsBtn transitions Pass -> Goals, and setBlur destroys by
-	-- NAME in Lighting, so a shared name would let one panel's close kill
-	-- the other's live blur. The shell owns the dim scrim; the blur is
-	-- per-panel. Size is SET, not tweened -- BlurEffect.Size is not on the
-	-- proven tween whitelist in this place.
+	----------------------------------------------------------- footer
+	local footer = Instance.new("Frame")
+	footer.Name = "Footer"
+	footer.Position = UDim2.fromOffset(0, BODY_TOP + BODY_H + FOOTER_GAP)
+	footer.Size = UDim2.fromOffset(PANEL_W, FOOTER_H)
+	footer.BackgroundTransparency = 1
+	footer.ZIndex = 12
+	footer.Parent = group
+
+	local footerNote = UI.label(footer, "Buying premium unlocks every tier you have already passed -- nothing is missed.", "meta", T.color.white)
+	footerNote.Name = "FooterNote"
+	footerNote.AnchorPoint = Vector2.new(0, 0.5)
+	footerNote.Position = UDim2.new(0, 4, 0.5, 0)
+	footerNote.TextTransparency = 0.25
+	footerNote.ZIndex = 13
+
+	local footerId = SEASON.Id
+	if type(SEASON.Ends) == "number" then
+		footerId = footerId .. "   ENDS " .. string.upper(os.date("!%d %b", SEASON.Ends :: number))
+	end
+	local footerTag = UI.label(footer, footerId, "meta", T.color.white)
+	footerTag.Name = "FooterTag"
+	footerTag.AnchorPoint = Vector2.new(1, 0.5)
+	footerTag.Position = UDim2.new(1, -4, 0.5, 0)
+	footerTag.TextTransparency = 0.35
+	footerTag.ZIndex = 13
+
+	----------------------------------------------------------- backdrop blur
+	-- DailyPanel's setBlur block with a UNIQUE name -- questsBtn transitions Pass
+	-- -> Goals, and setBlur destroys by NAME in Lighting, so a shared name would
+	-- let one panel's close kill the other's live blur. The shell owns the dim
+	-- scrim; the blur is per-panel. Size is SET, not tweened -- BlurEffect.Size is
+	-- not on the proven tween whitelist in this place.
 	local BLUR_NAME = "PassPanelBlur"
 	local function setBlur(on: boolean)
 		local existing = Lighting:FindFirstChild(BLUR_NAME)
@@ -782,10 +901,16 @@ function PassPanel.Build(ctx)
 	questsBtn.MouseButton1Click:Connect(function()
 		ctx.openPanel("goals")
 	end)
+	-- skipBtn and premiumBtn are deliberately unwired -- see the module header.
 
-	-- Server-confirmed only: the ONLY place `state` is written is here, from
-	-- a SeasonState push. No click handler in this module ever assigns into
+	-- Server-confirmed only: the ONLY place `state` is written is here, from a
+	-- SeasonState push. No click handler in this module ever assigns into
 	-- state.Claimed / state.XP.
+	--
+	-- PassOwned / PassClaimed are read DEFENSIVELY: SendState does not send them
+	-- today, so they stay false/empty and the premium column stays locked. The
+	-- day SeasonPassHandler starts sending them -- which is what pasting a real
+	-- gamepass id will require -- this panel already understands them.
 	ctx.remotes.SeasonState.OnClientEvent:Connect(function(s)
 		if typeof(s) ~= "table" then
 			return
@@ -793,14 +918,15 @@ function PassPanel.Build(ctx)
 		hasServerState = true
 		state.XP = s.XP or 0
 		state.Claimed = s.Claimed or {}
+		state.PassClaimed = s.PassClaimed or {}
+		state.PassOwned = s.PassOwned == true
 		render()
 	end)
 
 	-- Request a fresh state every time this panel becomes visible (mirrors
-	-- SeasonClient's own open-time refresh) -- covers both the very first
-	-- open (Build is lazy, called from inside openPanel) and every reopen.
-	-- 1d/1e sweep (2026-08-04): visibility now ALSO drives the backdrop
-	-- blur, additively -- the open-time FireServer refresh is untouched.
+	-- SeasonClient's own open-time refresh) -- covers both the very first open
+	-- (Build is lazy, called from inside openPanel) and every reopen. Visibility
+	-- also drives the backdrop blur, additively.
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
 		if wrapper.Visible then
 			ctx.remotes.SeasonState:FireServer()
@@ -810,12 +936,10 @@ function PassPanel.Build(ctx)
 		end
 	end)
 
-	-- Belt-and-braces for the blur teardown (DailyPanel review catch): any
-	-- path that hides the HOST while this wrapper stays Visible (legacy
-	-- single-open force-closes, future shell changes) must still kill the
-	-- global BlurEffect -- it post-processes the whole screen regardless of
-	-- GUI visibility -- and restore it when the host returns with this
-	-- panel still the visible one.
+	-- Belt-and-braces for the blur teardown: any path that hides the HOST while
+	-- this wrapper stays Visible must still kill the global BlurEffect -- it
+	-- post-processes the whole screen regardless of GUI visibility -- and restore
+	-- it when the host returns with this panel still the visible one.
 	ctx.host:GetPropertyChangedSignal("Visible"):Connect(function()
 		if not ctx.host.Visible then
 			setBlur(false)

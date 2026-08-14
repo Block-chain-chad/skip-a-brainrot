@@ -2,7 +2,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
@@ -17,6 +19,8 @@ local UIStyle = require(ReplicatedStorage.Modules.UIStyle) -- Round 2: shared bu
 local SideRail = require(ReplicatedStorage.Modules.SideRail) -- single-open panel registry
 local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb) -- shared 3D thumbnail helper (sell list icons)
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit) -- SFX2
+local Platform = require(ReplicatedStorage.Modules.Platform) -- device class + TV-safe insets
+local GamepadHint = require(ReplicatedStorage.Modules.GamepadHint) -- controller glyphs on the two always-on controls
 -- Kit-style icon artwork for the teleport tabs (see UIKit.IconArt). pcall'd:
 -- ClientMain drives the whole throw minigame, so a missing icon module must
 -- degrade to the old emoji rather than take the client down.
@@ -53,20 +57,11 @@ local rarityLabel = resultFrame.RarityLabel
 local nameLabel = resultFrame.NameLabel
 local infoLabel = resultFrame.InfoLabel
 
--- === Campfire menu chrome (shop / sell) ===
+-- === Bazaar menu chrome (shop / sell) ===
 local P = UITheme.Palette
 local CF = UITheme.Camp
 local FONT = UITheme.Font
-
--- One accent per card, cycled down the list. It is carried through three places
--- at once -- card border, title text, sunburst tint -- exactly as MerchantClient.
-local ACCENTS = {
-	{ CF.amber1, CF.amber2 },
-	{ CF.pine1,  CF.pine2  },
-	{ CF.lake1,  CF.lake2  },
-	{ CF.ember1, CF.ember2 },
-	{ CF.berry1, CF.berry2 },
-}
+local BZ = UITheme.Bazaar
 
 -- Repaint the Border strokes an authored instance already carries; adding a new
 -- one would double the outline.
@@ -91,22 +86,19 @@ end
 
 local function styleMenus()
 	for _, spec in ipairs({
-		{ frame = shopFrame, list = shopList, close = shopCloseButton, ribbonScale = 0.58 },
-		{ frame = sellFrame, list = sellList, close = sellCloseButton, ribbonScale = 0.74 },
+		{ frame = shopFrame, list = shopList, close = shopCloseButton, title = "Rock Shop", icon = "\u{1FAA8}", accent1 = BZ.rockHeader1, accent2 = BZ.rockHeader2 },
+		{ frame = sellFrame, list = sellList, close = sellCloseButton, title = "Sell Rocks", icon = "\u{1F4B0}", accent1 = BZ.sellHeader1, accent2 = BZ.sellHeader2 },
 	}) do
 		spec.frame.Size = UDim2.fromOffset(440, 400)
 		-- MainUI is Global ZIndexBehavior: lift the panel, then every child with it.
 		spec.frame.ZIndex = 10
-		UITheme.campPanel(spec.frame)
+		UITheme.bazaarPanel(spec.frame)
 
-		-- carved-wood banner overhanging the top, reusing the authored header text
-		UITheme.ribbon(spec.frame, spec.frame.TextLabel.Text, spec.ribbonScale)
+		UITheme.bazaarHeader(spec.frame, spec.title, spec.icon, spec.accent1, spec.accent2)
 		spec.frame.TextLabel.Visible = false   -- kept, not destroyed
 
-		UITheme.styleClose(spec.close)
-		spec.close.ZIndex = 18
-		spec.close.TextSize = 18
-		blackRim(spec.close, 3)
+		UITheme.bazaarClose(spec.close)
+		spec.close.ZIndex = 20
 
 		spec.list.Position = UDim2.new(0, 14, 0, 64)
 		spec.list.Size = UDim2.new(1, -28, 1, -80)
@@ -120,11 +112,10 @@ local function styleMenus()
 		if ll then ll.Padding = UDim.new(0, 10); ll.SortOrder = Enum.SortOrder.LayoutOrder; ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
 	end
 	sellEmptyLabel.Position = UDim2.new(0, 16, 0, 74)
-	sellEmptyLabel.Font = FONT
+	sellEmptyLabel.Font = Enum.Font.GothamMedium
 	sellEmptyLabel.TextSize = 15
-	sellEmptyLabel.TextColor3 = CF.muted
+	sellEmptyLabel.TextColor3 = BZ.muted
 	sellEmptyLabel.ZIndex = 12
-	inkTextOnce(sellEmptyLabel, 2)
 	-- shop + sell join the single-open registry: opening either closes any rail
 	-- panel and folds the rail away, and vice versa
 	SideRail.registerPanel(shopFrame)
@@ -163,6 +154,14 @@ local function snapCashLabel() end
 -- === Shop ===
 local rockRows = {}
 
+-- Mutates an EXISTING button into a Bazaar price/action pill (green->yellow
+-- "cash" look, or any other gradient pair the caller passes). Distinct from
+-- UITheme.bazaarPill, which always PARENTS A NEW button -- these buttons are
+-- authored once per row and just get restyled in place as state changes.
+local function styleActionPill(btn, c1, c2, textColor)
+	UITheme.bazaarRestylePill(btn, c1, c2, textColor)
+end
+
 local function buildShop()
 	for _, child in ipairs(shopList:GetChildren()) do
 		if child:IsA("Frame") then child:Destroy() end
@@ -172,25 +171,13 @@ local function buildShop()
 	local order = 0
 	for _, rock in ipairs(RockConfig) do
 		order += 1
-		local acc = ACCENTS[((order - 1) % #ACCENTS) + 1]
-		local card, row = UITheme.accentCard(shopList, acc[1], 14)
+		local row = UITheme.bazaarRow(shopList, 84)
 		row.Size = UDim2.new(1, -12, 0, 84)
 		row.LayoutOrder = order
 		row.ZIndex = 11
-		card.ZIndex = 12
 
-		-- icon tile: sunburst backdrop with the rock colour as the medallion dot
-		local icon = Instance.new("Frame")
-		icon.Size = UDim2.fromOffset(56, 56)
-		icon.Position = UDim2.new(0, 12, 0.5, -28)
-		icon.BackgroundColor3 = P.white
-		icon.BorderSizePixel = 0
-		icon.ClipsDescendants = true
-		icon.ZIndex = card.ZIndex + 1
-		icon.Parent = card
-		UITheme.corner(icon, 10)
-		UITheme.sunburst(icon, acc[1], 12)
-		UITheme.ink(icon, 3)
+		local icon = UITheme.bazaarIconSlot(row, 56)
+		icon.Position = UDim2.new(0, 12, 0.5, 0)
 
 		local dot = Instance.new("Frame")
 		dot.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -198,47 +185,27 @@ local function buildShop()
 		dot.Size = UDim2.fromOffset(34, 34)
 		dot.BackgroundColor3 = rock.Color
 		dot.BorderSizePixel = 0
-		dot.ZIndex = icon.ZIndex + 3
+		dot.ZIndex = icon.ZIndex + 1
 		dot.Parent = icon
 		UITheme.corner(dot, 17)
-		UITheme.ink(dot, 2.5)
+		UITheme.stroke(dot, BZ.ink, 2)
 		UITheme.gloss(dot, 16, 0.55)
 
-		local title = Instance.new("TextLabel")
-		title.Size = UDim2.new(1, -204, 0, 24)
+		local title = UITheme.bazaarTitle(row, rock.Id)
+		title.Size = UDim2.new(1, -204, 0, 22)
 		title.Position = UDim2.new(0, 80, 0, 12)
-		title.BackgroundTransparency = 1
-		title.Text = rock.Id
-		title.TextColor3 = acc[1]
-		title.Font = FONT
-		title.TextSize = 18
-		title.TextXAlignment = Enum.TextXAlignment.Left
-		title.TextTruncate = Enum.TextTruncate.AtEnd
-		title.ZIndex = card.ZIndex + 2
-		title.Parent = card
-		UITheme.inkText(title, 2.8)
 
-		local subtitle = Instance.new("TextLabel")
-		subtitle.Size = UDim2.new(1, -204, 0, 18)
-		subtitle.Position = UDim2.new(0, 80, 0, 40)
-		subtitle.BackgroundTransparency = 1
-		subtitle.Text = "Up to " .. rock.MaxDistance .. "m   \u{2022}   " .. string.format("%.2fx", rock.Luck) .. " luck"
-		subtitle.TextColor3 = CF.muted
-		subtitle.Font = Enum.Font.GothamMedium
-		subtitle.TextSize = 13
-		subtitle.TextXAlignment = Enum.TextXAlignment.Left
-		subtitle.TextTruncate = Enum.TextTruncate.AtEnd
-		subtitle.ZIndex = card.ZIndex + 2
-		subtitle.Parent = card
-		UITheme.inkText(subtitle, 1.6)
+		local subtitle = UITheme.bazaarDesc(row, "Up to " .. rock.MaxDistance .. "m   \u{2022}   " .. string.format("%.2fx", rock.Luck) .. " luck")
+		subtitle.Size = UDim2.new(1, -204, 0, 34)
+		subtitle.Position = UDim2.new(0, 80, 0, 38)
 
 		local actionButton = Instance.new("TextButton")
 		actionButton.AnchorPoint = Vector2.new(1, 0.5)
 		actionButton.Size = UDim2.new(0, 104, 0, 42)
 		actionButton.Position = UDim2.new(1, -12, 0.5, 0)
 		actionButton.TextSize = 17
-		actionButton.ZIndex = card.ZIndex + 2
-		actionButton.Parent = card
+		actionButton.ZIndex = row.ZIndex + 1
+		actionButton.Parent = row
 
 		actionButton.MouseButton1Click:Connect(function()
 			if state.OwnedRocks[rock.Id] then
@@ -261,17 +228,20 @@ function refreshShopButtons()
 		local owned = state.OwnedRocks[id]
 		local equipped = state.EquippedRock == id
 		if equipped then
-			UITheme.campButton(entry.button, CF.pine1, CF.pine2)
+			styleActionPill(entry.button, P.green1, P.green2, BZ.white)
 			entry.button.Text = "EQUIPPED"
-			entry.button.TextSize = 15
+			entry.button.TextSize = 14
 		elseif owned then
-			UITheme.campButton(entry.button, CF.lake1, CF.lake2)
+			-- LemonPop 2026-08-13: equip/select = BLUE (theme rule). This used to
+			-- ride BZ.header1/2 back when the header was cyan -- under LemonPop
+			-- those keys are the RED header, and a red EQUIP reads destructive.
+			styleActionPill(entry.button, P.blue1, P.blue2, BZ.white)
 			entry.button.Text = "EQUIP"
-			entry.button.TextSize = 17
+			entry.button.TextSize = 16
 		else
-			UITheme.campButton(entry.button, CF.amber1, CF.amber2)
+			styleActionPill(entry.button, BZ.cash1, BZ.cash2, BZ.cashText)
 			entry.button.Text = "$" .. formatNumber(entry.price)
-			entry.button.TextSize = 17
+			entry.button.TextSize = 16
 		end
 	end
 end
@@ -311,29 +281,20 @@ local function buildSellList()
 		if info then
 			local tier = tierByName[info.Rarity]
 			local sellValueEach = info.CashPerSecond * SELL_MULTIPLIER
-			local acc = ACCENTS[((i - 1) % #ACCENTS) + 1]
 
-			local card, row = UITheme.accentCard(sellList, acc[1], 14)
+			local row = UITheme.bazaarRow(sellList, 84)
 			row.Size = UDim2.new(1, -12, 0, 84)
 			row.LayoutOrder = i
 			row.ZIndex = 11
-			card.ZIndex = 12
 
-			-- icon tile: sunburst backdrop, tier colour now on the tile's border
-			-- (matches the backpack grid), with the real 3D brainrot inside
-			local icon = Instance.new("Frame")
-			icon.Size = UDim2.fromOffset(56, 56)
-			icon.Position = UDim2.new(0, 12, 0.5, -28)
-			icon.BackgroundColor3 = P.white
-			icon.BorderSizePixel = 0
-			icon.ClipsDescendants = true
-			icon.ZIndex = card.ZIndex + 1
-			icon.Parent = card
-			UITheme.corner(icon, 10)
-			UITheme.sunburst(icon, acc[1], 12)
-			UITheme.stroke(icon, tier and tier.Color or CF.ink, 3)
+			-- icon tile: tier colour on the border, real 3D brainrot inside
+			-- (matches the backpack grid and catch reveal)
+			local icon = UITheme.bazaarIconSlot(row, 56)
+			icon.Position = UDim2.new(0, 12, 0.5, 0)
+			for _, s in ipairs(icon:GetChildren()) do
+				if s:IsA("UIStroke") then s.Color = tier and tier.Color or BZ.ink end
+			end
 
-			-- the actual 3D brainrot, matching the backpack grid and catch reveal
 			local vp = BrainrotThumb.add(icon, name, {
 				size = UDim2.new(1, -8, 1, -8),
 				position = UDim2.new(0, 4, 0, 4),
@@ -351,37 +312,17 @@ local function buildSellList()
 				dot.ZIndex = icon.ZIndex + 3
 				dot.Parent = icon
 				UITheme.corner(dot, 17)
-				UITheme.ink(dot, 2.5)
+				UITheme.stroke(dot, BZ.ink, 2.5)
 				UITheme.gloss(dot, 16, 0.55)
 			end
 
-			local title = Instance.new("TextLabel")
-			title.Size = UDim2.new(1, -204, 0, 24)
+			local title = UITheme.bazaarTitle(row, name)
+			title.Size = UDim2.new(1, -204, 0, 22)
 			title.Position = UDim2.new(0, 80, 0, 12)
-			title.BackgroundTransparency = 1
-			title.Text = name
-			title.TextColor3 = acc[1]
-			title.Font = FONT
-			title.TextSize = 17
-			title.TextXAlignment = Enum.TextXAlignment.Left
-			title.TextTruncate = Enum.TextTruncate.AtEnd
-			title.ZIndex = card.ZIndex + 2
-			title.Parent = card
-			UITheme.inkText(title, 2.8)
 
-			local subtitle = Instance.new("TextLabel")
-			subtitle.Size = UDim2.new(1, -204, 0, 18)
-			subtitle.Position = UDim2.new(0, 80, 0, 40)
-			subtitle.BackgroundTransparency = 1
-			subtitle.Text = "\u{00D7}" .. count .. "   \u{2022}   $" .. formatNumber(sellValueEach) .. " each"
-			subtitle.TextColor3 = CF.muted
-			subtitle.Font = Enum.Font.GothamMedium
-			subtitle.TextSize = 13
-			subtitle.TextXAlignment = Enum.TextXAlignment.Left
-			subtitle.TextTruncate = Enum.TextTruncate.AtEnd
-			subtitle.ZIndex = card.ZIndex + 2
-			subtitle.Parent = card
-			UITheme.inkText(subtitle, 1.6)
+			local subtitle = UITheme.bazaarDesc(row, "\u{00D7}" .. count .. "   \u{2022}   $" .. formatNumber(sellValueEach) .. " each")
+			subtitle.Size = UDim2.new(1, -204, 0, 34)
+			subtitle.Position = UDim2.new(0, 80, 0, 38)
 
 			local sellOneButton = Instance.new("TextButton")
 			sellOneButton.AnchorPoint = Vector2.new(1, 0)
@@ -389,9 +330,9 @@ local function buildSellList()
 			sellOneButton.Position = UDim2.new(1, -12, 0, 6)
 			sellOneButton.Text = "SELL 1"
 			sellOneButton.TextSize = 15
-			sellOneButton.ZIndex = card.ZIndex + 2
-			sellOneButton.Parent = card
-			UITheme.campButton(sellOneButton, CF.pine1, CF.pine2)
+			sellOneButton.ZIndex = row.ZIndex + 1
+			sellOneButton.Parent = row
+			styleActionPill(sellOneButton, BZ.cash1, BZ.cash2, BZ.cashText)
 
 			local sellAllButton = Instance.new("TextButton")
 			sellAllButton.AnchorPoint = Vector2.new(1, 0)
@@ -399,9 +340,9 @@ local function buildSellList()
 			sellAllButton.Position = UDim2.new(1, -12, 0, 42)
 			sellAllButton.Text = "SELL ALL"
 			sellAllButton.TextSize = 15
-			sellAllButton.ZIndex = card.ZIndex + 2
-			sellAllButton.Parent = card
-			UITheme.campButton(sellAllButton, CF.amber1, CF.amber2)
+			sellAllButton.ZIndex = row.ZIndex + 1
+			sellAllButton.Parent = row
+			styleActionPill(sellAllButton, BZ.gem1, BZ.gem2, BZ.white)
 
 			sellOneButton.MouseButton1Click:Connect(function()
 				remotes.SellBrainrot:FireServer({ Name = name, Mode = "One" })
@@ -418,6 +359,7 @@ sellCloseButton.MouseButton1Click:Connect(function()
 end)
 
 -- === Walk-up shop + sell stalls (ProximityPrompt) ===
+local StallPrompt = require(game:GetService("ReplicatedStorage").Modules.StallPrompt)
 local gameWorld = Workspace:WaitForChild("GameWorld")
 local shopStall = gameWorld:WaitForChild("ShopStall")
 local shopPromptPart = shopStall:WaitForChild("PromptPart")
@@ -431,7 +373,9 @@ local sellPrompt = sellPromptPart:WaitForChild("SellPrompt")
 -- Marco keeps a stall in each world (SellStall in the valley, TundraSellStall in
 -- the Frozen Tundra hub). Both bind this one handler, and the dialogue anchors to
 -- whichever stall was actually used.
-local sellParts = { sellPromptPart }
+-- Filled by StallPrompt below, for BOTH worlds. Not seeded with sellPromptPart:
+-- the binder adds the valley part itself, and would otherwise double-count it.
+local sellParts = {}
 local function openSell(part)
 	if sellFrame.Visible then
 		sellFrame.Visible = false
@@ -454,23 +398,21 @@ local function openSell(part)
 	end, part)
 end
 
-sellPrompt.Triggered:Connect(function(triggeringPlayer)
-	if triggeringPlayer ~= player then return end
-	openSell(sellPromptPart)
-end)
-
-task.spawn(function()
-	local alt = gameWorld:WaitForChild("TundraSellStall", 30)
-	if not alt then return end
-	local altPart = alt:WaitForChild("PromptPart", 30)
-	local altPrompt = altPart and altPart:WaitForChild("SellPrompt", 30)
-	if not altPrompt then return end
-	table.insert(sellParts, altPart)
-	altPrompt.Triggered:Connect(function(triggeringPlayer)
-		if triggeringPlayer ~= player then return end
-		openSell(altPart)
+-- BOTH of Marco's stalls bind through StallPrompt. The tundra one used to be a
+-- one-shot WaitForChild(..., 30) which, with streaming on, timed out for anyone who
+-- joined in the valley -- world 2's sell prompt was then connected to nothing and
+-- pressing E did nothing at all. The valley one goes through the same path because
+-- streaming REPLACES parts: after a trip to the tundra and back, the original
+-- sellPrompt instance is gone and its connection with it.
+for _, stallName in ipairs({ "SellStall", "TundraSellStall", "GardensSellStall" }) do
+	StallPrompt.Bind(stallName, "SellPrompt", function(part, prompt)
+		table.insert(sellParts, part)
+		prompt.Triggered:Connect(function(triggeringPlayer)
+			if triggeringPlayer ~= player then return end
+			openSell(part)
+		end)
 	end)
-end)
+end
 
 -- auto-close if the player wanders away from a stall
 RunService.Heartbeat:Connect(function()
@@ -488,9 +430,12 @@ RunService.Heartbeat:Connect(function()
 	if sellFrame.Visible then
 		-- nearest stall, not the valley one: the tundra copy is 11k studs away and
 		-- would otherwise close the menu the moment it opened
+		-- a parentless part has STREAMED OUT; its last position is stale
 		local nearest = math.huge
 		for _, part in ipairs(sellParts) do
-			nearest = math.min(nearest, (hrp.Position - part.Position).Magnitude)
+			if part.Parent then
+				nearest = math.min(nearest, (hrp.Position - part.Position).Magnitude)
+			end
 		end
 		if nearest > 20 then
 			sellFrame.Visible = false
@@ -1143,9 +1088,26 @@ local beginWindup, driveWindup, endWindup
 -- so the last throw's number never bleeds into the next wind-up
 local clearSkipCounter
 
+-- THE DOCK THE PLAYER IS STANDING ON, and whether that world can be fished at all.
+-- Declared up here rather than beside computeInZone (far below) because startCharge and
+-- the button-text pass both need it and both run earlier in the file. computeInZone
+-- assigns it; nothing else writes it.
+--
+-- Only an EXPLICIT false blocks. ThrowHandler writes CatchesEnabled on each dock, but a
+-- dock whose attribute has not replicated yet reads nil and behaves exactly as before --
+-- a race can never lock the player out of the valley.
+local currentZone = nil
+local function zoneCatchesDisabled(): boolean
+	return currentZone ~= nil and currentZone:GetAttribute("CatchesEnabled") == false
+end
+
 local function startCharge()
 	if cooldown or charging then return end
 	if not inThrowZone then return end
+	-- Nothing to catch in this world yet (World 2 pending its roster). Refusing HERE
+	-- rather than letting the server abandon the throw is the whole point: the old
+	-- path charged, showed PERFECT, then sat dead on "SKIPPING..." for ~6.7s.
+	if zoneCatchesDisabled() then return end
 	if not playerHasPlot() then return end -- no base yet; button acts as "get a plot" instead
 	charging = true
 	stopBreath()          -- they are engaged; the invitation is over
@@ -1156,6 +1118,16 @@ local function startCharge()
 	-- roll this charge's own bar speed (see CYCLE_MIN_MULT above)
 	chargeStart = os.clock()
 	chargePeriod = CYCLE_SECONDS * (CYCLE_MIN_MULT + math.random() * (CYCLE_MAX_MULT - CYCLE_MIN_MULT))
+	-- FAST CHARGE (Robux pass), wired 2026-08-09 -- nothing read ChargeMult before, so
+	-- that pass would have taken Robux and done nothing. The bar is drawn and timed on
+	-- this client, so the multiplier can only be applied here; ownership arrives on the
+	-- shop's state push and is parked on the throw button (see the register note by the
+	-- AUTO button). Trust model is unchanged -- the client already reports its own power.
+	--
+	-- WHAT IT ACTUALLY BUYS is throughput, not a better throw: the green band keeps the
+	-- same WIDTH in power but goes past faster in time, so a perfect gets harder to hit
+	-- while throws come round quicker. Clamped so a bad value can never divide by ~0.
+	chargePeriod = chargePeriod / math.clamp(throwButton:GetAttribute("ChargeMult") or 1, 0.25, 4)
 	beginWindup()
 end
 
@@ -1188,6 +1160,9 @@ end
 -- This also suits the mechanic better than any clip. The charge bar is a 1.1s SINE, so
 -- mapping `power` straight onto joint angles makes the body literally be the bar, with no
 -- clip length or playback speed to keep in sync.
+-- Also means "a cast sequence owns the rig": the ice-fishing cast reuses this flag rather
+-- than adding one of its own. See the do-block below playThrowAnimation for why every
+-- single local there had to stay out of this chunk.
 local throwAnimActive = false
 
 local function A(x, y, z)
@@ -1210,11 +1185,24 @@ end
 --     and then both swing forward, which is not a throw.
 --   * A knee bends with the shin travelling BACKWARD, so every knee value is NEGATIVE.
 --     Positive knee values bent the legs the wrong way entirely.
+--
+-- KEEP EVERY SWING UNDER 180 DEGREES. blend() interpolates with CFrame:Lerp, which
+-- takes the SHORTEST arc between two rotations. The wind-up used to cock the shoulder
+-- to -150 and whip to +95: a raw difference of 245 degrees, so the short arc was the
+-- other 115 -- and the arm swung BACKWARD over the top instead of forward through the
+-- throw. Measured on the rig: axis-angle distance between those two keys came out at
+-- 116.6 degrees, i.e. 360 - 245, which is the proof it was travelling the wrong way.
+-- The signs above were never the problem; the arc length was.
+--
+-- So: no joint may differ by more than 180 degrees between consecutive keys, and the
+-- shoulder now cocks to -72 (a natural coil) rather than -150 (past vertical).
 local WOUND = {
 	Waist         = A(14, -30, 0),   -- -Y: right shoulder rotates AWAY from the target
 	Neck          = A(-4, 26, 0),    -- counter-twist so the eyes stay on the lake
-	RightShoulder = A(-150, 0, 14),  -- -X: throwing arm cocked BACK and out
-	RightElbow    = A(-70, 0, 0),    -- elbow folded
+	RightShoulder = A(-72, 0, 18),   -- -X: cocked BACK, and only 72 deg from neutral so
+	                                 -- the swing to WHIP (+92) is 164 deg -- under 180,
+	                                 -- so Lerp's short arc runs FORWARD through the throw
+	RightElbow    = A(-78, 0, 0),    -- elbow folded tighter to keep the hand back by the ear
 	LeftShoulder  = A(44, 0, -24),   -- +X: off arm comes FORWARD across the chest
 	LeftElbow     = A(-28, 0, 0),
 	RightHip      = A(-14, 0, 0),    -- weight settles onto the back leg
@@ -1225,8 +1213,8 @@ local WOUND = {
 local WHIP = {
 	Waist         = A(-22, 26, 0),   -- +Y: shoulders fire through toward the target
 	Neck          = A(-8, -10, 0),   -- head snaps out after the stone
-	RightShoulder = A(95, 0, -10),   -- +X: throwing arm drives FORWARD
-	RightElbow    = A(-8, 0, 0),     -- elbow straightens as it releases
+	RightShoulder = A(92, 0, -14),   -- +X: throwing arm drives FORWARD (164 deg from WOUND)
+	RightElbow    = A(-12, 0, 0),    -- elbow straightens as it releases
 	LeftShoulder  = A(-26, 0, 16),   -- -X: off arm drives BACK, opposing the throw
 	LeftElbow     = A(-8, 0, 0),
 	RightHip      = A(14, 0, 0),     -- back leg comes through onto the front foot
@@ -1251,12 +1239,19 @@ local RELEASE_KEYS = {
 	{ 0.42, nil },     -- nil = back to neutral
 }
 
+
 -- Union of every joint any pose touches. ONLY these are ever written, so the walk and
 -- idle animations keep full control of the wrists, ankles and everything else.
 local CONTROLLED = {}
 for _, pose in ipairs({ WOUND, WHIP, FOLLOW }) do
 	for name in pairs(pose) do CONTROLLED[name] = true end
 end
+-- The ankles are claimed for the SCOOTER, which parks the default animations while you
+-- ride: without them under control the feet keep whatever half-stride angle the walk
+-- clip happened to freeze on. No pose here names them, so applyPose neutralises them --
+-- which is also what a throw wants, and is what the animator was giving them anyway.
+CONTROLLED.LeftAnkle = true
+CONTROLLED.RightAnkle = true
 
 local joints = {}
 local function cacheJoints(char)
@@ -1297,16 +1292,29 @@ end
 -- walk/idle animation.
 local activePose, activeAlpha = nil, 1
 local windupActive = false
+-- Set by the scooter driver much further down: a COMPLETE pose table, rebuilt every
+-- frame with the lean and the float already baked into its angles, or nil whenever the
+-- player is not riding. It reuses this machinery rather than starting a second one --
+-- the ten joints a ride wants are the ten the throw already controls, and two writers
+-- on one rig is how a pose ends up flickering between them.
+local ridePose = nil
 
 RunService.Stepped:Connect(function()
 	if windupActive or throwAnimActive then
 		if activePose then applyPose(activePose, activeAlpha) end
-	elseif activePose then
+		return
+	end
+	if activePose then
 		-- charge cancelled or throw finished: one neutral frame, then stop writing so the
 		-- Animator resumes. Self-healing, so no exit path can leave the body stuck posed.
 		applyPose(nil, 1)
 		activePose = nil
 	end
+	-- THE THROW OUTRANKS THE RIDE, and has to: both write the same ten joints, and a
+	-- throw taken while riding must still look like a throw. The ride only gets the rig
+	-- on the frames no throw wants it. Dropping ridePose needs no neutral frame of its
+	-- own -- the Animator reclaims a joint the moment we stop writing it.
+	if ridePose then applyPose(ridePose, 1) end
 end)
 
 function beginWindup()
@@ -1350,6 +1358,224 @@ local function playThrowAnimation()
 			RunService.Stepped:Wait()
 		end
 		throwAnimActive = false       -- the Stepped driver now returns the rig to neutral
+	end)
+end
+
+-- ===================== ICE-FISHING CAST (World 2 blizzard) =====================
+-- Same rig, same sign conventions, same 180-degree rule as the throw above -- read that
+-- block first, all of it applies here.
+--
+-- WHY THIS IS ALL INSIDE ONE do-BLOCK, AND WHY IT HOLDS ITS POSES IN ONE TABLE:
+-- this chunk sits on Luau's 200-local ceiling. A first version of this section declared
+-- its tables and functions at top level and the whole script died on the spot --
+-- "Out of local registers when trying to allocate applyLayout: exceeded limit 200" at
+-- the HUD layout code far below -- which took sprint, the scooter and everything else
+-- past that line with it. A do-block releases its locals again, and folding fifteen pose
+-- tables into one `P` keeps the peak inside the block low as well. If you add to this
+-- section, add FIELDS to P, never new top-level locals.
+--
+-- It also reuses throwAnimActive rather than adding a cast flag, for the same reason.
+-- The flag really means "a pose sequence owns the rig", which is exactly true during a
+-- cast, and the two can never overlap: World-2 throwing is off for the whole blizzard.
+--
+-- DELIBERATELY USES ONLY THE TEN JOINTS THE THROW ALREADY NAMES, so CONTROLLED is
+-- unchanged. Claiming the wrists would give the rod tip a nicer flick, but applyPose
+-- forces every CONTROLLED joint a pose does not name to identity -- so taking the wrists
+-- here would quietly change how every THROW in the game looks.
+--
+-- The rod itself is server-side (RodService): it re-welds from the back into the right
+-- hand when the cast starts, so this pose swings a hand that is really holding it. Line,
+-- float, splash and bite tug are server-side too and so are visible to everyone; the
+-- pose, like the throw's, is local view only.
+do
+	local P = {
+		-- pulling it off your back
+		reach = { Waist = A(8, -16, 0), Neck = A(-6, 14, 0),
+			RightShoulder = A(-96, 0, 36), RightElbow = A(-104, 0, 0),
+			LeftShoulder = A(14, 0, -8), LeftElbow = A(-18, 0, 0),
+			RightHip = A(-6, 0, 0), RightKnee = A(-10, 0, 0),
+			LeftHip = A(4, 0, 0), LeftKnee = A(-6, 0, 0) },
+		grab = { Waist = A(10, -22, 0), Neck = A(-4, 18, 0),
+			RightShoulder = A(-84, 0, 30), RightElbow = A(-118, 0, 0),
+			LeftShoulder = A(18, 0, -10), LeftElbow = A(-24, 0, 0),
+			RightHip = A(-8, 0, 0), RightKnee = A(-12, 0, 0),
+			LeftHip = A(5, 0, 0), LeftKnee = A(-6, 0, 0) },
+		-- it comes clear of the shoulder and the off hand meets it
+		pull = { Waist = A(4, -12, 0), Neck = A(-8, 8, 0),
+			RightShoulder = A(-34, 0, 16), RightElbow = A(-86, 0, 0),
+			LeftShoulder = A(26, 0, -14), LeftElbow = A(-70, 0, 0),
+			RightHip = A(-6, 0, 0), RightKnee = A(-12, 0, 0),
+			LeftHip = A(4, 0, 0), LeftKnee = A(-8, 0, 0) },
+		-- deep coil behind the shoulder, weight on the back foot
+		load = { Waist = A(12, -28, 0), Neck = A(-2, 22, 0),
+			RightShoulder = A(-70, 0, 26), RightElbow = A(-74, 0, 0),
+			LeftShoulder = A(34, 0, -20), LeftElbow = A(-62, 0, 0),
+			RightHip = A(-14, 0, 0), RightKnee = A(-22, 0, 0),
+			LeftHip = A(9, 0, 0), LeftKnee = A(-6, 0, 0) },
+		-- the whip. -70 -> +60 is 130 deg, so Lerp's short arc runs FORWARD
+		flick = { Waist = A(-18, 22, 0), Neck = A(-12, -8, 0),
+			RightShoulder = A(60, 0, -10), RightElbow = A(-14, 0, 0),
+			LeftShoulder = A(-16, 0, 12), LeftElbow = A(-28, 0, 0),
+			RightHip = A(11, 0, 0), RightKnee = A(-6, 0, 0),
+			LeftHip = A(-9, 0, 0), LeftKnee = A(-13, 0, 0) },
+		follow = { Waist = A(-10, 14, 0), Neck = A(-16, -4, 0),
+			RightShoulder = A(44, 0, -8), RightElbow = A(-30, 0, 0),
+			LeftShoulder = A(4, 0, 10), LeftElbow = A(-44, 0, 0),
+			RightHip = A(6, 0, 0), RightKnee = A(-6, 0, 0),
+			LeftHip = A(-5, 0, 0), LeftKnee = A(-9, 0, 0) },
+		-- waiting on the float, two hands on the rod
+		hold = { Waist = A(-6, 8, 0), Neck = A(-15, -2, 0),
+			RightShoulder = A(30, 0, -6), RightElbow = A(-44, 0, 0),
+			LeftShoulder = A(24, 0, 8), LeftElbow = A(-58, 0, 0),
+			RightHip = A(2, 0, 0), RightKnee = A(-6, 0, 0),
+			LeftHip = A(-2, 0, 0), LeftKnee = A(-6, 0, 0) },
+		holdB = { Waist = A(-4, 9, 0), Neck = A(-12, -2, 0),
+			RightShoulder = A(34, 0, -6), RightElbow = A(-38, 0, 0),
+			LeftShoulder = A(26, 0, 8), LeftElbow = A(-52, 0, 0),
+			RightHip = A(2, 0, 0), RightKnee = A(-6, 0, 0),
+			LeftHip = A(-2, 0, 0), LeftKnee = A(-6, 0, 0) },
+		-- the jig: you work a hole, you do not stand over it like a lamppost
+		jig = { Waist = A(-8, 8, 0), Neck = A(-17, -2, 0),
+			RightShoulder = A(16, 0, -8), RightElbow = A(-62, 0, 0),
+			LeftShoulder = A(16, 0, 8), LeftElbow = A(-74, 0, 0),
+			RightHip = A(2, 0, 0), RightKnee = A(-8, 0, 0),
+			LeftHip = A(-2, 0, 0), LeftKnee = A(-8, 0, 0) },
+		-- the hookset, after the float has already ducked under
+		set = { Waist = A(-2, 4, 0), Neck = A(-18, 0, 0),
+			RightShoulder = A(-34, 0, -16), RightElbow = A(-66, 0, 0),
+			LeftShoulder = A(-10, 0, 12), LeftElbow = A(-66, 0, 0),
+			RightHip = A(-8, 0, 0), RightKnee = A(-16, 0, 0),
+			LeftHip = A(5, 0, 0), LeftKnee = A(-11, 0, 0) },
+		strain = { Waist = A(-14, 2, 0), Neck = A(-10, 0, 0),
+			RightShoulder = A(-14, 0, -14), RightElbow = A(-78, 0, 0),
+			LeftShoulder = A(-2, 0, 12), LeftElbow = A(-84, 0, 0),
+			RightHip = A(-12, 0, 0), RightKnee = A(-18, 0, 0),
+			LeftHip = A(8, 0, 0), LeftKnee = A(-8, 0, 0) },
+		-- two winding keys, alternated, so the off hand cranks the reel
+		windA = { Waist = A(-10, -4, 0), Neck = A(-12, 0, 0),
+			RightShoulder = A(4, 0, -10), RightElbow = A(-88, 0, 0),
+			LeftShoulder = A(16, 0, 14), LeftElbow = A(-98, 0, 0),
+			RightHip = A(-4, 0, 0), RightKnee = A(-12, 0, 0),
+			LeftHip = A(2, 0, 0), LeftKnee = A(-10, 0, 0) },
+		windB = { Waist = A(-8, 4, 0), Neck = A(-13, 0, 0),
+			RightShoulder = A(10, 0, -8), RightElbow = A(-74, 0, 0),
+			LeftShoulder = A(2, 0, 10), LeftElbow = A(-62, 0, 0),
+			RightHip = A(-4, 0, 0), RightKnee = A(-12, 0, 0),
+			LeftHip = A(2, 0, 0), LeftKnee = A(-10, 0, 0) },
+		-- lifting it clear of the hole to look at it
+		lift = { Waist = A(-6, -6, 0), Neck = A(-22, 0, 0),
+			RightShoulder = A(-40, 0, -20), RightElbow = A(-52, 0, 0),
+			LeftShoulder = A(-30, 0, 16), LeftElbow = A(-58, 0, 0),
+			RightHip = A(-2, 0, 0), RightKnee = A(-8, 0, 0),
+			LeftHip = A(2, 0, 0), LeftKnee = A(-8, 0, 0) },
+		slump = { Waist = A(8, 0, 0), Neck = A(12, 0, 0),
+			RightShoulder = A(14, 0, -4), RightElbow = A(-22, 0, 0),
+			LeftShoulder = A(10, 0, 6), LeftElbow = A(-18, 0, 0),
+			RightHip = A(-2, 0, 0), RightKnee = A(-8, 0, 0),
+			LeftHip = A(2, 0, 0), LeftKnee = A(-8, 0, 0) },
+	}
+
+	-- The flick lands at 0.52 and the arm is settled by 0.56, which is why
+	-- IceFishingConfig.CAST_LEAD is 0.56: that is when the server drops the float in and
+	-- lets the hook minigame start. Change one, change the other. STOW_DELAY likewise has
+	-- to outlast the catch sequence or the rod vanishes mid-reel.
+	local SEQ = {
+		cast = { { 0.00, P.reach }, { 0.14, P.grab }, { 0.28, P.pull },
+			{ 0.42, P.load }, { 0.52, P.flick }, { 0.64, P.follow }, { 0.82, P.hold } },
+		catch = { { 0.00, P.set }, { 0.14, P.set }, { 0.32, P.strain },
+			{ 0.54, P.windA }, { 0.72, P.windB }, { 0.90, P.windA }, { 1.08, P.windB },
+			{ 1.32, P.lift }, { 1.60, P.lift }, { 1.92, nil } },
+		miss = { { 0.00, P.set }, { 0.12, P.set }, { 0.36, P.slump },
+			{ 0.84, P.slump }, { 1.20, nil } },
+	}
+
+	local seq = 0
+
+	-- Runs a key list. Unlike the throw, a cast has a phase of UNKNOWN LENGTH in the
+	-- middle -- the hook minigame runs until you click or time out -- so when `hold` is
+	-- set the sequence parks there and keeps writing: breathing on a slow sine, with a
+	-- jig twitch every couple of seconds. Without it the body would snap back to the walk
+	-- cycle the instant the flick finished and stand there with a rod in its fist.
+	local function play(keys, hold)
+		seq += 1
+		local mine = seq
+		if not next(joints) then cacheJoints(player.Character) end
+		throwAnimActive = true
+		task.spawn(function()
+			local t0 = os.clock()
+			local total = keys[#keys][1]
+			while seq == mine do
+				local t = os.clock() - t0
+				if t >= total then break end
+				local k1, k2 = keys[1], keys[#keys]
+				for i = 1, #keys - 1 do
+					if t >= keys[i][1] and t <= keys[i + 1][1] then
+						k1, k2 = keys[i], keys[i + 1]
+						break
+					end
+				end
+				local span = math.max(k2[1] - k1[1], 1e-4)
+				local f = math.clamp((t - k1[1]) / span, 0, 1)
+				f = f * f * (3 - 2 * f)   -- smoothstep; a linear ramp between keys looks robotic
+				activePose, activeAlpha = blend(k1[2], k2[2], f), 1
+				RunService.Stepped:Wait()
+			end
+			if seq ~= mine then return end
+			if not hold then
+				throwAnimActive = false   -- the Stepped driver returns the rig to neutral
+				return
+			end
+			local h0 = os.clock()
+			while seq == mine do
+				local t = os.clock() - h0
+				local base = blend(P.hold, P.holdB, (math.sin(t * 1.7) + 1) * 0.5)
+				local cyc = t % 2.4
+				if cyc < 0.34 then
+					base = blend(base, P.jig, math.sin((cyc / 0.34) * math.pi) * 0.85)
+				end
+				activePose, activeAlpha = base, 1
+				RunService.Stepped:Wait()
+			end
+		end)
+	end
+
+	local function stop()
+		seq += 1
+		throwAnimActive = false
+	end
+
+	-- a cast cannot survive the character that was holding the rod; RodService drops the
+	-- stance back to Slung on respawn for the same reason
+	player.CharacterAdded:Connect(stop)
+
+	-- Driven straight off the event's own remote rather than through IceFishingClient,
+	-- because the rig has exactly one pose writer and it lives in this file.
+	task.spawn(function()
+		local iceState = remotes:WaitForChild("IceFishingState", 30)
+		if not iceState then return end
+		iceState.OnClientEvent:Connect(function(p)
+			if type(p) ~= "table" then return end
+			if p.Casting then
+				play(SEQ.cast, true)
+				-- square up to the hole on the first frame, the way releaseThrow squares you
+				-- up to the lake. AutoRotate is off for the whole cast (see applySprint), so
+				-- this facing is what you keep until the rod is stowed.
+				local ch = player.Character
+				local root = ch and ch:FindFirstChild("HumanoidRootPart")
+				if root and typeof(p.HolePos) == "Vector3" then
+					local flat = Vector3.new(p.HolePos.X, root.Position.Y, p.HolePos.Z)
+					if (flat - root.Position).Magnitude > 0.5 then
+						root.CFrame = CFrame.lookAt(root.Position, flat)
+					end
+				end
+			elseif p.Catch then
+				play(SEQ.catch)
+			elseif p.GotAway then
+				play(SEQ.miss)
+			elseif p.Cancelled or p.Active == false then
+				stop()
+			end
+		end)
 	end)
 end
 
@@ -1415,6 +1641,52 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
+-- === The throw, on a controller ===
+-- Everything above listens for MouseButton1 and Touch ONLY, which meant that on
+-- a gamepad the game's single core action was unreachable: you could walk to the
+-- dock, see the power bar, and never throw a rock. That is the whole game, so
+-- "runs on console" was never true no matter how well the UI scaled.
+--
+-- R2 is the trigger a player reaches for on a charge-and-release, with X as the
+-- alternate. Deliberately NOT ButtonA: the default control module binds A (and
+-- R2) to activate whatever GUI element is selected, and A is the one that has to
+-- keep doing that so the nav rail and every panel stay operable.
+--
+-- Bound only while the player is actually at a skip dock, so R2 goes back to
+-- activating the selected button everywhere else in the game. The Heartbeat that
+-- already tracks inThrowZone drives it.
+local THROW_ACTION = "SkipThrowGamepad"
+local throwBound = false
+
+local function gamepadThrow(_, state)
+	if state == Enum.UserInputState.Begin then
+		-- same two-step the tap path takes: no plot yet means send them to claim
+		-- one rather than starting a charge they cannot bank
+		if inThrowZone and not playerHasPlot() then
+			remotes.TeleportTo:FireServer("OpenPlot")
+			return Enum.ContextActionResult.Sink
+		end
+		startCharge()
+	elseif state == Enum.UserInputState.End then
+		releaseThrow()
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+local function setThrowBinding(on: boolean)
+	if on == throwBound then return end
+	throwBound = on
+	if on then
+		ContextActionService:BindAction(THROW_ACTION, gamepadThrow, false,
+			Enum.KeyCode.ButtonR2, Enum.KeyCode.ButtonX)
+	else
+		ContextActionService:UnbindAction(THROW_ACTION)
+		-- Walking out of the zone mid-charge must not strand the charge: without
+		-- this the End half of the action never arrives and the bar holds forever.
+		if charging then releaseThrow() end
+	end
+end
+
 -- === Auto skip ===
 -- Parented INSIDE ThrowFrame at a negative Y, so it draws above the panel while
 -- inheriting the panel's Visible -- it appears and disappears with the minigame
@@ -1427,6 +1699,25 @@ end)
 -- unchanged.
 local autoOn = false
 
+-- IT IS A GAMEPASS NOW (2026-08-09, owner's call). The button stays where it was
+-- for everyone; unowned, it opens the Robux prompt instead of toggling.
+--
+-- FREE UNTIL THE PASS IS REAL. GamepassId sits at 0 until someone creates the pass
+-- on the Creator Dashboard, and `Prompt` no-ops on a 0 -- so gating unconditionally
+-- would leave a dead button and a feature nobody in the game could use, which is a
+-- removal rather than a sale. While the id is 0 this reads exactly as it did
+-- before; filling the id in is the single act that switches it to paid, matching
+-- the convention the shop already runs on.
+--
+-- A STOREFRONT GATE, NOT A SECURITY BOUNDARY, and it cannot be otherwise: the
+-- server has no way to tell an auto throw from a manual one except the flag this
+-- client sets, and that flag only ever PENALISES the throw (AUTO_LUCK_MULT). A
+-- modified client could fire throws on a timer before this change and still can.
+-- ITS STATE LIVES ON THE BUTTON, as attributes, not as upvalues. This chunk sits a
+-- handful of locals under Luau's 200-register ceiling: four plain locals here took
+-- the file over it, and "Out of local registers" is a COMPILE error -- the entire
+-- client HUD failed to load, throw bar and all, for a monetization gate. Attributes
+-- cost no registers and are readable from every closure below.
 local autoBtn = Instance.new("TextButton")
 autoBtn.Name = "AutoButton"
 autoBtn.AnchorPoint = Vector2.new(0.5, 1)
@@ -1442,7 +1733,22 @@ UITheme.campButton(autoBtn, UITheme.Palette.hudMuted1, UITheme.Palette.hudMuted2
 blackRim(autoBtn, 3)
 inkTextOnce(autoBtn, 2.6)
 
+-- do-block so its working locals are freed again; see the register note above
+do
+	local pass = require(ReplicatedStorage.Modules.GamepassConfig).ByKey["AutoSkip"]
+	local live = (pass ~= nil and (pass.GamepassId or 0) > 0)
+	autoBtn:SetAttribute("PassLive", live)
+	-- free for everyone until the pass is real -- see the note above the button
+	autoBtn:SetAttribute("PassOwned", not live)
+end
+
 local function refreshAutoButton()
+	if not autoBtn:GetAttribute("PassOwned") then
+		-- gold rather than muted: it is not disabled, it is for sale
+		autoBtn.Text = "\u{1F512} AUTO SKIP"
+		UITheme.setColors(autoBtn, UITheme.Palette.hudGold1, UITheme.Palette.hudGold2)
+		return
+	end
 	autoBtn.Text = autoOn and "AUTO: ON" or "AUTO: OFF"
 	if autoOn then
 		UITheme.setColors(autoBtn, UITheme.Palette.green1, UITheme.Palette.green2)
@@ -1453,8 +1759,42 @@ end
 refreshAutoButton()
 
 autoBtn.MouseButton1Click:Connect(function()
+	if not autoBtn:GetAttribute("PassOwned") then
+		-- ShopService owns every prompt; it re-checks the key and the id itself, so
+		-- this cannot open a prompt for something that is not on sale
+		local prompt = remotes:FindFirstChild("ShopPrompt")
+		if prompt then prompt:FireServer("pass", "AutoSkip") end
+		return
+	end
 	autoOn = not autoOn
 	refreshAutoButton()
+end)
+
+-- Ownership arrives on the shop's own state push -- on join, and again the instant a
+-- pass is bought, so buying it flips this button to a working toggle with no rejoin.
+-- Bounded wait: ShopService self-heals the remote at Init, and a client that somehow
+-- never sees it simply keeps whatever autoOwned started as.
+task.spawn(function()
+	local shopState = remotes:WaitForChild("ShopState", 30)
+	if not shopState then return end
+	shopState.OnClientEvent:Connect(function(s)
+		if typeof(s) ~= "table" or typeof(s.Owned) ~= "table" then return end
+		local ownsIt = (not autoBtn:GetAttribute("PassLive")) or (s.Owned["AutoSkip"] == true)
+		autoBtn:SetAttribute("PassOwned", ownsIt)
+		-- Same push carries every other pass, so the charge multiplier is resolved off it
+		-- here rather than inventing a second remote. Product across owned passes, matching
+		-- GamepassService.multOf on the server.
+		local charge = 1
+		for _, g in ipairs(require(ReplicatedStorage.Modules.GamepassConfig).List) do
+			if s.Owned[g.Key] and g.Effects and type(g.Effects.ChargeMult) == "number" then
+				charge = charge * g.Effects.ChargeMult
+			end
+		end
+		throwButton:SetAttribute("ChargeMult", charge)
+		-- losing the gate must also stop a loop already running
+		if not ownsIt then autoOn = false end
+		refreshAutoButton()
+	end)
 end)
 
 -- ONE loop rather than a chain of task.delay callbacks: every gate is re-checked
@@ -1463,7 +1803,7 @@ end)
 task.spawn(function()
 	while true do
 		task.wait(0.1)
-		if autoOn and inThrowZone and not charging and not cooldown and playerHasPlot() then
+		if autoOn and autoBtn:GetAttribute("PassOwned") and inThrowZone and not charging and not cooldown and playerHasPlot() then
 			startCharge()
 			-- Release at a RANDOM point on the bar, deliberately unrelated to the band.
 			--
@@ -1602,7 +1942,7 @@ do
 		-- tick the card is built, before any layout pass has resolved it. The
 		-- glyph is capped below the free space so it stays in family with the
 		-- nav rail's icons instead of ballooning into the ribbon's old room.
-		local labelSize = (MET.W >= 80) and 18 or 14
+		local labelSize = MET.LABEL or ((MET.W >= 80) and 18 or 14)
 		local labelH = labelSize + 4
 		local room = MET.H - labelH - 2
 		local box = math.min(MET.W, room, math.floor(MET.H * 0.65))
@@ -1666,8 +2006,19 @@ do
 		word.Parent = btn
 	end
 
-	local WIDE    = { W = 86, H = 104, GAP = 30 }
-	local COMPACT = { W = 64, H = 80,  GAP = 24 }
+	-- LABEL is carried per-metric rather than derived from W. Deriving it meant
+	-- shrinking the card shrank the word with it, so the phone step below took
+	-- SKIP/SHOPS/PLOT down to 14px -- smaller than they were on a 1080p monitor,
+	-- on the device held closest to your face. The card shrinks; the word does
+	-- not. At 17px on a 361-tall screen the label is ~4.7% of the height, vs
+	-- 1.7% for 18px on desktop, so it reads bigger where it needs to.
+	local WIDE    = { W = 86, H = 104, GAP = 30, LABEL = 18 }
+	local COMPACT = { W = 64, H = 80,  GAP = 24, LABEL = 16 }
+	-- 2026-08-05: a third, phone-sized step. pickMetrics only ever solved for
+	-- horizontal room, and a 750x361 handset has plenty of WIDTH -- so it chose
+	-- WIDE and the SKIP/SHOPS/PLOT bar rendered 318x104, which is 42% of the
+	-- width and 29% of the HEIGHT of the screen. Height was never in the sum.
+	local TINY    = { W = 46, H = 56,  GAP = 14, LABEL = 17 }
 	local TOP_Y, UNDER_PILL_Y = 10, 66
 
 	-- the cash pill: 190 wide, 12 from the right edge, occupying y 12..58
@@ -1682,8 +2033,13 @@ do
 	local function pickMetrics()
 		local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
 		local room = vp.X - 2 * (CASH_W + CASH_MARGIN + CLEARANCE)
-		if barWidth(WIDE) <= room then return WIDE, TOP_Y end
-		if barWidth(COMPACT) <= room then return COMPACT, TOP_Y end
+		-- A nav bar has no business taking more than ~17% of the screen height.
+		-- Expressed against the live viewport rather than a device check, so it
+		-- also fixes short desktop windows and needs no platform lookup here.
+		local roomH = vp.Y * 0.17
+		if barWidth(WIDE) <= room and WIDE.H <= roomH then return WIDE, TOP_Y end
+		if barWidth(COMPACT) <= room and COMPACT.H <= roomH then return COMPACT, TOP_Y end
+		if barWidth(TINY) <= room then return TINY, TOP_Y end
 		-- too narrow for either: stack the bar beneath the pill instead of
 		-- letting them overlap
 		return COMPACT, UNDER_PILL_Y
@@ -1705,11 +2061,32 @@ do
 		end
 	end
 
+	-- TV OVERSCAN. A television does not draw the outer few percent of the
+	-- signal. This bar hangs off the TOP edge, and measured on a console it sat
+	-- at y=-11 -- above the title-safe line, partly not drawn at all.
+	--
+	-- It has to be solved here rather than by PlatformClient's blanket edge
+	-- nudge, because applyLayout rewrites tabBar.Position on every viewport
+	-- change and would overwrite that nudge -- after which the nudge's own
+	-- bookkeeping would subtract a shift that was no longer applied, walking the
+	-- bar further off on each pass. Whoever writes Position last has to own the
+	-- inset, so the bar opts out of the blanket pass and applies its own.
+	tabBar:SetAttribute("TVSafeSelfManaged", true)
+
+	-- The OVERSCAN part of the top inset only -- deliberately not the Roblox
+	-- topbar, which MainUI ignores by design and which would move the bar on
+	-- desktop. Derived by subtracting the topbar back out rather than repeating
+	-- Platform's 3.5% constant, so the two cannot drift. Returns exactly 0 on
+	-- every non-console device, which is what keeps desktop pixel-identical.
+	local function overscanTop(): number
+		return math.max(Platform.Insets().Top - GuiService:GetGuiInset().Y, 0)
+	end
+
 	local function applyLayout(MET, topY)
 		tabBar.BackgroundTransparency = 1
 		tabBar.BorderSizePixel = 0
 		tabBar.AnchorPoint = Vector2.new(0.5, 0)
-		tabBar.Position = UDim2.new(0.5, 0, 0, topY)
+		tabBar.Position = UDim2.new(0.5, 0, 0, topY + overscanTop())
 		tabBar.Size = UDim2.fromOffset(barWidth(MET), MET.H)
 		tabBar.ZIndex = 2
 
@@ -1739,7 +2116,10 @@ do
 		end
 	end
 
-	applyLayout(pickMetrics())
+	-- Fires immediately AND on every later device change. The viewport listener
+	-- below is not enough on its own: picking up a controller or landing on a
+	-- console changes the overscan inset without the window size moving at all.
+	Platform.Watch(function() applyLayout(pickMetrics()) end)
 
 	-- Re-layout on viewport changes, debounced so a drag-resize does not
 	-- rebuild every frame. Token pattern: only the newest wait wins.
@@ -1816,22 +2196,242 @@ local function applySprint()
 	local sprinting = shiftHeld or sprintToggled
 	local hum = getHumanoid()
 	if hum then
-		hum.WalkSpeed = sprinting and SPRINT_SPEED or WALK_SPEED
+		local speed = sprinting and SPRINT_SPEED or WALK_SPEED
+		-- VIP ELECTRIC SCOOTER, the speed half. 1.75x (up from 1.55 on 2026-08-09) on top
+		-- of walk OR sprint rather than a fixed replacement, so riding beats running
+		-- instead of making sprint pointless while you are on it. ScooterService (server) welds the prop and
+		-- flips the attribute; the speed has to be applied HERE because this function
+		-- is the one writer of WalkSpeed -- it runs on every input and every respawn,
+		-- so anything the server set would be overwritten within a frame. Read inline,
+		-- with no local to hold it: see the register note on the AUTO button above.
+		if player:GetAttribute("ScooterOn") == true then speed = speed * 1.75 end
+		-- ICE FISHING plants you at the hole for the length of a cast, the same way a skip
+		-- has you planted on the dock. IceFishingEvent sets the attribute; it is read inline
+		-- here for the same register reason as ScooterOn, and it MUST be applied in this
+		-- function -- applySprint is the one writer of WalkSpeed and runs on every input, so
+		-- a speed set anywhere else would be overwritten within a frame.
+		if player:GetAttribute("Fishing") == true then speed = 0 end
+		hum.WalkSpeed = speed
+		hum.AutoRotate = player:GetAttribute("Fishing") ~= true
 	end
 	if sprinting then UITheme.setColors(sprintButton, UITheme.Palette.hudGold1, UITheme.Palette.hudGold2)
 	else UITheme.setColors(sprintButton, UITheme.Palette.hudShop1, UITheme.Palette.hudShop2) end
 	sprintButton.Text = sprinting and "🏃 Sprinting" or "🏃 Sprint"
 end
+-- the lock goes on and comes off with the attribute, not on the next input
+player:GetAttributeChangedSignal("Fishing"):Connect(applySprint)
 
 player.CharacterAdded:Connect(function(char)
 	local hum = char:WaitForChild("Humanoid")
 	hum.WalkSpeed = (shiftHeld or sprintToggled) and SPRINT_SPEED or WALK_SPEED
 end)
 
+-- === VIP electric scooter: the jump half ===
+-- Wrapped in a do-block so its three locals are released again rather than held for
+-- the rest of the chunk -- the register ceiling this file is up against is about how
+-- many locals are live AT ONCE. The connections keep what they capture alive.
+do
+	local baseJump = nil
+	-- PARK THE DEFAULT ANIMATIONS WHILE RIDING. The walk and idle clips keep running
+	-- otherwise, and the legs pedal away underneath a rider who is supposed to be
+	-- standing on a board -- the pose below already owns the hips and knees, so what
+	-- shows through is a half-driven stride fighting a static stance.
+	--
+	-- Disabling the Animate LocalScript is reversible and rig-agnostic: re-enabling it
+	-- restarts the script, which re-binds and resumes as if nothing happened. Order
+	-- matters on dismount -- Animate comes back BEFORE the ride pose stops being
+	-- written, or the body holds the last posed frame until something else moves it.
+	local function setDefaultAnimations(on)
+		local char = player.Character
+		local animate = char and char:FindFirstChild("Animate")
+		if animate then animate.Disabled = not on end
+	end
+
+	local function applyScooter()
+		local hum = getHumanoid()
+		if not hum then return end
+		setDefaultAnimations(player:GetAttribute("ScooterOn") ~= true)
+		-- Captured before anything of ours writes it, and restored EXACTLY as found --
+		-- every field. A place can be on JumpHeight rather than JumpPower, and leaving
+		-- UseJumpPower flipped would quietly change how everyone jumps for the rest of
+		-- the session, long after the scooter was put away.
+		if not baseJump then
+			baseJump = { use = hum.UseJumpPower, power = hum.JumpPower,
+				height = hum.JumpHeight, hip = hum.HipHeight }
+		end
+		if player:GetAttribute("ScooterOn") == true then
+			hum.UseJumpPower = true
+			hum.JumpPower = 105        -- stock is 50; the hop is the point of the thing
+			-- STAND ON IT, don't stand IN it. A Humanoid pins its feet to the floor, so
+			-- the deck welded under them is really welded into the floor unless the rider
+			-- comes up to meet it. 0.7 MUST MATCH ScooterService.LIFT, which is what the
+			-- server measures the deck and wheels against -- it cannot be required from
+			-- here (ServerScriptService), so the two are kept in step by hand.
+			hum.HipHeight = baseJump.hip + 0.7
+		else
+			hum.UseJumpPower = baseJump.use
+			hum.JumpPower = baseJump.power
+			hum.JumpHeight = baseJump.height
+			hum.HipHeight = baseJump.hip
+		end
+		applySprint()
+	end
+
+	player.CharacterAdded:Connect(function(char)
+		char:WaitForChild("Humanoid")
+		baseJump = nil   -- a new rig has stock numbers again; the old capture must go
+		applyScooter()
+	end)
+	-- The server flips this on equip and unequip, and clears it on every respawn.
+	player:GetAttributeChangedSignal("ScooterOn"):Connect(applyScooter)
+	if player.Character then applyScooter() end
+
+	--[[ ===== THE RIDE ITSELF =====
+
+	Everything here is per-frame, and that is the whole point: a board that only moved
+	when you pressed something reads as a prop you are standing on, not a thing you are
+	riding. Four channels, all driven off what the character is ACTUALLY doing rather
+	than off the input -- so it reads the same on keyboard, thumbstick or click-to-move,
+	and stays honest when something else moves you:
+
+	  BANK   from the yaw rate. Lean into the turn, board and body together.
+	  PITCH  from forward acceleration. Nose up under power, down off it.
+	  FLOAT  a slow sine on the weld, with the knees soaking it up in counter-phase so
+	         the rider rides the float instead of levitating rigidly with it.
+	  SPEED  eased toward the target rather than snapped, so pulling away feels like
+	         acceleration and not like a switch.
+
+	LOCAL VIEW ONLY, unavoidably. Both halves -- AnimationConstraint.Transform and the
+	weld's C0 -- are client property writes, and Roblox does not replicate those. Other
+	players see a rider standing on a level board. The existing throw animation has the
+	same limitation for the same reason; making either visible to everyone needs the
+	pose baked into an uploaded animation asset, which only the owner can publish.
+	]]
+	local BOB_RATE, BOB_DEPTH = 3.1, 0.055
+	local LEAN_MAX, PITCH_MAX = 0.5, 0.4     -- radians of board roll / pitch at full tilt
+	local lean, pitch, speedNow, clock = 0, 0, 0, 0
+	local lastYaw, lastSpeed = nil, 0
+	-- MOUNT AND DISMOUNT ARE A BLEND, NOT A CUT (2026-08-09). The pose used to arrive
+	-- and leave on one frame, which is the one moment a procedural stance reads as
+	-- wrong -- the body snapped into a crouch and snapped back out mid-stride. `blend`
+	-- eases 0..1 and every joint is lerped from neutral by it, so stepping on and off
+	-- takes about a fifth of a second. `fullPose` is the stance at blend 1, kept so the
+	-- fade-OUT still has something to fade from after the ride has already ended.
+	local blend, fullPose = 0, nil
+
+	local function toward(v, target, dt, rate)
+		return v + (target - v) * (1 - math.exp(-rate * dt))
+	end
+
+	local function faded(pose, alpha)
+		if not pose then return nil end
+		if alpha >= 0.999 then return pose end
+		local out = {}
+		for name, cf in pairs(pose) do out[name] = CFrame.identity:Lerp(cf, alpha) end
+		return out
+	end
+
+	RunService.RenderStepped:Connect(function(dt)
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local riding = (player:GetAttribute("ScooterOn") == true) and hum ~= nil and hrp ~= nil
+		blend = toward(blend, riding and 1 or 0, dt, 9)
+
+		if not riding then
+			-- Forget the ride's state, so the next mount starts from a standstill rather
+			-- than resuming mid-lean -- but keep FADING the stance out for a few frames.
+			lastYaw, lean, pitch, speedNow = nil, 0, 0, 0
+			if blend < 0.02 then
+				blend, fullPose, ridePose = 0, nil, nil
+			else
+				ridePose = faded(fullPose, blend)
+			end
+			return
+		end
+		clock += dt
+
+		local look = hrp.CFrame.LookVector
+		local yaw = math.atan2(look.X, look.Z)
+		local dYaw = 0
+		if lastYaw then
+			-- shortest way round, or every pass through +/-pi reads as a violent turn
+			dYaw = (yaw - lastYaw + math.pi) % (2 * math.pi) - math.pi
+		end
+		lastYaw = yaw
+		-- 0.34 rather than 0.42: at the higher gain an ordinary mouse turn pegged the
+		-- bank at full tilt and held it there, so every corner looked identical. This
+		-- saturates around 3 rad/s, which leaves normal steering somewhere in between.
+		lean = toward(lean, math.clamp((dt > 0 and dYaw / dt or 0) * 0.34, -1, 1), dt, 7)
+
+		-- Flat speed, so riding down a hill does not read as accelerating. Tuned up from
+		-- /45 at rate 5, which was too slow to catch a launch: pulling away is one hard
+		-- spike of acceleration over two or three frames, and at that response the nose
+		-- had barely lifted before the spike was gone.
+		local vel = hrp.AssemblyLinearVelocity
+		local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+		pitch = toward(pitch, math.clamp((dt > 0 and (speed - lastSpeed) / dt or 0) / 30, -1, 1), dt, 8)
+		lastSpeed = speed
+
+		local bob = math.sin(clock * BOB_RATE) * BOB_DEPTH
+
+		-- SPEED RAMP. Seeded from the walking speed rather than from hum.WalkSpeed --
+		-- applySprint has already put the scooter multiplier on that by now, and seeding
+		-- from it would start the ramp at its destination and there would be no ramp.
+		local base = (shiftHeld or sprintToggled) and SPRINT_SPEED or WALK_SPEED
+		if speedNow <= 0 then speedNow = base end
+		speedNow = toward(speedNow, base * 1.75, dt, 5.5)
+		hum.WalkSpeed = speedNow
+
+		local scooter = char:FindFirstChild("ElectricScooter")
+		local deck = scooter and scooter:FindFirstChild("Deck")
+		local weld = deck and deck:FindFirstChild("RideWeld")
+		if weld then
+			-- Base from the attribute, never from the live C0 -- that is already a frame
+			-- of this animation, and compounding it would walk the board away.
+			local baseC0 = weld:GetAttribute("BaseC0") or weld.C0
+			-- BANK INTO THE TURN. The sign is measured, not reasoned: with the roll
+			-- negated the board leaned OUT of every corner -- 116 samples of a steady
+			-- right-hand turn, and the deck's up-vector pointed left in every one of them.
+			weld.C0 = baseC0
+				* CFrame.new(0, bob, 0)
+				* CFrame.Angles(pitch * PITCH_MAX, 0, lean * LEAN_MAX)
+		end
+
+		-- Knees take the float in counter-phase to the deck, which is what stops the
+		-- rider looking bolted to a bobbing plank.
+		local flex = bob * 90
+		fullPose = {
+			Waist         = A(12 + pitch * 7, 0, lean * 9),
+			Neck          = A(-9, 0, lean * -4),
+			-- hands out to the bars: elbows straighter than the first pass, which left
+			-- them folded short of the grips
+			LeftShoulder  = A(52 + pitch * 5, 0, -11),
+			RightShoulder = A(52 + pitch * 5, 0, 11),
+			LeftElbow     = A(-17, 0, 0),
+			RightElbow    = A(-17, 0, 0),
+			LeftHip       = A(15, 0, 0),                 -- front foot leads down the deck
+			LeftKnee      = A(-30 - flex, 0, 0),         -- knees NEGATIVE to bend, per the
+			RightHip      = A(-5, 0, 0),                 -- sign convention on the throw poses
+			RightKnee     = A(-21 - flex, 0, 0),
+		}
+		ridePose = faded(fullPose, blend)
+	end)
+end
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.LeftShift then
 		shiftHeld = true
+		applySprint()
+	end
+	-- Controllers: L3 (click the left stick) is the platform convention for
+	-- sprint. It TOGGLES rather than holds, because holding a thumbstick clicked
+	-- in while also steering with it is not something you can ask of a player --
+	-- which is exactly why the keyboard's hold-to-sprint does not port directly.
+	-- Shares sprintToggled with the on-screen button, so the two agree.
+	if input.KeyCode == Enum.KeyCode.ButtonL3 then
+		sprintToggled = not sprintToggled
 		applySprint()
 	end
 end)
@@ -1879,11 +2479,18 @@ end)
 local function computeInZone()
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	currentZone = nil
 	if not hrp then return false end
+	-- ICE FISHING: the Frozen Tundra dock's throw zone is switched off while the lake is
+	-- frozen -- you fish at the holes instead. Reading it here means the whole throw
+	-- pipeline (minigame UI, auto-skip, gamepad bind) treats that dock as "not a zone".
+	local iceOn = ReplicatedStorage:GetAttribute("IceFishingActive") == true
 	for _, zone in ipairs(throwZones) do
 		local rel = zone.CFrame:PointToObjectSpace(hrp.Position)
 		local s = zone.Size / 2
 		if math.abs(rel.X) <= s.X and math.abs(rel.Z) <= s.Z and math.abs(rel.Y) <= s.Y + 6 then
+			if iceOn and zone:FindFirstAncestor("FrozenTundra") then return false end
+			currentZone = zone   -- carries this world's CatchesEnabled flag
 			return true
 		end
 	end
@@ -1907,6 +2514,9 @@ local function updateBreathGate()
 end
 RunService.Heartbeat:Connect(function()
 	inThrowZone = computeInZone()
+	-- ...and only where there is something to catch, so a controller cannot take the
+	-- route the touch/mouse path now refuses.
+	setThrowBinding(inThrowZone and not zoneCatchesDisabled())
 	updateBreathGate()
 	if inThrowZone and not prevInZone then refreshSweetSpot() end -- fresh spot on walk-up
 	prevInZone = inThrowZone
@@ -1916,6 +2526,10 @@ RunService.Heartbeat:Connect(function()
 	local wantText, cTop, cBot
 	if not inThrowZone then
 		wantText, cTop, cBot = "GO TO SKIP AREA", UITheme.Palette.hudMuted1, UITheme.Palette.hudMuted2
+	elseif zoneCatchesDisabled() then
+		-- Checked BEFORE the plot rule: in a world with no roster, "get a plot" would be
+		-- advice that leads nowhere. Say the true thing instead.
+		wantText, cTop, cBot = "COMING SOON", UITheme.Palette.hudMuted1, UITheme.Palette.hudMuted2
 	elseif not playerHasPlot() then
 		wantText, cTop, cBot = "GET A PLOT FIRST", UITheme.Palette.hudGold1, UITheme.Palette.hudGold2
 	else
@@ -1948,7 +2562,7 @@ local stoneThrownRemote = remotes:WaitForChild("StoneThrown")
 local SKIP_TICK_LEAD  = 0.03   -- seconds BEFORE the splash the number flips
 local SKIP_POP_SCALE  = 1.45   -- pop peak, settles to 1
 local SKIP_POP_TIME   = 0.18   -- seconds, Back/Out
-local SKIP_CLEAR_SAFE = 8      -- seconds after the last tick, guard only
+local SKIP_CLEAR_SAFE = 1.5    -- seconds after the last skip (~ when the rock lands) before the counter auto-hides, so it does not linger through the catch reveal
 
 local skipCounterWarned = false
 local skipToken = 0
@@ -2012,6 +2626,127 @@ stoneThrownRemote.OnClientEvent:Connect(function(_, _, _, _, nContacts, segTime)
 	runSkipCounter(nContacts, segTime)
 end)
 
+-- === Client-smoothed stone =================================================
+-- The server flies ThrownRock with anchored PivotTo steps, which reach this
+-- client at replication rate (~20Hz) with NO interpolation -- so the rock
+-- visibly stuttered against the RenderStepped tracking camera (user capture
+-- 2026-08-10, "when i go to throw a rock its very chopped"). The arc is
+-- fully deterministic and the payload already carries everything needed to
+-- rebuild it (the same latency-cancels argument the skip counter documents),
+-- so the thrower hides the server stone LOCALLY and flies a clone of it at
+-- render rate instead. Other clients keep the server stone; every gameplay
+-- event -- splashes, catch roll, the settle, onLand -- stays server-side.
+--
+-- Arc reconstruction mirrors ThrowHandler.spawnSkippingStone exactly:
+--   startFlat = landing - (0,0,distance); points[i] = startFlat + (0,0,d*i/n)
+--   apex k=1: clamp(hopLen*0.4, 3, 11); k>1: max(2.5, clamp(hopLen*0.42, 3, 8)*0.82^(k-2))
+-- Change one side and the ghost parts company with the splashes.
+stoneThrownRemote.OnClientEvent:Connect(function(origin, landing, totalTime, distance, nContacts, segTime, isCinematic)
+	if typeof(origin) ~= "Vector3" or typeof(landing) ~= "Vector3" then return end
+	if type(totalTime) ~= "number" or type(distance) ~= "number"
+		or type(nContacts) ~= "number" or type(segTime) ~= "number" then return end
+	if nContacts < 1 or segTime <= 0 or totalTime <= 0 then return end
+
+	task.spawn(function()
+		-- find MY server stone (ThrowHandler tags it); it is parented right
+		-- before the payload fires, so it is normally already here
+		local stone
+		local deadline = os.clock() + 1
+		repeat
+			for _, c in ipairs(Workspace:GetChildren()) do
+				if c.Name == "ThrownRock" and c:GetAttribute("ThrowerUserId") == player.UserId
+					and not c:GetAttribute("ClientSmoothed") then
+					stone = c
+					break
+				end
+			end
+			if not stone then task.wait(0.05) end
+		until stone or os.clock() > deadline
+		if not stone then return end -- old behaviour: the server stone stays visible
+		stone:SetAttribute("ClientSmoothed", true) -- client-local; never replicates
+
+		-- hide the stepping original for me only
+		local function hidePart(d)
+			if d:IsA("BasePart") then d.LocalTransparencyModifier = 1 end
+		end
+		for _, d in ipairs(stone:GetDescendants()) do hidePart(d) end
+		local hideConn = stone.DescendantAdded:Connect(hidePart)
+
+		local ghost = stone:Clone()
+		ghost.Name = "ThrownRockGhost"
+		for _, d in ipairs(ghost:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 0
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CanTouch = false
+			end
+		end
+		ghost.Parent = Workspace
+
+		local startFlat = landing - Vector3.new(0, 0, distance)
+		local points = { origin }
+		for i = 1, nContacts do
+			points[i + 1] = startFlat + Vector3.new(0, 0, distance * (i / nContacts))
+		end
+		local hopLen = distance / nContacts
+
+		local spin = 0
+		local flightT0 = os.clock()
+		local conn
+		local done = false
+		local function cleanup()
+			if done then return end
+			done = true
+			if conn then conn:Disconnect() conn = nil end
+			if hideConn then hideConn:Disconnect() hideConn = nil end
+			if not ghost.Parent then return end
+			if isCinematic then
+				-- the server destroys its stone at the bonk; a settling ghost
+				-- would float through the Massive emergence
+				ghost:Destroy()
+			else
+				-- settle exactly where the server settles, and leave the ghost
+				-- for the same beat Debris gives the original
+				ghost:PivotTo(CFrame.new(landing.X, landing.Y, landing.Z) * CFrame.Angles(math.rad(6), 0, 0))
+				task.delay(1.25, function()
+					if ghost.Parent then ghost:Destroy() end
+				end)
+			end
+		end
+
+		conn = RunService.RenderStepped:Connect(function(dt)
+			local t = os.clock() - flightT0
+			if t >= totalTime then
+				cleanup()
+				return
+			end
+			local k = math.clamp(math.floor(t / segTime) + 1, 1, nContacts)
+			local alpha = math.clamp(t / segTime - (k - 1), 0, 1)
+			local a, b = points[k], points[k + 1]
+			local apex
+			if k == 1 then
+				apex = math.clamp(hopLen * 0.4, 3, 11)
+			else
+				apex = math.max(2.5, math.clamp(hopLen * 0.42, 3, 8) * (0.82 ^ (k - 2)))
+			end
+			local pos = a:Lerp(b, alpha)
+			local h = math.sin(alpha * math.pi) * apex
+			-- the server steps 1 rad per ~60Hz heartbeat; 60 rad/s matches it
+			spin += 60 * dt
+			ghost:PivotTo(CFrame.new(pos.X, pos.Y + h, pos.Z)
+				* CFrame.Angles(0, spin, 0)
+				* CFrame.Angles(math.rad(12), 0, 0))
+		end)
+		-- backstop: never outlive the flight, whatever else happens
+		task.delay(totalTime + 2, cleanup)
+	end)
+end)
+
+-- How early (seconds before the final contact) the tracking camera hands the camera
+-- back when a Massive-catch cinematic is inbound. See releaseCam() below.
+local CINEMATIC_CAM_LEAD = 0.10
+
 stoneThrownRemote.OnClientEvent:Connect(function(startPos, landingPos, flightTime, distance)
 	if tracking then return end
 	if (distance or 0) < TRACK_MIN_DISTANCE then return end
@@ -2020,17 +2755,70 @@ stoneThrownRemote.OnClientEvent:Connect(function(startPos, landingPos, flightTim
 	cameraTracking = true    -- holds the throw bar at "SKIPPING..." until the flyback ends
 	flightTime = flightTime or 1.5
 	local prevType = camera.CameraType
+	-- Never save Scriptable as the restore target: if some other system (the Massive
+	-- catch cinematic) owns the camera right now, restoring Scriptable later hands back
+	-- a camera with no writer -- frozen until rejoin. The throw bar unlocks at bonk+1.4s
+	-- while a cut runs to ~10.7s, so a throw STARTED mid-cinematic really does land here
+	-- with the camera already Scriptable. Custom is the only recoverable terminal state.
+	-- Same coercion as CameraRig/MassiveEmergence/CatchReveal.
+	if prevType == Enum.CameraType.Scriptable then prevType = Enum.CameraType.Custom end
 	camera.CameraType = Enum.CameraType.Scriptable
 	local t0 = os.clock()
 	local conn
+
+	-- Idempotent: the camera half of the teardown, split out from the throw-lock half
+	-- so the cinematic can reclaim the camera early WITHOUT changing when the throw
+	-- bar unlocks (that stays on the original flightTime + 1.4 schedule below).
+	local camReleased = false
+	local respawnConn
+	local function releaseCam()
+		if camReleased then return end
+		camReleased = true
+		if conn then conn:Disconnect() conn = nil end
+		if respawnConn then respawnConn:Disconnect() respawnConn = nil end
+
+		-- CUSTOM WITH A DEAD SUBJECT IS STILL A DEAD CAMERA.
+		-- Restoring CameraType alone is not enough. If the character died or respawned
+		-- during the flight, CameraSubject still points at the DESTROYED Humanoid, so
+		-- handing back Custom leaves the camera frozen exactly where the tracking loop
+		-- left it -- parked out at the rock's landing point, for good. That is the
+		-- "camera stuck on the skip" bug. CameraRig:takeover() already guards this on its
+		-- own restore path ("a Scriptable owner may also have left CameraSubject nil, and
+		-- Custom with no subject is still a dead camera"); this path never did.
+		local char = player.Character
+		local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+		local subj = camera.CameraSubject
+		if hum and (subj == nil or not subj:IsDescendantOf(Workspace)) then
+			camera.CameraSubject = hum
+		end
+		camera.CameraType = prevType
+	end
+
+	-- A respawn mid-flight hands the camera back AT ONCE rather than after the full
+	-- flight + 1.4s dwell: otherwise the player is steering a fresh character while the
+	-- camera is still out watching where the last rock landed.
+	respawnConn = player.CharacterAdded:Connect(releaseCam)
+
 	conn = RunService.RenderStepped:Connect(function()
+		-- A Massive catch's cinematic takes the camera AT the final contact
+		-- (CameraRig:takeover(), which snapshots CameraType/CFrame to restore later).
+		-- If this tracking camera is still holding Scriptable at that instant, the
+		-- cinematic snapshots THAT -- and "restores" the player to a Scriptable camera
+		-- parked 900 studs away at the landing point, permanently. So hand the camera
+		-- back a beat EARLY, in an earlier frame, leaving nothing to race.
+		-- CinematicCameraInbound is set by CinematicClient the moment it decides this
+		-- client is the thrower and will run the cut.
+		if player:GetAttribute("CinematicCameraInbound")
+			and (os.clock() - t0) >= (flightTime - CINEMATIC_CAM_LEAD) then
+			releaseCam()
+			return
+		end
 		local alpha = math.clamp((os.clock() - t0) / flightTime, 0, 1)
 		local target = startPos:Lerp(landingPos, alpha)
 		camera.CFrame = CFrame.new(target + Vector3.new(6, 14, -24), target + Vector3.new(0, 1, 6))
 	end)
 	task.delay(flightTime + 1.4, function()
-		if conn then conn:Disconnect() end
-		camera.CameraType = prevType
+		releaseCam()
 		tracking = false
 		-- camera is back on the player: this is the real end of the throw
 		cameraTracking = false
@@ -2069,12 +2857,22 @@ do
 	local WHITE = Color3.fromRGB(255, 255, 255)
 
 	-- Retire the authored dark rims, then add one white keyline we own by name.
+	--
+	-- The UICorner sweep matters as much as the stroke one. UIStyle.corner works
+	-- on a child it names "UIStyleCorner", but these controls were authored in
+	-- StarterGui with a UICorner of their own already sitting there. Roblox
+	-- honours ONE UICorner per object and does not say which -- so the sprint
+	-- button kept rendering at the authored 18 while this code believed it had
+	-- made a pill, and the radius was really down to child order. One corner per
+	-- object, ours, decided here.
 	local function keyline(o, thickness, radius)
 		if not o then return end
-		for _, s in ipairs(o:GetChildren()) do
+		for _, s in ipairs(o:GetChildren()) do   -- snapshot: safe to Destroy inside
 			if s:IsA("UIStroke") and s.ApplyStrokeMode == Enum.ApplyStrokeMode.Border
 			   and s.Name ~= "UIStyleStrokeBorder" then
 				s.Transparency = 1
+			elseif s:IsA("UICorner") and s.Name ~= "UIStyleCorner" then
+				s:Destroy()
 			end
 		end
 		if radius then UIStyle.corner(o, radius) end
@@ -2092,6 +2890,19 @@ do
 	end
 
 	keyline(throwButton, 3, 14)
-	keyline(sprintButton, 3, 16)
+	-- No radius passed: UIStyle.pill writes the same UIStyleCorner keyline would,
+	-- so a 16 here was only ever overwritten a line later. The pill is the
+	-- intended shape -- it matches the currency pills and the luck chip it
+	-- stacks with.
+	keyline(sprintButton, 3)
 	if sprintButton then UIStyle.pill(sprintButton) end
 end
+
+-- === Controller glyphs ===
+-- The two controls that are on screen at all times, labelled with the button
+-- that works them. Bindings live where the behaviour does -- R2/X on the throw
+-- (see setThrowBinding) and L3 on sprint (see the InputBegan handler) -- so the
+-- KeyCodes are repeated here only as the thing to DRAW, and the pair must be
+-- kept in step by hand. Both hide themselves on mouse and touch.
+GamepadHint.attach(throwButton, Enum.KeyCode.ButtonR2)
+GamepadHint.attach(sprintButton, Enum.KeyCode.ButtonL3)
