@@ -589,4 +589,380 @@ function M.candyButton(b, c1, c2, radius)
 	return b
 end
 
+-- ===================================================================
+-- BAZAAR style pack: dark stall-shop look (totem/gem shop reference).
+-- Deliberately ADDITIVE, same as Candy above -- nothing else on screen
+-- changes until a shop script opts in by calling these instead of
+-- accentCard/campPanel/campButton.
+-- ===================================================================
+local BZ = {
+	ink        = Color3.fromRGB(10, 13, 19),
+	panelTop   = Color3.fromRGB(38, 46, 60),
+	panelBot   = Color3.fromRGB(19, 23, 32),
+	panelEdge  = Color3.fromRGB(7, 9, 13),
+	header1    = Color3.fromRGB(126, 219, 255),
+	header2    = Color3.fromRGB(26, 138, 214),
+	close1     = Color3.fromRGB(255, 100, 100),
+	close2     = Color3.fromRGB(204, 32, 32),
+	notice     = Color3.fromRGB(255, 122, 96),
+	cardTop    = Color3.fromRGB(35, 43, 56),
+	cardBot    = Color3.fromRGB(23, 28, 38),
+	cardEdge   = Color3.fromRGB(12, 16, 22),
+	iconTop    = Color3.fromRGB(48, 57, 74),
+	iconBot    = Color3.fromRGB(27, 32, 43),
+	title      = Color3.fromRGB(104, 232, 118),
+	desc       = Color3.fromRGB(224, 230, 240),
+	muted      = Color3.fromRGB(150, 158, 174),
+	stock      = Color3.fromRGB(255, 92, 92),
+	cash1      = Color3.fromRGB(200, 246, 96),
+	cash2      = Color3.fromRGB(92, 194, 40),
+	cashText   = Color3.fromRGB(24, 44, 10),
+	gem1       = Color3.fromRGB(255, 194, 92),
+	gem2       = Color3.fromRGB(222, 120, 18),
+	white      = Color3.fromRGB(255, 255, 255),
+	rivetTop   = Color3.fromRGB(90, 100, 118),
+	rivetBot   = Color3.fromRGB(30, 35, 46),
+	rowAltTop  = Color3.fromRGB(31, 38, 50),
+	rowAltBot  = Color3.fromRGB(19, 23, 32),
+	shadow     = Color3.fromRGB(6, 7, 10),
+	-- per-shop header identity so every stall doesn't read as the same cyan box
+	rockHeader1 = Color3.fromRGB(255, 199, 120), rockHeader2 = Color3.fromRGB(197, 122, 32),
+	sellHeader1 = Color3.fromRGB(168, 236, 130), sellHeader2 = Color3.fromRGB(58, 168, 76),
+	eggHeader1  = Color3.fromRGB(255, 156, 214), eggHeader2  = Color3.fromRGB(188, 72, 172),
+}
+M.Bazaar = BZ
+M.BazaarFont = Enum.Font.FredokaOne
+
+local function bzStroke(o, color, thick)
+	local s = Instance.new("UIStroke")
+	s.Color = color; s.Thickness = thick or 2
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.LineJoinMode = Enum.LineJoinMode.Round
+	s.Parent = o
+	return s
+end
+
+local function bzTextStroke(o, thick)
+	local s = Instance.new("UIStroke")
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+	s.Color = BZ.ink; s.Thickness = thick or 2; s.Transparency = 0.1
+	s.Parent = o
+	return s
+end
+
+-- hard, unblurred offset shadow -- same technique as candyShadow, but on BZ.shadow.
+-- Idempotent per SOURCE OBJECT via a weak map (same pattern as closeXSignals
+-- above): re-calling this for the same `o` updates its existing shadow instead
+-- of stacking a new one, which matters because bazaarPanel/Header/Close/Pill
+-- can legitimately be re-called on the same instance (state restyles).
+local bzShadowMap = setmetatable({}, { __mode = "k" })
+local function bzShadow(o, offsetY, radius)
+	local sh = bzShadowMap[o]
+	if not sh or not sh.Parent then
+		sh = Instance.new("Frame")
+		sh.Name = "BazaarShadow"
+		sh.BackgroundColor3 = BZ.shadow
+		sh.BorderSizePixel = 0
+		sh.Parent = o.Parent
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, radius or 12)
+		c.Parent = sh
+		bzShadowMap[o] = sh
+		-- The shadow is a SIBLING of `o` -- it has to sit BEHIND the panel, so it
+		-- cannot be a child of it -- which means hiding `o` does NOT hide this.
+		-- Everything else below is copied from `o` (Size/Position/AnchorPoint/
+		-- ZIndex); Visible was the one property never linked, so a closed panel
+		-- left its shadow on screen as an opaque near-black rounded rectangle at
+		-- the panel's exact size and position. Found live: MerchantFrame hidden
+		-- but its 680x620 shadow still drawn, reading as a big black square
+		-- mid-screen, with the Rock and Sell shops' 440x400 shadows orphaned
+		-- underneath it. Same failure UI.hardShadow has -- see the Bug D2 note in
+		-- GameHUDClient, which solved it with a wrapper Frame; this builder is
+		-- called on frames it does not own, so it links the property instead.
+		o:GetPropertyChangedSignal("Visible"):Connect(function()
+			sh.Visible = o.Visible
+		end)
+	end
+	-- Mirrored on every call, not only from the signal above: bazaarPanel and
+	-- friends are re-called on state restyles, which can land while the panel is
+	-- already hidden, and a fresh shadow must not flash back on.
+	sh.Visible = o.Visible
+	sh.Size = o.Size
+	sh.Position = o.Position + UDim2.fromOffset(0, offsetY or 5)
+	sh.AnchorPoint = o.AnchorPoint
+	sh.ZIndex = math.max(1, o.ZIndex - 1)
+	return sh
+end
+
+-- small stud/rivet, the "bolted-together market stall" detail on panel corners
+local function bzRivet(parent, x, y, z)
+	local r = Instance.new("Frame")
+	r.Name = "Rivet"
+	r.AnchorPoint = Vector2.new(0.5, 0.5)
+	r.Position = UDim2.new(0, x, 0, y)
+	r.Size = UDim2.fromOffset(9, 9)
+	r.BackgroundColor3 = BZ.rivetTop
+	r.BorderSizePixel = 0
+	r.ZIndex = z
+	r.Parent = parent
+	M.corner(r, 5)
+	M.gradient(r, BZ.rivetTop, BZ.rivetBot, 90)
+	bzStroke(r, BZ.panelEdge, 1.5)
+	return r
+end
+
+-- dark gradient panel body, used for the whole shop window. Chunkier than the
+-- first pass: thicker outline, a hard offset shadow behind the whole panel,
+-- and four corner rivets so it reads as a bolted-together market stall rather
+-- than a flat generic dark rectangle.
+function M.bazaarPanel(frame, radius)
+	radius = radius or 18
+	frame.BackgroundColor3 = BZ.panelTop
+	frame.BackgroundTransparency = 0
+	frame.BorderSizePixel = 0
+	M.corner(frame, radius)
+	M.gradient(frame, BZ.panelTop, BZ.panelBot, 90)
+	if not frame:FindFirstChildOfClass("UIStroke") then bzStroke(frame, BZ.panelEdge, 4) end
+	bzShadow(frame, 7, radius)
+	if not frame:FindFirstChild("Rivet") then
+		local w, h = frame.AbsoluteSize.X, frame.AbsoluteSize.Y
+		-- fallback offsets for the very first frame (AbsoluteSize not resolved yet)
+		if w == 0 then w, h = 440, 400 end
+		bzRivet(frame, 16, 16, frame.ZIndex + 3)
+		bzRivet(frame, w - 16, 16, frame.ZIndex + 3)
+		bzRivet(frame, 16, h - 16, frame.ZIndex + 3)
+		bzRivet(frame, w - 16, h - 16, frame.ZIndex + 3)
+	end
+	return frame
+end
+
+-- inset title bar with an optional leading glyph, e.g. "\u{1F4E6}". Pass
+-- accentTop/accentBot to give a shop its OWN identity colour (rock shop
+-- bronze, sell green, egg pink) instead of every panel sharing one cyan --
+-- omit them and it falls back to the original cyan.
+function M.bazaarHeader(parent, text, iconGlyph, accentTop, accentBot)
+	local bar = Instance.new("Frame")
+	bar.Name = "BazaarHeader"
+	bar.AnchorPoint = Vector2.new(0.5, 0)
+	bar.Position = UDim2.new(0.5, 0, 0, 10)
+	bar.Size = UDim2.new(1, -58, 0, 44)
+	bar.BackgroundColor3 = BZ.white
+	bar.BorderSizePixel = 0
+	bar.ZIndex = (parent.ZIndex or 1) + 2
+	bar.Parent = parent
+	M.corner(bar, 12)
+	M.gradient(bar, accentTop or BZ.header1, accentBot or BZ.header2, 90)
+	bzStroke(bar, BZ.panelEdge, 3)
+	bzShadow(bar, 4, 12)
+
+	if iconGlyph then
+		local icon = Instance.new("TextLabel")
+		icon.Name = "Icon"
+		icon.AnchorPoint = Vector2.new(0, 0.5)
+		icon.Position = UDim2.new(0, 8, 0.5, 0)
+		icon.Size = UDim2.fromOffset(30, 30)
+		icon.BackgroundTransparency = 1
+		icon.Font = Enum.Font.GothamBold
+		icon.Text = iconGlyph
+		icon.TextSize = 24
+		icon.ZIndex = bar.ZIndex + 1
+		icon.Parent = bar
+	end
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Title"
+	label.AnchorPoint = Vector2.new(0, 0.5)
+	label.Position = UDim2.new(0, iconGlyph and 42 or 14, 0.5, 0)
+	label.Size = UDim2.new(1, (iconGlyph and -52 or -24), 1, 0)
+	label.BackgroundTransparency = 1
+	label.Font = M.BazaarFont
+	label.Text = text or ""
+	label.TextColor3 = BZ.white
+	label.TextSize = 21
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextTruncate = Enum.TextTruncate.AtEnd
+	label.ZIndex = bar.ZIndex + 1
+	label.Parent = bar
+	bzTextStroke(label, 2)
+	return bar, label
+end
+
+-- round red X, top-right corner of the panel
+function M.bazaarClose(btn)
+	btn.AnchorPoint = Vector2.new(1, 0)
+	btn.Position = UDim2.new(1, -10, 0, 10)
+	btn.Size = UDim2.fromOffset(38, 38)
+	btn.BackgroundColor3 = BZ.white
+	btn.Text = ""
+	btn.AutoButtonColor = true
+	btn.BorderSizePixel = 0
+	btn.ZIndex = 20
+	M.corner(btn, 12)
+	M.gradient(btn, BZ.close1, BZ.close2, 90)
+	if not btn:FindFirstChildOfClass("UIStroke") then bzStroke(btn, BZ.panelEdge, 3) end
+	bzShadow(btn, 4, 12)
+	M.closeGlyph(btn)
+	wireClick(btn, "panelClose") -- SFX2
+	return btn
+end
+
+-- small italic warning/notice line under the header (e.g. stock limit text)
+function M.bazaarNotice(parent, text, yOffset)
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "Notice"
+	lbl.AnchorPoint = Vector2.new(0.5, 0)
+	lbl.Position = UDim2.new(0.5, 0, 0, yOffset or 58)
+	lbl.Size = UDim2.new(1, -24, 0, 20)
+	lbl.BackgroundTransparency = 1
+	-- Enum.Font has no italic Gotham; GothamBoldItalic threw for every caller
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Text = text or ""
+	lbl.TextColor3 = BZ.notice
+	lbl.TextSize = 13
+	lbl.TextWrapped = true
+	lbl.ZIndex = (parent.ZIndex or 1) + 1
+	lbl.Parent = parent
+	return lbl
+end
+
+-- one dark bordered item row; caller fills in icon/title/desc/pills. Rows
+-- alternate between two close shades (odd/even, counted off existing
+-- siblings) so a long list reads as a striped stall shelf instead of one
+-- undifferentiated dark slab -- purely cosmetic, no call site needs to change.
+function M.bazaarRow(parent, height)
+	local existing = 0
+	for _, c in ipairs(parent:GetChildren()) do
+		if c:IsA("Frame") and c.Name == "Row" then existing += 1 end
+	end
+	local top, bot = BZ.cardTop, BZ.cardBot
+	if existing % 2 == 1 then top, bot = BZ.rowAltTop, BZ.rowAltBot end
+
+	local row = Instance.new("Frame")
+	row.Name = "Row"
+	row.Size = UDim2.new(1, 0, 0, height or 96)
+	row.BackgroundColor3 = top
+	row.BorderSizePixel = 0
+	row.Parent = parent
+	M.corner(row, 12)
+	M.gradient(row, top, bot, 90)
+	bzStroke(row, BZ.cardEdge, 3)
+	return row
+end
+
+function M.bazaarIconSlot(parent, size)
+	size = size or 64
+	local icon = Instance.new("Frame")
+	icon.Name = "IconSlot"
+	icon.AnchorPoint = Vector2.new(0, 0.5)
+	icon.Position = UDim2.new(0, 10, 0.5, 0)
+	icon.Size = UDim2.fromOffset(size, size)
+	icon.BackgroundColor3 = BZ.iconTop
+	icon.BorderSizePixel = 0
+	icon.ClipsDescendants = true
+	icon.ZIndex = (parent.ZIndex or 1) + 1
+	icon.Parent = parent
+	M.corner(icon, 10)
+	M.gradient(icon, BZ.iconTop, BZ.iconBot, 90)
+	bzStroke(icon, BZ.cardEdge, 2.5)
+	return icon
+end
+
+function M.bazaarTitle(parent, text)
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "Title"
+	lbl.BackgroundTransparency = 1
+	lbl.Font = M.BazaarFont
+	lbl.Text = text or ""
+	lbl.TextColor3 = BZ.title
+	lbl.TextSize = 18
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextTruncate = Enum.TextTruncate.AtEnd
+	lbl.ZIndex = (parent.ZIndex or 1) + 1
+	lbl.Parent = parent
+	bzTextStroke(lbl, 1.6)
+	return lbl
+end
+
+function M.bazaarDesc(parent, text)
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "Desc"
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.Text = text or ""
+	lbl.TextColor3 = BZ.desc
+	lbl.TextSize = 13
+	lbl.TextWrapped = true
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextYAlignment = Enum.TextYAlignment.Top
+	lbl.ZIndex = (parent.ZIndex or 1) + 1
+	lbl.Parent = parent
+	return lbl
+end
+
+function M.bazaarStock(parent, text)
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "Stock"
+	lbl.BackgroundTransparency = 1
+	-- see bazaarNotice: no italic Gotham exists
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Text = text or ""
+	lbl.TextColor3 = BZ.stock
+	lbl.TextSize = 13
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.ZIndex = (parent.ZIndex or 1) + 1
+	lbl.Parent = parent
+	return lbl
+end
+
+-- price/cost pill. kind: "cash" (green->yellow, dark text) or "gem" (orange, white text)
+function M.bazaarPill(parent, text, kind)
+	local btn = Instance.new("TextButton")
+	btn.Name = (kind == "gem") and "GemPill" or "CashPill"
+	btn.BackgroundColor3 = BZ.white
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = true
+	btn.Font = Enum.Font.GothamBlack
+	btn.Text = text or ""
+	btn.TextSize = 16
+	btn.ZIndex = (parent.ZIndex or 1) + 1
+	btn.Parent = parent
+	M.corner(btn, 10)
+	if kind == "gem" then
+		M.gradient(btn, BZ.gem1, BZ.gem2, 90)
+		btn.TextColor3 = BZ.white
+		bzTextStroke(btn, 1.6)
+	else
+		M.gradient(btn, BZ.cash1, BZ.cash2, 90)
+		btn.TextColor3 = BZ.cashText
+	end
+	bzStroke(btn, BZ.ink, 2.5)
+	-- pills live inside a Row, so a shadow parented to the SAME row (not the
+	-- row's parent) tracks the row's list-managed position automatically --
+	-- no PropertyChangedSignal needed, unlike panel/header/close above.
+	bzShadow(btn, 3, 10)
+	wireClick(btn, "uiClick") -- SFX2
+	return btn
+end
+
+-- Mutates an EXISTING button in place (the pattern every live call site
+-- actually uses instead of bazaarPill, since their buttons are authored once
+-- and just get recoloured on state changes -- often every data refresh, which
+-- is exactly why bzShadow's idempotency above matters here). kind is unused
+-- but kept for call-site symmetry with bazaarPill.
+function M.bazaarRestylePill(btn, c1, c2, textColor)
+	btn.BackgroundColor3 = BZ.white
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = true
+	btn.Font = Enum.Font.GothamBlack
+	btn.TextColor3 = textColor
+	M.corner(btn, 10)
+	M.gradient(btn, c1, c2, 90)
+	for _, s in ipairs(btn:GetChildren()) do
+		if s:IsA("UIStroke") then s:Destroy() end
+	end
+	bzStroke(btn, BZ.ink, 2.5)
+	bzShadow(btn, 3, 10)
+	wireClick(btn, "uiClick") -- SFX2
+end
+
 return M

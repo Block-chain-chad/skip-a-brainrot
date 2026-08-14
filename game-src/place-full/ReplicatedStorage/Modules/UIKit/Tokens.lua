@@ -31,36 +31,46 @@ T.hex = hex
 --   outline #202020 4px + a 1-2px white inner keyline
 -- ============================================================================
 ------------------------------------------------------------------- colours
+-- ============================================================================
+-- 2026-08-10 SPEC SWEEP (design_handoff_hud_upgrade): the Pet-Sim grays are
+-- REPLACED by the HUD-upgrade sheet's families so every legacy surface (egg
+-- shop, daily, charms, wheel, luck chip, toasts, trade...) inherits the new
+-- game-wide look through these tokens with no per-file edits -- the same
+-- one-edit lever the 2026-08-04 style replacement used. Names keep their
+-- meanings: window = light body ground, row/slot = white cards, tab = the
+-- sheet's Neutral control, track = the sheet's dark track, header = the
+-- sheet's slate (rail panels carry their own per-panel plate colours).
+-- WHITE LABELS STAY LEGIBLE on the light cards because UIPolish gives every
+-- unexempted label a dark ink stroke -- bubble text reads on any ground.
+-- ============================================================================
 T.color = {
-	outline        = hex("#202020"), -- guide "outer stroke 4px dark gray" (was #16170F)
-	innerKeyline   = hex("#FFFFFF"), -- guide "inner stroke 1-2px white"
+	outline        = hex("#071323"), -- the sheet's edge, everywhere
+	innerKeyline   = hex("#FFFFFF"),
 
-	-- the window itself + its darker furniture (guide: light gray window,
-	-- dark gray slots -- the inversion of the cream sweep it replaces)
-	panelTop       = hex("#D6D6D6"),
-	panelBottom    = hex("#A9A9A9"),
-	subPanelTop    = hex("#C4C4C4"),
-	subPanelBottom = hex("#9C9C9C"),
-	rowTop         = hex("#4A4A4A"),
-	rowBottom      = hex("#363636"),
-	tabTop         = hex("#BEBEBE"),
-	tabBottom      = hex("#9C9C9C"),
-	trackTop       = hex("#2E2E2E"),
-	trackBottom    = hex("#3A3A3A"),
-	slotTop        = hex("#4A4A4A"),
-	slotBottom     = hex("#363636"),
-	headerTop      = hex("#F96B57"),
-	headerBottom   = hex("#C84535"),
+	panelTop       = hex("#DCE6F0"),
+	panelBottom    = hex("#C9D6E4"),
+	subPanelTop    = hex("#FFFFFF"),
+	subPanelBottom = hex("#E4EDF7"),
+	rowTop         = hex("#FFFFFF"),
+	rowBottom      = hex("#E4EDF7"),
+	tabTop         = hex("#8FA2B6"),
+	tabBottom      = hex("#5A6E82"),
+	trackTop       = hex("#2A3B4F"),
+	trackBottom    = hex("#22303F"),
+	slotTop        = hex("#F2F7FC"),
+	slotBottom     = hex("#DCE6F0"),
+	headerTop      = hex("#5B7086"),
+	headerBottom   = hex("#28394E"),
 
 	white          = hex("#FFFFFF"),
-	textMuted      = hex("#D8D8D8"), -- was olive #C9D6B4; muted white reads on both the gray window and the dark slots
-	textAccent     = hex("#FFD84D"),
-	textOnLight    = hex("#2A2A2A"), -- was #1E2317; ink for text sitting on the light gray window
-	textOnWindow   = hex("#2A2A2A"), -- explicit alias for the above, for new code
+	textMuted      = hex("#4D6480"), -- spec sweep: the cards are LIGHT now, muted = read-sub ink
+	textAccent     = hex("#E8930F"), -- spec sweep: accent gold darkened to read on white cards
+	textOnLight    = hex("#12283D"),
+	textOnWindow   = hex("#12283D"),
 	textOnGoldCard = hex("#3A2A05"),
 	textOnGoldChrome = hex("#5A4A12"),
-	textDisabled   = hex("#B8C4A4"),
-	textClaimed    = hex("#9FAE8B"),
+	textDisabled   = hex("#8FA2B6"),
+	textClaimed    = hex("#6DA35E"),
 
 	claimRing      = hex("#7CE04A"),
 	activeRing     = hex("#FFD84D"),
@@ -87,27 +97,26 @@ T.gradient = {
 	blue      = seq({ { pos = 0, hex = "#56B7FF" }, { pos = 1, hex = "#2E81D8" } }), -- guide blue
 	gem       = seq({ { pos = 0, hex = "#D98BFF" }, { pos = 0.52, hex = "#A93FE6" }, { pos = 1, hex = "#7A1CB8" } }),
 
-	-- guide: light gray window, dark gray slots/rows, red header bar
-	panel     = seq({ { pos = 0, hex = "#D6D6D6" }, { pos = 1, hex = "#A9A9A9" } }),
-	subPanel  = seq({ { pos = 0, hex = "#C4C4C4" }, { pos = 1, hex = "#9C9C9C" } }),
-	row       = seq({ { pos = 0, hex = "#4A4A4A" }, { pos = 1, hex = "#363636" } }),
-	tab       = seq({ { pos = 0, hex = "#BEBEBE" }, { pos = 1, hex = "#9C9C9C" } }),
-	track     = seq({ { pos = 0, hex = "#2E2E2E" }, { pos = 1, hex = "#3A3A3A" } }),
-	slot      = seq({ { pos = 0, hex = "#4A4A4A" }, { pos = 1, hex = "#363636" } }),
-	-- the guide's red header bar, and the window gradient under its own name
-	header    = seq({ { pos = 0, hex = "#F96B57" }, { pos = 1, hex = "#C84535" } }),
-	window    = seq({ { pos = 0, hex = "#D6D6D6" }, { pos = 1, hex = "#A9A9A9" } }),
+	-- spec sweep 2026-08-10: light body, white cards, slate header
+	panel     = seq({ { pos = 0, hex = "#DCE6F0" }, { pos = 1, hex = "#C9D6E4" } }),
+	subPanel  = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#E4EDF7" } }),
+	row       = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#E4EDF7" } }),
+	tab       = seq({ { pos = 0, hex = "#8FA2B6" }, { pos = 1, hex = "#5A6E82" } }),
+	track     = seq({ { pos = 0, hex = "#2A3B4F" }, { pos = 1, hex = "#22303F" } }),
+	slot      = seq({ { pos = 0, hex = "#F2F7FC" }, { pos = 1, hex = "#DCE6F0" } }),
+	header    = seq({ { pos = 0, hex = "#5B7086" }, { pos = 1, hex = "#28394E" } }),
+	window    = seq({ { pos = 0, hex = "#DCE6F0" }, { pos = 1, hex = "#C9D6E4" } }),
 
 	freeCard  = seq({ { pos = 0, hex = "#F7F7F1" }, { pos = 0.55, hex = "#DEDED4" }, { pos = 1, hex = "#B2B4A8" } }),
 	-- LEGACY ALIAS. Was the 1d/1e cream body (#FFF9EC -> #FFEDCD); now points
 	-- at the guide's window gray so any surface still asking for "cream"
 	-- inherits the new style instead of standing out as the last cream panel
 	-- in the game. New code should ask for "window".
-	cream     = seq({ { pos = 0, hex = "#D6D6D6" }, { pos = 1, hex = "#A9A9A9" } }),
+	cream     = seq({ { pos = 0, hex = "#DCE6F0" }, { pos = 1, hex = "#C9D6E4" } }),
 	passCard  = seq({ { pos = 0, hex = "#FFE066" }, { pos = 0.55, hex = "#F7B62C" }, { pos = 1, hex = "#D8860E" } }),
 	lockBadge = seq({ { pos = 0, hex = "#F2F2EC" }, { pos = 1, hex = "#C2C4B8" } }),
 	knob      = seq({ { pos = 0, hex = "#FFF0A8" }, { pos = 1, hex = "#FFC531" } }),
-	disabled  = seq({ { pos = 0, hex = "#6A7757" }, { pos = 1, hex = "#454F33" } }),
+	disabled  = seq({ { pos = 0, hex = "#4A5B6E" }, { pos = 1, hex = "#2A3B4F" } }),
 	ownedCta  = seq({ { pos = 0, hex = "#8FA378" }, { pos = 1, hex = "#54643C" } }),
 	freeLabel = seq({ { pos = 0, hex = "#7A8A66" }, { pos = 1, hex = "#55643F" } }),
 	passLabel = seq({ { pos = 0, hex = "#FFD84D" }, { pos = 1, hex = "#E0912A" } }),
@@ -115,12 +124,13 @@ T.gradient = {
 
 ------------------------------------------------------------------- geometry
 -- guide: "outer stroke 4px dark gray, inner stroke 1-2px white"
-T.stroke = { panel = 4, control = 3, chip = 3, hairline = 2, inner = 2 }
+T.stroke = { panel = 6, control = 4, chip = 4, hairline = 2, inner = 2 }
 
 -- guide: "Panels 8px, Buttons 10-14px, Slots 8px" -- the whole family tightens
 -- from the old 22/16/14 chunky-cartoon radii
+-- spec sweep 2026-08-10: "rounded, not round" -- the whole family steps up
 T.radius = {
-	panel = 8, control = 12, inner = 10, small = 10, chip = 10, slot = 8, art = 8, pill = 999,
+	panel = 24, control = 18, inner = 14, small = 12, chip = 12, slot = 12, art = 10, pill = 999,
 }
 
 -- Hard offset shadow = stroke + 1
@@ -162,7 +172,22 @@ T.size = {
 	-- 860 leaves a 245px gutter and clears the rail by 17px, and is derived from the
 	-- row itself: art 64 + gap 12 + name 196 + gap 12 + action 132, plus the odds column.
 	-- daily = 800 (2026-08-04, mock 1e; was 900 pre-restyle)
-	panelWidth    = { pass = 960, backpack = 960, settings = 700, daily = 800, index = 940, goals = 860, eggs = 940 },
+	-- charms = 1120 (2026-08-07, Charm Codex) -- the WIDEST panel in the game;
+	-- next is pass/backpack at 960. Justified by the design's two-column body
+	-- (charm grid ~55% + detail column ~45%) sitting under a full-width slot
+	-- row. Fits the 1350 canvas with a 115px gutter each side, which clears the
+	-- nav rail's 228px left column ONLY because the rail moved to its own
+	-- non-letterboxed chrome layer (see GameHUDClient "HUD RESCUE") -- on the
+	-- centred canvas a 1120 panel starts at x=115 and the rail would still be
+	-- drawn over it if it had stayed here. Do not widen further without
+	-- re-checking that.
+	-- worlds = 1080 (2026-08-09 HUD upgrade, design_handoff_hud_upgrade): the
+	-- first panel on the sheet's PanelChrome shell, authored in the sheet's own
+	-- 1920-canvas px and fitted via the paired panelHeight entry below.
+	panelWidth    = { pass = 960, backpack = 1080, settings = 1000, daily = 800, index = 940, goals = 1140, eggs = 940, charms = 1120, worlds = 1080, shop = 1180 },
+	-- Per-panel fit HEIGHT for spec-shell panels (2026-08-09 HUD upgrade).
+	-- A panel with no entry keeps GameHUDClient's 700 floor exactly.
+	panelHeight   = { worlds = 660, shop = 830, goals = 800, settings = 1090, backpack = 720 },
 	panelRightGutter = 132, -- reserves the nav rail
 }
 
@@ -172,9 +197,12 @@ T.size = {
 -- would overwrite these FontFaces on the next frame -- its own FONT constant
 -- was moved in lockstep with this one. Changing one without the other is a
 -- silent no-op.
+-- spec sweep 2026-08-10: FredokaOne is the sheet's READ face. Moves in
+-- LOCKSTEP with UIPolish's FONT constant (see that file's header) -- the
+-- sweep there force-sets .Font on every unexempted label.
 T.font = {
-	display = Font.fromEnum(Enum.Font.GothamBold),
-	ui      = Font.fromEnum(Enum.Font.GothamBold),
+	display = Font.fromEnum(Enum.Font.FredokaOne),
+	ui      = Font.fromEnum(Enum.Font.FredokaOne),
 }
 
 -- { size, textStrokeThickness }
