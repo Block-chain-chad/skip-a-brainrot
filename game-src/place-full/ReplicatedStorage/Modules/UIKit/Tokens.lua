@@ -43,39 +43,51 @@ T.hex = hex
 -- WHITE LABELS STAY LEGIBLE on the light cards because UIPolish gives every
 -- unexempted label a dark ink stroke -- bubble text reads on any ground.
 -- ============================================================================
+-- ============================================================================
+-- 2026-08-13 STYLE REPLACEMENT -- "LemonPop" (Downloads/LemonPop-Theme.lua +
+-- docs/superpowers/specs/2026-08-13-lemonpop-theme-design.md): warm
+-- lemon-cream windows, gold furniture, warm near-black outlines, ONE red
+-- surface per panel (the header). REPLACES the 2026-08-10 slate sweep above;
+-- that sweep's hexes are recorded inline ("was") so any surface can be
+-- walked back. Light surfaces carry dark UNSTROKED ink; dark surfaces keep
+-- white/gold stroked type -- see the NEW textMutedOnDark / textAccentOnDark
+-- split tokens, and note row/track flip back to DARK (warm) grounds.
+-- ============================================================================
 T.color = {
-	outline        = hex("#071323"), -- the sheet's edge, everywhere
+	outline        = hex("#241F14"), -- LemonPop warm near-black (was slate #071323)
 	innerKeyline   = hex("#FFFFFF"),
 
-	panelTop       = hex("#DCE6F0"),
-	panelBottom    = hex("#C9D6E4"),
-	subPanelTop    = hex("#FFFFFF"),
-	subPanelBottom = hex("#E4EDF7"),
-	rowTop         = hex("#FFFFFF"),
-	rowBottom      = hex("#E4EDF7"),
-	tabTop         = hex("#8FA2B6"),
-	tabBottom      = hex("#5A6E82"),
-	trackTop       = hex("#2A3B4F"),
-	trackBottom    = hex("#22303F"),
-	slotTop        = hex("#F2F7FC"),
-	slotBottom     = hex("#DCE6F0"),
-	headerTop      = hex("#5B7086"),
-	headerBottom   = hex("#28394E"),
+	panelTop       = hex("#FFFBE2"), -- (was #DCE6F0)
+	panelBottom    = hex("#FFD977"), -- (was #C9D6E4)
+	subPanelTop    = hex("#FFF6CF"), -- (was #FFFFFF)
+	subPanelBottom = hex("#F7C95C"), -- (was #E4EDF7)
+	rowTop         = hex("#4A4030"), -- DARK FLIP: currency pills / buy strips (was white card #FFFFFF)
+	rowBottom      = hex("#302A1F"), -- (was #E4EDF7)
+	tabTop         = hex("#C2A878"), -- (was #8FA2B6)
+	tabBottom      = hex("#8A7350"), -- (was #5A6E82)
+	trackTop       = hex("#302A1F"), -- (was #2A3B4F)
+	trackBottom    = hex("#3D3527"), -- (was #22303F)
+	slotTop        = hex("#FFFFFF"), -- art wells stay light so renders read (was #F2F7FC)
+	slotBottom     = hex("#FFF4D9"), -- (was #DCE6F0)
+	headerTop      = hex("#FF6B5C"), -- the ONE red surface per panel (was slate #5B7086)
+	headerBottom   = hex("#D8342C"), -- (was #28394E)
 
 	white          = hex("#FFFFFF"),
-	textMuted      = hex("#4D6480"), -- spec sweep: the cards are LIGHT now, muted = read-sub ink
-	textAccent     = hex("#E8930F"), -- spec sweep: accent gold darkened to read on white cards
-	textOnLight    = hex("#12283D"),
-	textOnWindow   = hex("#12283D"),
+	textMuted      = hex("#7A6A52"), -- LIGHT surfaces ONLY (was #4D6480; dark surfaces take textMutedOnDark)
+	textMutedOnDark = hex("#E8DCBE"), -- NEW 2026-08-13: muted text on row/track/dark pills
+	textAccent     = hex("#C2410C"), -- LIGHT surfaces ONLY (was #E8930F; dark surfaces take textAccentOnDark)
+	textAccentOnDark = hex("#FFD84D"), -- NEW 2026-08-13: values on dark surfaces
+	textOnLight    = hex("#33261A"), -- dark ink, NO text stroke on light surfaces (was #12283D)
+	textOnWindow   = hex("#33261A"), -- explicit alias for the above (was #12283D)
 	textOnGoldCard = hex("#3A2A05"),
 	textOnGoldChrome = hex("#5A4A12"),
-	textDisabled   = hex("#8FA2B6"),
-	textClaimed    = hex("#6DA35E"),
+	textDisabled   = hex("#A79A7C"), -- warm taupe (was #8FA2B6)
+	textClaimed    = hex("#9C8F6E"), -- (was #6DA35E)
 
 	claimRing      = hex("#7CE04A"),
 	activeRing     = hex("#FFD84D"),
 	activeGlow     = hex("#FFE87A"), -- v2 NEW: nav rail active-state radial glow (README 3.7 "rgba(255,232,122,.75)") -- distinct from activeRing (#FFD84D), which other panels' tab/segment rings still use
-	scrollThumb    = hex("#9FAE8B"),
+	scrollThumb    = hex("#C2A878"), -- tab tan (was sage #9FAE8B)
 
 	rarityCommon   = hex("#C9CCC2"),
 	rarityRare     = hex("#3FA9F5"),
@@ -89,7 +101,7 @@ T.scrimAlpha = 0.50
 
 ------------------------------------------------------------------- gradients
 T.gradient = {
-	gold      = seq({ { pos = 0, hex = "#FFE87A" }, { pos = 0.55, hex = "#FFC531" }, { pos = 1, hex = "#E08A0C" } }),
+	gold      = seq({ { pos = 0, hex = "#FFF08A" }, { pos = 0.55, hex = "#FFC531" }, { pos = 1, hex = "#E08A0C" } }), -- LemonPop: top stop was #FFE87A
 	goldSmall = seq({ { pos = 0, hex = "#FFE066" }, { pos = 0.52, hex = "#FFC531" }, { pos = 1, hex = "#E8930F" } }),
 	green     = seq({ { pos = 0, hex = "#83E34A" }, { pos = 1, hex = "#4FB42E" } }), -- guide green
 	purple    = seq({ { pos = 0, hex = "#DE93FF" }, { pos = 0.52, hex = "#B04CEC" }, { pos = 1, hex = "#7C1CC0" } }),
@@ -97,28 +109,31 @@ T.gradient = {
 	blue      = seq({ { pos = 0, hex = "#56B7FF" }, { pos = 1, hex = "#2E81D8" } }), -- guide blue
 	gem       = seq({ { pos = 0, hex = "#D98BFF" }, { pos = 0.52, hex = "#A93FE6" }, { pos = 1, hex = "#7A1CB8" } }),
 
-	-- spec sweep 2026-08-10: light body, white cards, slate header
-	panel     = seq({ { pos = 0, hex = "#DCE6F0" }, { pos = 1, hex = "#C9D6E4" } }),
-	subPanel  = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#E4EDF7" } }),
-	row       = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#E4EDF7" } }),
-	tab       = seq({ { pos = 0, hex = "#8FA2B6" }, { pos = 1, hex = "#5A6E82" } }),
-	track     = seq({ { pos = 0, hex = "#2A3B4F" }, { pos = 1, hex = "#22303F" } }),
-	slot      = seq({ { pos = 0, hex = "#F2F7FC" }, { pos = 1, hex = "#DCE6F0" } }),
-	header    = seq({ { pos = 0, hex = "#5B7086" }, { pos = 1, hex = "#28394E" } }),
-	window    = seq({ { pos = 0, hex = "#DCE6F0" }, { pos = 1, hex = "#C9D6E4" } }),
+	-- LemonPop 2026-08-13: lemon-cream body, warm dark rows, red header
+	-- (was spec sweep 2026-08-10: light body, white cards, slate header --
+	-- panel #DCE6F0->#C9D6E4, subPanel/row #FFFFFF->#E4EDF7, tab #8FA2B6->#5A6E82,
+	-- track #2A3B4F->#22303F, slot #F2F7FC->#DCE6F0, header #5B7086->#28394E)
+	panel     = seq({ { pos = 0, hex = "#FFFBE2" }, { pos = 1, hex = "#FFD977" } }),
+	subPanel  = seq({ { pos = 0, hex = "#FFF6CF" }, { pos = 1, hex = "#F7C95C" } }),
+	row       = seq({ { pos = 0, hex = "#4A4030" }, { pos = 1, hex = "#302A1F" } }),
+	tab       = seq({ { pos = 0, hex = "#C2A878" }, { pos = 1, hex = "#8A7350" } }),
+	track     = seq({ { pos = 0, hex = "#302A1F" }, { pos = 1, hex = "#3D3527" } }),
+	slot      = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#FFF4D9" } }),
+	header    = seq({ { pos = 0, hex = "#FF6B5C" }, { pos = 1, hex = "#D8342C" } }),
+	window    = seq({ { pos = 0, hex = "#FFFBE2" }, { pos = 1, hex = "#FFD977" } }),
 
-	freeCard  = seq({ { pos = 0, hex = "#F7F7F1" }, { pos = 0.55, hex = "#DEDED4" }, { pos = 1, hex = "#B2B4A8" } }),
+	freeCard  = seq({ { pos = 0, hex = "#FFFDEE" }, { pos = 0.55, hex = "#F5E7C0" }, { pos = 1, hex = "#D9BC82" } }), -- LemonPop (was gray-whites #F7F7F1/#DEDED4/#B2B4A8)
 	-- LEGACY ALIAS. Was the 1d/1e cream body (#FFF9EC -> #FFEDCD); now points
 	-- at the guide's window gray so any surface still asking for "cream"
 	-- inherits the new style instead of standing out as the last cream panel
 	-- in the game. New code should ask for "window".
-	cream     = seq({ { pos = 0, hex = "#DCE6F0" }, { pos = 1, hex = "#C9D6E4" } }),
+	cream     = seq({ { pos = 0, hex = "#FFFBE2" }, { pos = 1, hex = "#FFD977" } }), -- LemonPop: tracks window (was #DCE6F0 -> #C9D6E4)
 	passCard  = seq({ { pos = 0, hex = "#FFE066" }, { pos = 0.55, hex = "#F7B62C" }, { pos = 1, hex = "#D8860E" } }),
-	lockBadge = seq({ { pos = 0, hex = "#F2F2EC" }, { pos = 1, hex = "#C2C4B8" } }),
+	lockBadge = seq({ { pos = 0, hex = "#FFF6DC" }, { pos = 1, hex = "#D8C494" } }), -- LemonPop (was #F2F2EC -> #C2C4B8)
 	knob      = seq({ { pos = 0, hex = "#FFF0A8" }, { pos = 1, hex = "#FFC531" } }),
-	disabled  = seq({ { pos = 0, hex = "#4A5B6E" }, { pos = 1, hex = "#2A3B4F" } }),
-	ownedCta  = seq({ { pos = 0, hex = "#8FA378" }, { pos = 1, hex = "#54643C" } }),
-	freeLabel = seq({ { pos = 0, hex = "#7A8A66" }, { pos = 1, hex = "#55643F" } }),
+	disabled  = seq({ { pos = 0, hex = "#8A7C5E" }, { pos = 1, hex = "#5C5138" } }), -- LemonPop warm taupe (was slate #4A5B6E -> #2A3B4F)
+	ownedCta  = seq({ { pos = 0, hex = "#A98F5C" }, { pos = 1, hex = "#6E5A34" } }), -- LemonPop (was olive #8FA378 -> #54643C)
+	freeLabel = seq({ { pos = 0, hex = "#B89B5E" }, { pos = 1, hex = "#7C6438" } }), -- LemonPop (was olive #7A8A66 -> #55643F)
 	passLabel = seq({ { pos = 0, hex = "#FFD84D" }, { pos = 1, hex = "#E0912A" } }),
 }
 

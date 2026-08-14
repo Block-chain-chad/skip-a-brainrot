@@ -50,29 +50,34 @@ function UI.gradient(parent: Instance, colorSequence: ColorSequence): UIGradient
 	return g
 end
 
--- Top white gloss strip + bottom dark shade. Call after corner/gradient.
-function UI.gloss(frame: GuiObject, radius: number, lightAlpha: number?)
-	local top = Instance.new("Frame")
-	top.Name = "Gloss"
-	top.Size = UDim2.new(1, 0, 0, T.gloss.height)
-	top.BackgroundColor3 = T.color.white
-	top.BackgroundTransparency = 1 - (lightAlpha or T.gloss.alpha)
-	top.BorderSizePixel = 0
-	top.ZIndex = (frame.ZIndex or 1) + 1
-	top.Parent = frame
-	UI.corner(top, radius)
+--[[ GLOSS AND SHADE ARE RETIRED (2026-08-06, user call).
 
-	local bottom = Instance.new("Frame")
-	bottom.Name = "Shade"
-	bottom.AnchorPoint = Vector2.new(0, 1)
-	bottom.Position = UDim2.fromScale(0, 1)
-	bottom.Size = UDim2.new(1, 0, 0, T.gloss.shadeHeight)
-	bottom.BackgroundColor3 = Color3.new(0, 0, 0)
-	bottom.BackgroundTransparency = T.gloss.shadeAlpha
-	bottom.BorderSizePixel = 0
-	bottom.ZIndex = (frame.ZIndex or 1) + 1
-	bottom.Parent = frame
-	UI.corner(bottom, radius)
+This used to draw a white strip along the top edge of a surface and a dark strip
+along the bottom, on all 68 elements that pass through here. Because both were
+full-width and pinned flush to the edge, on a rounded host they overhung the
+curve and rendered as pale bars sitting proud of the shape -- worst on the
+currency pills, which are stadiums ~37px round while the gloss was a 6px strip
+whose own corner clamped to 3px.
+
+I first fixed that by clipping both strips to the host's silhouette, which did
+work. The user's call on seeing it was that the banding itself is the problem,
+not where its edges land -- so the strips are gone rather than contained. The
+surfaces keep their UIGradient, which is what actually gives them their form.
+
+Every caller that looks the strips up by name guards with `if gloss then` -- the
+cash pill, the egg shop's open button, toasts, the throw frame and button, the
+rail's legacy sweep. Checked all six; they simply skip now.
+]]
+function UI.gloss(frame: GuiObject, _radius: number?, _lightAlpha: number?)
+	-- Nothing is drawn. See the note above.
+	--
+	-- Still a FUNCTION, not deleted: 20 scripts call it, and it now does the
+	-- useful job of TAKING DOWN strips on any instance that already has them --
+	-- a reused element, or one built before this change.
+	for _, n in ipairs({ "GlossClip", "Gloss", "Shade" }) do
+		local old = frame:FindFirstChild(n)
+		if old then old:Destroy() end
+	end
 end
 
 -- The hard cartoon shadow: a copy of the shape, outline-coloured, pushed down Y.
@@ -113,7 +118,14 @@ function UI.hardShadow(frame: GuiObject, offsetY: number, radius: number): Frame
 	return sh
 end
 
--- Display text with the heavy outline. `styleKey` indexes T.text.
+-- Display text. `styleKey` indexes T.text.
+-- LemonPop 2026-08-13: the stroke follows the FILL, not the style spec alone
+-- -- light type (white/gold, i.e. sitting on a dark or saturated ground)
+-- keeps the heavy outline; dark ink (the light-surface default) carries
+-- itself unstroked. Luminance decides, same trick as UITheme.campButton.
+local function lum(c: Color3): number
+	return 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B
+end
 function UI.label(parent: Instance, text: string, styleKey: string, color: Color3?): TextLabel
 	local spec = T.text[styleKey]
 	local l = Instance.new("TextLabel")
@@ -126,7 +138,7 @@ function UI.label(parent: Instance, text: string, styleKey: string, color: Color
 	l.TextXAlignment = Enum.TextXAlignment.Left
 	l.AutomaticSize = Enum.AutomaticSize.XY
 	l.Parent = parent
-	if spec[2] > 0 then
+	if spec[2] > 0 and lum(l.TextColor3) > 0.5 then
 		local s = Instance.new("UIStroke")
 		s.Thickness = spec[2]
 		s.Color = T.color.outline
@@ -148,6 +160,12 @@ function UI.surface(parent: Instance, size: UDim2, kind: string, radius: number?
 	UI.corner(f, r)
 	UI.gradient(f, T.gradient[kind])
 	UI.stroke(f, strokeW or T.stroke.panel)
+	-- LemonPop 2026-08-13: row/track/tab are the kit's DARK (warm) grounds --
+	-- tag them once and UIPolish gives every label inside the white stroked
+	-- on-dark treatment; everything else defaults to dark unstroked ink.
+	if kind == "row" or kind == "track" or kind == "tab" then
+		f:SetAttribute("PolishOnDark", true)
+	end
 	return f
 end
 
@@ -173,6 +191,9 @@ function UI.button(parent: Instance, text: string, variant: string, size: UDim2,
 	b.BorderSizePixel = 0
 	b.Active = variant ~= "disabled"
 	b.Parent = parent
+	-- LemonPop 2026-08-13: action gradients are saturated grounds -- their
+	-- labels keep the white stroked treatment (see UIPolish PolishOnDark)
+	b:SetAttribute("PolishOnDark", true)
 	UI.corner(b, T.radius.control)
 	UI.gradient(b, T.gradient[variant])
 	UI.stroke(b, T.stroke.control)
@@ -395,6 +416,7 @@ function UI.badge(parent: Instance, value: string | number): Frame
 	b.BorderSizePixel = 0
 	b.ZIndex = 10
 	b.Parent = parent
+	b:SetAttribute("PolishOnDark", true) -- LemonPop: red pill = saturated ground, white stroked label
 	UI.corner(b, T.radius.pill)
 	UI.gradient(b, T.gradient.red)
 	UI.stroke(b, 3.5)
@@ -441,6 +463,7 @@ function UI.ribbon(parent: Instance, text: string, variant: string): Frame
 	r.BorderSizePixel = 0
 	r.ZIndex = 10
 	r.Parent = parent
+	r:SetAttribute("PolishOnDark", true) -- LemonPop: ribbon gradients = saturated grounds, white stroked label
 	UI.corner(r, T.radius.chip)
 	UI.gradient(r, T.gradient[grad])
 	UI.stroke(r, T.stroke.chip)
