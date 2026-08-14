@@ -264,6 +264,22 @@ M.Lemon = LEMON
 
 ---
 
+## Execution log (2026-08-13)
+
+**Status: all code tasks COMPLETE in Studio; LIVE VERIFICATION DEFERRED at user request** (Studio Play kept being stopped externally — 3 graceful shutdowns — user chose "skip live checks, one big Play pass later"). Everything below still needs the Task 7 visual pass before it can be called done.
+
+**Findings that changed the plan (all handled):**
+1. **Studio ≠ mirror, massively.** Studio held an unsaved 2026-08-10 "spec sweep" (HUD-upgrade sheet): slate/light-blue palette, WHITE row cards, slate header (no red), FredokaOne, new `UIKit.SpecTheme` module, `PanelChrome`, reworked UIPolish. The plan's "was" values were rewritten against the real slate values; reconcile commit `f989a68` first.
+2. **UIPolish forces white+stroke on ALL unexempted labels** (re-asserting on colour writes). Task 3 became: flip UIPolish's DEFAULT to dark unstroked LemonPop ink; new `PolishOnDark` attribute (ancestor-honoured, like NoPolish) restores stroked white. Builders tags dark surfaces centrally — `UI.surface` for every non-light kind (incl. "header"/"gold"/"purple" header bars), `UI.button`, `UI.badge`, `UI.ribbon`. `UI.label` strokes only light fills (luminance rule).
+3. **`UIKit.SpecTheme` (Studio-only) is a SECOND palette** feeding the spec-shell panels (worlds/shop/goals/settings/backpack/rebirth). Retinted: slate families → warm (Outline/Neutral/Inert/Danger/Surface/inks); identity colours (plates, 8-tier rarity, premium violet) untouched. Mirror file created.
+4. **MerchantClient was already Bazaar-pack styled** (2026-08-06 restyle, mirror predates it) — so the M.Lemon pack was NOT needed. Retinting `UITheme.Bazaar` covers rock shop + sell + merchant + egg-shop accents at once. Bazaar text builders now set NoPolish and follow the light/dark rule; per-shop header identities (bronze/green/pink) collapse into the ONE red header (deliberate). Merchant extras: warm locked-state taupe, light viewport wells.
+5. ClientMain EQUIP pill rode `BZ.header1/2` (was cyan, now red = destructive-looking) → moved to `P.blue1/2` (LemonPop equip-blue).
+6. Panel hardcode fixes: PassPanel (2 slate card gradients, 1 slate locked colour), BackpackPanel (2x slate stroke #071323, slate dark fill, slate locked colour, slate slot gradient), RebirthClient (slate card gradient), EggShopClient (header PolishOnDark for the red BZ gradient).
+
+**Commits:** `f989a68` reconcile, `cd671ea` Tasks 2–3, `2c47fa9` Tasks 4–6. Mirror re-sync of ClientMain / MerchantClient / EggShopClient / PassPanel / BackpackPanel / RebirthClient ran as a follow-up transcription (pre-sweep mirrors replaced wholesale).
+
+**Task 7 (pending, needs user):** one continuous Play session — every panel + Bazaar shop/sell + Merchant + Egg Shop opened via real clicks, console checks, capture roll, camera restore check. Known watch-items: slot light-flip contrast on discovery silhouettes; dark-row text sites that used `textMuted`/`textAccent` (need the OnDark variants); QuestTrackerClient's own white palette (NoPolish, unaffected but verify); SessionLock — leave ≥90s between Play cycles.
+
 ## Self-Review
 
 **Spec coverage:** §1 direct adoptions → Task 2. §2 text split → Tasks 3–4. §3 derived extras → Task 2. §3b shops → Tasks 4 (UIKit shops), 5 (Bazaar), 6 (Merchant). §4 audit → Task 4 (+7). §5 verification → every task's Play steps + Task 7. §6 boundaries + §7 risks → Global Constraints. ui-web mirror sync: explicitly a follow-up, not in this plan. No gaps found.
