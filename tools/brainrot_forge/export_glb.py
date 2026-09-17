@@ -43,7 +43,11 @@ def _pad(b: bytes, fill: bytes) -> bytes:
     return b + fill * (-len(b) % 4)
 
 
-def write_glb(path: str | Path, batch: Batch, flip_z: bool = False) -> None:
+def write_glb(path: str | Path, batch: Batch, flip_z: bool = False, roblox_forward: bool = True) -> None:
+    """roblox_forward: Roblox's Import 3D turns a glTF 180 degrees about Y (glTF is +Z-forward,
+    Roblox is -Z-forward; measured 2026-09-17). Pre-turning here (negate x and z — a rotation, so
+    winding is untouched) makes the imported model face -Z with no assembler correction.
+    flip_z is a true mirror (kept for an importer that mirrors instead of turning)."""
     buffer = bytearray()
     views, accessors, materials, meshes, nodes = [], [], [], [], []
 
@@ -64,8 +68,10 @@ def write_glb(path: str | Path, batch: Batch, flip_z: bool = False) -> None:
     for model, role_meshes in batch:
         for role, mesh in role_meshes.items():
             name = part_name(model.name, role)
-            pos = [(p[0], p[1], -p[2] if flip_z else p[2]) for p in mesh.positions]
-            nrm = [(n[0], n[1], -n[2] if flip_z else n[2]) for n in mesh.normals]
+            sx = -1.0 if roblox_forward else 1.0
+            sz = sx * (-1.0 if flip_z else 1.0)
+            pos = [(p[0] * sx, p[1], p[2] * sz) for p in mesh.positions]
+            nrm = [(n[0] * sx, n[1], n[2] * sz) for n in mesh.normals]
             idx = list(mesh.indices)
             if flip_z:  # mirroring flips handedness; reverse each triangle to stay CCW
                 idx = [i for t in range(0, len(idx), 3) for i in (idx[t], idx[t + 2], idx[t + 1])]
@@ -138,7 +144,7 @@ def read_glb(path: str | Path) -> dict[str, dict]:
     return out
 
 
-def build_manifest(batch: Batch) -> dict:
+def build_manifest(batch: Batch, roblox_forward: bool = True) -> dict:
     models: dict[str, dict] = {}
     pitch = batch[0][0].pitch if batch else 0.2
     for model, role_meshes in batch:
@@ -152,4 +158,5 @@ def build_manifest(batch: Batch) -> dict:
             "motion": model.motion, "material": model.material, "fx": model.fx,
             "bbox": [w, h, d], "triangles": tris, "totalTriangles": sum(tris.values()),
         }
-    return {"version": 1, "generator": f"brainrot_forge {__version__}", "pitch": pitch, "models": models}
+    return {"version": 1, "generator": f"brainrot_forge {__version__}", "pitch": pitch,
+            "robloxForward": roblox_forward, "models": models}

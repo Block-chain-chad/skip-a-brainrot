@@ -119,8 +119,12 @@ function M.AssembleOne(root, name, entry, opts)
 end
 
 function M.Assemble(root, manifestJson, opts)
-	opts = opts or {}
+	local given = opts or {}
+	opts = { tile = given.tile, replace = given.replace, fx = given.fx, turn180 = given.turn180 }
 	local manifest = HttpService:JSONDecode(manifestJson)
+	-- Batches exported with robloxForward = true are pre-turned for the importer; older
+	-- manifests (no flag) need the 180-degree correction. opts.turn180 overrides either way.
+	if opts.turn180 == nil then opts.turn180 = not manifest.robloxForward end
 	local folder = ReplicatedStorage:FindFirstChild(M.TARGET_FOLDER) or error("ReplicatedStorage." .. M.TARGET_FOLDER .. " missing")
 	local models, errors = {}, {}
 	local names = {}

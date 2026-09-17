@@ -30,8 +30,8 @@ def build(batch_name: str, out: Path, flip_z: bool) -> int:
             return 1
         batch.append((model, meshes))
     out.mkdir(parents=True, exist_ok=True)
-    write_glb(out / f"{batch_name}_batch.glb", batch, flip_z=flip_z)
-    manifest = build_manifest(batch)
+    write_glb(out / f"{batch_name}_batch.glb", batch, flip_z=flip_z, roblox_forward=True)
+    manifest = build_manifest(batch, roblox_forward=True)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     contact_sheet(batch, out / "previews")
     print(f"{'name':<22} {'rarity':<10} {'roles':>5} {'triangles':>9} {'bbox studs (w,h,d)':>22}")

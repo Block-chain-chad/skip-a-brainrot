@@ -46,7 +46,7 @@ def test_glb_container_is_well_formed(tmp_path):
 def test_round_trip_geometry_and_colour(tmp_path):
     path = tmp_path / "one.glb"
     b = batch_of(cube())
-    G.write_glb(path, b)
+    G.write_glb(path, b, roblox_forward=False)
     back = G.read_glb(path)
     node = back["T__body"]
     src = b[0][1]["body"]
@@ -69,7 +69,7 @@ def test_batch_has_one_node_per_role_in_order(tmp_path):
 
 def test_flip_z_mirrors_and_keeps_ccw(tmp_path):
     path = tmp_path / "flip.glb"
-    G.write_glb(path, batch_of(cube()), flip_z=True)
+    G.write_glb(path, batch_of(cube()), flip_z=True, roblox_forward=False)
     node = G.read_glb(path)["T__body"]
     assert min(p[2] for p in node["positions"]) == -0.2 and max(p[2] for p in node["positions"]) == 0.0
     for i in range(0, len(node["indices"]), 3):
@@ -98,3 +98,30 @@ def test_manifest_shape():
     assert entry["material"] == "Plastic" and entry["fx"][0]["kit"] == "aura1"
     assert entry["bbox"] == [1.0, 6.0, 1.0] and entry["totalTriangles"] == sum(entry["triangles"].values())
     json.dumps(man)  # must be serialisable
+
+
+def test_roblox_forward_pre_turns_180_about_y_and_keeps_ccw(tmp_path):
+    """Default export negates x and z (a rotation) so Roblox's importer turn lands the front at -Z."""
+    path = tmp_path / "turned.glb"
+    m = VoxelModel("T", "Epic").role("body", "#FF0000")
+    m.set(1, 0, 0, "body")          # off-centre so x is observable
+    G.write_glb(path, batch_of(m))  # roblox_forward defaults to True
+    node = G.read_glb(path)["T__body"]
+    xs = [p[0] for p in node["positions"]]
+    zs = [p[2] for p in node["positions"]]
+    assert min(xs) == -0.4 and max(xs) == -0.2        # x negated
+    assert min(zs) == -0.2 and max(zs) == 0.0         # z negated
+    assert (0.0, 0.0, 1.0) in node["normals"] and (0.0, 0.0, -1.0) in node["normals"]
+    for i in range(0, len(node["indices"]), 3):
+        a, b, c = (node["positions"][node["indices"][i + k]] for k in range(3))
+        n = node["normals"][node["indices"][i]]
+        ab = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        ac = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+        cr = (ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0])
+        assert cr[0] * n[0] + cr[1] * n[1] + cr[2] * n[2] > 0
+
+
+def test_manifest_records_roblox_forward():
+    m = cube()
+    assert G.build_manifest(batch_of(m))["robloxForward"] is True
+    assert G.build_manifest(batch_of(m), roblox_forward=False)["robloxForward"] is False
