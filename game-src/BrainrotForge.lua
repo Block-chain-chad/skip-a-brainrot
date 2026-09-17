@@ -89,6 +89,16 @@ function M.AssembleOne(root, name, entry, opts)
 		for _, child in ipairs(p:GetChildren()) do child:Destroy() end -- the importer adds nothing we want
 		p.Parent = model
 	end
+	if opts.turn180 then
+		-- Roblox's glTF importer turns a model 180 degrees about Y (glTF is +Z-forward, Roblox is
+		-- -Z-forward). Batches exported before the forge pre-turned them arrive facing +Z; this undoes it
+		-- about the group's own centre so the face ends up at -Z where BrainrotThumb/the reveal look.
+		local c = model:GetBoundingBox().Position
+		local turn = CFrame.new(c) * CFrame.Angles(0, math.pi, 0) * CFrame.new(-c)
+		for _, p in ipairs(model:GetChildren()) do
+			if p:IsA("BasePart") then p.CFrame = turn * p.CFrame end
+		end
+	end
 	local cf, size = model:GetBoundingBox()
 	local rootPart = Instance.new("Part")
 	rootPart.Name = "RootPart"
