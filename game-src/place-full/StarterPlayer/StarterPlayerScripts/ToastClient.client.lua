@@ -28,16 +28,10 @@ local remotes = ReplicatedStorage:WaitForChild("Remotes")
 -- This script is remote wiring only from here on.
 local Toast = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("UIKit"):WaitForChild("Toast"))
 
-local MAX_LINES = 3       -- MESSAGES held on screen, not rows of text: one wrapped message
-                          -- can occupy several rows and still counts as a single entry
-local HOLD = 3.2          -- on-screen life before the fade (PS99 ~3-4s)
+-- toast geometry/tones live in ReplicatedStorage.Modules.UIKit.Toast (2026-09-18)
 local FADE = 0.3
--- LINE_W is a MAXIMUM width (see the stack sizing below) and LINE_H a MINIMUM height
--- (see AutomaticSize in push) -- neither is a fixed rect any more.
-local LINE_W, LINE_H = 640, 34
 
 local TEXT_YELLOW = Color3.fromHex("FFE94A")   -- PS99 buff-line yellow
-local TEXT_RED = Color3.fromHex("FF6B81")      -- pink-red = negative (failure lines)
 local INK_NAVY = Color3.fromHex("313D4F")      -- Contextual glyph ink over the world
 local SHOUT_FONT = Enum.Font.LuckiestGuy       -- the game's bubble/Shout face
 
