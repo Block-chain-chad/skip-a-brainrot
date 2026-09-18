@@ -252,6 +252,11 @@ function PanelChrome.shell(props: {
 	name: string, title: string, key: string,
 	size: Vector2?, parent: Instance?, scroll: boolean?, zIndex: number?,
 	icon: string?, listLayout: boolean?,
+	-- 2026-09-18 UI foundation (handoff §2 header anatomy): optional summary stat
+	-- under the title and one primary action beside the close. Both optional, so
+	-- every existing caller is unchanged.
+	stat: { text: string, icon: string? }?,
+	primaryAction: { kind: string?, text: string, onActivated: (() -> ())? }?,
 })
 	local C = S.Chrome
 	local size = props.size or S.ShellFor[props.key] or C.ShellSize
@@ -353,6 +358,54 @@ function PanelChrome.shell(props: {
 		if c then c.CornerRadius = UDim.new(0, math.floor(btn.Size.X.Offset * 0.3)) end
 	end)
 
+	-- HEADER STAT (spec §6.1): one read-style line under the title -- the header
+	-- band is 112 tall and the title straddles its top edge, so 56..100 is free.
+	local statLabel: TextLabel? = nil
+	if props.stat then
+		local sx = hx
+		if props.stat.icon and props.stat.icon ~= "" then
+			local si = Instance.new("ImageLabel")
+			si.Name = "StatIcon"
+			si.Image = props.stat.icon
+			si.BackgroundTransparency = 1
+			si.ScaleType = Enum.ScaleType.Fit
+			si.Size = UDim2.fromOffset(32, 32)
+			si.Position = UDim2.new(0, sx, 0, 62)
+			si.ZIndex = z + 4
+			si.Parent = header
+			sx = sx + 32 + 8
+		end
+		statLabel = PanelChrome.read({
+			name = "Stat",
+			text = props.stat.text,
+			size = S.TextSize.RowSub,
+			color = S.Surface.ReadInk,
+			align = Enum.TextXAlignment.Left,
+			frameSize = UDim2.new(0.5, 0, 0, 36),
+			position = UDim2.new(0, sx, 0, 60),
+			zIndex = z + 4,
+			parent = header,
+		})
+	end
+
+	-- PRIMARY ACTION (spec §6.1): one semantic button left of the close. A shell
+	-- uses either primaryAction or addHeaderTabs in the header this round, not both.
+	local primaryBtn: TextButton? = nil
+	if props.primaryAction then
+		primaryBtn = PanelChrome.button({
+			kind = props.primaryAction.kind or "positive",
+			text = props.primaryAction.text,
+			name = "PrimaryAction",
+			anchor = Vector2.new(1, 0.5),
+			position = UDim2.new(1, -(C.HeaderPadding + C.CloseSize + 22), 0.5, 0),
+			zIndex = z + 3,
+			onActivated = props.primaryAction.onActivated,
+			parent = header,
+		})
+		-- the title must not run under it
+		titleLabel.Size = UDim2.new(1, -(hx + C.CloseSize + 40 + C.CtaSize.X + 22), 0, C.HeaderHeight)
+	end
+
 	local body: GuiObject
 	if props.scroll == false then
 		local f = Instance.new("Frame")
@@ -421,7 +474,12 @@ function PanelChrome.shell(props: {
 	local shellApi = {
 		root = root, header = header, body = body, close = close,
 		list = list, titleLabel = titleLabel, z = z,
+		stat = statLabel, primaryAction = primaryBtn, footer = nil :: Frame?,
 	}
+
+	function shellApi.setStat(text: string)
+		if statLabel then statLabel.Text = text end
+	end
 
 	--- Header-level tabs (Progress: GOALS / SEASON PASS; Bag: ROCKS / BRAINROTS).
 	--- Visibly senior to any sub-tabs in the body: 72 tall, gold when selected.
@@ -494,6 +552,66 @@ function PanelChrome.shell(props: {
 			set = function(i: number) current = i; paint() end,
 			get = function() return current end,
 		}
+	end
+
+	--- FOOTER / UTILITY BAND (spec §6.1, handoff §2): a 72px band under the body.
+	--- `left` = secondary / advanced actions, `right` = destructive actions -- the
+	--- handoff's "destructive actions visually separated" rule made structural. The
+	--- API accepts any kind in either group; the placement is the rule.
+	function shellApi.addFooter(spec: {
+		left: { { kind: string?, text: string, size: (UDim2 | string)?, onActivated: (() -> ())?, name: string? } }?,
+		right: { { kind: string?, text: string, size: (UDim2 | string)?, onActivated: (() -> ())?, name: string? } }?,
+	}): Frame
+		local FOOTER_H = 72
+		local existing = root:FindFirstChild("Footer")
+		if existing then existing:Destroy() end
+		local footer = Instance.new("Frame")
+		footer.Name = "Footer"
+		footer.BackgroundTransparency = 1
+		footer.AnchorPoint = Vector2.new(0, 1)
+		footer.Position = UDim2.fromScale(0, 1)
+		footer.Size = UDim2.new(1, 0, 0, FOOTER_H)
+		footer.ZIndex = z + 1
+		footer.Parent = root
+		-- body and watermark give the band its room
+		body.Size = UDim2.new(1, 0, 1, -(C.HeaderHeight + C.RowGap + FOOTER_H + C.RowGap))
+		local wm = root:FindFirstChild("Watermark")
+		if wm and wm:IsA("GuiObject") then
+			wm.Size = UDim2.new(1, -8, 1, -(C.HeaderHeight + C.RowGap + 8 + FOOTER_H + C.RowGap))
+		end
+		local function group(name: string, alignRight: boolean, specs)
+			local holder = Instance.new("Frame")
+			holder.Name = name
+			holder.BackgroundTransparency = 1
+			holder.Size = UDim2.new(0.5, -S.Space.micro, 1, 0)
+			holder.Position = if alignRight then UDim2.new(0.5, S.Space.micro, 0, 0) else UDim2.fromOffset(0, 0)
+			holder.ZIndex = z + 1
+			holder.Parent = footer
+			local hl = Instance.new("UIListLayout")
+			hl.FillDirection = Enum.FillDirection.Horizontal
+			hl.HorizontalAlignment = if alignRight then Enum.HorizontalAlignment.Right else Enum.HorizontalAlignment.Left
+			hl.VerticalAlignment = Enum.VerticalAlignment.Center
+			hl.Padding = UDim.new(0, S.Space.std)
+			hl.SortOrder = Enum.SortOrder.LayoutOrder
+			hl.Parent = holder
+			for i, bs in ipairs(specs or {}) do
+				PanelChrome.button({
+					kind = bs.kind or "neutral",
+					text = bs.text,
+					size = bs.size or "small",
+					name = bs.name,
+					onActivated = bs.onActivated,
+					layoutOrder = i,
+					zIndex = z + 3,
+					parent = holder,
+				})
+			end
+			return holder
+		end
+		group("Left", false, spec.left)
+		group("Right", true, spec.right)
+		shellApi.footer = footer
+		return footer
 	end
 
 	root.Parent = props.parent
