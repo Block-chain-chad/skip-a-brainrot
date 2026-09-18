@@ -3305,6 +3305,12 @@ function ViewportCuller.attach(scroll: ScrollingFrame, cards: { Cullable }, opts
 	local handle: Handle = {
 		refresh = schedule,
 		setCards = function(list: { Cullable })
+			-- cards dropped from the working set must not stay mounted forever
+			local keep: { [Cullable]: boolean } = {}
+			for _, c in ipairs(list) do keep[c] = true end
+			for _, c in ipairs(items) do
+				if not keep[c] and c.isMounted() then c.unmount() end
+			end
 			items = list
 			schedule()
 		end,
