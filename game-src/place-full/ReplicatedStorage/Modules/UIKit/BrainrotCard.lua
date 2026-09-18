@@ -30,6 +30,7 @@ local FxDriver = require(script.Parent.FxDriver)
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local BrainrotThumb = require(modules:WaitForChild("BrainrotThumb"))
 local NumberFormat = require(modules:WaitForChild("NumberFormat"))
+local Platform = require(modules:WaitForChild("Platform"))
 
 export type State = { equipped: (boolean | number)?, locked: boolean?, selected: boolean?, new: boolean? }
 export type Props = {
@@ -85,6 +86,18 @@ local function frame(name: string, parent: Instance, z: number): Frame
 	f.ZIndex = z
 	f.Parent = parent
 	return f
+end
+
+-- two spectra end to end so a half-width scroll always shows one full rainbow
+local function doubledSequence(seq: ColorSequence): ColorSequence
+	local kps = {}
+	for _, kp in ipairs(seq.Keypoints) do
+		table.insert(kps, ColorSequenceKeypoint.new(kp.Time * 0.5, kp.Value))
+	end
+	for i, kp in ipairs(seq.Keypoints) do
+		if i > 1 then table.insert(kps, ColorSequenceKeypoint.new(0.5 + kp.Time * 0.5, kp.Value)) end
+	end
+	return ColorSequence.new(kps)
 end
 
 -- padlock from two frames (shackle + body), like the Bag's buildPadlock
@@ -144,7 +157,7 @@ function BrainrotCard.new(props: Props): Card
 		for k, v in pairs(props.state) do (state :: any)[k] = v end
 	end
 	local data: Props = props
-	local touchOnly = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+	local touchOnly = Platform.IsTouch == true or (UserInputService.TouchEnabled and not UserInputService.MouseEnabled)
 	local radius = C.Radius
 	local bandFrac = C.BandFrac
 	local bandMin = variant.bandMin or C.BandMin
@@ -280,7 +293,7 @@ function BrainrotCard.new(props: Props): Card
 	if ladder.band == "rainbow" then
 		band.BackgroundColor3 = Color3.new(1, 1, 1)
 		local bg = Instance.new("UIGradient")
-		bg.Color = C.Rainbow
+		bg.Color = doubledSequence(C.Rainbow)
 		bg.Parent = band
 		bandGrad = bg
 		bandInk, bandStroke = RAINBOW_INK, Color3.new(1, 1, 1)
@@ -299,6 +312,11 @@ function BrainrotCard.new(props: Props): Card
 		anchor = Vector2.new(1, 0), zIndex = z + 5, parent = band, scaled = true,
 	})
 	countLabel.Size = UDim2.new(0, 48, 1, 0)
+	local function paintCount()
+		local showing = data.count and data.count > 1
+		countLabel.Text = if showing then "x" .. tostring(data.count) else ""
+		tierName.Size = UDim2.new(1, if showing then -56 else -16, 1, 0)
+	end
 
 	-- rate pill above the band
 	local rateH = if isHero then 30 elseif isCompact then 15 else 18
@@ -329,7 +347,7 @@ function BrainrotCard.new(props: Props): Card
 	-- sparkles (Secret, God)
 	local sparkles: { TextLabel } = {}
 	if ladder.sparkles then
-		for i, pos in ipairs({ UDim2.new(0.12, 0, 0.12, 0), UDim2.new(0.84, 0, 0.09, 0), UDim2.new(0.8, 0, 0.5, 0) }) do
+		for i, pos in ipairs({ UDim2.new(0.5, 0, 0.08, 0), UDim2.new(0.12, 0, 0.42, 0), UDim2.new(0.88, 0, 0.42, 0) }) do
 			local sp = PC.shout({ name = "Sparkle" .. i, text = "\u{2726}", size = if isHero then 22 else 13, color = ramp[1], strokeColor = S.Outline, zIndex = z + 5, parent = plate, frameSize = UDim2.fromOffset(18, 18), position = pos, anchor = Vector2.new(0.5, 0.5) })
 			table.insert(sparkles, sp)
 		end
@@ -426,13 +444,15 @@ function BrainrotCard.new(props: Props): Card
 		-- priority: Locked / lock toggle > Equipped > NEW (§7.5)
 		if (state.locked == true or props.lock) and used < cap then
 			used += 1
+			local slot = frame("LockSlot", rightStack, z + 7)
+			slot.LayoutOrder = 1
+			slot.Size = UDim2.fromOffset(badgePx, badgePx)
 			local b = Instance.new("TextButton")
 			b.Name = "Lock"
 			b.Text = ""
 			b.AutoButtonColor = false
 			b.BorderSizePixel = 0
-			b.LayoutOrder = 1
-			b.Size = UDim2.fromOffset(badgePx, badgePx)
+			b.Size = UDim2.fromScale(1, 1)
 			b.BackgroundColor3 = S.Role.Disabled[1]
 			b.ZIndex = z + 7
 			b.Active = props.lock ~= nil
@@ -446,6 +466,13 @@ function BrainrotCard.new(props: Props): Card
 			elseif touchOnly then
 				b.Visible = true -- always reachable on touch, drawn subdued
 				b.BackgroundTransparency = 0.5
+				for _, d in ipairs(b:GetChildren()) do
+					if d:IsA("Frame") then
+						d.BackgroundTransparency = 0.5
+						local s = d:FindFirstChildOfClass("UIStroke")
+						if s then s.Transparency = 0.5 end
+					end
+				end
 			else
 				b.Visible = hovering -- desktop: revealed on hover
 				b.BackgroundTransparency = 0.25
@@ -459,7 +486,7 @@ function BrainrotCard.new(props: Props): Card
 					end
 				end)
 			end
-			b.Parent = rightStack
+			b.Parent = slot
 			lockBtn = b
 		end
 		if state.equipped and state.equipped ~= false and used < cap then
@@ -530,10 +557,13 @@ function BrainrotCard.new(props: Props): Card
 		hoverStartEv:Fire()
 	end)
 	hit.MouseLeave:Connect(function()
+		local wasHovering = hovering
 		hovering = false
 		if lockBtn and state.locked ~= true and not touchOnly then lockBtn.Visible = false end
-		if not isDown then moveTo(REST, S.Tween.HoverOut) end
-		hoverEndEv:Fire()
+		if wasHovering then
+			if not isDown then moveTo(REST, S.Tween.HoverOut) end
+			hoverEndEv:Fire()
+		end
 	end)
 	hit.MouseButton1Down:Connect(function()
 		isDown = true
@@ -572,13 +602,16 @@ function BrainrotCard.new(props: Props): Card
 			elseif layer == "band" and bandGrad then
 				local g = bandGrad :: UIGradient
 				table.insert(fxIds, FxDriver.register(plate, function(t)
-					g.Offset = Vector2.new((t * 0.3) % 2 - 1, 0)
+					g.Offset = Vector2.new(-((t * 0.15) % 0.5), 0)
 				end))
 				n += 1
 			elseif layer == "sparkles" and #sparkles > 0 then
 				table.insert(fxIds, FxDriver.register(plate, function(t)
 					for i, sp in ipairs(sparkles) do
-						sp.TextTransparency = 0.3 + 0.6 * (0.5 + 0.5 * math.sin(t * 3.1 + i * 2.1))
+						local v = 0.3 + 0.6 * (0.5 + 0.5 * math.sin(t * 3.1 + i * 2.1))
+						sp.TextTransparency = v
+						local st = sp:FindFirstChildOfClass("UIStroke")
+						if st then st.Transparency = v end
 					end
 				end))
 				n += 1
@@ -595,28 +628,25 @@ function BrainrotCard.new(props: Props): Card
 	local function mount()
 		if mounted then return end
 		mounted = true
-		local master = if data.kind == "pet"
-			then BrainrotThumb.petMaster(data.model, data.name)
-			else BrainrotThumb.master(data.name)
-		if master then
-			local ok, res = pcall(function()
-				return BrainrotThumb.addMaster(art, master, {
-					size = UDim2.fromScale(1, 1), zIndex = z + 4,
-					dir = C.Light.Dir, ambient = C.Light.Ambient, lightColor = C.Light.LightColor, lightDirection = C.Light.LightDirection,
-					fill = C.Fill,
-					faceYaw = if data.kind == "pet" then nil else BrainrotThumb.FACING[data.name],
-				})
-			end)
-			if ok and res then
-				vp = res
-				vp.Name = "Preview"
-			else
-				if not ok then
-					warnOnce("clone:" .. tostring(data.name), ("viewport for %q failed: %s\n%s"):format(tostring(data.name), tostring(res), debug.traceback()))
-				end
-				showPlaceholder()
-			end
+		local ok, res = pcall(function()
+			local master = if data.kind == "pet"
+				then BrainrotThumb.petMaster(data.model, data.name)
+				else BrainrotThumb.master(data.name)
+			if not master then return nil end
+			return BrainrotThumb.addMaster(art, master, {
+				size = UDim2.fromScale(1, 1), zIndex = z + 4,
+				dir = C.Light.Dir, ambient = C.Light.Ambient, lightColor = C.Light.LightColor, lightDirection = C.Light.LightDirection,
+				fill = C.Fill,
+				faceYaw = if data.kind == "pet" then nil else BrainrotThumb.FACING[data.name],
+			})
+		end)
+		if ok and res then
+			vp = res
+			vp.Name = "Preview"
 		else
+			if not ok then
+				warnOnce("clone:" .. tostring(data.name), ("viewport for %q failed: %s\n%s"):format(tostring(data.name), tostring(res), debug.traceback()))
+			end
 			showPlaceholder()
 		end
 		registerFx()
@@ -643,15 +673,18 @@ function BrainrotCard.new(props: Props): Card
 			if patch.rarity ~= nil and patch.rarity ~= data.rarity then
 				warnOnce("set-rarity", "set({ rarity }) is not supported -- destroy and rebuild the card")
 			end
+			if patch.name ~= nil or patch.kind ~= nil or patch.model ~= nil then
+				warnOnce("set-identity", "set({ name/kind/model }) is not supported -- destroy and rebuild the card")
+			end
 			for k, v in pairs(patch) do
 				if k == "state" then
 					card.setState(v)
-				elseif k ~= "rarity" then
+				elseif k ~= "rarity" and k ~= "name" and k ~= "kind" and k ~= "model" then
 					(data :: any)[k] = v
 				end
 			end
 			paintRate()
-			countLabel.Text = if data.count and data.count > 1 then "x" .. tostring(data.count) else ""
+			paintCount()
 			paintLeft()
 		end,
 		mount = mount,
@@ -666,7 +699,7 @@ function BrainrotCard.new(props: Props): Card
 		HoverStart = hoverStartEv.Event,
 		HoverEnd = hoverEndEv.Event,
 	}
-	countLabel.Text = if data.count and data.count > 1 then "x" .. tostring(data.count) else ""
+	paintCount()
 	cell.Parent = props.parent
 	return card
 end
