@@ -4,6 +4,7 @@
 - Standard: `docs/brainrot-build-standard.md`. Pipeline spec + plan: `docs/superpowers/{specs,plans}/2026-09-17-brainrot-forge-pilot*.md`.
 - `tools/brainrot_forge/` (Python): design scripts -> per-colour baked meshes -> `out/<batch>/<batch>_batch.glb` + `manifest.json` + previews. The user imports the glb via File > Import (Ctrl+M); Roblox's importer turns glTF 180 degrees about Y, so exports are pre-turned (`robloxForward`).
 - `BrainrotForge.lua` -> `ServerStorage.BrainrotForge` (build-time assembler), `BrainrotBudget.lua` -> `ServerStorage.BrainrotBudget` (build-time gate). Neither is required by game code. The MCP exec sandbox cannot `require` any module here -- load them with `loadstring(module.Source)()` in Edit mode.
+- **Phase 2 (2026-09-17):** the 65 Part-built voxel originals were converted to forge meshes (`python -m brainrot_forge convert`: Studio part dumps -> lossless box bake -> 4 import batches with before/after sheets) and the 43 plot-LOD copies retired; originals and LODs sit in `ServerStorage.AuditBackups.*_PreForge_2026-09-17`. Plan + execution log: `docs/superpowers/plans/2026-09-17-brainrot-forge-conversion.md`.
 - WARNING: `BrainrotLooks.lua` / `BrainrotBodyBuilder.lua` / `BrainrotModelFactory.lua` below are DEAD CODE since 2026-07-25 (the roster was replaced the same day; verified 2026-08-28) -- kept as history only.
 
 The live source of truth is Roblox Studio. These are commit-time mirrors:

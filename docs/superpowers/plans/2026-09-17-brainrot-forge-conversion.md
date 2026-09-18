@@ -1184,3 +1184,45 @@ Expected: moved 43, 0 left. (`BrainrotSpawner.templateFor` treats an empty folde
 - **Spec coverage:** dump channel (Task 1) → ingest/unpose (2) → lossless bake + clustering + vertex ratios (3) → COLOR_0/manifest/sheets (4) → batches + probe (5) → assembler fields + backup folder (6) → gated imports + parity checks (7) → LOD retirement, Play, triangles (8) → docs/log (9). Chim/Maxwell exclusion is in the group query (Task 1 Step 2).
 - **Placeholders:** the only substitutions are the per-batch name lists and manifest pastes, each produced by an earlier step.
 - **Type consistency:** `PartModel.pose`/`pose_centre` → `ConvertedModel.pose_rotation`/`pose_centre` → manifest `poseRotation`/`poseCentre` → assembler `entry.poseRotation`/`entry.poseCentre`; `materials {role: name}` and `attributes` use the same keys end to end; role names `cNN` are the same in palette, materials, meshes and part names.
+---
+
+## Execution log (2026-09-17/18, inline execution)
+
+### Deviations from the plan as written (all resolved)
+- **65, not 66:** the "66 voxel" population counted `Chim` (34 primitive parts, excluded by design). 65 Part-built bodies were dumped (20 groups, 20,095 parts) and converted.
+- **Dump channel:** `execute_luau` results under ~50 KB are not persisted and over 100 KB are truncated, so each group call is padded to exactly 98,000 chars; the persisted file is raw text or the `[{"type":"text","text":...}]` wrapper, and `load_dump` accepts both.
+- **Un-pose math sign:** the plan's `test_unpose_shared_rotation` expected `R^T (2,0,0) = (0,0,-2)`; it is `(0,0,+2)`. Fixed in the test (round-trip assertion added), implementation unchanged.
+- **Per-role triangle gate raised 4,000 → 5,000 for the run** (`--max-tris-role 5000`, the plan's own remedy): Fanghetto Palunko (4,288), Iglu Mangione (4,846), Inverno Eterno (4,546), Kraken Congelato (4,266) and Valanga Ruggente (4,246) each have one colour carrying most of the body. Whole-body totals 460–9,934, all under the 12,000 gate. No geometry dropped.
+- **Contact sheets' AFTER column** renders with `COLOR_0` stripped (`render._flat`) so it is the true worst case; the first cut had applied the ratios and looked identical to BEFORE.
+- **Posed bodies (Focarella, Martellone, Narvalino, Pippo Olivardino):** re-applying the rotation in the assembler left the RootPart tilted (a fresh `Model`'s pivot takes its first part's orientation; `GetBoundingBox` follows it) — Focarella's box read +51 % in Y, the axis the spawner scales by. Fixed twice over: `bake_boxes.repose()` bakes the tilt into the vertices after the un-tilted bake (MeshParts land unrotated with the exact AABB of the tilted body; manifests carry `poseRotation: null`), and `BrainrotForge.AssembleOne` resets `model.WorldPivot` to identity before building the RootPart. Focarella was re-done in batch 2 (`convert --move "Focarella Ballonzolo=2"`; the interim template was deleted before assembly, the original stayed in the backup folder).
+- **Invisible-scaffold cap 3 → 4** in `BrainrotBudget.RANGES` and the standard §2.1: RootPart + the three `BrainrotFX` hosts is 4 on Balena Polare, Balenone, Martellone, Nave Rompighiaccio, Orcarella, Squalone — exactly what their originals had; the old cap contradicted §2.4 (pack p90 is 6).
+- **Secret Pete's skull:** the original carried a hand-authored sparkle `ParticleEmitter` and a `PointLight` on its `skull` part, outside `BrainrotFX`. The emitter was cloned onto an invisible `BrainrotFxSkull` host at the skull's position (emitters 7/7 again); the **PointLight was not carried over** — lights are forbidden by the standard (§2.1/§3) and were the owner's "super laggy" class. No other original had anything outside geometry + FX hosts (scanned: emitters, lights, beams, trails, decals, textures, guis, sounds, scripts, attachments, constraints, tags, part attributes, semi-transparent/reflective/non-block parts — none).
+- `FxVersion` is not copied from the dump's attributes (BrainrotFX.apply sets it).
+- **Gate reading:** the spec's "PASS on all 66" is read as "no FAIL" — bodies with 12 MeshParts or any Neon grade WARN by construction (PASS is ≤ 11 parts and 0 Neon; Aurora Serpentina's original had 679 Neon parts). Final: 8 PASS, 57 WARN, 0 FAIL.
+- Batches 3 and 4 were imported by the user before their sheets were reviewed; both were assembled and verified, and the sheets remain in `tools/out/convert/previews/` for the look check (any body can be reverted from the backup folder).
+- The plan's "search_game_tree for residue" step is useless (the tool dumps the tree); residue was checked with an `execute_luau` name sweep instead.
+
+### Task 1 — dumps
+20 groups → `tools/out/convert/dump/group01..20.json`, 65 models, 65 unique, 20,095 parts (Plastic 18,368 / Neon 1,727; 94 distinct part sizes). Four bodies carry one shared rotation on every part: Focarella 40°, Martellone 42°, Narvalino 48° (about X) and Pippo Olivardino (180° about Y).
+
+### Tasks 2–6 — pipeline
+Suite: **74 passed** (`tools/`: `python -m pytest brainrot_forge -q`). `python -m brainrot_forge convert --max-tris-role 5000 --move "Focarella Ballonzolo=2"` → 4 batches (17 + probe / 18 / 17 / 14 bodies; 113 + 1 / 141 / 146 / 102 MeshParts; 3.9 / 4.2 / 3.4 / 3.0 MB), 12 sheets. Dry-run profile: faces kept 230–4,967 per body; 25 bodies needed colour clustering (15–64 shades → 12 roles). Assembler edits applied to the mirror and live (`BrainrotForge` 9,162 bytes, byte parity; synthetic test `OK`).
+
+### Task 7 — the four batches
+- **Vertex-colour probe (batch 1):** `CreateEditableMeshAsync` on our own `__ForgeProbe_VertexColor__probe` upload → **24 colours, 6 distinct face colours, values exact** (1,0,0 / 0,1,0 / …). **Roblox's Import 3D keeps `COLOR_0`**, so clustered bodies render their exact shades; the sheets' flat AFTER column was only the worst case.
+- Batch 1: 125/125 meshes, assembled 17, errors {}, **bad=0** (2 PASS / 15 WARN); Focarella at dev 0.099 was excluded and re-done in batch 2.
+- Batch 2: 141/141, assembled 18, errors {}, **bad=0** (2 PASS / 16 WARN); Focarella now dev 0.000.
+- Batch 3: 146/146, assembled 17, errors {}, **bad=0** (2 PASS / 15 WARN).
+- Batch 4: 102/102, assembled 14, errors {}, **bad=0** after the Secret Pete skull emitter was carried over (2 PASS / 12 WARN).
+- Every body: bounding box within 0.000 of its original on all three axes, RootPart upright, `HeightScale`/`Tier` equal, blank MeshIds 0, FX emitter count equal to the original's, tile on every Plastic role, Neon on every Neon role.
+
+### Task 8 — LODs, Play, triangles
+- 43 LOD models moved to `ServerStorage.AuditBackups.BrainrotModelsPlot_PreForge_2026-09-17` (every LOD name verified to have a mesh template first); `BrainrotModelsPlot` = 0 children; `BrainrotSpawner.templateFor` falls through to `BrainrotModels`.
+- Play round (Plot7, unclaimed Tundra plot 11,523 studs from the spawn; character parked 55 studs outside the camp): all six spawned through the real `BrainrotSpawner.Spawn`. Client DataModel: blankMeshIds 0 on all six; root anchored + every other part unanchored and welded (welds == unanchored); `BrainrotBody` tag; Motion hover; tiles on Plastic roles, Neon on Neon roles; heights at the spawner's fit Valanga 8.2 / Inverno 9.0 / Orcarella 6.1 / Narvalino 7.6 / Secret Pete 8.3 (width-capped 9.5, as before) / Golden Aurora 8.2 (= 6 × HeightScale within 0.1); `MutationBody` tag + 1 emitter on the Golden. LOD probe on Inverno Eterno: FAR (110 studs) blanked 4/7 parts, emitters 0 on; NEAR (25 studs) blanked 0/7, emitters 6 on. Console: no errors.
+- Triangles: see the standard §4 (measured with Studio in the foreground).
+
+### Studio objects touched (ALL UNSAVED until the owner saves the place)
+- Replaced: 65 templates in `ReplicatedStorage.BrainrotModels` (originals → `ServerStorage.AuditBackups.BrainrotModels_PreForge_2026-09-17`, 65 models, names kept). 514 MeshAssets uploaded to the user's account (501 in use; the probe cube and Focarella's first pass are unused).
+- Moved: 43 models `ReplicatedStorage.BrainrotModelsPlot` → `ServerStorage.AuditBackups.BrainrotModelsPlot_PreForge_2026-09-17`.
+- Edited: `ServerStorage.BrainrotForge` (per-role materials, attributes, pose, backup folder, probe skip, pivot reset), `ServerStorage.BrainrotBudget` (invisibleParts max 4).
+- Removed after use: `Workspace.convert_batch1..4`, `ServerStorage.__ForgeDumpSrc_DELETE_ME`, `ServerScriptService.__ForgeSpawnTest_DELETE_ME`. `BrainrotModels` count 218 before and after; `Chim` and `Maxwell` untouched.

@@ -38,7 +38,9 @@ Coverage check (today): **every roster name has a model, every model is in a ros
 
 ### 1.2 Three construction styles, measured
 
-Population split of `ReplicatedStorage.BrainrotModels`: **148 rigged-mesh (pack) · 66 voxel · 1 primitive (`Chim`) · 1 static mesh (`Maxwell`)**. Per-style percentiles (n = models):
+Population split of `ReplicatedStorage.BrainrotModels` **at audit time**: **148 rigged-mesh (pack) · 66 voxel · 1 primitive (`Chim`) · 1 static mesh (`Maxwell`)**. Per-style percentiles (n = models):
+
+> **Update 2026-09-17 (Phase 2, `docs/superpowers/plans/2026-09-17-brainrot-forge-conversion.md`):** the 65 Part-built voxel originals were converted to forge-baked mesh templates (lossless geometry, one MeshPart per colour role, ≤ 12 roles, Neon ≤ 3) and the 43 plot-LOD copies were retired (`BrainrotModelsPlot` is empty; both populations are backed up under `ServerStorage.AuditBackups.*_PreForge_2026-09-17`). The Part-built population is now **0**; the folder holds 148 pack + 3 forge originals + 65 forge conversions + `Chim` (primitive) + `Maxwell` (static mesh) = 218. The voxel/LOD columns below are the pre-conversion measurements, kept for the record.
 
 | Metric (per model) | **Pack** n=148 (min / p25 / **p50** / p75 / p90 / max) | **Voxel** n=66 | **Plot LOD** n=43 |
 |---|---|---|---|
@@ -78,6 +80,8 @@ The pack's aura recipe (measured off `Carrotini Brainini`, reused verbatim by `B
 **Why voxel is still the wrong construction for NEW brainrots even after that fix:** the bug made part count catastrophic; fixing it made part count merely linear. A 300–1,100-part body still costs 25–100x a pack body everywhere instance count matters, and *"only 3.8% of authored parts are fully buried"* / *"shell-only rebuilds come out heavier"* — there is **no part saving left inside the voxel style** (three independent coarsening attempts were rejected on look, `roblox-plot-lod-models`). The only way to keep a voxel *look* at pack *cost* is to bake the voxel body into a MeshPart (see §5).
 
 **Do not confuse the aesthetic ruling with the construction ruling.** The owner has approved the *authored voxel look* three times and rejected coarser voxels each time. That is a look preference; it says nothing about part count. The pack proves the look/cost split: its geometry lives in meshes (GPU-side, one draw call per part), not in instances.
+
+**Resolved 2026-09-17:** the look/cost split is now real for the whole roster — every former voxel body is the *same* geometry (every visible face kept, only fully hidden faces dropped) in 2–12 MeshParts + RootPart + FX hosts, with the importer confirmed to keep per-vertex colours (`COLOR_0`), so bodies with more than 12 shades render exactly. Median instance count of those 65 went from 270 BaseParts to 6.
 
 ### 1.4 Dead and stale things to know about
 
