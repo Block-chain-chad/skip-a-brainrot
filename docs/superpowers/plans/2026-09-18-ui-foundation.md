@@ -13,8 +13,8 @@
 - **Studio is the source of truth.** Every edit is made in Studio through the MCP. Call `list_roblox_studios` first (id at plan time: `af34f702-49e1-4789-8c00-a60145f10c6e`, place 78783087742939) and use the returned id for every call; if a call reports no instance, re-list. `script_read` the exact region immediately before every `multi_edit`; the place is Team Create and a second session may be editing. Anchor on lines you just read, never on the mirror.
 - **Edit mode for writes.** `multi_edit` and `execute_luau` writes need `datamodel_type = "Edit"`. If `get_studio_state` says Play, the user is away for this round (their words: build it tonight), so `start_stop_play(false)` and continue. Reads work from `Server` during Play.
 - **Two write styles only:** new modules are created with `multi_edit` (`className = "ModuleScript"`, first edit `old_string = ""`) or rewritten whole via `execute_luau` (`inst.Source = [==[ ... ]==]`) — never above 200k chars; existing scripts get small anchored `multi_edit` diffs. **After every write, compile-gate:** `execute_luau` (Edit) → `local f, e = loadstring(inst.Source); assert(f, e); return "compiles"`. A `multi_edit` can silently drop an edit while reporting success — byte-scan for each new_string with `Source:find(needle, 1, true)` after every multi-edit call.
-- **Studio backups before every edit of an existing script:** clone it into `ServerStorage.AuditBackups.PreUIFoundation_2026_09_18` as `<ScriptName>_pre<TaskN>` (create the folders on first use). Task 1 also commits the live sources to git — the mirror is NOT a rollback source until then.
-- **Never `require` a live edited module from the long-lived `execute_luau` VM to test it** (its `require` cache persists for the Studio session). Tests clone `ReplicatedStorage.Modules.UIKit` into `CoreGui` (`UIKitTest`), require the clones, and destroy the folder at the end of the test. GUI tests build under a `CoreGui.UIKitScratch` ScreenGui, destroyed at the end. CoreGui is local to this Studio and never replicates to Team Create collaborators — no `StarterGui`/`Workspace` scratch, ever.
+- **Studio backups before every edit of an existing script:** the exec thread cannot `Clone()` a script into ServerStorage (Capabilities), so: (1) `multi_edit` creates the stub `game.ServerStorage.AuditBackups.PreUIFoundation_2026_09_18.<ScriptName>_pre<TaskN>` (`className` = the original's class, `old_string = ""`, `new_string = "-- backup stub"`); (2) `execute_luau` (Edit) copies the text: `stub.Source = live.Source; return #stub.Source == #live.Source` (must be `true`). If (1) is refused for that folder, use the sibling `PreUIFoundation_2026_09_18_Task<N>`. The git checkpoint (Task 1, commit 32e1701) plus each task's commit is the authoritative rollback source either way.
+- **The `execute_luau` thread cannot `require` any ModuleScript and cannot parent script instances into CoreGui/ServerStorage** (script Capabilities; found in Task 2). Every Edit-mode test therefore starts with the loader preamble in `.superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua` (`loadstring` of the LIVE source with `script` bound to the live instance and a recursive fake `require`; fresh every run, no clones, no stale cache) and calls `load(kit.X)` where the plan's test scripts say so. Non-script scratch (a `CoreGui.UIKitScratch` ScreenGui and Frames) is fine; tear it down with `.Parent = nil` — never `:Destroy()` inside a test script (the permission classifier blocks it). CoreGui is local to this Studio and never replicates — no `StarterGui`/`Workspace` scratch, ever. `loadstring` is Edit-only; Play-mode probes use the running game's own state (attributes, instance trees).
 - **`--!strict` on every NEW module.** Do not add strict to existing files.
 - **TweenService animates `GuiObject.Size`/`Position` only** in this place; transparency, `UIScale`, `UIGradient.Offset`, `NumberValue` tweens silently no-op. Every other continuous effect goes through `UIKit.FxDriver` (Task 3), the one Heartbeat for the whole client.
 - **`NoPolish`:** every `TextLabel`/`TextButton`/`TextBox` the kit creates sets `SetAttribute("NoPolish", true)` (UIPolish restyles anything without it).
@@ -24,7 +24,7 @@
 - **Logging (spec §11):** every `pcall` this round adds or touches reports failure as `warn(("[UIKit] %s: %s\n%s"):format(identity, tostring(err), debug.traceback()))`. No bare `pcall`.
 - **Colour grammar (spec §5):** kit components read `S.Role.*`; `S.Action.*` aliases keep their current values; `S.Action.Neutral` stays grey. Active tab/filter = `S.Role.Neutral` (blue), inactive = `S.Role.Disabled` (grey).
 - **Play verification writes the REAL datastore.** Allowed state changes during verification: one equip round-trip and one lock toggle round-trip on the Bag (both reversible), Gallery interactions (no game state). No purchases, sells, deletes, rebirths. Stop Play before finishing the round.
-- **Captures:** the user has left for the night and allowed foregrounding Studio for `screen_capture`; still batch captures per task and re-check the foreground window is Studio (not a game the user launched) before each foreground call. Restore `CameraType` if a posed capture was taken.
+- **Play input + captures need Studio FOREGROUND and on its viewport tab** (Studio suspends rendering when backgrounded or when a script tab is active; `user_mouse_input`/`screen_capture` then time out — Task 2 hit exactly this). Before any Play verification step run the PowerShell helper `.superpowers/sdd/2026-09-18-ui-foundation/studio-focus.ps1` (it refuses if the user touched the machine in the last 60 s or a fullscreen game is foreground; otherwise it foregrounds Studio and presses Ctrl+Tab). Then confirm with `execute_luau` (Client): `local n=0 local c=game:GetService("RunService").RenderStepped:Connect(function() n+=1 end) task.wait(0.5) c:Disconnect() return n` → must be > 0 (re-run the helper until it is). The user has left for the night and allowed this. `user_mouse_input` can still wedge after 1–3 clicks per Play cycle: one action per call, and if it times out, stop Play, start Play, re-focus, retry once. Restore `CameraType` if a posed capture was taken.
 - **Phone tests** use `ReplicatedStorage:SetAttribute("PlatformOverride", "Phone")` set in Edit; remove it and confirm nil afterwards (it ships if left).
 - **Mirror + commit at the end of every task:** for each touched script, `script_read` its Source and write it byte-exact to the matching path under `game-src/place-full/` (`.lua` ModuleScript, `.client.lua` LocalScript; new modules get new files), LF endings, then `git add` those paths and commit with the task's message (use `git commit -F <file>` for multi-line messages; end with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`). Never `git add -A` — the working tree carries unrelated modifications.
 - **Owner is token-cost sensitive.** `script_grep`/line ranges over whole-file reads; don't re-verify what the previous step proved.
@@ -269,9 +269,8 @@ return S
 local CoreGui = game:GetService("CoreGui")
 local src = game:GetService("ReplicatedStorage").Modules.UIKit.SpecTheme
 local f, e = loadstring(src.Source); assert(f, e)
-local old = CoreGui:FindFirstChild("UIKitTest"); if old then old:Destroy() end
 local kit = game:GetService("ReplicatedStorage").Modules.UIKit:Clone(); kit.Name = "UIKitTest"; kit.Parent = CoreGui
-local S = require(kit.SpecTheme)
+local S = load(kit.SpecTheme)
 assert(S.Role.Neutral[1] == Color3.fromHex("4AA8FF"), "Neutral blue")
 assert(S.Role.Disabled == S.Action.Neutral and S.Action.Neutral[1] == Color3.fromHex("D3DCE6"), "Disabled = old grey Neutral")
 assert(S.Role.Positive == S.Action.Go and S.Role.Destructive == S.Action.Danger, "aliases")
@@ -280,7 +279,6 @@ assert(S.Scale.Hover == 1.03 and S.Scale.Press == 0.97, "scale")
 assert(S.Card.Ladder.GOD.sparkles == true and #S.Card.Ladder.MYTH.animated == 2, "ladder")
 for k, l in pairs(S.Card.Ladder) do assert(#l.animated <= S.Card.MaxAnimatedLayers, k .. " animated cap") end
 assert(S.Card.TIER_KEY.Legendary == "LEG", "tier key")
-kit:Destroy()
 return "SpecTheme OK"
 ```
 
@@ -404,9 +402,7 @@ return FxDriver
 local CoreGui = game:GetService("CoreGui")
 local RS = game:GetService("ReplicatedStorage")
 local f, e = loadstring(RS.Modules.UIKit.FxDriver.Source); assert(f, e)
-local old = CoreGui:FindFirstChild("UIKitTest"); if old then old:Destroy() end
-local kit = RS.Modules.UIKit:Clone(); kit.Name = "UIKitTest"; kit.Parent = CoreGui
-local Fx = require(kit.FxDriver)
+local Fx = load(kit.FxDriver)
 local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = CoreGui
 local a = Instance.new("Frame"); a.Parent = sg
 local b = Instance.new("Frame"); b.Visible = false; b.Parent = sg
@@ -423,7 +419,7 @@ task.wait(0.1)
 assert(Fx.count() == 2, "throwing entry removed itself (count back to 2)")
 Fx.unregister(ia); Fx.unregister(ib); Fx.unregister(ic)
 assert(not Fx.isRunning() and Fx.count() == 0, "stands down when empty")
-sg:Destroy(); kit:Destroy()
+sg.Parent = nil
 return ("FxDriver OK (a stepped %d times)"):format(ca)
 ```
 
@@ -887,16 +883,14 @@ Edit E — `old_string`:
 - [ ] **Step 6: Compile-gate + byte-scan + behaviour test.** `execute_luau` (Edit):
 
 ```lua
-local CoreGui, RS = game:GetService("CoreGui"), game:GetService("ReplicatedStorage")
+-- [TEST LOADER PREAMBLE from .superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua goes here]
 local live = RS.Modules.UIKit.PanelChrome
 local f, e = loadstring(live.Source); assert(f, e)
 for _, needle in ipairs({ "function PanelChrome.button(", "function PanelChrome.setEnabled(", "function PanelChrome.setBusy(",
 	"UIRestSize", "SfxMuted", "props.outline or C.CtaOutline", "S.Role.Neutral else S.Role.Disabled", "radius = props.radius or 24" }) do
 	assert(live.Source:find(needle, 1, true), "missing: " .. needle)
 end
-local old = CoreGui:FindFirstChild("UIKitTest"); if old then old:Destroy() end
-local kit = RS.Modules.UIKit:Clone(); kit.Name = "UIKitTest"; kit.Parent = CoreGui
-local S, PC, Fx = require(kit.SpecTheme), require(kit.PanelChrome), require(kit.FxDriver)
+local S, PC, Fx = load(kit.SpecTheme), load(kit.PanelChrome), load(kit.FxDriver)
 local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = CoreGui
 local report = {}
 for _, kind in ipairs({ "positive", "neutral", "destructive", "gold", "purple" }) do
@@ -945,7 +939,7 @@ local tabs = shell.addHeaderTabs({ { text = "ONE", width = 160 }, { text = "TWO"
 local hb = {}; for _, c in ipairs(shell.header.HeaderTabs:GetChildren()) do if c:IsA("TextButton") then hb[c.LayoutOrder] = c end end
 assert(hb[1].BackgroundColor3 == S.Role.Neutral[1] and hb[2].BackgroundColor3 == S.Role.Disabled[1], "header tabs paint")
 assert(hb[1].Label.TextColor3 == Color3.new(1, 1, 1) and hb[2].Label.TextColor3 == S.Surface.ReadInk, "header tab ink")
-sg:Destroy(); kit:Destroy()
+sg.Parent = nil
 return "PanelChrome buttons OK"
 ```
 
@@ -1157,15 +1151,13 @@ end
 - [ ] **Step 4: Compile-gate + byte-scan + test.** `execute_luau` (Edit):
 
 ```lua
-local CoreGui, RS = game:GetService("CoreGui"), game:GetService("ReplicatedStorage")
+-- [TEST LOADER PREAMBLE from .superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua goes here]
 local live = RS.Modules.UIKit.PanelChrome
 local f, e = loadstring(live.Source); assert(f, e)
 for _, needle in ipairs({ "function shellApi.addFooter(", "function shellApi.setStat(", "PrimaryAction", "StatIcon" }) do
 	assert(live.Source:find(needle, 1, true), "missing: " .. needle)
 end
-local old = CoreGui:FindFirstChild("UIKitTest"); if old then old:Destroy() end
-local kit = RS.Modules.UIKit:Clone(); kit.Name = "UIKitTest"; kit.Parent = CoreGui
-local S, PC = require(kit.SpecTheme), require(kit.PanelChrome)
+local S, PC = load(kit.SpecTheme), load(kit.PanelChrome)
 local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = CoreGui
 local C = S.Chrome
 -- plain shell unchanged
@@ -1194,7 +1186,7 @@ assert(footer.Left:FindFirstChildWhichIsA("TextButton"):GetAttribute("UIKind") =
 sh.addFooter({ left = { { text = "ONE" } } })
 local count = 0; for _, c in ipairs(sh.root:GetChildren()) do if c.Name == "Footer" then count += 1 end end
 assert(count == 1, "single footer")
-sg:Destroy(); kit:Destroy()
+sg.Parent = nil
 return "shell slots OK"
 ```
 
@@ -1636,12 +1628,10 @@ return SortButton
 - [ ] **Step 4: Compile-gate + test all three.** `execute_luau` (Edit):
 
 ```lua
-local CoreGui, RS = game:GetService("CoreGui"), game:GetService("ReplicatedStorage")
+-- [TEST LOADER PREAMBLE from .superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua goes here]
 for _, n in ipairs({ "TabBar", "SearchBar", "SortButton" }) do local f, e = loadstring(RS.Modules.UIKit[n].Source); assert(f, n .. ": " .. tostring(e)) end
-local old = CoreGui:FindFirstChild("UIKitTest"); if old then old:Destroy() end
-local kit = RS.Modules.UIKit:Clone(); kit.Name = "UIKitTest"; kit.Parent = CoreGui
-local S = require(kit.SpecTheme)
-local TabBar, SearchBar, SortButton = require(kit.TabBar), require(kit.SearchBar), require(kit.SortButton)
+local S = load(kit.SpecTheme)
+local TabBar, SearchBar, SortButton = load(kit.TabBar), load(kit.SearchBar), load(kit.SortButton)
 local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = CoreGui
 -- TabBar horizontal
 local got = {}
@@ -1674,7 +1664,7 @@ sort.set("az"); assert(sort.get() == "az" and #picked == 0, "sort set silent")
 local btns = {}; for _, c in ipairs(sort.root:GetChildren()) do if c:IsA("TextButton") then btns[c.LayoutOrder] = c end end
 assert(btns[3].BackgroundColor3 == S.Role.Neutral[1] and btns[1].BackgroundColor3 == S.Role.Disabled[1], "sort paint")
 assert(btns[1]:FindFirstChildOfClass("UIStroke").Thickness == 3, "sort thin outline at 36px")
-sg:Destroy(); kit:Destroy()
+sg.Parent = nil
 return "TabBar/SearchBar/SortButton OK"
 ```
 
@@ -2045,11 +2035,9 @@ return Toast
 - [ ] **Step 3: Compile-gate + test both (Edit mode, scratch host).** `execute_luau` (Edit):
 
 ```lua
-local CoreGui, RS = game:GetService("CoreGui"), game:GetService("ReplicatedStorage")
+-- [TEST LOADER PREAMBLE from .superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua goes here]
 for _, n in ipairs({ "Modal", "Toast" }) do local f, e = loadstring(RS.Modules.UIKit[n].Source); assert(f, n .. ": " .. tostring(e)) end
-local old = CoreGui:FindFirstChild("UIKitTest"); if old then old:Destroy() end
-local kit = RS.Modules.UIKit:Clone(); kit.Name = "UIKitTest"; kit.Parent = CoreGui
-local S, Modal, Toast, Fx = require(kit.SpecTheme), require(kit.Modal), require(kit.Toast), require(kit.FxDriver)
+local S, Modal, Toast, Fx = load(kit.SpecTheme), load(kit.Modal), load(kit.Toast), load(kit.FxDriver)
 local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = CoreGui
 -- Modal: confirm path
 local confirmed, cancelled = 0, 0
@@ -2081,7 +2069,7 @@ task.wait(0.25); assert(lines[1].TextTransparency < 0.05, "faded in")
 task.wait(1.0)
 assert(Toast.count() == 0 and #st:GetChildren() == 2 and not Fx.isRunning(), "held, faded, destroyed; driver stood down")
 Toast.show({ text = "X", hold = 5 }); Toast.clear(); assert(Toast.count() == 0, "clear")
-sg:Destroy(); kit:Destroy()
+sg.Parent = nil
 return ("Modal/Toast OK (confirmed=%d cancelled=%d)"):format(confirmed, cancelled)
 ```
 
@@ -2312,12 +2300,10 @@ end
 - [ ] **Step 4: Compile-gate + numeric framing test over the roster's extremes.** `execute_luau` (Edit):
 
 ```lua
-local RS, CoreGui = game:GetService("ReplicatedStorage"), game:GetService("CoreGui")
+-- [TEST LOADER PREAMBLE from .superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua goes here]
 local f, e = loadstring(RS.Modules.BrainrotThumb.Source); assert(f, e)
 assert(RS.Modules.BrainrotThumb.Source:find("function M.framingBox(", 1, true) and RS.Modules.BrainrotThumb.Source:find("fitOpts = { dir = dir", 1, true), "edits missing")
-local old = CoreGui:FindFirstChild("BrainrotThumbTest"); if old then old:Destroy() end
-local clone = RS.Modules.BrainrotThumb:Clone(); clone.Name = "BrainrotThumbTest"; clone.Parent = CoreGui
-local BT = require(clone)
+local BT = load(RS.Modules.BrainrotThumb)
 -- sphere path unchanged for two-arg callers
 local anyModel = RS.BrainrotModels:GetChildren()[1]
 local c1, d1 = BT.framing(anyModel, 30); local c2, d2 = BT.framingSphere(anyModel, 30)
@@ -2368,7 +2354,7 @@ local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = Core
 local holder = Instance.new("Frame"); holder.Size = UDim2.fromOffset(92, 100); holder.Parent = sg
 local vp = BT.add(holder, picks.big.Name, { fill = 0.7 })
 assert(vp and vp.CurrentCamera, "add() with fill produced a camera")
-sg:Destroy(); clone:Destroy()
+sg.Parent = nil
 return table.concat(out, "\n")
 ```
 
@@ -3086,11 +3072,9 @@ return BrainrotCard
 - [ ] **Step 2: Compile-gate + structural test across the ladder.** `execute_luau` (Edit):
 
 ```lua
-local CoreGui, RS = game:GetService("CoreGui"), game:GetService("ReplicatedStorage")
+-- [TEST LOADER PREAMBLE from .superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua goes here]
 local f, e = loadstring(RS.Modules.UIKit.BrainrotCard.Source); assert(f, e)
-local old = CoreGui:FindFirstChild("UIKitTest"); if old then old:Destroy() end
-local kit = RS.Modules.UIKit:Clone(); kit.Name = "UIKitTest"; kit.Parent = CoreGui
-local S, Card, Fx = require(kit.SpecTheme), require(kit.BrainrotCard), require(kit.FxDriver)
+local S, Card, Fx = load(kit.SpecTheme), load(kit.BrainrotCard), load(kit.FxDriver)
 local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = CoreGui
 local grid = Instance.new("Frame"); grid.Size = UDim2.fromOffset(900, 300); grid.BackgroundTransparency = 1; grid.Parent = sg
 local gl = Instance.new("UIGridLayout"); gl.CellSize = UDim2.fromOffset(100, 132); gl.CellPadding = UDim2.fromOffset(8, 8); gl.SortOrder = Enum.SortOrder.LayoutOrder; gl.Parent = grid
@@ -3159,7 +3143,7 @@ local odd = Card.new({ kind = "brainrot", name = realName, rarity = "Divine", va
 assert(odd.plate.Edge.Color == S.Rarity.COM[2], "unknown rarity -> Common")
 -- destroy
 full.destroy(); assert(full.root.Parent == nil, "destroy")
-sg:Destroy(); kit:Destroy()
+sg.Parent = nil
 assert(not Fx.isRunning(), "driver idle after teardown")
 return "BrainrotCard OK"
 ```
@@ -3352,11 +3336,9 @@ return ViewportCuller
 - [ ] **Step 2: Compile-gate + tests (pure planner, then a real scroll of 120 cards).** `execute_luau` (Edit):
 
 ```lua
-local CoreGui, RS = game:GetService("CoreGui"), game:GetService("ReplicatedStorage")
+-- [TEST LOADER PREAMBLE from .superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua goes here]
 local f, e = loadstring(RS.Modules.UIKit.ViewportCuller.Source); assert(f, e)
-local old = CoreGui:FindFirstChild("UIKitTest"); if old then old:Destroy() end
-local kit = RS.Modules.UIKit:Clone(); kit.Name = "UIKitTest"; kit.Parent = CoreGui
-local S, VC, Card, Fx = require(kit.SpecTheme), require(kit.ViewportCuller), require(kit.BrainrotCard), require(kit.FxDriver)
+local S, VC, Card, Fx = load(kit.SpecTheme), load(kit.ViewportCuller), load(kit.BrainrotCard), load(kit.FxDriver)
 -- pure planner
 local rects = {}; for i = 1, 20 do rects[i] = { y = (i - 1) * 100, h = 100 } end
 local plan = VC.planPass(rects, 300, 400, 0.5, 4)   -- viewport 300..700, margin 200 -> visible rows 2..9
@@ -3393,7 +3375,7 @@ assert(culler.isDetached() and mountedCount() == 0 and culler.live() == 0, "deta
 scroll.CanvasPosition = Vector2.new(0, 500); task.wait(0.1)
 assert(mountedCount() == 0, "detached culler ignores scroll")
 for _, c in ipairs(cards) do c.destroy() end
-sg:Destroy(); kit:Destroy()
+sg.Parent = nil
 assert(not Fx.isRunning(), "driver idle")
 return "ViewportCuller OK"
 ```
