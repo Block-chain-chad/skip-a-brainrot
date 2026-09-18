@@ -908,7 +908,7 @@ local fired = 0
 local d = PC.button({ kind = "positive", text = "GO", parent = sg, onActivated = function() fired += 1 end })
 PC.setEnabled(d, false)
 assert(d.Interactable == false and d:GetAttribute("UIEnabled") == false and d.BackgroundColor3 == S.Role.DisabledButton[1], "disabled state")
-assert(d.Label.TextTransparency == 0.45, "disabled label dim")
+assert(math.abs(d.Label.TextTransparency - 0.45) < 1e-3, "disabled label dim") -- float32 property: compare with epsilon
 PC.setEnabled(d, true)
 assert(d.Interactable == true and d:GetAttribute("UIEnabled") == nil and d.BackgroundColor3 == S.Role.Positive[1], "re-enabled")
 -- busy
@@ -918,7 +918,7 @@ assert(d.BackgroundColor3 == S.Role.Positive[1], "busy keeps ramp")
 task.wait(0.7)
 assert(d:GetAttribute("UIBusy") == nil and not d:FindFirstChild("BusyDots") and not Fx.isRunning(), "busy timed out + driver stood down")
 PC.setBusy(d, true); PC.setEnabled(d, false); PC.setBusy(d, false)
-assert(d.Interactable == false and d.Label.TextTransparency == 0.45, "busy cleared while disabled stays disabled")
+assert(d.Interactable == false and math.abs(d.Label.TextTransparency - 0.45) < 1e-3, "busy cleared while disabled stays disabled")
 PC.setEnabled(d, true)
 -- legacy pill: disabled via enabled=false still has a ramp to restore
 local p = PC.pill({ text = "OLD", colors = S.Action.Go, size = UDim2.fromOffset(200, 60), enabled = false, parent = sg })
