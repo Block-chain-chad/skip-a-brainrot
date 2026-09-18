@@ -2042,7 +2042,7 @@ local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = Core
 local confirmed, cancelled = 0, 0
 local h1 = Modal.confirm({ title = "DELETE 3 BRAINROTS?", body = "They go back into the wild.", loss = "You will lose $12.4K/s of income.",
 	confirmText = "DELETE", onConfirm = function() confirmed += 1 end, onCancel = function() cancelled += 1 end, parent = sg })
-assert(Modal.isOpen() and h1.root.Parent == sg and h1.root.BackgroundTransparency == 0.45 and h1.root.Active == true, "modal open, dark scrim, active")
+assert(Modal.isOpen() and h1.root.Parent == sg and math.abs(h1.root.BackgroundTransparency - 0.45) < 1e-3 and h1.root.Active == true, "modal open, dark scrim, active")
 local dlg = h1.root.Dialog
 assert(dlg.Active == true and dlg:FindFirstChild("Loss") and dlg.Cancel:GetAttribute("UIKind") == "secondary" and dlg.Confirm:GetAttribute("UIKind") == "destructive", "dialog anatomy")
 assert(dlg.Confirm.Position.X.Scale == 1 and dlg.Cancel.Position.X.Scale == 0, "destructive right, cancel left")
