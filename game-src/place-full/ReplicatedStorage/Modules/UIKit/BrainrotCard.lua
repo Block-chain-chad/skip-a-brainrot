@@ -26,6 +26,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local S = require(script.Parent.SpecTheme)
 local PC = require(script.Parent.PanelChrome)
+local UI = require(script.Parent.Builders)
 local FxDriver = require(script.Parent.FxDriver)
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local BrainrotThumb = require(modules:WaitForChild("BrainrotThumb"))
@@ -136,6 +137,9 @@ UserInputService.InputEnded:Connect(function(input)
 	pressedRelease = nil
 	if r then r() end
 end)
+-- ONE open touch inspect for every card: a press on ANY card ends the previous
+-- card's long-press inspect (its tooltip) before the new press is handled.
+local endInspect: (() -> ())? = nil
 
 function BrainrotCard.new(props: Props): Card
 	local C = S.Card
@@ -490,6 +494,7 @@ function BrainrotCard.new(props: Props): Card
 				end)
 			end
 			b.Parent = slot
+			UI.touchMin(slot, 30) -- touch: the padlock's tap target is the slot (the button fills it)
 			lockBtn = b
 		end
 		if state.equipped and state.equipped ~= false and used < cap then
@@ -550,6 +555,13 @@ function BrainrotCard.new(props: Props): Card
 	local isDown = false
 	local pressToken = 0 -- touch long-press: bumps per press so a stale delay never fires
 	local longPressed = false -- touch: the current press became an inspect
+	local function endThisInspect()
+		if longPressed then
+			longPressed = false
+			hovering = false
+			hoverEndEv:Fire()
+		end
+	end
 	local function release()
 		isDown = false
 		if hovering then moveTo(LIFT, S.Tween.HoverIn) else moveTo(REST, S.Tween.HoverOut) end
@@ -578,6 +590,8 @@ function BrainrotCard.new(props: Props): Card
 		pressedRelease = release
 		moveTo(SINK, S.Tween.Press)
 		if touchOnly then
+			-- a press on this card ends whichever card's inspect is open (another card's tooltip)
+			if endInspect then endInspect() endInspect = nil end
 			if longPressed then
 				-- a new press ends the previous inspect
 				longPressed = false
@@ -592,6 +606,7 @@ function BrainrotCard.new(props: Props): Card
 					longPressed = true
 					hovering = true
 					hoverStartEv:Fire()
+					endInspect = endThisInspect
 				end
 			end)
 		end
@@ -720,6 +735,7 @@ function BrainrotCard.new(props: Props): Card
 		destroy = function()
 			unmount()
 			if pressedRelease == release then pressedRelease = nil end
+			if endInspect == endThisInspect then endInspect = nil end
 			cell:Destroy()
 		end,
 		Activated = activatedEv.Event,

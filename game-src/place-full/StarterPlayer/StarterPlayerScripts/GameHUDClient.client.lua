@@ -48,6 +48,7 @@ local modules = ReplicatedStorage:WaitForChild("Modules")
 local UIKit = modules:WaitForChild("UIKit")
 local T = require(UIKit:WaitForChild("Tokens"))
 local UI = require(UIKit:WaitForChild("Builders"))
+local Modal = require(UIKit:WaitForChild("Modal")) -- ESC/B gate: an open confirm owns the key
 -- 2026-08-09 HUD upgrade (design_handoff_hud_upgrade): illustrated button /
 -- counter art ids and the sheet's HUD numbers live in UIKit.SpecTheme.
 local SPEC = require(UIKit:WaitForChild("SpecTheme"))
@@ -2686,7 +2687,8 @@ ctx.state = state
 ---------------------------------------------------------------- panel registration
 -- Every ModuleScript dropped into the sibling GameHUDPanels folder is
 -- required at startup. { Id, Build } expected; anything else (or a require
--- that errors) is skipped silently -- the folder is empty until later tasks.
+-- that errors) warns via [UIKit] logging; an empty table is the one silent,
+-- documented "not registered here" case (GalleryPanel outside Studio).
 local panelsFolder = script.Parent:WaitForChild("GameHUDPanels")
 for _, m in ipairs(panelsFolder:GetChildren()) do
 	if m:IsA("ModuleScript") then
@@ -2724,6 +2726,7 @@ end)
 -- nothing selected. Same handler, so the two can never drift apart.
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
+	if Modal.isOpen() then return end -- the modal's own ESC/B handling cancels it; the panel behind stays
 	if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.ButtonB then
 		-- the rebirth surface is a legacy panel outside closePanel's world;
 		-- without this, ESC would ignore it (RebirthClient never wired ESC)

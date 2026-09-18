@@ -63,13 +63,17 @@ end
 
 function FxDriver.register(gui: GuiObject, step: Step): number
 	nextId += 1
-	entries[nextId] = { gui = gui, step = step }
+	local id = nextId
+	entries[id] = { gui = gui, step = step }
 	count += 1
+	-- an entry dies with its gui: a caller that destroys the gui without
+	-- unregistering (a busy button torn down mid-timeout) must not leak the entry
+	gui.Destroying:Once(function() FxDriver.unregister(id) end)
 	if not conn then
 		conn = RunService.Heartbeat:Connect(tick)
 	end
 	publish()
-	return nextId
+	return id
 end
 
 function FxDriver.unregister(id: number?)

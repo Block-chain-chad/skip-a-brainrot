@@ -122,7 +122,7 @@ Aliases kept for one round: `S.Action.Go/Danger/Premium/Robux/Gold/Neutral/Inert
 
 **Grammar sweep (explicit, small):** the "active = green" tab/filter paint sites switch to active = `Role.Neutral` (blue), inactive = `Role.Disabled`: `PanelChrome.addHeaderTabs`, `PanelChrome.segmented`, `PanelChrome.toggle`'s on-state stays green (it is a positive state, not navigation), `GoalsPanel.updateTabVisuals` (≈ line 1242), `IndexPanel.updateWorldVisuals` / `updateFilterVisuals` (≈ 831 / 861), `CharmsPanel.setFilter` (≈ 1073). Each is a one-expression change inside an existing paint function; each panel is opened live afterwards. Action buttons that are green today (claim, equip, buy) stay green; gold/violet reward surfaces outside this round's seams are left for their own rounds.
 
-Inactive header/body tabs use `Role.Disabled`; the ink rules of `pill()` (luminance gate) stay.
+Inactive header/body tabs use `Role.Disabled`; the ink rules of `pill()` (luminance gate) stay. Note (found live, Task 4): `UIPolish`'s owner-ruled readability floor (2026-08-21) whitens neutral dark ink on the labels it exempts, so the kit's dark-ink gate is cosmetic in live — the result is white bubble text with an ink stroke on those labels; the background grammar is unaffected.
 
 ### 5.2 `S.Space`
 
@@ -139,12 +139,12 @@ Geometry as proportions of the card so one component fits the Bag's current cell
 
 ```
 Plate      = { 3A4656, 2A3543 }     Radius = 14      Edge = 3
-BandFrac   = 0.20  BandMin = 24     ArtInset = 4     Fill = 0.70
+BandFrac   = 0.20  BandMin = 24     ArtInset = 4     Fill = 0.88   -- holder-relative (≈67 % of the card); retuned from 0.70 in Task 11
 Pip = 7 (diamond)  Badge = 22       BadgeSmall = 14  MutationStar = 16
 ArtWell    = white radial, 0.90 transparency at centre → 1 at edge
 Light      = { Ambient 205/210/220, LightColor 255/248/232, Dir (0.18, 0.32, -1), LightDir = -Dir }   -- the Bag's relit rig, moved here
 MaxAnimatedLayers = 2
-MaxLive    = { Desktop = 48, Tablet = 32, Phone = 20 }   -- PROVISIONAL; replaced by the Gallery stress test (§10)
+MaxLive    = { Desktop = 64, Tablet = 40, Phone = 24 }   -- conservative shipped defaults: the Gallery stress test (§10) measured 96/72/48 without ever finding a ceiling on this dev machine, so the shipped table is deliberately lower (Task 11 fix round)
 Variants   = { grid = {}, compact = { bandMin = 20, leftBadges = false }, hero = { title = true } }
 Ladder     = see §7.4
 ```
@@ -199,15 +199,16 @@ White well (`RowTop/RowBottom`), `OutlineSoft` edge, 64 tall, magnifier glyph le
 - ESC and gamepad `ButtonB` cancel when `cancelable`. Gamepad selection lands on Cancel when the modal opens.
 - **Singleton:** opening a second modal closes the first (its `onCancel` runs).
 - World blur is not part of the modal; a caller that wants it uses the existing `HUDPanelBlur` machinery.
-- Parent: the HUD host's screen gui at a zIndex band above every panel (`PanelChrome.zBase + 60`).
+- Parent: its own `UIKitModal` ScreenGui (`DisplayOrder` 90, `IgnoreGuiInset`) at a zIndex band above every panel (`PanelChrome.zBase + 60`); tests hand it a host via `setHost`/`parent`. The dialog carries a `Fit` `UIScale` bound with `Platform.Bind(fit, 1920, 1080)` (unbound in `finish()`), so the 560×380 sheet dialog scales with the viewport while the scrim stays full-screen.
+- `GameHUDClient`'s ESC/B handler returns early while `Modal.isOpen()`, so the modal's own ESC/B cancel never also closes the panel behind it.
 - Only dangerous actions use it (handoff §19). First consumer is the Gallery; Bag delete, Sell confirm and Rebirth confirm adopt it in their own rounds.
 
 ### 6.7 Toast — `UIKit/Toast`
 
 `Toast.show({ text, tone = "info" | "success" | "error" | "reward", icon?, hold = 3.2 })`.
 
-- One stack, bottom-centre, bottom pinned at `UDim2.new(0.5, 0, 0.78, -140)` (ToastClient's measured anchor that clears the throw cluster), lines growing upward, max 4 lines, oldest dismissed first.
-- Plateless shout text with dark stroke (the PS99 field-study language): info white, success `Role.Positive[1]`, error `Role.Destructive[1]`, reward `Role.Gold[1]`. Slide-in/out via `Position` tweens.
+- One stack, bottom-centre, bottom pinned at `UDim2.new(0.5, 0, 0.78, -140)` (ToastClient's measured anchor that clears the throw cluster), lines growing upward, max 3 lines, oldest dismissed first.
+- Plateless shout text with dark stroke (the PS99 field-study language): info white, success `Role.Positive[1]`, error `Role.Destructive[1]`, reward `Role.Gold[1]`. Fade-in/out hand-lerped on `FxDriver` (TweenService cannot animate transparency here); the lines are `UIListLayout` children, so there is no slide.
 - `ToastClient` keeps its remote subscriptions and the dormant item-toast code path, but its own stack UI is **removed**; `push(success, message)` becomes `Toast.show({ text = message, tone = success and "success" or "error" })`. There is exactly one renderer.
 
 ### 6.8 Kept as they are
@@ -265,7 +266,7 @@ CellRoot (Frame, transparent, Size 1,1 — owned by the consumer's UIGridLayout;
 6. **HoloRing** (Mythic+): `UI.rainbowRing` around the art holder.
 7. **Pips** (top-left): diamonds, count by tier (§7.4), lit in the tier's light colour, unlit `39414F`.
 8. **Band** (bottom, `BandFrac` of the card, min `BandMin`): tier ramp; **tier name** (shout, white, left) and `count` (right) when given. Common's band sits at 0.75 transparency so the ladder starts quiet; Mythic+ is the animated rainbow with dark ink `12060C`.
-9. **Rate pill**: `NumberFormat.Rate(income)` in shout white with dark stroke on a dark pill, centred just above the band.
+9. **Rate pill**: `NumberFormat.Cash(income) .. "/s"` in shout white with dark stroke on a dark pill, centred just above the band.
 10. **Sparkles** (Secret, God): three "✦" labels at the art's top corners.
 
 The dormant `buildJuiceTile` is the reference implementation for 1–3 and 7–8; it is lifted into the component, not called.
@@ -374,7 +375,7 @@ One seam in `BackpackPanel`: the Brainrots tab's `fillBag()` grid plus its two c
   4. *Tabs* — header tabs, horizontal TabBar, vertical TabBar, with badges.
   5. *Inputs* — SearchBar, SortButton, segmented, toggle, slider, bar.
   6. *Modal + Toast* — buttons that open destructive/positive confirms (cancelable and not) and fire each toast tone.
-  7. *Cards* — `BrainrotCard` for every tier × every state (equipped, locked, new, selected, mutation, size, count, missing art), all three variants, and the **framing set**: a tall model (narwhal), a wide one (hammerhead), a two-character group, the tadpole, a pale Tundra model, a near-black model — each with its projected-fill percentage printed under it.
+  7. *Cards* — `BrainrotCard` for every tier × every state (equipped, locked, new, selected, mutation, size, count, missing art), all three variants, and the **framing set**: picked by measurement over the live roster rather than by name — the tallest, widest, biggest, smallest, palest and darkest models — each with its projected-fill percentage printed under it.
   8. *Stress* — a scrolling grid of N cards (N = 100 / 250 / 500 selectable) on the culler, with a live readout of mounted viewports, the current cap, and average frame time. **This is what replaces the provisional `S.Card.MaxLive` numbers**, per platform (desktop, and phone via `PlatformOverride`).
   9. *Legacy* — an old `pill` and old tab beside the new `button` and `TabBar` for the migration audit.
 - Every section is built from `S` and the components — no bespoke styling — so the Gallery is the living style guide. A section whose build throws renders a red error tile with the message in place of the section (and the warning goes to the console, §11).
@@ -398,7 +399,7 @@ One seam in `BackpackPanel`: the Brainrots tab's `fillBag()` grid plus its two c
 
 - **Checkpoint first** (§14), then compile-gate every edited script with `loadstring(script.Source)` in Edit mode after each edit.
 - **Gallery pass** in Play: every section opens and renders; captures per section (I ask before any foreground capture); the framing set shows equal perceived fill across the six extremes; the stress section establishes `MaxLive` for desktop and phone (`PlatformOverride = "Phone"` set in Edit, removed after, confirmed nil).
-- **Bag pass** on the 404-item save: grid renders per UID with the right counts; mounted viewports ≤ cap while scrolling top-to-bottom-to-top; hover lift + tooltip, press feedback, lock toggle round-trip, equip round-trip, "NO FREE SLOTS" toast; search and sort still filter/sort; keep-scroll survives a rebuild.
+- **Bag pass** on the 404-item save: grid renders per UID with the right counts; mounted viewports ≤ cap while scrolling top-to-bottom-to-top; hover lift + tooltip, press feedback, lock toggle round-trip, equip round-trip, "NO FREE SLOTS" toast; search and sort still filter/sort; keep-scroll survives a rebuild. *As run (Task 13):* the pass ran on a 36-item bag (the live profile), not the 404-item save. The 400-item construction cost was measured in the final fix wave instead (Edit mode, loader, 400 grid cards cycling the 8 tiers over the real roster, no mount): **277–332 ms** (0.69–0.83 ms per card; 24,127 instances under the grid, ≈60 per card); `ViewportCuller.attach` 0.5 ms with the first pass (56 mounts) published ≈142 ms later. Construction alone exceeds the 100 ms line, so a 400-item bag needs `fillBag` sliced or diffed in the Bag round — `fillBag` was deliberately left unchanged here.
 - **Repeated-cycle leak check** (Decision 22): 10 × (open Bag → scroll to bottom → scroll to top → close), then 10 × (open Gallery → Stress 500 → close). After the last close: zero `ViewportFrame`s under the Bag/Gallery trees, the culler reports detached, `FxDriver` reports no connection and an empty registry, and the count of `Instance`s under `PlayerGui` is flat across cycles (± the panel's own build).
 - **Grammar audit** of every swept paint site (§5.1): header tabs, segmented controls, Goals tabs, Index world/filter chips, Charms filter chips — active is blue with white shout, inactive grey with dark ink, nothing else moved; Settings' rarity-keyed chips and every green action button unchanged.
 - Console clean through all of the above. Mirror re-synced byte-exact for every touched file; spec + plan + `game-src/README.md` note committed.

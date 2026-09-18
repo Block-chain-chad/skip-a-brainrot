@@ -31,6 +31,7 @@ local SoundKit = require(game:GetService("ReplicatedStorage"):WaitForChild("Modu
 local FxDriver = require(script.Parent:WaitForChild("FxDriver"))
 local CLICK_VOLUME = 0.12 -- same level GameHUDClient.wireClick uses on the rail
 local soundWarned = false -- click sound stays fire-and-forget; log the FIRST failure only
+local kindWarned: { [string]: boolean } = {} -- button(): unknown kind warns once per kind, not per button
 
 local PanelChrome = {}
 
@@ -709,7 +710,10 @@ function PanelChrome.button(props: {
 	local kindKey = props.kind or "positive"
 	local roleName = KIND_ROLE[kindKey]
 	if not roleName then
-		warn(("[UIKit] button: unknown kind %q, using positive"):format(tostring(props.kind)))
+		if not kindWarned[kindKey] then
+			kindWarned[kindKey] = true
+			warn(("[UIKit] button: unknown kind %q, using positive"):format(tostring(props.kind)))
+		end
 		roleName = "Positive"
 		kindKey = "positive"
 	end

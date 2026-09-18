@@ -3585,6 +3585,7 @@ function BackpackPanel.Build(ctx)
 					instanceName = "BagCell" .. i,
 				})
 				card.Activated:Connect(function()
+					if hideCardTip then hideCardTip() end -- a tap (touch) must not leave another card's tooltip up
 					newUids[e.Uid] = nil
 					card.setState({ new = false }) -- clear the NEW badge locally, plot-full branch included
 					if countPlaced() < plotState.Unlocked then

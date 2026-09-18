@@ -122,6 +122,8 @@ function ViewportCuller.attach(scroll: ScrollingFrame, cards: { Cullable }, opts
 	table.insert(conns, scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(schedule))
 	table.insert(conns, scroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(schedule))
 	table.insert(conns, scroll:GetPropertyChangedSignal("AbsolutePosition"):Connect(schedule))
+	-- AutomaticCanvasSize settling (or a re-layout) moves cards without any scroll input
+	table.insert(conns, scroll:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(schedule))
 	-- a scroll that is destroyed or orphaned without detach() must not leak the Heartbeat
 	table.insert(conns, scroll.AncestryChanged:Connect(function(_, parent)
 		if parent == nil then handle.detach() end

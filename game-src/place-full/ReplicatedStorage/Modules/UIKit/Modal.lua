@@ -10,6 +10,7 @@ local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local S = require(script.Parent.SpecTheme)
 local PC = require(script.Parent.PanelChrome)
+local Platform = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Platform"))
 
 export type Props = {
 	title: string, body: string, loss: string?, confirmText: string, confirmKind: string?,
@@ -80,6 +81,12 @@ function Modal.confirm(props: Props): Handle
 		zIndex = z + 1, parent = scrim, gloss = false,
 	})
 	dialog.Active = true -- a click on the dialog itself must not reach the scrim
+	-- the 560x380 dialog is authored on the 1920x1080 sheet; the scrim stays full-screen,
+	-- only the dialog scales with the viewport (Platform.Bind rebinds on class changes)
+	local fit = Instance.new("UIScale")
+	fit.Name = "Fit"
+	fit.Parent = dialog
+	local unbindFit = Platform.Bind(fit, 1920, 1080)
 
 	PC.shout({
 		name = "Title", text = props.title, size = 44,
@@ -109,6 +116,7 @@ function Modal.confirm(props: Props): Handle
 		for _, c in ipairs(conns) do c:Disconnect() end
 		if current and current.root == scrim then current = nil end
 		if UserInputService.GamepadEnabled then GuiService.SelectedObject = nil end
+		unbindFit()
 		scrim:Destroy()
 		if fn then
 			local ok, err = pcall(fn)
