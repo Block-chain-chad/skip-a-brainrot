@@ -57,7 +57,10 @@ local function framingSet(): { { label: string, name: string } }
 	local pick: { [string]: string } = {}
 	for _, m in ipairs(ReplicatedStorage.BrainrotModels:GetChildren()) do
 		if m:IsA("Model") then
-			local ok, _, ext = pcall(function() return m:GetBoundingBox() end)
+			local ok, errOrCf, ext = pcall(function() return m:GetBoundingBox() end)
+			if not ok then
+				warn(("[UIKit] Gallery framingSet: GetBoundingBox failed for %s: %s"):format(m.Name, tostring(errOrCf)))
+			end
 			if ok and ext and ext.Magnitude > 0 then
 				local tall, wide, vol = ext.Y / math.max(ext.X, ext.Z), math.max(ext.X, ext.Z) / ext.Y, ext.X * ext.Y * ext.Z
 				if tall > best.tall then best.tall = tall; pick.tall = m.Name end
@@ -186,13 +189,14 @@ function GalleryPanel.Build(ctx)
 	content.Parent = shell.body
 
 	-- per-section teardown: cards, cullers, driver entries, connections
-	local live: { cards: { any }, cullers: { any }, conns: { RBXScriptConnection }, fx: { number } } = { cards = {}, cullers = {}, conns = {}, fx = {} }
+	local live: { cards: { any }, cullers: { any }, conns: { RBXScriptConnection }, fx: { number }, threads: { thread } } = { cards = {}, cullers = {}, conns = {}, fx = {}, threads = {} }
 	local function teardown()
 		for _, c in ipairs(live.cullers) do c.detach() end
 		for _, c in ipairs(live.cards) do c.destroy() end
 		for _, c in ipairs(live.conns) do c:Disconnect() end
 		for _, id in ipairs(live.fx) do FxDriver.unregister(id) end
-		live = { cards = {}, cullers = {}, conns = {}, fx = {} }
+		for _, th in ipairs(live.threads) do task.cancel(th) end
+		live = { cards = {}, cullers = {}, conns = {}, fx = {}, threads = {} }
 		Modal.closeCurrent()
 		for _, ch in ipairs(content:GetChildren()) do
 			if ch:IsA("GuiObject") then ch:Destroy() end
@@ -435,7 +439,7 @@ function GalleryPanel.Build(ctx)
 				table.insert(live.cards, card)
 			end
 			culler = ViewportCuller.attach(grid, live.cards, { maxLive = cap })
-			table.insert(live.cullers, culler)
+			live.cullers = { culler }
 		end
 		for _, nOpt in ipairs({ 100, 250, 500 }) do
 			PC.button({ kind = "neutral", text = "N=" .. nOpt, size = "small", parent = controls, zIndex = z + 3, onActivated = function() count = nOpt; rebuild() end })
@@ -444,14 +448,14 @@ function GalleryPanel.Build(ctx)
 			PC.button({ kind = "gold", text = "CAP " .. cOpt, size = "small", parent = controls, zIndex = z + 3, onActivated = function() cap = cOpt; rebuild() end })
 		end
 		PC.button({ kind = "secondary", text = "AUTO-SCROLL", size = "small", parent = controls, zIndex = z + 3, onActivated = function()
-			task.spawn(function()
+			table.insert(live.threads, task.spawn(function()
 				local maxY = math.max(0, grid.AbsoluteCanvasSize.Y - grid.AbsoluteSize.Y)
 				for step = 0, 40 do
 					grid.CanvasPosition = Vector2.new(0, maxY * (step / 40))
 					task.wait(0.05)
 				end
 				grid.CanvasPosition = Vector2.new(0, maxY * 0.5)
-			end)
+			end))
 		end })
 		table.insert(live.fx, FxDriver.register(readout, function(_, dt)
 			sIdx = sIdx % 30 + 1

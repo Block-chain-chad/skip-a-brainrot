@@ -265,10 +265,12 @@ S.Card = {
 		LightColor = Color3.fromRGB(255, 248, 232),
 		LightDirection = Vector3.new(-0.18, -0.32, 1),
 	},
-	-- MEASURED 2026-09-18 in the Gallery stress section (N=500 desktop / N=250 phone
-	-- via PlatformOverride, largest cap under 16.7ms / 22ms avg frame): see the
-	-- round's commit message for the table.
-	MaxLive = { Desktop = 96, Tablet = 72, Phone = 48 },
+	-- 2026-09-18 Gallery stress test: the dev desktop stayed at the 16.7ms vsync floor
+	-- up to 96 live viewports, and the "phone" run was the same machine under
+	-- PlatformOverride -- so these are CONSERVATIVE defaults, not measured ceilings.
+	-- ViewportCuller steps a cap down 25% whenever 30 frames run over budget, which
+	-- is the real guard on weaker hardware. Re-measure Phone on a real device.
+	MaxLive = { Desktop = 64, Tablet = 40, Phone = 24 },
 	Variants = {
 		grid    = { bandMin = 24, leftBadges = true,  rightCap = 2, title = false },
 		compact = { bandMin = 20, leftBadges = false, rightCap = 1, title = false },
