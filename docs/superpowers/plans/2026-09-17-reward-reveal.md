@@ -2479,6 +2479,7 @@ local TweenService = game:GetService("TweenService")
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local BrainrotThumb = require(Modules:WaitForChild("BrainrotThumb"))
 local Mutations = require(Modules:WaitForChild("MutationConfig"))
+local MutationFX = require(Modules:WaitForChild("MutationFX"))
 local Sizes = require(Modules:WaitForChild("SizeConfig"))
 local UITheme = require(Modules:WaitForChild("UITheme"))
 local SoundKit = require(Modules:WaitForChild("SoundKit"))
@@ -2574,9 +2575,11 @@ function M.isPlaying(): boolean
 end
 
 -- Builds the spinning model. Returns the per-frame updater or nil (no model).
--- MUTATION (spec S9): a viewport cannot render MutationFX's light/emitter/Highlight,
--- so the tint rides the viewport's own lighting -- one property write.
-local function buildViewport(rec: { [string]: any }, preset: Preset, grant: Grant, parent: Instance, tint: Color3?): ((number) -> ())?
+-- MUTATION (spec S9): the SAME MutationFX.apply the world uses, on the throwaway
+-- viewport clone. Its per-part colour shifts and material swaps render inside a
+-- ViewportFrame; its emitters/lights/highlights do not and are simply inert here.
+-- One mutation path for pops and cuts alike -- nothing Golden/Diamond-specific.
+local function buildViewport(rec: { [string]: any }, preset: Preset, grant: Grant, parent: Instance, mutation: string?): ((number) -> ())?
 	local master = BrainrotThumb.master(grant.Name)
 	if not master then
 		return nil
@@ -2588,12 +2591,11 @@ local function buildViewport(rec: { [string]: any }, preset: Preset, grant: Gran
 	vp.Size = UDim2.fromScale(1, 1)
 	vp.BackgroundTransparency = 1
 	vp.ZIndex = 3
-	if tint then
-		vp.LightColor = tint
-		vp.Ambient = tint:Lerp(Color3.new(0.3, 0.3, 0.3), 0.5)
-	end
 	vp.Parent = parent
 	local m = master:Clone()
+	if mutation then
+		pcall(MutationFX.apply, m, mutation)
+	end
 	m.Parent = vp
 	local centre, dist = BrainrotThumb.framing(m, FOV)
 	local cam = Instance.new("Camera")
@@ -2723,7 +2725,7 @@ function M.play(grant: Grant): boolean
 		hc.Parent = halo
 		rec.halo = halo
 
-		rec.spin = buildViewport(rec, preset, grant, holder, tint)
+		rec.spin = buildViewport(rec, preset, grant, holder, mut)
 
 		local stamp = Instance.new("Frame")
 		stamp.Name = "Stamp"
@@ -2900,7 +2902,7 @@ end
 
 Then `script_grep` the place for `PullCeremony`, `MassiveEmergence`, `CatchReveal` (the module, not `CatchRevealUI`). Expected hits after the router edit: `SettingsPanel` (if it has a "ceremony after" row from the Massive build — delete that row and its `SettingsService` whitelist entry), `CinematicCommand` (`/cinceremony` — delete the command), comments. Back up all three modules to `AuditBackups.PreReveal_2026_09_17.<Name>_final`, then destroy `PullCeremony`, `MassiveEmergence`, `CatchReveal`. Compile-check every edited script; `script_grep` again — zero hits.
 
-- [ ] **Step 4: Verify.** Play mode: `Harness.popMatrix()` → expected empty (15 pops, no camera/Lighting diff, PlayerGui not growing). Then with the owner watching at 1x: `ForceNextCatch` for one name per tier Common→Legendary, plain; then one Golden Common and one Diamond Epic — the pop must visibly read gold-lit / ice-lit with the halo in the mutation colour and the name "GOLDEN …"/"DIAMOND …". If the tint does not read on a dark model, apply spec §9's fallback: in `buildViewport`, after cloning, `for _, p in ipairs(m:GetDescendants()) do if p:IsA("BasePart") then p.Color = p.Color:Lerp(tint, 0.35) end end` (viewport clone only). Revert grants by Uid.
+- [ ] **Step 4: Verify.** Play mode: `Harness.popMatrix()` → expected empty (15 pops, no camera/Lighting diff, PlayerGui not growing). Then with the owner watching at 1x: `ForceNextCatch` for one name per tier Common→Legendary, plain; then one Golden Common and one Diamond Epic — the pop's model must carry MutationFX's Golden / Diamond body (the same colour shift the placed model shows on a plot) with the halo in the mutation colour and the name "GOLDEN …"/"DIAMOND …". If a body reads unchanged, that is a MutationFX gap for that model, not a pop bug — note the name and move on. Revert grants by Uid.
 
 - [ ] **Step 5: Mirror + commit.** Mirror `CatchPop.lua`, `RevealRouter.client.lua`, `Harness.lua`, `SettingsPanel.lua`, `SettingsService.lua`, `CinematicCommand.server.lua` as touched; delete `PullCeremony.lua`, `MassiveEmergence.lua`, `CatchReveal.lua` and the stale `game-src/CatchReveal.lua`, `game-src/CatchRevealClient.lua` top-level mirrors.
 

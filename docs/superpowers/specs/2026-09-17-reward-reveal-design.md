@@ -382,14 +382,14 @@ inside the pop's gui. A pop therefore has nothing to restore and cannot strand t
 
 - Cuts: the rig is a real world model; `MutationFX.apply(model, mutation)` exactly as the
   Massive cut does today. All twelve mutations, one path.
-- Pops: the viewport cannot render `MutationFX`'s light, emitter or Highlight. Smallest
-  faithful representation, all from existing data:
-  1. the pop viewport's `LightColor` and `Ambient` are set to `Mutations.Color(mutation)`;
-  2. the halo takes the mutation colour instead of the rarity colour when mutated;
-  3. the name reads `Sizes.Label(mutation, size, name)`.
-  If the lighting tint does not read on dark-palette models in Studio, the fallback is a
-  partial part-colour blend toward the mutation colour on the viewport clone only (never
-  the master), decided by looking. No new rendering system, no mutation-specific modules.
+- Pops: `MutationFX.apply` is called on the throwaway viewport clone — the SAME call the
+  world uses. Since the 2026-08-13 rewrite `MutationFX` shifts each part's own colours and
+  materials, and those render inside a `ViewportFrame`; its emitters, lights, beams and
+  highlights do not, and are simply inert there. The halo takes the mutation colour and
+  the name reads `Sizes.Label(mutation, size, name)`. One mutation path for pops and
+  cuts alike; no new rendering system, no mutation-specific modules. (Earlier draft of
+  this section proposed a viewport `LightColor` tint; superseded once the live
+  `MutationFX` was read at build start.)
 - Display names and the "YOU GOT!"/"NEW BRAINROT!" header carry the mutation everywhere.
 
 ## 10. Copy and audio
