@@ -85,3 +85,23 @@ def test_metadata_flows_through():
     m = BB.bake_boxes(pm([Box((0, 0.5, 0), (1, 1, 1), "#FF0000", "Plastic", None)], fx=True, attrs={"HeightScale": 1.46, "WidthScale": 0.8, "Tier": "Secret"}))
     assert m.height_scale == 1.46 and m.width_scale == 0.8 and m.attributes["Tier"] == "Secret" and m.fx is True
     assert m.size_studs() == (1.0, 1.0, 1.0) and m.pose_rotation is None and m.pose_centre is None
+
+
+def test_repose_rotates_geometry_and_clears_pose():
+    import math
+    from brainrot_forge.ingest_parts import unpose
+    R = (1, 0, 0, 0, 0, -1, 0, 1, 0)   # +90 degrees about X: (x, y, z) -> (x, -z, y)
+    boxes = [Box((0, 0, 0), (1, 1, 3), "#FF0000", "Plastic", R), Box((0, 2, 0), (1, 1, 1), "#00FF00", "Plastic", R)]
+    cm = BB.bake_boxes(unpose(pm(boxes)))
+    assert cm.pose_rotation == R
+    rp = BB.repose(cm)
+    assert rp.pose_rotation is None and rp.pose_centre is None
+    # the reposed AABB is the exact AABB of the two rotated world boxes: box 1 spans world y in [-1.5, 1.5], box 2 sits at world (0, 2, 0)
+    lo, hi = rp.bounds
+    assert all(math.isclose(a, b, abs_tol=1e-6) for a, b in zip(lo, (-0.5, -1.5, -0.5))) and all(math.isclose(a, b, abs_tol=1e-6) for a, b in zip(hi, (0.5, 2.5, 0.5)))
+    for mesh in rp.meshes.values():
+        assert all(math.isclose(n[0] ** 2 + n[1] ** 2 + n[2] ** 2, 1, abs_tol=1e-6) for n in mesh.normals)
+        assert len(mesh.positions) == len(mesh.normals)
+    # the un-rotated body is returned unchanged
+    plain = BB.bake_boxes(pm([Box((0, 0.5, 0), (1, 1, 1), "#FF0000", "Plastic", None)]))
+    assert BB.repose(plain) is plain

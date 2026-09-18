@@ -99,7 +99,7 @@ Budgets are per **template model** (what goes in `ReplicatedStorage.BrainrotMode
 |---|---|---|---|
 | BaseParts total | 8–15 | **20** | Secret/God bespoke may reach 25; nothing ships above 40 (pack max 39). |
 | Visible geometry parts | 5–11 | **14** | MeshParts and/or Parts that actually render. |
-| Invisible scaffold parts | 1–3 | 3 | PrimaryPart hitbox + FX host(s). Transparency 1, nothing else. |
+| Invisible scaffold parts | 1–3 | **4** | PrimaryPart hitbox + up to the three `BrainrotFX` hosts (§2.4). Transparency 1, nothing else. (Was 3 until 2026-09-17; a Mythic/Secret recipe uses all three hosts, and the pack's own p90 is 6.) |
 | MeshParts | 4–11 | **14** | Body, head, limbs, accessory, face-plate. One mesh may be shared by several parts (limbs). |
 | Total descendants | 20–60 | **80** | A new model has no rig cruft, so expect 20–40. |
 | ParticleEmitters | 3–6 | **8** (Legendary+ up to 10) | Cloned from `BrainrotFX` kits, never invented. |

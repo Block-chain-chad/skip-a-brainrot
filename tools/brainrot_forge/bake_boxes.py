@@ -221,3 +221,35 @@ def bake_boxes(model: PartModel, max_roles: int = 12, max_neon: int = 3, exact: 
     attrs = dict(model.attrs)
     return ConvertedModel(model.name, model.rarity, model.world, palette, materials, meshes, attrs,
                           True if model.fx else None, model.pose, model.pose_centre, clustered, bbox(model.boxes))
+
+
+def repose(cm: ConvertedModel) -> ConvertedModel:
+    """Bake the rigid pose back into the vertices: world = R (local - c) + c for positions, R n for
+    normals. The exported MeshParts then sit unrotated with the exact AABB of the tilted body (a
+    rotated MeshPart would report an inflated, conservative bounding box to the spawner's fit)."""
+    if cm.pose_rotation is None or cm.pose_centre is None:
+        return cm
+    R, c = cm.pose_rotation, cm.pose_centre
+
+    def rot(v):
+        return (R[0] * v[0] + R[1] * v[1] + R[2] * v[2],
+                R[3] * v[0] + R[4] * v[1] + R[5] * v[2],
+                R[6] * v[0] + R[7] * v[1] + R[8] * v[2])
+
+    meshes: dict[str, Mesh] = {}
+    lo = [float("inf")] * 3
+    hi = [float("-inf")] * 3
+    for role, m in cm.meshes.items():
+        positions = []
+        for p in m.positions:
+            d = rot((p[0] - c[0], p[1] - c[1], p[2] - c[2]))
+            w = (round(d[0] + c[0], 6), round(d[1] + c[1], 6), round(d[2] + c[2], 6))
+            positions.append(w)
+            for i in range(3):
+                lo[i] = min(lo[i], w[i])
+                hi[i] = max(hi[i], w[i])
+        normals = [tuple(round(x, 6) for x in rot(n)) for n in m.normals]
+        meshes[role] = Mesh(m.role, positions, normals, list(m.uvs), list(m.indices), None if m.colors is None else list(m.colors))
+    return ConvertedModel(cm.name, cm.rarity, cm.world, dict(cm.palette), dict(cm.materials), meshes, dict(cm.attributes),
+                          cm.fx, None, None, cm.vertex_colors, ((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])),
+                          cm.pitch, cm.motion, cm.material)

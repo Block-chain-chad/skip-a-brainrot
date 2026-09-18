@@ -110,6 +110,10 @@ function M.AssembleOne(root, name, entry, opts)
 			if p:IsA("BasePart") then p.CFrame = pose * p.CFrame end
 		end
 	end
+	-- A fresh Model's pivot takes the orientation of its first part, so a posed body would get a
+	-- tilted bounding box and RootPart; the spawner fits and seats models by GetBoundingBox, which
+	-- follows the PrimaryPart's orientation. Keep the scaffold world-aligned like the pack's.
+	model.WorldPivot = CFrame.new(model.WorldPivot.Position)
 	local cf, size = model:GetBoundingBox()
 	local rootPart = Instance.new("Part")
 	rootPart.Name = "RootPart"

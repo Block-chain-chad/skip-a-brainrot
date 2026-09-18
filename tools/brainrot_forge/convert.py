@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from .bake import Mesh
-from .bake_boxes import ConvertedModel, bake_boxes
+from .bake_boxes import ConvertedModel, bake_boxes, repose
 from .export_glb import build_manifest, write_glb
 from .ingest_parts import PartModel, load_dump, unpose
 from .render import compare_sheet
@@ -61,14 +61,24 @@ def _chunks(items, n):
 
 
 def convert_all(dump_dir: str | Path, out_dir: str | Path, batches: int = 4,
-                max_tris_model: int = 12000, max_tris_role: int = 4000) -> list[dict]:
+                max_tris_model: int = 12000, max_tris_role: int = 4000,
+                move: dict[str, int] | None = None) -> list[dict]:
+    """move: {name: batch} puts a body into another batch than its alphabetical one (a re-do)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     models = [unpose(m) for m in load_models(dump_dir)]
+    chunks = _chunks(models, batches)
+    for name, target in (move or {}).items():
+        found = [(chunk, m) for chunk in chunks for m in chunk if m.name == name]
+        assert found, f"--move: no body named {name!r}"
+        chunk, m = found[0]
+        chunk.remove(m)
+        chunks[target - 1].append(m)
     rows: list[dict] = []
-    for bi, chunk in enumerate(_chunks(models, batches), 1):
-        after = [bake_boxes(m, max_tris_model=max_tris_model, max_tris_role=max_tris_role) for m in chunk]
-        before = [bake_boxes(m, exact=True, max_tris_model=max_tris_model, max_tris_role=max_tris_role) for m in chunk]
+    for bi, chunk in enumerate(chunks, 1):
+        # posed bodies are baked un-tilted (so faces cull) and the tilt is put back into the vertices
+        after = [repose(bake_boxes(m, max_tris_model=max_tris_model, max_tris_role=max_tris_role)) for m in chunk]
+        before = [repose(bake_boxes(m, exact=True, max_tris_model=max_tris_model, max_tris_role=max_tris_role)) for m in chunk]
         batch = [(cm, cm.meshes) for cm in after]
         if bi == 1:
             pr = probe()
@@ -79,5 +89,5 @@ def convert_all(dump_dir: str | Path, out_dir: str | Path, batches: int = 4,
         for m, cm in zip(chunk, after):
             rows.append({"name": m.name, "batch": bi, "boxes": len(m.boxes), "roles": len(cm.meshes),
                          "triangles": sum(x.triangles for x in cm.meshes.values()), "vertexColors": cm.vertex_colors,
-                         "posed": cm.pose_rotation is not None, "fx": bool(cm.fx)})
+                         "posed": m.pose is not None, "fx": bool(cm.fx)})
     return rows

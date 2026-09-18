@@ -30,7 +30,9 @@ def test_convert_all_writes_batches_with_probe(tmp_path):
     grad = m1["models"]["Grad Fish"]
     assert grad["vertexColors"] is True and len(grad["parts"]) == 12 and grad["attributes"]["Tier"] == "Rare"
     tilted = m2["models"]["Tilted Ray"]
-    assert tilted["poseRotation"] == [0, 0, 1, 0, 1, 0, -1, 0, 0] and tilted["poseCentre"] is not None and tilted["fx"] is True
+    # the tilt is baked into the vertices, so the manifest carries no pose and the bbox is the tilted body's
+    assert tilted["poseRotation"] is None and tilted["poseCentre"] is None and tilted["fx"] is True
+    assert tilted["bbox"] == [3.0, 2.0, 1.0] and [r for r in rows if r["name"] == "Tilted Ray"][0]["posed"] is True
     assert sorted(tilted["materials"].values()) == ["Neon", "Plastic"]
     assert (out / "convert_batch1.glb").stat().st_size > 0 and (out / "convert_batch2.glb").stat().st_size > 0
     assert (out / "previews" / "batch1_sheet1.png").exists() and (out / "previews" / "batch2_sheet1.png").exists()
@@ -48,3 +50,12 @@ def test_triangle_gate_flags_reach_the_bake(tmp_path):
     d = write_fake_dump(tmp_path)
     with pytest.raises(BudgetError):
         C.convert_all(d, tmp_path / "out", batches=1, max_tris_role=4)
+
+
+def test_move_puts_a_body_in_another_batch(tmp_path):
+    d = write_fake_dump(tmp_path)
+    out = tmp_path / "out"
+    rows = C.convert_all(d, out, batches=2, move={"Grad Fish": 2})
+    assert {r["name"]: r["batch"] for r in rows} == {"Plain Cube": 1, "Grad Fish": 2, "Tilted Ray": 2}
+    m2 = json.loads((out / "manifest_batch2.json").read_text())
+    assert "Grad Fish" in m2["models"] and "Grad Fish" not in json.loads((out / "manifest_batch1.json").read_text())["models"]

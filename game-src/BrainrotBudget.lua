@@ -26,7 +26,7 @@ M.BASELINE = {
 -- standard section 2.1: typical (PASS) and max (WARN up to, FAIL above)
 M.RANGES = {
 	{ key = "baseParts", typical = 15, max = 20 }, { key = "visibleParts", typical = 11, max = 14 },
-	{ key = "invisibleParts", typical = 3, max = 3 }, { key = "meshParts", typical = 11, max = 14 },
+	{ key = "invisibleParts", typical = 3, max = 4 }, { key = "meshParts", typical = 11, max = 14 },   -- 4 = RootPart + the three BrainrotFX hosts (2.4)
 	{ key = "descendants", typical = 60, max = 80 }, { key = "particleEmitters", typical = 6, max = 8 },
 	{ key = "particlesAlive", typical = 80, max = 100 }, { key = "attachments", typical = 6, max = 8 },
 	{ key = "surfaceAppearances", typical = 1, max = 1 }, { key = "beams", typical = 0, max = 2 },

@@ -59,11 +59,13 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--batches", type=int, default=4)
     c.add_argument("--max-tris", type=int, default=12000, help="triangle gate per body (sanity, not a budget — geometry is never dropped)")
     c.add_argument("--max-tris-role", type=int, default=4000, help="triangle gate per role mesh")
+    c.add_argument("--move", action="append", default=[], metavar="NAME=BATCH", help="put a body into another batch (a re-do)")
     a = p.parse_args(argv)
     if a.cmd == "convert":
         from .convert import convert_all
         try:
-            rows = convert_all(a.dump, a.out, a.batches, max_tris_model=a.max_tris, max_tris_role=a.max_tris_role)
+            move = {kv.split("=")[0]: int(kv.split("=")[1]) for kv in a.move}
+            rows = convert_all(a.dump, a.out, a.batches, max_tris_model=a.max_tris, max_tris_role=a.max_tris_role, move=move)
         except BudgetError as e:
             print(f"REFUSED {e}")
             return 1
