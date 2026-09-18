@@ -198,6 +198,31 @@ end
 
 -- THE THING THE ROCK HITS (owner 2026-08-09: "I don't see the rock visibly hitting
 -- something"). A dark back barely breaking the waterline at the strike point: it
+-- A single expanding neon ring in an arbitrary colour -- the tier-coloured energy
+-- ring of the Mythic eruption, the gold shockwave of God's arrival. Same recipe as
+-- _ring (which stays the water-coloured one).
+function WaterFX:shockRing(color: Color3, maxRadius: number, life: number)
+	if self._destroyed then
+		return
+	end
+	local ring = Instance.new("Part")
+	ring.Name = "ShockRing"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Material = Enum.Material.Neon
+	ring.Color = color
+	ring.Transparency = 0.2
+	ring.Size = Vector3.new(0.14, 1.5, 1.5)
+	ring.CFrame = CFrame.new(self._surfacePos + Vector3.new(0, 0.08, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	decorPart(ring)
+	ring.Parent = self._stage
+	table.insert(self._parts, ring)
+	local tw = TweenService:Create(ring, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.new(0.14, maxRadius * 2, maxRadius * 2), Transparency = 1,
+	})
+	table.insert(self._tweens, tw)
+	tw:Play()
+end
+
 -- JOLTS down on impact, holds a beat, then slides back under during the travel.
 -- Same lifecycle as every other part here -- stage-parented, tracked, tween-tracked.
 function WaterFX:bonkHump(radius: number)
@@ -432,6 +457,47 @@ function WaterFX:dome(radius: number)
 	tw:Play()
 end
 
+-- A glowing disc just UNDER the surface, fading in over `seconds`: Secret's
+-- "something is down there" fake-out and God's gold water. Its PointLight is
+-- hand-lerped (Brightness is not on the Tween allow-list).
+function WaterFX:glowBelow(color: Color3, seconds: number)
+	if self._destroyed then
+		return
+	end
+	local disc = Instance.new("Part")
+	disc.Name = "GlowBelow"
+	disc.Shape = Enum.PartType.Cylinder
+	disc.Material = Enum.Material.Neon
+	disc.Color = color
+	disc.Transparency = 1
+	disc.Size = Vector3.new(0.3, 6, 6)
+	disc.CFrame = CFrame.new(self._surfacePos - Vector3.new(0, 1.2, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	decorPart(disc)
+	disc.Parent = self._stage
+	table.insert(self._parts, disc)
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Brightness = 0
+	light.Range = 30
+	light.Parent = disc
+	local tw = TweenService:Create(disc, TweenInfo.new(seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+		Transparency = 0.35, Size = Vector3.new(0.3, 18, 18),
+	})
+	table.insert(self._tweens, tw)
+	tw:Play()
+	task.spawn(function()
+		local t0 = os.clock()
+		while not self._destroyed and light.Parent do
+			local a = math.clamp((os.clock() - t0) / math.max(seconds, 0.05), 0, 1)
+			light.Brightness = 3 * a
+			if a >= 1 then
+				break
+			end
+			task.wait()
+		end
+	end)
+end
+
 -- Destroys the dome WITH the eruption: a fast outward pop-and-fade, then gone.
 function WaterFX:burstDome()
 	local ball = self._dome
@@ -652,7 +718,7 @@ end
 -- 5 long translucent Neon wedges (plain Blocks -- WedgePart's taper axis isn't
 -- worth the guesswork for a light-shaft silhouette) fanned behind `pos`, slow
 -- rotation. Per-wedge angle/length jitter is the ONE rng draw in this module.
-function WaterFX:godrays(pos: Vector3, height: number)
+function WaterFX:godrays(pos: Vector3, height: number, color: Color3?)
 	local baseAngle = 360 / GODRAY_COUNT
 	for i = 1, GODRAY_COUNT do
 		local jitterDeg = (self._rng:NextNumber() - 0.5) * 2 * GODRAY_JITTER_DEG
@@ -664,7 +730,7 @@ function WaterFX:godrays(pos: Vector3, height: number)
 		w.Name = "Godray"
 		w.Shape = Enum.PartType.Block
 		w.Material = Enum.Material.Neon
-		w.Color = GODRAY_COLOR
+		w.Color = color or GODRAY_COLOR
 		w.Transparency = GODRAY_TRANSPARENCY
 		w.Size = Vector3.new(GODRAY_WIDTH, rayHeight, GODRAY_THICK)
 		decorPart(w)

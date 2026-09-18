@@ -360,6 +360,16 @@ local function stepInner(run: Run, dt: number)
 					run.displayName = Sizes.Label(res.Mutation or run.mutation, run.size, name)
 				end
 			end
+			-- The CONFIRMED mutation wins the creature's look too (spec S9): a grant whose
+			-- mutation differs from the flight-time roll restages the model before it has
+			-- breached; after that the rig keeps what it has (same rule as the name swap).
+			local resMut = (type(res.Mutation) == "string" and res.Mutation ~= "" and res.Mutation ~= "None") and res.Mutation or nil
+			if resMut ~= run.mutation and not run.breached and run.brain then
+				if run.brain:setMutation(resMut) then
+					run.mutation = resMut
+					run.displayName = Sizes.Label(resMut, run.size, run.name)
+				end
+			end
 		end
 	end
 

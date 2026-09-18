@@ -481,3 +481,35 @@ Each step leaves the game playable and the harness green before the next starts.
 - Any change to grant rules, odds, mint tracking, bag caps or economy.
 - Sound asset creation (slots are provided; the owner supplies ids).
 - Dead-instance cleanup unrelated to the reveal (`ShopPanelCentre`).
+
+## 16. Build notes (2026-09-17, recorded during implementation; decisions above unchanged)
+
+- **`BrainrotRig:descend` shipped as `setDescent(alpha, fromHeight)`** — pure in alpha, in
+  `setRise`'s house style (hand-lerped, reversible), so Massive God's ascension is the same
+  function run backwards. God calls it forward from `descentHeight = ext.Y * 6`.
+- **§9 "exactly as the Massive cut does today" was not true**: the old `Sequencer`/
+  `BrainrotRig` never applied `MutationFX`; only the retired `PullCeremony` and `CatchReveal`
+  band 4 did. The build adds it in `BrainrotRig` for every cut: `MutationFX.apply` runs on
+  the display clone after the rig geometry is read (a halo or ground ring never changes the
+  framing extents), its colour/material shifts become the silhouette's stored originals, and
+  everything it ADDS (emitters, lights, highlight, beams, halo/ring/shell parts, textures)
+  plus the `MutationBody` tag is held back until `revealColors()` — so a Secret's "nothing"
+  beat stays dark and a creature in the water never glows early. A confirmed grant whose
+  mutation differs from the flight-time roll restages the model (`setMutation`, same
+  pre-breach rule as the name swap).
+- **Hero framing pad now scales with the creature** (`CutKit.heroFraming`): MassiveEmergence's
+  flat 10-stud pad doubled the distance on a 9-stud Mythic and left the hero shot small; the
+  pad is a quarter of the width, clamped 1.5–10, so a Massive frames exactly as before.
+- **`Harness` death mode is respawn-aware** (the camera subject is legitimately a new Humanoid
+  after a respawn) and gained `Harness.pop(rarity, mutation, name)` for single-pop captures.
+- **Studio must be RENDERING for any Play verification.** A minimized Studio stops
+  `RenderStepped`; `CatchPop` (RenderStepped) and `Takeover` (BindToRenderStep) both freeze,
+  pops queue forever and cuts never advance. Only an environment effect (a real client always
+  renders), but simulated keys only reach the game while it renders too.
+- **Fishing cut verification used `ReplicatedStorage.WeatherMut = 300` for the session** to
+  make `Sizes.Roll` certain (no fishing force hook exists); the pop path used real rolls.
+- **Pop placement**: `CatchPop` keeps CatchReveal's `TOP_Y = 78` anchor, so the spinning model
+  sits behind the SKIP/SHOPS/PLOT tab row — inherited, flagged for the owner's sign-off.
+- **`godChoir`, `beamRise`, `secretHum`, `massiveRumble`, `roar`/`massiveRoar` are placeholder
+  ids** (TODO in `Config.ASSETS`), and the God real-throw test consumed one of Secret Pete's
+  five mint serials (MintRegistry does not roll back on entry deletion).

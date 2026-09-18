@@ -65,6 +65,8 @@
 -- BLOCKS for seconds; finish() is called from the Takeover's render step, and a
 -- render step that blocks for seconds freezes the game.
 
+local Config = require(script.Parent:WaitForChild("Config"))
+
 local Bridge = {}
 
 type Result = { [string]: any }
@@ -73,7 +75,10 @@ local DEFAULT_ARM_SECONDS = 12
 
 local gen: number = 0
 local state: string = "idle" -- "idle" | "armed" | "running"
-local armedSize: string? = nil
+-- The CUT the arm was made for (payload.Cut). Since the 2026-09-17 reveal build the
+-- arm is keyed on the cut name rather than the size: rarity cuts (Mythic/Secret/God)
+-- have no size at all, and a result is adopted iff it ROUTES to the armed cut.
+local armedCut: string? = nil
 local armExpiresAt: number = 0
 local result: Result? = nil
 local doneCbs: { (boolean) -> () } = {}
@@ -81,7 +86,7 @@ local lastOk: boolean = false -- outcome of the most recently settled arm
 
 local function clearArm()
 	state = "idle"
-	armedSize = nil
+	armedCut = nil
 	armExpiresAt = 0
 	result = nil
 	doneCbs = {}
@@ -121,7 +126,7 @@ function Bridge.arm(payload: { [string]: any }, seconds: number?): number?
 	end
 	gen += 1
 	state = "armed"
-	armedSize = (type(payload) == "table" and type(payload.Size) == "string") and payload.Size or nil
+	armedCut = (type(payload) == "table" and type(payload.Cut) == "string") and payload.Cut or nil
 	armExpiresAt = os.clock() + math.max(tonumber(seconds) or DEFAULT_ARM_SECONDS, 1)
 	result = nil
 	doneCbs = {}
@@ -156,12 +161,11 @@ function Bridge.tryAdopt(res: { [string]: any }): boolean
 	if type(res) ~= "table" then
 		return false
 	end
-	-- A size-less result is by definition an ordinary catch, and the size is the one
-	-- field the cinematic keys off, so a mismatch is never adopted.
-	if res.Size == nil then
-		return false
-	end
-	if armedSize ~= nil and res.Size ~= armedSize then
+	-- The cut the RESULT routes to must be the cut that was armed. A pop-tier result
+	-- (CUT_FOR == nil) is by definition an ordinary catch and is never adopted.
+	-- (Pre-2026-09-17 this keyed on Size; rarity cuts have none, hence the cut name.)
+	local routed = Config.CUT_FOR(res.Rarity, res.Size)
+	if routed == nil or routed ~= armedCut then
 		return false
 	end
 	if result ~= nil then
@@ -224,7 +228,7 @@ function Bridge.debugState(): { [string]: any }
 	return {
 		gen = gen,
 		state = state,
-		armedSize = armedSize,
+		armedCut = armedCut,
 		-- Recomputed WITHOUT armLive(), which settles a stale arm as a side effect --
 		-- reading a diagnostic must never change the thing it reports on.
 		armLive = state ~= "idle" and os.clock() <= armExpiresAt,

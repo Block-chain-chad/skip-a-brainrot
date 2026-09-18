@@ -47,7 +47,10 @@ export type Fx = typeof(setmetatable(
 		_cc: ColorCorrectionEffect,
 		_bloom: BloomEffect,
 		_blur: BlurEffect,
+		_rays: SunRaysEffect,
 		_gen: number,
+		_tintGen: number,
+		_raysGen: number,
 		_flashGen: number,
 		_destroyed: boolean,
 	},
@@ -77,6 +80,14 @@ function PostFX.new(cfg: PostFXCfg, quality: string, reducedMotion: boolean): Fx
 	blur.Parent = Lighting
 	CollectionService:AddTag(blur, CINEMATIC_TAG)
 
+	-- OUR OWN sun rays for God's beam (the place's existing SunRays effect is off-limits).
+	local rays = Instance.new("SunRaysEffect")
+	rays.Name = "CinematicSunRays"
+	rays.Intensity = 0
+	rays.Spread = 0.8
+	rays.Parent = Lighting
+	CollectionService:AddTag(rays, CINEMATIC_TAG)
+
 	local self = setmetatable({
 		_cfg = cfg,
 		_quality = quality,
@@ -84,7 +95,10 @@ function PostFX.new(cfg: PostFXCfg, quality: string, reducedMotion: boolean): Fx
 		_cc = cc,
 		_bloom = bloom,
 		_blur = blur,
+		_rays = rays,
 		_gen = 0,
+		_tintGen = 0,
+		_raysGen = 0,
 		_flashGen = 0,
 		_destroyed = false,
 	}, PostFX)
@@ -172,6 +186,8 @@ function PostFX:easeBack(seconds: number)
 		return
 	end
 	seconds = math.max(seconds, 0.05)
+	self:tint(Color3.new(1, 1, 1), seconds)
+	self:sunRays(0, seconds)
 	self._gen += 1
 	local myGen = self._gen
 	local cc, bloom, blur = self._cc, self._bloom, self._blur
@@ -195,7 +211,53 @@ function PostFX:easeBack(seconds: number)
 	end)
 end
 
--- Destroys all three instances, always -- idempotent, safe even if hypeOn was
+-- Environment tint via OUR ColorCorrection's TintColor (white = none). Hand-lerped
+-- like every other value here; easeBack() returns it to white.
+function PostFX:tint(color: Color3, seconds: number)
+	if self._destroyed then
+		return
+	end
+	seconds = math.max(seconds, 0.05)
+	self._tintGen += 1
+	local myGen = self._tintGen
+	local cc = self._cc
+	local from = cc.TintColor
+	task.spawn(function()
+		local t0 = os.clock()
+		while self._tintGen == myGen and not self._destroyed do
+			local a = math.clamp((os.clock() - t0) / seconds, 0, 1)
+			cc.TintColor = from:Lerp(color, a * a * (3 - 2 * a))
+			if a >= 1 then
+				break
+			end
+			task.wait()
+		end
+	end)
+end
+
+function PostFX:sunRays(intensity: number, seconds: number)
+	if self._destroyed then
+		return
+	end
+	seconds = math.max(seconds, 0.05)
+	self._raysGen += 1
+	local myGen = self._raysGen
+	local rays = self._rays
+	local from = rays.Intensity
+	task.spawn(function()
+		local t0 = os.clock()
+		while self._raysGen == myGen and not self._destroyed do
+			local a = math.clamp((os.clock() - t0) / seconds, 0, 1)
+			rays.Intensity = from + (intensity - from) * a
+			if a >= 1 then
+				break
+			end
+			task.wait()
+		end
+	end)
+end
+
+-- Destroys all four instances, always -- idempotent, safe even if hypeOn was
 -- never called.
 function PostFX:cleanup()
 	if self._destroyed then
@@ -206,6 +268,9 @@ function PostFX:cleanup()
 	self._flashGen += 1
 	pcall(function()
 		self._cc:Destroy()
+	end)
+	pcall(function()
+		self._rays:Destroy()
 	end)
 	pcall(function()
 		self._bloom:Destroy()

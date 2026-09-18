@@ -90,9 +90,20 @@ Config.ASSETS = {
 	massiveRoar    = "kit:catchGod",      -- TODO: replace -- creature roar, ~2-3s
 	bannerHit      = "kit:catchBigHit",
 	cardWhoosh     = "kit:catchSparkle",
+	mythicBass     = "kit:catchBigHit",   -- Mythic's deep bass at the ripple
+	secretHum      = "kit:catchSparkle",  -- TODO: replace -- low eerie hum under the fake-out, ~0.5s
+	secretLaunch   = "kit:splashBig",
+	-- ===== GOD-ONLY SLOTS. godChoir is EXCLUSIVE: only Cuts.God and Cuts.MassiveGod may
+	-- play it (spec S10) so players learn the sound means God. Do not reuse elsewhere.
+	godRumble      = "rbxassetid://1837834264", -- same clip as massiveRumble; TODO: replace with a low sub-rumble
+	beamRise       = "kit:catchSparkle",   -- TODO: replace -- rising shimmer, ~1s
+	godChoir       = "kit:catchGod",       -- TODO: replace -- the angelic "AAAAAH" choir, ~3s (owner upload)
+	goldShockwave  = "kit:catchBigHit",
 	VOLUMES = {
 		finalSkip = 0.68, rumbleLoop = 0.8, massiveRumble = 0.8, bassDrop = 0.9, waterExplosion = 0.8,
-		roar = 0.7, massiveRoar = 0.7, bannerHit = 0.6, cardWhoosh = 0.4,
+		roar = 0.7, massiveRoar = 0.7, bannerHit = 0.6, cardWhoosh = 0.4, mythicBass = 0.9,
+		secretHum = 0.35, secretLaunch = 0.9,
+		godRumble = 0.8, beamRise = 0.5, godChoir = 0.9, goldShockwave = 0.9,
 	},
 }
 

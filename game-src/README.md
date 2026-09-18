@@ -65,3 +65,15 @@ The close-button pass above fixed `styleClose` but missed `WheelClient` (the Dai
 - DailyRewardClient.lua -> StarterPlayer.StarterPlayerScripts.DailyRewardClient (first mirror): tidy-up only. Its constructor still passed `Text = "\u{2715}"` before calling `styleClose` -- harmless (styleClose clears `Text` immediately) but a vestigial literal now that the fix is bars-based, removed.
 - UIStyle.styleClose untouched, per the existing architecture note above -- it keeps its own independent copy of the bar-drawing rather than depending on UITheme.
 - Verified live: walked into the wheel's proximity ring (real auto-open, not a forced `Visible = true`) -- screenshot showed a clean white X on the 56px red button; a real click on the button closed the panel (bars did not steal the click). Full sweep of every ScreenGui in PlayerGui: 98 TextButtons, 0 with `Text == "\u{2715}"`, 10 carrying the bar X (the previous 9 plus WheelUI's, confirmed at its own 56px size rather than the 30px standard -- proof `styleClose` was never called on it). Regression-checked two of the previous 9 post-extraction (DailyUI via its side-rail tile, MainUI.IndexFrame including its ZIndex-set-after-styleClose pattern) -- both still open and close correctly. Console clean throughout.
+
+## Reward reveal system (2026-09-17, spec docs/superpowers/specs/2026-09-17-reward-reveal-design.md)
+- CatchCinematic/Takeover.lua -> the ONE takeover/restore framework (from Sequencer, now deleted).
+- CatchCinematic/Cuts/{Massive,Huge,Mythic,Secret,God,MassiveGod}.lua -> one module per cut; Cuts/Shared.lua holds the handoff beat + standard build; Cuts/Registry.lua looks cuts up by name.
+- CatchCinematic/{CutKit,BeamFX,AuraFX,Harness}.lua -> helpers, God's beam, Secret/God auras, the Studio-only structural harness.
+- Config.CUT_FOR(rarity, size) -> the locked routing table (server + client).
+- StarterPlayerScripts/RevealRouter.client.lua -> replaces CatchRevealClient: one path per grant, FIFO, RevealActive lock.
+- Modules/CatchPop.lua -> Common..Legendary pops (replaces PullCeremony + CatchReveal bands 1-3; MassiveEmergence retired).
+- Remotes.CatchCinematic (was MassiveCinematic). ThrowResult/IceFishingState carry IsNew (and the fishing result carries Anchor).
+- BrainrotRig applies MutationFX to the cut's staged model (held until the reveal beat), so a Golden/Diamond/etc. catch wears its mutation from the first revealed frame; CatchPop does the same on its viewport clone.
+- Sound slots with TODO in Config.ASSETS are placeholders awaiting owner uploads (godChoir is God-exclusive).
+- Studio-only test seams: ServerScriptService/__RevealServerRunner.server.lua, StarterPlayerScripts/__RevealHarnessRunner.client.lua (both return immediately outside Studio). ThrowHandler, ClientMain, IceFishingEvent and IceFishingClient are mirrored in full for the first time with this build.

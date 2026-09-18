@@ -56,7 +56,16 @@ local function diff(before: { [string]: any }, after: { [string]: any }, failure
 	end
 	for _, k in ipairs({ "cameraType", "cameraSubject", "fov", "lightChildren", "ambient", "brightness", "waveSize", "waveSpeed" }) do
 		if before[k] ~= after[k] then
-			table.insert(failures, k .. " changed: " .. tostring(before[k]) .. " -> " .. tostring(after[k]))
+			-- A death-mode run respawns the character, so the subject is legitimately a NEW
+			-- Humanoid afterwards: the invariant is "the camera follows the live character",
+			-- not "the same Instance".
+			local char = Players.LocalPlayer.Character
+			local respawned = k == "cameraSubject" and typeof(after[k]) == "Instance" and after[k]:IsA("Humanoid")
+				and char ~= nil and after[k].Parent == char
+				and typeof(before[k]) == "Instance" and before[k]:IsA("Humanoid") and before[k].Parent ~= char
+			if not respawned then
+				table.insert(failures, k .. " changed: " .. tostring(before[k]) .. " -> " .. tostring(after[k]))
+			end
 		end
 	end
 end
@@ -239,4 +248,79 @@ function Harness.checkBeats(cutName: string, lo: number, hi: number): { string }
 	return f
 end
 
+-- Spec S4, locked. Every cell must match; mutation must never change the answer.
+function Harness.routingMatrix(): { string }
+	local Config = require(ReplicatedStorage.Modules.CatchCinematic.Config)
+	local f: { string } = {}
+	local tiers = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Secret", "God" }
+	local sizes = { nil, "Huge", "Massive" }
+	local expect = function(r: string, s: string?): string?
+		if s == "Massive" and r == "God" then return "MassiveGod" end
+		if s == "Massive" then return "Massive" end
+		if s == "Huge" then return "Huge" end
+		if r == "God" then return "God" end
+		if r == "Secret" then return "Secret" end
+		if r == "Mythic" then return "Mythic" end
+		return nil
+	end
+	local fn = (Config :: any).CUT_FOR
+	if type(fn) ~= "function" then
+		table.insert(f, "Config.CUT_FOR missing")
+		return f
+	end
+	for _, r in ipairs(tiers) do
+		for si = 1, 3 do
+			local s = sizes[si]
+			local got = fn(r, s)
+			if got ~= expect(r, s) then
+				table.insert(f, r .. "/" .. tostring(s) .. " -> " .. tostring(got) .. " expected " .. tostring(expect(r, s)))
+			end
+		end
+	end
+	if fn(nil, nil) ~= nil then table.insert(f, "nil/nil must be nil") end
+	if fn("Bogus", "Massive") ~= "Massive" then table.insert(f, "unknown rarity + Massive must still be Massive") end
+	if #f == 0 then table.insert(f, "routing OK (24 cells + 2 edges)") end
+	return f
+end
+
+
+-- One pop on demand (mutation-representation captures): Harness.pop("Epic", "Diamond", name?).
+-- Blocks for the pop's length; returns CatchPop.play's result.
+function Harness.pop(rarity: string, mutation: string?, name: string?): boolean
+	local CatchPop = require(ReplicatedStorage.Modules.CatchPop)
+	local colours = { Common = Color3.fromRGB(190,190,190), Uncommon = Color3.fromRGB(80,220,90), Rare = Color3.fromRGB(60,140,255), Epic = Color3.fromRGB(180,60,255), Legendary = Color3.fromRGB(255,170,30) }
+	return CatchPop.play({
+		Name = name or "Kraken Congelato", Rarity = rarity, RarityColor = colours[rarity] or Color3.new(1, 1, 1),
+		Mutation = mutation, IsNew = true, Serial = 47, Exists = 12, OddsN = 1200,
+	})
+end
+
+-- Pops never touch the camera or Lighting and leave nothing behind.
+function Harness.popMatrix(): { string }
+	local CatchPop = require(ReplicatedStorage.Modules.CatchPop)
+	local f: { string } = {}
+	local tiers = { "Common", "Uncommon", "Rare", "Epic", "Legendary" }
+	local colours = { Color3.fromRGB(190,190,190), Color3.fromRGB(80,220,90), Color3.fromRGB(60,140,255), Color3.fromRGB(180,60,255), Color3.fromRGB(255,170,30) }
+	local before = snapshot()
+	local pg = Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	local guiBefore = pg and #pg:GetDescendants() or 0
+	local t0 = os.clock()
+	for i, tier in ipairs(tiers) do
+		for _, mut in ipairs({ false, "Golden", "Diamond" }) do
+			local ok, err = pcall(CatchPop.play, {
+				Name = "Kraken Congelato", Rarity = tier, RarityColor = colours[i],
+				Mutation = mut or nil, IsNew = (i % 2 == 0), Serial = 47, Exists = 12, OddsN = 1200,
+			})
+			if not ok then table.insert(f, tier .. "/" .. tostring(mut) .. " errored: " .. tostring(err)) end
+		end
+	end
+	local elapsed = os.clock() - t0
+	if elapsed > 15 * 1.6 then table.insert(f, "15 pops took " .. elapsed .. "s (> 1.6s each)") end
+	task.wait(0.5)
+	diff(before, snapshot(), f)
+	local guiAfter = pg and #pg:GetDescendants() or 0
+	if guiAfter > guiBefore + 2 then table.insert(f, "PlayerGui grew by " .. (guiAfter - guiBefore)) end
+	if #f == 0 then table.insert(f, string.format("pops OK (15 in %.1fs)", elapsed)) end
+	return f
+end
 return Harness

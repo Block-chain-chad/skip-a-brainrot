@@ -10,16 +10,14 @@ local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local gui = player:WaitForChild("PlayerGui"):WaitForChild("MainUI")
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local RockConfig = require(ReplicatedStorage.Modules.RockConfig)
-local BrainrotConfig = require(ReplicatedStorage.Modules.BrainrotConfig)
 local RarityConfig = require(ReplicatedStorage.Modules.RarityConfig)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local MerchantDialog = require(ReplicatedStorage.Modules.MerchantDialog)
 local UIStyle = require(ReplicatedStorage.Modules.UIStyle) -- Round 2: shared bubbly theme for the top bar
 local SideRail = require(ReplicatedStorage.Modules.SideRail) -- single-open panel registry
-local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb) -- shared 3D thumbnail helper (sell list icons)
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit) -- SFX2
 local Platform = require(ReplicatedStorage.Modules.Platform) -- device class + TV-safe insets
+local HudLayout = require(ReplicatedStorage.Modules.HudLayout) -- screen anchor slots; owns Position for registered HUD frames
 local GamepadHint = require(ReplicatedStorage.Modules.GamepadHint) -- controller glyphs on the two always-on controls
 -- Kit-style icon artwork for the teleport tabs (see UIKit.IconArt). pcall'd:
 -- ClientMain drives the whole throw minigame, so a missing icon module must
@@ -29,12 +27,7 @@ local okIconArt, IconArt = pcall(function()
 end)
 if not okIconArt then IconArt = nil end
 
-local SELL_MULTIPLIER = 40
 
-local brainrotInfoByName = {}
-for _, entry in ipairs(BrainrotConfig) do
-	brainrotInfoByName[entry.Name] = entry
-end
 local tierByName = {}
 for _, tier in ipairs(RarityConfig) do
 	tierByName[tier.Name] = tier
@@ -42,13 +35,6 @@ end
 
 local cashFrame = gui.CashFrame
 local cashLabel = cashFrame.CashLabel
-local shopFrame = gui.ShopFrame
-local shopList = shopFrame.ShopList
-local shopCloseButton = shopFrame.CloseButton
-local sellFrame = gui.SellFrame
-local sellList = sellFrame.SellList
-local sellCloseButton = sellFrame.CloseButton
-local sellEmptyLabel = sellFrame.EmptyLabel
 local throwFrame = gui.ThrowFrame
 local throwButton = throwFrame.ThrowButton
 local barFill = throwFrame.BarBackground.BarFill
@@ -86,8 +72,6 @@ end
 
 local function styleMenus()
 	for _, spec in ipairs({
-		{ frame = shopFrame, list = shopList, close = shopCloseButton, title = "Rock Shop", icon = "\u{1FAA8}", accent1 = BZ.rockHeader1, accent2 = BZ.rockHeader2 },
-		{ frame = sellFrame, list = sellList, close = sellCloseButton, title = "Sell Rocks", icon = "\u{1F4B0}", accent1 = BZ.sellHeader1, accent2 = BZ.sellHeader2 },
 	}) do
 		spec.frame.Size = UDim2.fromOffset(440, 400)
 		-- MainUI is Global ZIndexBehavior: lift the panel, then every child with it.
@@ -111,15 +95,9 @@ local function styleMenus()
 		local ll = spec.list:FindFirstChildOfClass("UIListLayout")
 		if ll then ll.Padding = UDim.new(0, 10); ll.SortOrder = Enum.SortOrder.LayoutOrder; ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
 	end
-	sellEmptyLabel.Position = UDim2.new(0, 16, 0, 74)
-	sellEmptyLabel.Font = Enum.Font.GothamMedium
-	sellEmptyLabel.TextSize = 15
-	sellEmptyLabel.TextColor3 = BZ.muted
-	sellEmptyLabel.ZIndex = 12
-	-- shop + sell join the single-open registry: opening either closes any rail
-	-- panel and folds the rail away, and vice versa
-	SideRail.registerPanel(shopFrame)
-	SideRail.registerPanel(sellFrame)
+	-- shop joins the single-open registry: opening it closes any rail panel and
+	-- folds the rail away, and vice versa. Sell is now GameHUDPanels.SellPanel,
+	-- opened via the HudPanelRequest attribute (see openSell below).
 end
 styleMenus()
 
@@ -151,219 +129,9 @@ local formatNumber = require(ReplicatedStorage.Modules.NumberFormat).Short
 local function refreshCashLabel() end   -- no-op: retained for the call sites below
 local function snapCashLabel() end
 
--- === Shop ===
-local rockRows = {}
-
--- Mutates an EXISTING button into a Bazaar price/action pill (green->yellow
--- "cash" look, or any other gradient pair the caller passes). Distinct from
--- UITheme.bazaarPill, which always PARENTS A NEW button -- these buttons are
--- authored once per row and just get restyled in place as state changes.
-local function styleActionPill(btn, c1, c2, textColor)
-	UITheme.bazaarRestylePill(btn, c1, c2, textColor)
-end
-
-local function buildShop()
-	for _, child in ipairs(shopList:GetChildren()) do
-		if child:IsA("Frame") then child:Destroy() end
-	end
-	rockRows = {}
-
-	local order = 0
-	for _, rock in ipairs(RockConfig) do
-		order += 1
-		local row = UITheme.bazaarRow(shopList, 84)
-		row.Size = UDim2.new(1, -12, 0, 84)
-		row.LayoutOrder = order
-		row.ZIndex = 11
-
-		local icon = UITheme.bazaarIconSlot(row, 56)
-		icon.Position = UDim2.new(0, 12, 0.5, 0)
-
-		local dot = Instance.new("Frame")
-		dot.AnchorPoint = Vector2.new(0.5, 0.5)
-		dot.Position = UDim2.fromScale(0.5, 0.5)
-		dot.Size = UDim2.fromOffset(34, 34)
-		dot.BackgroundColor3 = rock.Color
-		dot.BorderSizePixel = 0
-		dot.ZIndex = icon.ZIndex + 1
-		dot.Parent = icon
-		UITheme.corner(dot, 17)
-		UITheme.stroke(dot, BZ.ink, 2)
-		UITheme.gloss(dot, 16, 0.55)
-
-		local title = UITheme.bazaarTitle(row, rock.Id)
-		title.Size = UDim2.new(1, -204, 0, 22)
-		title.Position = UDim2.new(0, 80, 0, 12)
-
-		local subtitle = UITheme.bazaarDesc(row, "Up to " .. rock.MaxDistance .. "m   \u{2022}   " .. string.format("%.2fx", rock.Luck) .. " luck")
-		subtitle.Size = UDim2.new(1, -204, 0, 34)
-		subtitle.Position = UDim2.new(0, 80, 0, 38)
-
-		local actionButton = Instance.new("TextButton")
-		actionButton.AnchorPoint = Vector2.new(1, 0.5)
-		actionButton.Size = UDim2.new(0, 104, 0, 42)
-		actionButton.Position = UDim2.new(1, -12, 0.5, 0)
-		actionButton.TextSize = 17
-		actionButton.ZIndex = row.ZIndex + 1
-		actionButton.Parent = row
-
-		actionButton.MouseButton1Click:Connect(function()
-			if state.OwnedRocks[rock.Id] then
-				if state.EquippedRock ~= rock.Id then
-					remotes.EquipRock:FireServer(rock.Id)
-				end
-			else
-				remotes.BuyRock:FireServer(rock.Id)
-			end
-		end)
-
-		rockRows[rock.Id] = { row = row, button = actionButton, price = rock.Price }
-	end
-
-	refreshShopButtons()
-end
-
-function refreshShopButtons()
-	for id, entry in pairs(rockRows) do
-		local owned = state.OwnedRocks[id]
-		local equipped = state.EquippedRock == id
-		if equipped then
-			styleActionPill(entry.button, P.green1, P.green2, BZ.white)
-			entry.button.Text = "EQUIPPED"
-			entry.button.TextSize = 14
-		elseif owned then
-			-- LemonPop 2026-08-13: equip/select = BLUE (theme rule). This used to
-			-- ride BZ.header1/2 back when the header was cyan -- under LemonPop
-			-- those keys are the RED header, and a red EQUIP reads destructive.
-			styleActionPill(entry.button, P.blue1, P.blue2, BZ.white)
-			entry.button.Text = "EQUIP"
-			entry.button.TextSize = 16
-		else
-			styleActionPill(entry.button, BZ.cash1, BZ.cash2, BZ.cashText)
-			entry.button.Text = "$" .. formatNumber(entry.price)
-			entry.button.TextSize = 16
-		end
-	end
-end
-
-buildShop()
-
-shopCloseButton.MouseButton1Click:Connect(function()
-	shopFrame.Visible = false
-end)
-
--- === Sell ===
-local function buildSellList()
-	for _, child in ipairs(sellList:GetChildren()) do
-		if child:IsA("Frame") then child:Destroy() end
-	end
-
-	local counts = {}
-	local order = {}
-	-- Inventory only. A brainrot placed on the base (PadIndex set) is earning
-	-- and is not for sale until it is picked up, so it must not be counted here
-	-- either -- otherwise the list offers more than the server will sell.
-	for _, entry in ipairs(state.Brainrots) do
-		if entry.PadIndex == nil then
-			if not counts[entry.Name] then
-				counts[entry.Name] = 0
-				table.insert(order, entry.Name)
-			end
-			counts[entry.Name] += 1
-		end
-	end
-
-	sellEmptyLabel.Visible = #order == 0
-
-	for i, name in ipairs(order) do
-		local count = counts[name]
-		local info = brainrotInfoByName[name]
-		if info then
-			local tier = tierByName[info.Rarity]
-			local sellValueEach = info.CashPerSecond * SELL_MULTIPLIER
-
-			local row = UITheme.bazaarRow(sellList, 84)
-			row.Size = UDim2.new(1, -12, 0, 84)
-			row.LayoutOrder = i
-			row.ZIndex = 11
-
-			-- icon tile: tier colour on the border, real 3D brainrot inside
-			-- (matches the backpack grid and catch reveal)
-			local icon = UITheme.bazaarIconSlot(row, 56)
-			icon.Position = UDim2.new(0, 12, 0.5, 0)
-			for _, s in ipairs(icon:GetChildren()) do
-				if s:IsA("UIStroke") then s.Color = tier and tier.Color or BZ.ink end
-			end
-
-			local vp = BrainrotThumb.add(icon, name, {
-				size = UDim2.new(1, -8, 1, -8),
-				position = UDim2.new(0, 4, 0, 4),
-				zIndex = icon.ZIndex + 3,
-			})
-			if not vp then
-				-- no model for this name (Maxwell, at time of writing): keep the old
-				-- flat rarity swatch so the tile is never blank and selling still works
-				local dot = Instance.new("Frame")
-				dot.AnchorPoint = Vector2.new(0.5, 0.5)
-				dot.Position = UDim2.fromScale(0.5, 0.5)
-				dot.Size = UDim2.fromOffset(34, 34)
-				dot.BackgroundColor3 = tier and tier.Color or Color3.fromRGB(255, 255, 255)
-				dot.BorderSizePixel = 0
-				dot.ZIndex = icon.ZIndex + 3
-				dot.Parent = icon
-				UITheme.corner(dot, 17)
-				UITheme.stroke(dot, BZ.ink, 2.5)
-				UITheme.gloss(dot, 16, 0.55)
-			end
-
-			local title = UITheme.bazaarTitle(row, name)
-			title.Size = UDim2.new(1, -204, 0, 22)
-			title.Position = UDim2.new(0, 80, 0, 12)
-
-			local subtitle = UITheme.bazaarDesc(row, "\u{00D7}" .. count .. "   \u{2022}   $" .. formatNumber(sellValueEach) .. " each")
-			subtitle.Size = UDim2.new(1, -204, 0, 34)
-			subtitle.Position = UDim2.new(0, 80, 0, 38)
-
-			local sellOneButton = Instance.new("TextButton")
-			sellOneButton.AnchorPoint = Vector2.new(1, 0)
-			sellOneButton.Size = UDim2.new(0, 104, 0, 32)
-			sellOneButton.Position = UDim2.new(1, -12, 0, 6)
-			sellOneButton.Text = "SELL 1"
-			sellOneButton.TextSize = 15
-			sellOneButton.ZIndex = row.ZIndex + 1
-			sellOneButton.Parent = row
-			styleActionPill(sellOneButton, BZ.cash1, BZ.cash2, BZ.cashText)
-
-			local sellAllButton = Instance.new("TextButton")
-			sellAllButton.AnchorPoint = Vector2.new(1, 0)
-			sellAllButton.Size = UDim2.new(0, 104, 0, 32)
-			sellAllButton.Position = UDim2.new(1, -12, 0, 42)
-			sellAllButton.Text = "SELL ALL"
-			sellAllButton.TextSize = 15
-			sellAllButton.ZIndex = row.ZIndex + 1
-			sellAllButton.Parent = row
-			styleActionPill(sellAllButton, BZ.gem1, BZ.gem2, BZ.white)
-
-			sellOneButton.MouseButton1Click:Connect(function()
-				remotes.SellBrainrot:FireServer({ Name = name, Mode = "One" })
-			end)
-			sellAllButton.MouseButton1Click:Connect(function()
-				remotes.SellBrainrot:FireServer({ Name = name, Mode = "All" })
-			end)
-		end
-	end
-end
-
-sellCloseButton.MouseButton1Click:Connect(function()
-	sellFrame.Visible = false
-end)
-
 -- === Walk-up shop + sell stalls (ProximityPrompt) ===
 local StallPrompt = require(game:GetService("ReplicatedStorage").Modules.StallPrompt)
 local gameWorld = Workspace:WaitForChild("GameWorld")
-local shopStall = gameWorld:WaitForChild("ShopStall")
-local shopPromptPart = shopStall:WaitForChild("PromptPart")
-local shopPrompt = shopPromptPart:WaitForChild("ShopPrompt")
 local sellStall = gameWorld:WaitForChild("SellStall")
 local sellPromptPart = sellStall:WaitForChild("PromptPart")
 local sellPrompt = sellPromptPart:WaitForChild("SellPrompt")
@@ -377,24 +145,17 @@ local sellPrompt = sellPromptPart:WaitForChild("SellPrompt")
 -- the binder adds the valley part itself, and would otherwise double-count it.
 local sellParts = {}
 local function openSell(part)
-	if sellFrame.Visible then
-		sellFrame.Visible = false
-		return
-	end
 	-- Coin jingle on the way in. Marco is deliberately NOT a MerchantConfig
 	-- merchant (he keeps his own sell menu, so MerchantClient's shared panel and
 	-- its EnterSound field don't apply to him), which is why this is wired here
 	-- rather than off a config field -- but the id still lives in SoundKit like
-	-- every other sound in the game. Sits BELOW the close-toggle return above so
-	-- the coins never jingle on the way out.
+	-- every other sound in the game.
 	SoundKit.play("shopCoins", nil, { volume = 0.4 })
-	-- E starts a short dialogue; the sell menu opens when the player continues
+	-- E starts a short dialogue; the new SellPanel opens when the player continues
 	MerchantDialog.Show("Marco the Buyer", {
 		"Brainrots to sell? I pay top dollar!",
 	}, { CF.amber1, CF.amber2 }, function()
-		buildSellList()
-		sellFrame.Visible = true
-		shopFrame.Visible = false
+		player:SetAttribute("HudPanelRequest", "sell")
 	end, part)
 end
 
@@ -420,17 +181,28 @@ RunService.Heartbeat:Connect(function()
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 
-	if shopFrame.Visible then
-		local distance = (hrp.Position - shopPromptPart.Position).Magnitude
-		if distance > 20 then
-			shopFrame.Visible = false
-		end
-	end
-
-	if sellFrame.Visible then
-		-- nearest stall, not the valley one: the tundra copy is 11k studs away and
-		-- would otherwise close the menu the moment it opened
-		-- a parentless part has STREAMED OUT; its last position is stale
+	-- RESTORED (2026-08-21, owner call): SellPanel moved into GameHUDClient
+	-- and took its Visible flag with it, so this can no longer just flip a
+	-- local frame -- it asks GameHUDClient to close via the same attribute
+	-- idiom HudPanelRequest uses to open (a late listener still sees an
+	-- already-set value; a BindableEvent would not). GameHUDClient gates the
+	-- request on currentPanelId, so this can only ever close the sell panel,
+	-- never the Bag, Goals, or anything else the player opened on purpose.
+	--
+	-- GATE FIX (2026-08-21): this whole block used to run unconditionally,
+	-- every frame, including the ~100% of frames where no sell panel is even
+	-- open -- and it WROTE HudPanelCloseRequest every one of those frames
+	-- (SetAttribute fires GetAttributeChangedSignal even when rewriting the
+	-- same value; GameHUDClient's watcher then clears the attribute, which
+	-- fires the signal again -- ~120 writes/fires per second, forever, for
+	-- every player). GameHUDClient now mirrors currentPanelId onto the
+	-- HudOpenPanel attribute, so gate on that FIRST -- one cheap attribute
+	-- read -- before doing any distance work, restoring the ported
+	-- `if sellFrame.Visible then` cost profile.
+	if player:GetAttribute("HudOpenPanel") == "sell" then
+		-- nearest stall, not the valley one: the tundra copy is 11k studs away
+		-- and would otherwise close the menu the moment it opened. A parentless
+		-- part has STREAMED OUT; its last position is stale.
 		local nearest = math.huge
 		for _, part in ipairs(sellParts) do
 			if part.Parent then
@@ -438,7 +210,7 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 		if nearest > 20 then
-			sellFrame.Visible = false
+			player:SetAttribute("HudPanelCloseRequest", "sell")
 		end
 	end
 end)
@@ -451,10 +223,6 @@ local function applySnapshot(snapshot)
 	state.EquippedRock = snapshot.EquippedRock or state.EquippedRock
 	state.Brainrots = snapshot.Brainrots or state.Brainrots
 	snapCashLabel()
-	refreshShopButtons()
-	if sellFrame.Visible then
-		buildSellList()
-	end
 end
 
 task.spawn(function()
@@ -616,7 +384,11 @@ remotes.ThrowResult.OnClientEvent:Connect(function(result)
 	-- announcement: rarity/name/distance/income in ~3s of corner text. The
 	-- quick celebrateCatch juice above runs in both modes.
 	celebrateCatch(result.Rarity, result.Mutation)
-	if player:GetAttribute("SkipReveal" .. tostring(result.Rarity)) ~= true then return end
+	-- AUTO quick-tier catches skip their ceremony too (CatchRevealClient.shouldReveal,
+	-- same 2026-08-17 change), so this card is their announcement as well.
+	local autoQuickSkip = player:GetAttribute("AutoActive") == true
+		and (result.Rarity == "Common" or result.Rarity == "Uncommon" or result.Rarity == "Rare")
+	if player:GetAttribute("SkipReveal" .. tostring(result.Rarity)) ~= true and not autoQuickSkip then return end
 
 	rarityLabel.Text = string.upper(result.Rarity)
 	rarityLabel.TextColor3 = result.RarityColor
@@ -762,6 +534,47 @@ do
 	end
 end
 
+-- === Touch lift for the throw cluster ===
+-- The authored ThrowFrame anchor ({0.5,0},{1,-110}, AnchorPoint 0.5,1) parks the
+-- whole cluster -- charge groove, HOLD TO SKIP pill, and the AUTO chip hanging
+-- above it -- in the bottom-centre thumb corridor, between Roblox's touch
+-- joystick (bottom-left) and jump button (bottom-right). On touch devices the
+-- cluster rides 110px higher so thumbs and the jump/joystick band clear it;
+-- desktop keeps the authored spot to the pixel. Position only: everything in
+-- the frame (breath tweens, AUTO chip, bar fill, perfect band) is authored
+-- relative to it and moves along for free -- the breath tweens ride
+-- throwButton, a child, so they never fight this.
+--
+-- Platform.Watch fires immediately AND on every later device change (including
+-- a PlatformOverride flip from the command bar), so this re-resolves live
+-- rather than latching whatever the first frame reported.
+do
+	-- 2026-08-18 REWRITE, measured on a landscape phone (666x374) the first time
+	-- the phone class actually engaged. The previous version SUBTRACTED a flat
+	-- 110px on touch, on top of the authored -110 -- which put the cluster at
+	-- y 24..96 (the top third of the screen, over the currency counters) and
+	-- pushed AUTO SKIP off-screen at y -18. It was never verified on a real
+	-- phone viewport; this is.
+	--
+	-- The bottom-centre lane is FREE on touch: Roblox puts the thumbstick left
+	-- of x~140 and the jump button right of x~526, while this cluster spans
+	-- x 163..503. It does not need lifting out of the way -- a HOLD control
+	-- WANTS to be in the thumb zone. What it must clear is the nav rail, which
+	-- on a phone is a left-edge block anchored on the vertical midline.
+	--
+	-- So: on touch the cluster sits at the FOOT of the safe area (offset 0),
+	-- which measured AUTO at y 202..236 and the bar at y 244..316 -- directly
+	-- under the rail block, nothing overlapping. Desktop keeps its authored
+	-- -110 exactly. Platform.Watch re-resolves on every device change.
+	local restPos = throwFrame.Position   -- authored bottom-centre anchor
+	Platform.Watch(function()
+		local offset = Platform.IsTouch and 0 or restPos.Y.Offset
+		throwFrame.Position = UDim2.new(
+			restPos.X.Scale, restPos.X.Offset,
+			restPos.Y.Scale, offset)
+	end)
+end
+
 -- ============================= PERFECT SKIP POPUP =============================
 -- Its OWN ScreenGui rather than a label inside ThrowFrame, which is where this used to
 -- live. Parented to the throw HUD it was a 21px line of green text pinned above the power
@@ -869,9 +682,26 @@ local function showPerfectPop()
 	perfectPopToken += 1
 	local myToken = perfectPopToken
 	-- 78 lines of sunburst, sparks, FOV punch and camera shake had no audio at all.
-	-- Bright and SHORT: it fires on the same frame as the release whoosh and must sit
-	-- under it, and it is long gone before any catch audio arrives.
-	SoundKit.play("catchSparkle", nil, { volume = PERFECT_VOL })
+	--
+	-- STACKED, AND IT WINS THE FRAME (2026-08-21, owner: "a cool sound affect").
+	-- One 0.63s twinkle could never land this: it fires on the SAME FRAME as the
+	-- release whoosh (RELEASE_VOL 0.38) and the old note above had it deliberately
+	-- sitting UNDER that -- so the game's only skill moment was the quietest cue in
+	-- the throw. Perfect now gets the density treatment the catch ladder uses for
+	-- its top rungs (see SoundKit.Ids.catchBigHit): an IMPACT to land the moment,
+	-- then the SPARKLE over the top, offset so the two read as one gesture rather
+	-- than doubling on the attack. Both ids are load-verified (2.01s / 0.63s).
+	--
+	-- VOLUMES ARE INLINE ON PURPOSE. `PERFECT_VOL` is declared ~110 lines BELOW
+	-- this function, so the name here resolved to a nil GLOBAL and SoundKit fell
+	-- back to its 0.25 "quiet incidental" default -- the cue was never even playing
+	-- at the 0.32 that constant advertised. Do not swap these back to a constant
+	-- unless you move its declaration above showPerfectPop; ClientMain is at Luau's
+	-- 200-local ceiling, so ADD nothing at the top level here.
+	SoundKit.play("catchBigHit", nil, { volume = 0.5 })
+	task.delay(0.07, function()
+		SoundKit.play("catchSparkle", nil, { volume = 0.42, speed = 1.12 })
+	end)
 
 	-- reset every animated property, or a second perfect mid-fade inherits the tail of
 	-- the first and reads as a flicker
@@ -953,16 +783,39 @@ end
 -- All four cues reuse ids already declared and load-verified in SoundKit.Ids;
 -- nothing new is invented here, and the two orphaned ids (panelOpen, fusion)
 -- are deliberately left for the features they belong to.
---   charge   eggStrain  bonecrackle 2.63s -- a tension bed, pitched up as you wind
+--   charge   throwCharge flyloop 5.12s -- sustained air, pitched up as you wind
 --   release  wheelWind  UI whoosh 0.85s   -- the commit, its own voice not a UI click
 --   perfect  catchSparkle Twinkling 0.63s -- bright, short, fires seconds before any
 --                                            catch audio so the two never collide
 --   pity     wheelWin   bling             -- handled in PityThrowClient
+--
+-- THE CHARGE BED WAS eggStrain UNTIL 2026-08-18 -- bonecrackle, the egg hatch's
+-- waiting bed. A bone sample, looped, under the game's most-pressed button (owner:
+-- "the hold to skip button makes a weird sound"). Two things were wrong with it and
+-- the swap fixes both: it is a horror texture, and at 2.63s it WRAPPED inside a long
+-- hold, retriggering its own attack. See SoundKit.Ids.throwCharge for the sizing rule
+-- and the vetted alternates.
+--
+-- SUBTLETY PASS (owner 2026-08-18: flyloop is the right sound, "lets make it more
+-- subtle"). Two knobs do that and both moved, because level alone is not what makes
+-- a bed obtrusive -- a wide pitch sweep pulls the ear whatever its volume:
+--   VOLUME  0.20 -> 0.12. Under the 0.16 the old crackle sat at, and under a third
+--           of the release. THIS is the lever if it wants another nudge either way.
+--   RAMP    0.80-1.70 -> 0.90-1.42. Still tracks the bar -- riding `power` is what
+--           lets you hear where you are in the fill, and that is worth keeping --
+--           but it now climbs rather than swoops.
+-- flyloop is a sustained bed with no arc of its own, so the ramp is doing all of the
+-- building; that is why narrowing it reads as calmer instead of broken. The sample
+-- itself was picked by ear from a six-class audition -- see SoundKit.Ids.throwCharge
+-- before swapping it, because reasoning alone got it wrong twice.
 local CHARGE_PITCH_LO = 0.72    -- power 0
-local CHARGE_PITCH_HI = 1.85    -- power 1
-local CHARGE_VOL      = 0.16    -- a bed: must lose to the release
+local CHARGE_PITCH_HI = 1.42    -- power 1
+local CHARGE_VOL      = 0.12    -- a bed: must lose to the release (RELEASE_VOL 0.38)
 local RELEASE_VOL     = 0.38    -- loudest of the four -- this is the commitment
-local PERFECT_VOL     = 0.32
+-- PERFECT_VOL is GONE, not moved: it sat here, 110 lines below the only place that
+-- read it, so it was a nil global at the call site and never applied. The perfect
+-- stack's levels are inline in showPerfectPop above (0.5 impact / 0.42 sparkle) --
+-- deliberately ABOVE this release whoosh now, because perfect should beat the throw.
 local CHARGE_FADE     = 0.12    -- stop fade on release OR cancel
 local chargeLoop = nil
 
@@ -1101,6 +954,19 @@ local function zoneCatchesDisabled(): boolean
 	return currentZone ~= nil and currentZone:GetAttribute("CatchesEnabled") == false
 end
 
+-- BRAINROT BAG FULL. Published by PlayerDataManager.PushUpdate on every data
+-- change, read here as an attribute rather than counted locally: this script
+-- holds no copy of the player's inventory, and a second count would drift from
+-- the one the server actually refuses on.
+--
+-- Missing (nil) reads as ROOM, exactly like CatchesEnabled above -- an attribute
+-- that has not replicated yet must never lock the player out of the valley. The
+-- server refuses independently in ThrowHandler, so a permissive race costs one
+-- refused throw, while a strict one would brick the core loop on a slow join.
+local function bagFull(): boolean
+	return (player:GetAttribute("BrainrotSpace") or 1) <= 0
+end
+
 local function startCharge()
 	if cooldown or charging then return end
 	-- A takeover cut is playing (Takeover sets RevealActive for the catcher; spec S11):
@@ -1112,13 +978,18 @@ local function startCharge()
 	-- rather than letting the server abandon the throw is the whole point: the old
 	-- path charged, showed PERFECT, then sat dead on "SKIPPING..." for ~6.7s.
 	if zoneCatchesDisabled() then return end
+	-- FULL BAG CANNOT SKIP (2026-08-24, owner direction). Refused before the charge
+	-- rather than at the catch: the old path let the player spend a charge, watch
+	-- the skip land, and only then be told the catch was dropped on the floor. The
+	-- button already reads BAG FULL by the time anyone gets here.
+	if bagFull() then return end
 	if not playerHasPlot() then return end -- no base yet; button acts as "get a plot" instead
 	charging = true
 	stopBreath()          -- they are engaged; the invitation is over
 	lastThrowAt = os.clock()
 	if clearSkipCounter then clearSkipCounter() end   -- last throw's count goes away NOW
 	stopChargeLoop()   -- never stack two beds if a charge somehow re-enters
-	chargeLoop = SoundKit.loop("eggStrain", { volume = CHARGE_VOL, speed = CHARGE_PITCH_LO })
+	chargeLoop = SoundKit.loop("throwCharge", { volume = CHARGE_VOL, speed = CHARGE_PITCH_LO })
 	-- roll this charge's own bar speed (see CYCLE_MIN_MULT above)
 	chargeStart = os.clock()
 	chargePeriod = CYCLE_SECONDS * (CYCLE_MIN_MULT + math.random() * (CYCLE_MAX_MULT - CYCLE_MIN_MULT))
@@ -1599,10 +1470,12 @@ local function releaseThrow(isAuto)
 		_hrp.CFrame = CFrame.new(_p, _p + Vector3.new(0, 0, 1))
 	end
 
-	-- Auto can never be perfect server-side, so it must not claim one here either --
-	-- otherwise the HUD celebrates a bonus the throw did not actually get.
-	local landedPerfect = (not isAuto)
-		and finalPower >= perfectMin and finalPower <= perfectMax
+	-- Auto is ALWAYS perfect server-side now (2026-08-15, owner direction), so it claims
+	-- one here too and the HUD celebration matches what the throw actually gets. The
+	-- server grants it unconditionally for pass owners, so this does not depend on the
+	-- release having landed inside the band -- see ThrowHandler's autoPerfect.
+	local landedPerfect = isAuto
+		or (finalPower >= perfectMin and finalPower <= perfectMax)
 	if landedPerfect then
 		showPerfectPop()
 	end
@@ -1629,18 +1502,36 @@ local function releaseThrow(isAuto)
 	end)
 end
 
+-- WHICH FINGER OWNS THE CHARGE (2026-08-19). The release below is a GLOBAL
+-- InputEnded -- it has to be, because a finger that slides off the button still
+-- has to be able to let the rock go. But it used to fire releaseThrow() for ANY
+-- ending Touch, without ever recording which input started the charge. A phone
+-- has several fingers down at once: the walk thumbstick, the jump button, the
+-- end of a camera-pan drag. Every one of those releases fired the rock at
+-- whatever power the bar happened to be at, so on mobile the perfect band was
+-- unhittable unless you stood perfectly still and used exactly one finger --
+-- i.e. the game's core mechanic was broken on its main platform.
+-- Desktop never saw it: one mouse, one button, one InputObject.
+local chargeInput: InputObject? = nil
+
 throwButton.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		if inThrowZone and not playerHasPlot() then
 			remotes.TeleportTo:FireServer("OpenPlot") -- send them to an open plot to claim a base
 			return
 		end
+		chargeInput = input
 		startCharge()
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		-- only the input that STARTED this charge may end it. When nothing is
+		-- charging chargeInput is nil and this behaves exactly as it always did,
+		-- so the gamepad path and every non-charge release are untouched.
+		if chargeInput ~= nil and input ~= chargeInput then return end
+		chargeInput = nil
 		releaseThrow()
 	end
 end)
@@ -1771,6 +1662,9 @@ autoBtn.MouseButton1Click:Connect(function()
 		return
 	end
 	autoOn = not autoOn
+	-- Mirrored as an attribute so CatchRevealClient can pace the reveals off it
+	-- (2026-08-17 auto quick-tier skip) without a cross-script global.
+	player:SetAttribute("AutoActive", autoOn)
 	refreshAutoButton()
 end)
 
@@ -1797,8 +1691,27 @@ task.spawn(function()
 		throwButton:SetAttribute("ChargeMult", charge)
 		-- losing the gate must also stop a loop already running
 		if not ownsIt then autoOn = false end
+		player:SetAttribute("AutoActive", autoOn)
 		refreshAutoButton()
 	end)
+	-- SELF-HEAL for the join race (2026-08-17 field-study catch): ShopService's
+	-- join push can fire before this listener connects (RemoteEvents do not
+	-- queue for a late listener), and the next push only comes when a pass is
+	-- BOUGHT -- so an OWNER who missed the push stared at the locked gold BUY
+	-- state all session (observed live: ~10 minutes of captures showing the
+	-- lock on an owned pass, until a prompt poke re-pushed). One client-side
+	-- ownership check patches exactly that case; purchases and revocations
+	-- still flow through ShopState above.
+	if autoBtn:GetAttribute("PassLive") and not autoBtn:GetAttribute("PassOwned") then
+		local mkOk, owns = pcall(function()
+			local gp = require(ReplicatedStorage.Modules.GamepassConfig).ByKey["AutoSkip"]
+			return game:GetService("MarketplaceService"):UserOwnsGamePassAsync(player.UserId, gp.GamepassId)
+		end)
+		if mkOk and owns then
+			autoBtn:SetAttribute("PassOwned", true)
+			refreshAutoButton()
+		end
+	end
 end)
 
 -- ONE loop rather than a chain of task.delay callbacks: every gate is re-checked
@@ -1807,19 +1720,27 @@ end)
 task.spawn(function()
 	while true do
 		task.wait(0.1)
-		if autoOn and autoBtn:GetAttribute("PassOwned") and inThrowZone and not charging and not cooldown and playerHasPlot() then
+		if autoOn and autoBtn:GetAttribute("PassOwned") and inThrowZone and not charging and not cooldown and not bagFull() and playerHasPlot() then
 			startCharge()
-			-- Release at a RANDOM point on the bar, deliberately unrelated to the band.
+			-- AIM AT THE BAND (2026-08-15, owner direction: auto should score a perfect
+			-- every time). This deliberately reverses the previous behaviour, which released
+			-- at a random 0.30..0.88 unrelated to the band so that idling produced a spread
+			-- of mediocre throws. The middle of the band, not its lower edge, so ordinary
+			-- frame jitter cannot fall out of a strip only BAND_WIDTH (0.07) across.
 			--
-			-- This used to wait for power to reach perfectMin and fire the instant it got
-			-- there, which scored a perfect on literally every throw -- the exact opposite
-			-- of what an idle mode should do, and the reason an overnight session came back
-			-- loaded with rares. Auto is now a spread of mediocre throws, and the server
-			-- refuses it a perfect outright on top of taxing its distance and luck.
+			-- The perfect itself does NOT depend on this landing cleanly -- ThrowHandler
+			-- grants auto a perfect outright for pass owners. This is what makes the bar
+			-- LOOK right while it happens; without it the strip would flash PERFECT with the
+			-- marker sitting somewhere else entirely.
+			--
+			-- Falls back to the old random spread only when no band was issued this charge
+			-- (a failed GetSweetSpot fetch), where there is nothing to aim at.
 			--
 			-- The 3s ceiling still means a stuck charge releases rather than holding the
 			-- bar forever.
-			local target = 0.30 + math.random() * 0.58     -- 0.30 .. 0.88
+			local target = (perfectMin >= 0 and perfectMax > perfectMin)
+				and (perfectMin + (perfectMax - perfectMin) * 0.5)
+				or (0.30 + math.random() * 0.58)
 			local t0 = os.clock()
 			while autoOn and charging and os.clock() - t0 < 3 do
 				if power >= target then
@@ -1870,6 +1791,44 @@ refreshCashLabel()
 
 -- === Teleport tabs ===
 local tabBar = gui:WaitForChild("TabBar")
+-- Declared before applyLayout so its first pass already knows who owns Position.
+local tabSlot = HudLayout.Attach(tabBar, {
+	stack = "TopCentre",
+	order = 10,
+	avoid = true,   -- step below the top-left currency cluster rather than over it
+})
+
+-- THE TAB BAR USES THE TOPBAR BAND ON A PHONE (2026-08-26, owner capture).
+--
+-- The safe-area top inset is reserved across the full width for Roblox's topbar,
+-- but on a phone that chrome -- logo, menu, chat, voice -- is LEFT-ALIGNED and the
+-- middle of the band is empty. Measured on the capture: the pill ends around
+-- x 570 of 1999 while these tabs sit at x 763..1237, so the two never meet.
+-- Paying the full 58px anyway spent 19% of a 310px screen's height on nothing and
+-- pushed the tabs down into the play area, which is what the owner marked as
+-- needing to be higher.
+--
+-- Safe ONLY because this bar is centred and narrow. Do not copy the negative pad
+-- onto anything that reaches the left edge -- Roblox's chrome always draws on top,
+-- so a widget under it is invisible and untappable.
+-- ...and it has to stop AVOIDING to do it. The two settings pull against each
+-- other: `avoid` exists to push this bar clear of the currency cluster, and the
+-- cluster occupies the very band the pad is trying to move into -- so the raise
+-- was applied and then immediately undone, landing the bar back at 66px and
+-- looking as though SetPad did nothing (it fires correctly; traced).
+--
+-- Safe to drop on a phone specifically, because there the two are clear on the
+-- axis avoidance cannot see past: the cluster is left-anchored and ends around
+-- x 216 of 700, while this bar is centred at x 267..433. On desktop the bar is
+-- wider relative to the screen and the cluster is a real obstacle, so avoidance
+-- stays on there exactly as before.
+if tabSlot then
+	HudLayout.WatchDevice(function()
+		local phone = Platform.IsPhone
+		tabSlot:SetAvoid(not phone)
+		tabSlot:SetPad(phone and -40 or 0)
+	end)
+end
 local throwTab = tabBar:WaitForChild("ThrowTab")
 local shopsTab = tabBar:WaitForChild("ShopsTab")
 local plotTab = tabBar:WaitForChild("PlotTab")
@@ -1882,6 +1841,70 @@ shopsTab.MouseButton1Click:Connect(function()
 end)
 plotTab.MouseButton1Click:Connect(function()
 	remotes.TeleportTo:FireServer("Plot")
+end)
+
+-- 2026-08-17 polish (field-study nit "orphaned SKIP/SHOPS/PLOT icons behind
+-- panels"): the teleport bar kept drawing -- and taking clicks -- behind any
+-- open panel. It stands down while the panel host is up, the same contract
+-- the quest tracker keeps via SideRail, and returns the moment the last
+-- panel closes (PanelHost.Visible is owned by openPanel/closePanel).
+--
+-- EXTENDED 2026-08-19 -- PHONE ONLY -- to the other two MainUI surfaces that
+-- now draw ON an open panel rather than beside one: the SPRINT pill and the
+-- whole THROW cluster (ThrowFrame, which the AUTO button hangs inside and so
+-- inherits). HUD panels were just enlarged ~61% on handsets -- the counter-band
+-- reserve that crushed them to 0.299 is gone and they run near-fullscreen at
+-- Platform.FitPanel -- so they are modals now, and GameHUDClient's openPanel
+-- already stands the nav rail and the currency cluster down for exactly that
+-- reason. This is the rest of that sweep, kept in the ONE watcher this file
+-- already runs rather than a second one racing it. Desktop is untouched:
+-- the phone test only gates the two NEW surfaces, and tabBar keeps the
+-- unconditional behaviour it has had since 08-17.
+task.spawn(function()
+	local hudGui = player:WaitForChild("PlayerGui"):WaitForChild("GameHUD", 30)
+	local canvas = hudGui and hudGui:WaitForChild("Canvas", 10)
+	local host = canvas and canvas:WaitForChild("PanelHost", 10)
+	if not host then return end
+	-- Resolved HERE rather than reusing the file-level `sprintButton`: that local
+	-- is declared hundreds of lines BELOW this closure, so it is not an upvalue
+	-- yet, and hoisting it would add a main-chunk local to a file that sits a
+	-- handful under Luau's 200-register ceiling (see the register note by the
+	-- AUTO button -- "Out of local registers" is a COMPILE error that takes the
+	-- whole client HUD down). Locals inside this closure cost the chunk nothing.
+	local sprintBtn = gui:WaitForChild("SprintButton", 10)
+	local hidden = false   -- edge trigger; see the write rule below
+	local function sync()
+		tabBar.Visible = not host.Visible
+		local hide = host.Visible and Platform.IsPhone
+		-- WRITE ONLY ON THE EDGE, never every sync. On desktop `hide` is false from
+		-- the first call and never moves, so this branch is never entered and these
+		-- two surfaces are not written to AT ALL there -- no chance of this quietly
+		-- becoming a second visibility owner of Sprint or the throw cluster and
+		-- re-asserting true over some other system that wanted them away. It also
+		-- means a phone->desktop device flip while a panel is open still restores,
+		-- because that flip is itself an edge.
+		if hide ~= hidden then
+			hidden = hide
+			if sprintBtn then sprintBtn.Visible = not hide end
+			-- THE THROW CLUSTER IS NOT OURS TO SET. The throw-zone Heartbeat further
+			-- down owns ThrowFrame.Visible outright and rewrites it EVERY FRAME from
+			-- inThrowZone/charging/cooldown, so a false written here would survive one
+			-- frame. Park the intent as an attribute -- the same "state lives on the
+			-- instance" idiom this file uses for the AUTO button -- and let that owner
+			-- AND it in; it stays the only writer, so the frame comes back exactly as
+			-- the dock/charge state says it should, not blindly shown. The direct write
+			-- is purely so the hide lands on this frame instead of the next one.
+			throwFrame:SetAttribute("PanelHidden", hide)
+			if hide then throwFrame.Visible = false end
+		end
+	end
+	host:GetPropertyChangedSignal("Visible"):Connect(sync)
+	-- Device class can change under us (Studio's device emulator, and a desktop
+	-- window resized narrow). Platform.Watch calls fn immediately and on every
+	-- change; the trailing sync() is kept anyway so the first paint never depends
+	-- on that contract.
+	Platform.Watch(sync)
+	sync()
 end)
 
 -- === Teleport tabs: top bar (Skip / Shops / Plot) + cash pill ===
@@ -2034,19 +2057,86 @@ do
 	-- A centred bar of width B clears the pill when B < vx - 2*(CASH_W + margin
 	-- + clearance). Solved rather than guessed at a breakpoint, so it stays
 	-- correct if the pill is ever resized.
+	--
+	-- MEASURED, NOT ASSUMED (2026-08-21, beta pass). The claim above stopped being
+	-- true: CASH_W describes a 190-wide pill in the top-RIGHT corner, and the
+	-- currency cluster has since moved top-LEFT and grown with the layout --
+	-- measured 620px on Desktop, 694 on Tablet, 830 on Phone, up to 4x what the
+	-- constant reserves. The sum still "solved", still answered WIDE at TOP_Y, and
+	-- on the phone layout laid the centred bar straight over the cluster: bar left
+	-- edge 745 against a cluster right edge of 865, a 119x58px overlap with the
+	-- SKIP tab sitting under the emerald pill. Desktop cleared by 156px and Tablet
+	-- by 23px, which is the only reason this never showed up on a monitor.
+	--
+	-- Two terms were missing and both belong in the sum:
+	--   * the cluster's REAL right edge, read off the instance every pass
+	--   * PlatformFitScale, the UIScale on tabBar -- 1.35 on Tablet and Phone. The
+	--     metrics below are authored UNSCALED, so barWidth() is not the width that
+	--     actually lands on the screen.
+	-- Both are read fresh here rather than cached: applyLayout re-runs on every
+	-- viewport and platform change, which is exactly when they move.
 	local function pickMetrics()
-		local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-		local room = vp.X - 2 * (CASH_W + CASH_MARGIN + CLEARANCE)
+		-- Platform.Viewport, not the camera (2026-08-27). This function's entire job
+		-- is to pick a tab size that fits the screen, and reading the real Studio
+		-- window meant it always measured 1920x1077 -- so `roomH = vp.Y * 0.17` came
+		-- out at 183px, WIDE's 104px tabs "fitted", and a handset got 104px tabs that
+		-- are 30% of its total height. With the real device size it falls through to
+		-- TINY (46x56) as it was always designed to.
+		local vp = Platform.Viewport
+
+		-- CASH_W + CASH_MARGIN stays as the floor, so a missing or not-yet-laid-out
+		-- cluster degrades to the old behaviour instead of to zero clearance.
+		local cluster = gui.Parent:FindFirstChild("GameHUD")
+		cluster = cluster and cluster:FindFirstChild("Chrome")
+		cluster = cluster and cluster:FindFirstChild("CurrencyCluster")
+		local blockRight = CASH_W + CASH_MARGIN
+		if cluster and cluster.Visible and cluster.AbsoluteSize.X > 1 then
+			blockRight = math.max(blockRight, cluster.AbsolutePosition.X + cluster.AbsoluteSize.X)
+		end
+
+		local fit = tabBar:FindFirstChild("PlatformFitScale")
+		fit = (fit and fit:IsA("UIScale") and fit.Scale > 0) and fit.Scale or 1
+
+		local room = vp.X - 2 * (blockRight + CLEARANCE)
 		-- A nav bar has no business taking more than ~17% of the screen height.
 		-- Expressed against the live viewport rather than a device check, so it
 		-- also fixes short desktop windows and needs no platform lookup here.
 		local roomH = vp.Y * 0.17
-		if barWidth(WIDE) <= room and WIDE.H <= roomH then return WIDE, TOP_Y end
-		if barWidth(COMPACT) <= room and COMPACT.H <= roomH then return COMPACT, TOP_Y end
-		if barWidth(TINY) <= room then return TINY, TOP_Y end
-		-- too narrow for either: stack the bar beneath the pill instead of
-		-- letting them overlap
-		return COMPACT, UNDER_PILL_Y
+		if barWidth(WIDE) * fit <= room and WIDE.H * fit <= roomH then return WIDE, TOP_Y end
+		if barWidth(COMPACT) * fit <= room and COMPACT.H * fit <= roomH then return COMPACT, TOP_Y end
+		if barWidth(TINY) * fit <= room then return TINY, TOP_Y end
+
+		-- Nothing fits beside the cluster: stack the bar UNDER it. UNDER_PILL_Y (66)
+		-- was measured against that same old 190x46 pill and is NOT below the cluster
+		-- any more -- it is 131px tall on the phone layout -- so dropping to the
+		-- constant just traded a sideways overlap for a vertical one. Measure it too.
+		--
+		-- Frame conversion matters here: topY is applied as tabBar.Position, which is
+		-- relative to MainUI, while the cluster is measured in absolute screen space.
+		-- BOTH ScreenGuis set IgnoreGuiInset, so MainUI's own AbsolutePosition.Y is
+		-- -58 (the topbar inset), not 0 -- subtracting it is what keeps the two
+		-- agreeing. Do not simplify this to a bare AbsolutePosition.Y.
+		local underY = UNDER_PILL_Y
+		if cluster and cluster.Visible and cluster.AbsoluteSize.Y > 1 then
+			underY = math.max(underY,
+				(cluster.AbsolutePosition.Y + cluster.AbsoluteSize.Y) - gui.AbsolutePosition.Y + CLEARANCE)
+		end
+		-- TINY ON TOUCH, not COMPACT (2026-08-27).
+		--
+		-- Reaching here means the bar could not fit BESIDE the cluster, and the width
+		-- test that decides that is `vp.X - 2 * blockRight` -- doubled, because a
+		-- CENTRED bar has to clear the cluster on the left and its mirror image on the
+		-- right. Sound for centring, brutal on a phone: measured at 667x375 the
+		-- cluster is 253px wide, so a centred bar gets 139px and even TINY (166px)
+		-- "does not fit" -- and the fallback then handed back COMPACT, the SECOND
+		-- largest set, at 80px tall on a 375px screen. The narrowest option was
+		-- rejected for being too wide and replaced with a wider one.
+		--
+		-- Below the cluster there is no such constraint: the bar has the whole width.
+		-- HudLayout's `avoid` already does the moving, so all this has to do is pick a
+		-- set that suits a small screen.
+		if Platform.IsTouch then return TINY, underY end
+		return COMPACT, underY
 	end
 
 	-- The authored wooden decorations stay hidden rather than destroyed: a
@@ -2089,10 +2179,25 @@ do
 	local function applyLayout(MET, topY)
 		tabBar.BackgroundTransparency = 1
 		tabBar.BorderSizePixel = 0
-		tabBar.AnchorPoint = Vector2.new(0.5, 0)
-		tabBar.Position = UDim2.new(0.5, 0, 0, topY + overscanTop())
 		tabBar.Size = UDim2.fromOffset(barWidth(MET), MET.H)
 		tabBar.ZIndex = 2
+		-- HUDLAYOUT OWNS THE BAR'S POSITION (2026-08-26). Two separate bugs lived in
+		-- the single line this replaces:
+		--
+		--   1. MainUI sets IgnoreGuiInset, so an offset of topY renders topY - 58.
+		--      Measured across every device: the SKIP / SHOPS / PLOT tabs sat at
+		--      y = -48, i.e. half of each tab was behind the Roblox topbar and taps
+		--      in that band went past the UI into the world. HudLayout adds the inset
+		--      back for full-bleed guis, so the bar lands where the number says.
+		--   2. pickMetrics decides whether the bar fits beside the currency cluster by
+		--      reading that cluster's AbsolutePosition out of GameHUD's ScreenGui and
+		--      converting between two inset spaces by hand. The `avoid` flag asks the
+		--      layout that placed both instead -- the top-left stack is laid first, so
+		--      the bar simply steps below the cluster when there is no room beside it.
+		if not tabSlot then
+			tabBar.AnchorPoint = Vector2.new(0.5, 0)
+			tabBar.Position = UDim2.new(0.5, 0, 0, topY + overscanTop())
+		end
 
 		local layout = tabBar:FindFirstChildOfClass("UIListLayout")
 		if not layout then layout = Instance.new("UIListLayout", tabBar) end
@@ -2123,7 +2228,25 @@ do
 	-- Fires immediately AND on every later device change. The viewport listener
 	-- below is not enough on its own: picking up a controller or landing on a
 	-- console changes the overscan inset without the window size moving at all.
-	Platform.Watch(function() applyLayout(pickMetrics()) end)
+	--
+	-- THREE PASSES, and the later two are load-bearing (2026-08-21). pickMetrics
+	-- now MEASURES the currency cluster rather than assuming CASH_W, and that
+	-- cluster is resized by its OWN Platform.Watch -- registration order decides
+	-- which of the two runs first, and ours runs while the cluster is still at its
+	-- previous size. So the first pass solves against a stale, too-small right edge
+	-- and picks a bar that does not actually fit: on the phone layout that is
+	-- precisely the 119px SKIP-tab overlap the measurement was added to remove, and
+	-- it looks like the fix simply did not work.
+	--
+	-- task.defer re-runs after every watcher in this cycle has had its turn; the
+	-- 0.12 beat then catches anything that resizes across a yield or a tween. Same
+	-- defer-plus-a-beat idiom the bag uses to restore its scroll position.
+	-- applyLayout is idempotent by contract (see its header), so the repeats are free.
+	Platform.Watch(function()
+		applyLayout(pickMetrics())
+		task.defer(function() applyLayout(pickMetrics()) end)
+		task.delay(0.12, function() applyLayout(pickMetrics()) end)
+	end)
 
 	-- Re-layout on viewport changes, debounced so a drag-resize does not
 	-- rebuild every frame. Token pattern: only the newest wait wins.
@@ -2180,6 +2303,55 @@ local shiftHeld = false
 local sprintToggled = false
 
 local sprintButton = gui:WaitForChild("SprintButton")
+-- PHONE (2026-08-17 device-sim audit): the button is authored 138x50 desktop
+-- px and nothing scaled it on handsets, where it anchors the oversized corner
+-- stack. Its authored AnchorPoint is (1,1) at (1,-16),(1,-16) -- verified on
+-- the StarterGui instance -- so a UIScale shrinks it INTO the corner, no
+-- drift.
+--
+-- 0.85 -> 0.88 (2026-08-25). 0.85 was called "still a legitimate touch target"
+-- on the strength of 117x43; measured on a phone-classed client it renders
+-- 117x42, i.e. it was ALWAYS a rounding error under Roblox's 44px minimum, and
+-- this is a core control -- the only way to sprint without a keyboard. 138x50 at
+-- 0.88 is 121x44, which clears it. Anchored (1,1) into the corner, so the extra
+-- 4px grows away from the screen edge and nothing else moves.
+-- HUDLAYOUT OWNS THIS BUTTON'S POSITION (2026-08-26).
+--
+-- The -96 below is the clearest example in the place of why this HUD could not
+-- be fixed a widget at a time. It is not a design value; it is the residue of
+-- probing THREE other things live on one specific handset -- HudToggle's pill
+-- ("ends 168"), Roblox's jump band ("starts 262"), and the 20px disagreement
+-- between MainUI's and HudToggleUI's inset modes -- and picking a number that
+-- happened to fit between them on that device. Any of the three moving, or a
+-- different screen, invalidates it, and two of the three are themselves
+-- positioned by the same kind of constant.
+--
+-- The stack replaces all of it: Sprint is simply the bottom item of the
+-- bottom-right column, above the luck chip, and the column starts above the
+-- touch-control band because Platform.Insets() says where that band is.
+local sprintSlot = HudLayout.Attach(sprintButton, {
+	stack = "BottomRight",
+	order = HudLayout.Order.Sprint,
+})
+
+do
+	local s = Instance.new("UIScale")
+	s.Name = "DeviceScale"
+	s.Parent = sprintButton
+	Platform.Watch(function()
+		s.Scale = Platform.IsPhone and 0.88 or 1
+		if sprintSlot then return end   -- stack owns Position; legacy path below
+		-- and LIFT it clear of Roblox's jump button on touch (the bottom-right
+		-- ~112px phone band) -- the pill sat directly ON the jump circle in the
+		-- 2026-08-18 mobile video. -120 slots it into the free lane BETWEEN the
+		-- jump band (bottom ~112px) and HudToggleClient's relocated HIDE UI
+		-- (probed live at abs y134-168 on a 374-tall phone viewport; -152 landed
+		-- exactly on it and the toggle drew over the pill). Desktop unchanged.
+		sprintButton.Position = Platform.IsTouch
+			and UDim2.new(1, -16, 1, -96) -- probed live: MainUI ignores the topbar inset, HudToggleUI does not, so their y-spaces differ ~20px; -96 lands Sprint at abs y177-220 (HIDE UI ends 168, jump starts 262)
+			or UDim2.new(1, -16, 1, -16)
+	end)
+end
 -- Authored in StarterGui and only ever handed to UITheme.setColors, which is a
 -- COLOUR swap and wires nothing -- so it passed through no constructor and was
 -- silent. Wired directly, with the same SfxWired guard the constructors use so
@@ -2218,7 +2390,10 @@ local function applySprint()
 		hum.WalkSpeed = speed
 		hum.AutoRotate = player:GetAttribute("Fishing") ~= true
 	end
-	if sprinting then UITheme.setColors(sprintButton, UITheme.Palette.hudGold1, UITheme.Palette.hudGold2)
+	-- PS99 colour grammar (2026-08-17): ACTIVE = GREEN (same as the Auto
+	-- button's engaged state); gold is reserved for real money and "sprinting"
+	-- wearing it read as a purchase surface
+	if sprinting then UITheme.setColors(sprintButton, UITheme.Palette.green1, UITheme.Palette.green2)
 	else UITheme.setColors(sprintButton, UITheme.Palette.hudShop1, UITheme.Palette.hudShop2) end
 	sprintButton.Text = sprinting and "🏃 Sprinting" or "🏃 Sprint"
 end
@@ -2520,12 +2695,18 @@ RunService.Heartbeat:Connect(function()
 	inThrowZone = computeInZone()
 	-- ...and only where there is something to catch, so a controller cannot take the
 	-- route the touch/mouse path now refuses.
-	setThrowBinding(inThrowZone and not zoneCatchesDisabled())
+	setThrowBinding(inThrowZone and not zoneCatchesDisabled() and not bagFull())
 	updateBreathGate()
 	if inThrowZone and not prevInZone then refreshSweetSpot() end -- fresh spot on walk-up
 	prevInZone = inThrowZone
 	-- only show the throw UI at the dock (stay visible mid-throw so it doesn't vanish)
-	throwFrame.Visible = inThrowZone or charging or cooldown
+	-- ...and never ON TOP OF AN OPEN PANEL on phone. This line is the sole owner of
+	-- ThrowFrame.Visible and reasserts it every frame, so the PanelHost watcher up by
+	-- the teleport tabs cannot just write false -- it parks its intent in PanelHidden
+	-- and this AND reads it. Nothing sets that attribute on desktop, GetAttribute
+	-- returns nil there, and the expression stays exactly the one it has always been.
+	throwFrame.Visible = (inThrowZone or charging or cooldown)
+		and not throwFrame:GetAttribute("PanelHidden")
 	if charging or cooldown then return end
 	local wantText, cTop, cBot
 	if not inThrowZone then
@@ -2536,6 +2717,12 @@ RunService.Heartbeat:Connect(function()
 		wantText, cTop, cBot = "COMING SOON", UITheme.Palette.hudMuted1, UITheme.Palette.hudMuted2
 	elseif not playerHasPlot() then
 		wantText, cTop, cBot = "GET A PLOT FIRST", UITheme.Palette.hudGold1, UITheme.Palette.hudGold2
+	elseif bagFull() then
+		-- Last of the blocking branches, so the new-player funnel above still wins:
+		-- someone with no plot gets pointed at a plot (and tapping the button takes
+		-- them to one), which is the more useful thing to say. By the time a bag is
+		-- full the player has certainly claimed a base.
+		wantText, cTop, cBot = "BAG FULL", UITheme.Palette.hudMuted1, UITheme.Palette.hudMuted2
 	else
 		wantText, cTop, cBot = DEFAULT_THROW_TEXT, UITheme.Palette.hudThrow1, UITheme.Palette.hudThrow2
 	end

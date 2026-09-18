@@ -132,7 +132,12 @@ function CutKit.heroFraming(run: Run): (Vector3, Vector3)
 	local cam = Config.CAMERA
 	local ext = run.extents :: Vector3
 	local width = math.max(ext.X, ext.Z)
-	local dist = width * (cam.hoverDistMult or 1.15) + CutKit.VIEW_DIST_PAD
+	-- The pad scales with the creature (2026-09-17): MassiveEmergence's flat 10 studs
+	-- was tuned for a 47-stud Massive, and on a 9-stud Mythic it doubled the distance
+	-- and left the hero shot reading small. A quarter of the width, never under 1.5
+	-- and never over the old 10, keeps a Massive exactly where it was.
+	local pad = math.clamp(width * 0.25, 1.5, CutKit.VIEW_DIST_PAD)
+	local dist = width * (cam.hoverDistMult or 1.15) + pad
 	local focus = run.surface + Vector3.new(0, ext.Y * (cam.hoverHeightFrac or 0.42), 0)
 	local eye = focus - run.horiz * dist + Vector3.new(0, ext.Y * (cam.heroHeightFrac or 0.18), 0)
 	return eye, focus

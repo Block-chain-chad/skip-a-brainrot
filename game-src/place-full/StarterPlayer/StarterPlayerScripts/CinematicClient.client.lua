@@ -128,7 +128,8 @@ end
 -- late; the timeline never waits.
 local SOUND_SLOTS = {
 	"finalSkip", "massiveRumble", "bassDrop", "waterExplosion",
-	"massiveRoar", "bannerHit", "cardWhoosh",
+	"massiveRoar", "bannerHit", "cardWhoosh", "mythicBass", "secretHum", "secretLaunch",
+	"godRumble", "beamRise", "godChoir", "goldShockwave",
 }
 
 local function preload(brainrotName: string)

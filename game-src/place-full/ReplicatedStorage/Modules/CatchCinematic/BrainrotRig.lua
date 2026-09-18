@@ -43,10 +43,21 @@
 -- own hand-lerped properties) so a reveal never silently depends on the editor
 -- window being foregrounded.
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Sizes = require(ReplicatedStorage.Modules.SizeConfig)
+-- THE MUTATION LOOK (spec S9): the same MutationFX.apply the spawner paints a placed
+-- brainrot with, on this display clone. Fail-soft: without it a mutated catch simply
+-- shows the plain model, exactly as before 2026-09-17.
+local okFX, MutationFX = pcall(function()
+	return require(ReplicatedStorage.Modules.MutationFX)
+end)
+if not okFX or type(MutationFX) ~= "table" or type(MutationFX.apply) ~= "function" then
+	warn("[BrainrotRig] MutationFX unavailable (" .. tostring(MutationFX) .. "); cuts show plain models")
+	MutationFX = nil
+end
 
 local SILHOUETTE_COLOR = Color3.fromRGB(6, 8, 12)
 local EYE_TWITCH_SCALE = 1.15
@@ -70,6 +81,10 @@ export type Rig = typeof(setmetatable(
 		_belowPos: Vector3,
 		_risePos: Vector3,
 		_originalColor: { [BasePart]: Color3 },
+		_originalTint: { [Instance]: Color3 },
+		_mutation: string?,
+		_mutationHeld: { { inst: Instance, prop: string, value: any } },
+		_mutationShown: boolean,
 		_colorsStored: boolean,
 		_riseAlpha: number,
 		_baseYaw: number,
@@ -81,6 +96,55 @@ export type Rig = typeof(setmetatable(
 	},
 	BrainrotRig
 ))
+
+-- MutationFX on the display clone (spec S9), applied AFTER the rig geometry is read so
+-- a halo or ground ring never changes the extents the framing and rise maths use.
+-- Its colour/material shifts land on the parts themselves -- stageBelow() then stores
+-- THOSE as the originals, so the silhouette lerps up to the mutated colours. Everything
+-- it ADDS (emitters, lights, highlight, beams, halo/ring/shell parts, textures) is held
+-- back -- disabled or fully transparent -- and the MutationBody tag withheld, so nothing
+-- glows through the water before the creature shows; revealColors() releases it all.
+-- Returns the held (instance, property, value) triples to restore.
+local function applyMutation(model: Model, mutation: string?): { { inst: Instance, prop: string, value: any } }
+	local held: { { inst: Instance, prop: string, value: any } } = {}
+	if not mutation or not MutationFX then
+		return held
+	end
+	local before: { [Instance]: boolean } = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		before[d] = true
+	end
+	local ok, err = pcall(MutationFX.apply, model, mutation)
+	if not ok then
+		warn("[BrainrotRig] MutationFX.apply failed for '" .. tostring(mutation) .. "': " .. tostring(err))
+		return held
+	end
+	for _, d in ipairs(model:GetDescendants()) do
+		if before[d] then
+			continue
+		end
+		local a: any = d
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
+			d.Massless = true
+			table.insert(held, { inst = d, prop = "Transparency", value = d.Transparency })
+			d.Transparency = 1
+		elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Highlight") or d:IsA("Light") or d:IsA("Trail") then
+			table.insert(held, { inst = d, prop = "Enabled", value = a.Enabled })
+			a.Enabled = false
+		elseif d:IsA("Decal") or d:IsA("Texture") then
+			table.insert(held, { inst = d, prop = "Transparency", value = a.Transparency })
+			a.Transparency = 1
+		end
+	end
+	-- MutationMotionClient's handshake waits for the reveal too (it would otherwise
+	-- animate -- and for some mutations recolour -- the silhouette)
+	CollectionService:RemoveTag(model, "MutationBody")
+	return held
+end
 
 -- Clone + neuter + fit-scale + parent into stage. Returns nil (all four values)
 -- if the model name doesn't exist in BrainrotModels -- the ONE failure path both
@@ -96,8 +160,13 @@ local function buildModel(stage: Folder, name: string, size: string): (Model?, C
 	local _, extents = model:GetBoundingBox()
 	local hsRaw = template:GetAttribute("HeightScale")
 	local hs = math.clamp((typeof(hsRaw) == "number" and hsRaw or 1) :: number, 0.7, 1.5)
+	-- WidthScale mirrors BrainrotSpawner (see MIN_WIDTH_SHARE there). A long low
+	-- creature otherwise always fills the whole 9.5 width budget, which made a tadpole
+	-- rise out of the lake at the same size as a hammerhead. Default 1 = unchanged.
+	local wsRaw = template:GetAttribute("WidthScale")
+	local ws = math.clamp((typeof(wsRaw) == "number" and wsRaw or 1) :: number, 0.35, 1)
 	local width = math.max(extents.X, extents.Z)
-	local fit = math.min((6.0 * hs) / extents.Y, 9.5 / math.max(width, 0.01)) * Sizes.Scale(size)
+	local fit = math.min((6.0 * hs) / extents.Y, (9.5 * ws) / math.max(width, 0.01)) * Sizes.Scale(size)
 	model:ScaleTo(model:GetScale() * fit)
 
 	-- PullCeremony's neuter loop (ReplicatedStorage.Modules.PullCeremony), verbatim,
@@ -134,11 +203,12 @@ local function poseCFrame(pivot0: CFrame, localOffset: Vector3, pos: Vector3, ya
 	return CFrame.new(pos - worldOffset) * rot
 end
 
-function BrainrotRig.new(stage: Folder, name: string, size: string, splashPos: Vector3): Rig?
+function BrainrotRig.new(stage: Folder, name: string, size: string, splashPos: Vector3, mutation: string?): Rig?
 	local model, pivot0, localOffset, finalExtents = buildModel(stage, name, size)
 	if not model or not pivot0 or not localOffset or not finalExtents then
 		return nil
 	end
+	local held = applyMutation(model, mutation)
 
 	local self = setmetatable({
 		_stage = stage,
@@ -152,6 +222,10 @@ function BrainrotRig.new(stage: Folder, name: string, size: string, splashPos: V
 		_belowPos = splashPos - Vector3.new(0, finalExtents.Y * 1.05, 0),
 		_risePos = splashPos + Vector3.new(0, finalExtents.Y * 0.5 - finalExtents.Y * 0.08, 0),
 		_originalColor = {} :: { [BasePart]: Color3 },
+		_originalTint = {} :: { [Instance]: Color3 },
+		_mutation = mutation,
+		_mutationHeld = held,
+		_mutationShown = false,
 		_colorsStored = false,
 		_riseAlpha = 0,
 		_baseYaw = 0,
@@ -159,6 +233,7 @@ function BrainrotRig.new(stage: Folder, name: string, size: string, splashPos: V
 		_colorGen = 0,
 		_eyeGen = 0,
 		_breached = false,
+		_descentStarted = false,
 		_destroyed = false,
 	}, BrainrotRig)
 	local rig = (self :: any) :: Rig
@@ -184,6 +259,14 @@ function BrainrotRig:stageBelow()
 		for _, d in ipairs(self._model:GetDescendants()) do
 			if d:IsA("BasePart") then
 				self._originalColor[d] = d.Color
+			-- DECALS TOO (2026-08-14): a Decal/Texture draws at full strength
+			-- regardless of the part colour under it, so a model whose face is
+			-- painted rather than modelled (Secret Pete since the v2 redesign)
+			-- staged as a black body wearing a fully lit face -- the one thing
+			-- the silhouette exists to hide. Color3 is a tint multiplier, so it
+			-- blacks out and reveals on exactly the same curve.
+			elseif d:IsA("Decal") or d:IsA("Texture") then
+				self._originalTint[d] = (d :: any).Color3
 			end
 		end
 		self._colorsStored = true
@@ -191,6 +274,12 @@ function BrainrotRig:stageBelow()
 	for part in pairs(self._originalColor) do
 		if part.Parent then
 			part.Color = SILHOUETTE_COLOR
+		end
+	end
+	for decal in pairs(self._originalTint) do
+		if decal.Parent then
+			local art: any = decal
+			art.Color3 = SILHOUETTE_COLOR
 		end
 	end
 	self._riseAlpha = 0
@@ -221,6 +310,28 @@ function BrainrotRig:setRise(alpha: number)
 	-- not a runway spin (owner direction 2026-08-09).
 	local yaw = alpha * math.pi * 0.6
 	self:_placeAt(pos, yaw)
+end
+
+-- Pure function of alpha, the sky path: 0 = `fromHeight` studs ABOVE the rise pose,
+-- 1 = the rise pose itself, with a 0.75-turn yaw and a sine ease-in-out. Used
+-- forward for God's descent and backward (1 - alpha) for Massive God's ascension.
+-- Reveals the colours on first use: a creature in a beam of light is never a
+-- silhouette.
+function BrainrotRig:setDescent(alpha: number, fromHeight: number)
+	if self._destroyed then
+		return
+	end
+	alpha = math.clamp(alpha, 0, 1)
+	if not self._descentStarted then
+		self._descentStarted = true
+		self:revealColors(0.05)
+	end
+	self._riseAlpha = 1
+	self._breached = true
+	local e = 0.5 - 0.5 * math.cos(math.pi * alpha)
+	local top = self._risePos + Vector3.new(0, fromHeight, 0)
+	local pos = top:Lerp(self._risePos, e)
+	self:_placeAt(pos, math.pi * 0.6 + alpha * math.pi * 1.5)
 end
 
 -- The setRise alpha whose EASED height equals breachPose's fixed pose, computed
@@ -273,10 +384,41 @@ end
 -- doesn't depend on TweenService progressing). Generation counter so a second
 -- revealColors() call cleanly supersedes an in-flight one instead of two loops
 -- fighting over the same parts.
+-- Release the held MutationFX additions and hand the model to MutationMotionClient.
+-- Idempotent; part of every colour reveal, so every cut gets it on its reveal beat.
+function BrainrotRig:_showMutation()
+	if self._destroyed or self._mutationShown then
+		return
+	end
+	self._mutationShown = true
+	for _, h in ipairs(self._mutationHeld) do
+		if h.inst.Parent then
+			local a: any = h.inst
+			a[h.prop] = h.value
+		end
+	end
+	if self._mutation and MutationFX then
+		CollectionService:AddTag(self._model, "MutationBody")
+	end
+end
+
+-- The confirmed grant can carry a different mutation from the flight-time roll (a
+-- reveal-time fallback swap). Rebuilds the staged model with the confirmed look --
+-- MutationFX recolours are permanent on an instance, so a fresh clone is the only
+-- honest way -- and is a no-op once the creature has breached, like swapModel.
+function BrainrotRig:setMutation(mutation: string?): boolean
+	if self._destroyed or mutation == self._mutation then
+		return false
+	end
+	self._mutation = mutation
+	return self:swapModel(self._name)
+end
+
 function BrainrotRig:revealColors(seconds: number)
 	if self._destroyed then
 		return
 	end
+	self:_showMutation()
 	seconds = math.max(seconds, 0.05)
 	self._colorGen += 1
 	local myGen = self._colorGen
@@ -284,6 +426,12 @@ function BrainrotRig:revealColors(seconds: number)
 	local starts: { [BasePart]: Color3 } = {}
 	for part in pairs(targets) do
 		starts[part] = part.Color
+	end
+	local tintTargets = self._originalTint
+	local tintStarts: { [Instance]: Color3 } = {}
+	for decal in pairs(tintTargets) do
+		local art: any = decal
+		tintStarts[decal] = art.Color3
 	end
 
 	task.spawn(function()
@@ -296,6 +444,14 @@ function BrainrotRig:revealColors(seconds: number)
 				if part.Parent and not (self._angryEyes and self._angryEyes[part]) then
 					local s = starts[part] or target
 					part.Color = s:Lerp(target, e)
+				end
+			end
+			for decal, target in pairs(tintTargets) do
+				if decal.Parent then
+					-- bound to a local first: a statement STARTING with "(" is parsed as a
+					-- call on the previous line's expression, which is a load-time syntax error
+					local art: any = decal
+					art.Color3 = (tintStarts[decal] or target):Lerp(target, e)
 				end
 			end
 			if a >= 1 then
@@ -527,6 +683,8 @@ function BrainrotRig:swapModel(newName: string): boolean
 	local oldModel = self._model
 	local preservedAlpha = self._riseAlpha
 
+	self._mutationHeld = applyMutation(newModel, self._mutation)
+	self._mutationShown = false
 	self._model = newModel
 	self._pivot0 = pivot0
 	self._localOffset = localOffset
@@ -535,6 +693,7 @@ function BrainrotRig:swapModel(newName: string): boolean
 	self._risePos = self._splashPos + Vector3.new(0, finalExtents.Y * 0.5 - finalExtents.Y * 0.08, 0)
 	self._name = newName
 	self._originalColor = {}
+	self._originalTint = {}
 	self._colorsStored = false
 	-- The OLD model's eye parts are about to be destroyed: keeping their keys would
 	-- leave revealColors skipping dead parts and calmEyes writing to them.

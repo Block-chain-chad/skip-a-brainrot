@@ -28,16 +28,32 @@ local MaxwellQuest = require(ServerScriptService.Modules.MaxwellQuest)
 local TungQuest = require(ServerScriptService.Modules.TungQuest)
 local TundraQuest = require(ServerScriptService.Modules.TundraQuest)
 local SeasonPassHandler = require(ServerScriptService.Modules.SeasonPassHandler)
+-- Robux pass luck, folded into the access-luck sum below. Requires only
+-- GamepassConfig itself, so it adds no cycle here.
+local GamepassService = require(ServerScriptService.Modules.GamepassService)
 local MintRegistry = require(ServerScriptService.Modules.MintRegistry)
 local LimitedStock = require(ServerScriptService.Modules.LimitedStock)
 local Waves = require(ReplicatedStorage.Modules.BrainrotWaves)
 local BrainrotConfig = require(ReplicatedStorage.Modules.BrainrotConfig)
 local RockDesign = require(ReplicatedStorage.Modules.RockDesign)
-local DarrelService = require(ServerScriptService.Modules.DarrelService)
+local EmeraldService = require(ServerScriptService.Modules.EmeraldService)
 local PetHandler = require(ServerScriptService.Modules.PetHandler)
+-- How much the player can still CARRY. The catch path is where brainrots enter
+-- the game, so it is the one place the bag cap has to bite for it to mean
+-- anything at all -- see the note at the check inside revealCatch.
+local BagConfig = require(ReplicatedStorage.Modules.BagConfig)
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
 
 local remotes = ReplicatedStorage.Remotes
+
+-- [userId] = os.clock() of the last "your bag is full" line. A player at the cap
+-- keeps throwing -- that is how they find out -- and one toast per throw would
+-- bury every other message on their screen. 8s is long enough to stop the stack
+-- and short enough that the reason is still on screen when they wonder why.
+-- Keyed by UserId, matching lastThrow/inFlight below, and cleared in the same
+-- PlayerRemoving hook so it cannot hold a Player reference after they leave.
+local lastFullWarn = {}
+local FULL_WARN_COOLDOWN = 8
 local THROW_Z = 15
 local MAX_TOTAL_DISTANCE = 900
 
@@ -132,6 +148,24 @@ end
 
 local function skipStartZOf(zone)
 	return (zone and zone:GetAttribute("SkipStartZ")) or DEFAULT_SKIP_START_Z
+end
+
+-- WHICH WAY DOES A SKIP TRAVEL. Every zone until now threw toward +Z, because both
+-- existing ones do: the hub lake runs north up the valley and the tundra sea runs north
+-- too. The Silverwend causeway in World 3 is crossed by open water 2,300 studs wide, and
+-- the point of standing on it is to skip off EITHER side -- which +Z cannot express.
+--
+-- A zone may now carry SkipDirX / SkipDirZ. Absent them nothing changes at all: the
+-- old zones keep the exact +Z path, including the origin-clamping form of startFlat
+-- below, which is why this returns a second value rather than just a vector.
+local function skipDirOf(zone)
+	local dx = zone and zone:GetAttribute("SkipDirX")
+	local dz = zone and zone:GetAttribute("SkipDirZ")
+	if dx or dz then
+		local v = Vector3.new(dx or 0, 0, dz or 0)
+		if v.Magnitude > 0.01 then return v.Unit, true end
+	end
+	return Vector3.new(0, 0, 1), false
 end
 
 -- Cached rather than walked per throw: GameWorld has tens of thousands of descendants
@@ -490,7 +524,7 @@ end
 
 local function spawnSkippingStone(player, distance, rock, onLand, zone, cinematic)
 	local origin, dir = getThrowOrigin(player)
-	local horiz = Vector3.new(0, 0, 1) -- always toward the distance markers
+	local horiz, customDir = skipDirOf(zone) -- +Z unless the zone says otherwise
 	-- Both skip areas face +Z, so the path is still a straight run up the lane; what
 	-- differs per zone is how high the surface is and where the lane starts.
 	local surfaceY = surfaceYOf(zone)
@@ -503,10 +537,26 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone, cinemati
 		(rock and rock.Color) or Color3.fromRGB(105, 100, 96))
 	stone.Name = "ThrownRock"
 	stone:PivotTo(CFrame.new(origin))
+	-- 2026-08-10: lets the THROWER's client find this exact stone, hide it
+	-- locally and fly a render-rate clone in its place -- an anchored part
+	-- moved by server PivotTo reaches clients at replication rate with no
+	-- interpolation, which is why the rock stuttered against the smooth
+	-- tracking camera (user capture). See ClientMain "Client-smoothed stone".
+	stone:SetAttribute("ThrowerUserId", player.UserId)
 	stone.Parent = Workspace
 
 	-- start the skip path just past the dock's front edge so the rock skips on OPEN water, never under the deck floor
-	local startFlat = Vector3.new(origin.X, surfaceY, math.max(origin.Z, skipStartZOf(zone)))
+	-- A directional zone starts its path a set distance out from the ZONE, so a throw off
+	-- the bridge clears the deck and the parapets before the first bounce. The original
+	-- form clamps the thrower's own Z forward to the zone's SkipStartZ, which only makes
+	-- sense when the path runs along +Z.
+	local startFlat
+	if customDir then
+		local out2 = zone.Position + horiz * (zone:GetAttribute("SkipStartOffset") or 24)
+		startFlat = Vector3.new(out2.X, surfaceY, out2.Z)
+	else
+		startFlat = Vector3.new(origin.X, surfaceY, math.max(origin.Z, skipStartZOf(zone)))
+	end
 	-- fewer, clearer skips: aim for ~one skip every ~18 studs, 2..8 contacts
 	local nContacts = math.clamp(math.floor(distance / 18) + 1, 2, 8)
 	local points = { origin }
@@ -525,7 +575,11 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone, cinemati
 	-- Splash k happens at k*segTime after this fires (see the loop below), and the
 	-- client receives this payload and hears each splash both one-way-late, so the
 	-- latency cancels and a client-side tick at k*segTime lands on the splash.
-	remotes.StoneThrown:FireClient(player, origin, points[#points], totalTime, distance, nContacts, segTime)
+	-- (2026-08-10) the trailing boolean tells the thrower's client-smoothed
+	-- stone to mirror the cinematic handoff below: the server stone is
+	-- DESTROYED at the final contact instead of settling, and the clone has
+	-- to do the same or a ghost rock floats through the emergence.
+	remotes.StoneThrown:FireClient(player, origin, points[#points], totalTime, distance, nContacts, segTime, cinematic ~= nil)
 
 	-- The SAME moment, but to EVERYONE. Only this function knows the arc's timing and
 	-- where it ends, so the fields the client cannot derive are appended here rather
@@ -630,6 +684,7 @@ Players.PlayerRemoving:Connect(function(player)
 	inFlight[player.UserId] = nil
 	flightToken[player.UserId] = nil
 	pendingBand[player.UserId] = nil
+	lastFullWarn[player.UserId] = nil
 end)
 
 function ThrowHandler.Init()
@@ -689,6 +744,29 @@ function ThrowHandler.Init()
 			if r then r:FireClient(player, { Success = false, Message = "Claim a base first! Walk onto an available plot." }) end
 			return
 		end
+		-- === FULL BAG REFUSES THE THROW ITSELF (2026-08-24, owner direction) =====
+		-- Previously the throw flew and only the CATCH was refused, down in
+		-- revealCatch. That is a worse deal than it sounds: the player spends the
+		-- charge, watches the skip, and is told at the end that they got nothing.
+		-- Owner's call is that a full bag simply cannot skip, so it is refused up
+		-- here, before the stone exists and before the throw is counted.
+		--
+		-- ClientMain greys the button out on the same attribute, so in normal play
+		-- this branch never runs -- it is the authority behind that, not the thing
+		-- the player is expected to hit. The revealCatch check STAYS: a gift, a
+		-- trade or a booth purchase can fill the last slot while the stone is still
+		-- in the air, and that race has to land somewhere safe.
+		if not BagConfig.HasBrainrotSpace(data, 1) then
+			local seen = lastFullWarn[player.UserId]
+			if not seen or now - seen >= FULL_WARN_COOLDOWN then
+				lastFullWarn[player.UserId] = now
+				local r = remotes:FindFirstChild("PurchaseResult")
+				if r then
+					r:FireClient(player, { Success = false, Message = BagConfig.BrainrotFullMessage(data) })
+				end
+			end
+			return
+		end
 		if typeof(power) ~= "number" then return end
 		if power ~= power then return end
 		power = math.clamp(power, 0, 1)
@@ -697,13 +775,28 @@ function ThrowHandler.Init()
 		local band = pendingBand[player.UserId]
 		pendingBand[player.UserId] = nil   -- single-use: no replay across throws
 		local isAuto = auto and true or false
-		-- An auto throw can never be perfect, whatever power it happens to land on. Without
-		-- this, randomising the auto release would still hand it the occasional perfect and
-		-- an all-night session would collect plenty of them.
-		local perfect = (not isAuto)
-			and band ~= nil
+		-- AUTO ALWAYS LANDS PERFECT (2026-08-15, owner direction), reversing the rule that
+		-- refused it one outright. ClientMain now aims the auto release at the middle of the
+		-- issued band, but the grant is made HERE rather than left to that release landing
+		-- inside it: "every time" must not depend on frame timing, and the charge bar can
+		-- overshoot a 0.07-wide band between two task.wait ticks.
+		--
+		-- OWNERSHIP IS NOW CHECKED, and that check is load-bearing rather than tidy. Until
+		-- this change the auto flag only ever PENALISED a throw (AUTO_LUCK_MULT 0.55,
+		-- AUTO_DISTANCE_MULT 0.80), so a modified client had no reason to lie about it and
+		-- nothing validated it. A guaranteed perfect is the first thing the flag GRANTS,
+		-- which makes it the first thing worth forging -- so an auto claim from someone who
+		-- does not own the pass falls through to ordinary band judging and gains nothing.
+		--
+		-- Auto is still the weaker mode overall: it keeps both its multipliers, so a perfect
+		-- auto throw nets 0.80 x 1.1 distance and 0.55 x 1.075 luck against a manual
+		-- perfect's 1.1 and 1.075.
+		local autoPerfect = isAuto and GamepassService.Owns(player, "AutoSkip")
+		local perfect = autoPerfect or (
+			band ~= nil
 			and (now - band.issuedAt) <= BAND_MAX_AGE
 			and power >= band.min and power <= band.max
+		)
 
 		if not isInThrowZone(player.Character) then return end
 		-- Captured HERE, at the last validation, rather than at launch: the reveal path
@@ -731,12 +824,41 @@ function ThrowHandler.Init()
 			end
 		end
 
-		local rock = rockById[data.EquippedRock] or rockById["Pebble"]
+		-- WHICH WORLD IS THIS THROW IN. Needed here as well as at the roll further down,
+		-- because a rock is only throwable on its own world's shelf: walk into the tundra
+		-- holding VoidHeart and you throw the tundra's stone, not that one.
+		--
+		-- THIS is the authority, not data.EquippedRock. ShopHandler.SyncRockToWorld keeps
+		-- the equipped rock in step so the HUD and the stone on your back match, but it
+		-- samples on a 2s timer and a throw can land inside that window -- and a client
+		-- could fire EquipRock and ThrowRequest back to back on purpose.
+		local throwWorld = PlayerDataManager.PlayerWorld(player)
+		local rock = WorldProgression.BestOwnedIn(throwWorld, data.OwnedRocks)
+		if WorldProgression.StocksRock(throwWorld, data.EquippedRock) then
+			rock = rockById[data.EquippedRock] or rock
+		end
 		local variance = math.random(-2, 2)
 		local distance = math.clamp(power * rock.MaxDistance
 			* UpgradeConfig.Mult(data.Upgrades, "Power")
 			* RebirthConfig.PowerMult(data.Rebirths)          -- prestige throw power
 			* PlayerDataManager.BoostMult(data, "Power")      -- timed daily-wheel boost
+			-- Super Arm (Robux pass), wired 2026-08-09. GamepassService has exposed
+			-- PowerMult since it shipped and nothing multiplied by it, so that pass would
+			-- have taken Robux and changed nothing at all.
+			--
+			-- MULTIPLICATIVE here, unlike luck, because that is what this chain already is
+			-- -- and it is bounded: MAX_TOTAL_DISTANCE clamps the result a line below, so
+			-- the pass buys you the cap sooner rather than a distance nobody else can
+			-- reach. Worth knowing it is a real power spike even so: distance is what
+			-- unlocks the higher rarity bands.
+			* GamepassService.PowerMult(player)
+			-- The "Throw Power" pet ability (2026-08-22): Rock Nose, Bramble Hurl,
+			-- Mudslinger, Whipcrack, Fanfare. Multiplicative because that is what this
+			-- whole chain is, and bounded by the same MAX_TOTAL_DISTANCE clamp one line
+			-- below -- so like the Super Arm pass it buys the cap sooner rather than a
+			-- distance nobody else can reach. Real power even so: distance is what
+			-- unlocks the higher rarity bands.
+			* PetHandler.StatMult(player, "Power")
 			* (perfect and PERFECT_DISTANCE_MULT or 1) + variance, 0, MAX_TOTAL_DISTANCE)
 
 		-- AFTER the clamp, deliberately -- see AUTO_DISTANCE_MULT's comment. Inside it, a
@@ -777,6 +899,22 @@ function ThrowHandler.Init()
 			+ (OfferingConfig.LuckMult(data.Offerings) - 1)
 			+ (PlayerDataManager.BoostMult(data, "Luck") - 1)
 			+ petLuckBonus
+			-- EQUIPPED-PET "Rarity Luck" ABILITY (2026-08-22). This is NOT the pet Luck
+			-- column: that one has always fed the MUTATION roll further down and still
+			-- does. This is the signature ability carried by Leaf Frog, Strigolino
+			-- Hootini, Corvacchio Beccarino, Hollow Owl and Muschione Cornaluna, and it
+			-- is the first pet term ever to reach ACCESS luck. Additive, like every
+			-- other source in this sum.
+			+ (PetHandler.StatMult(player, "RarityLuck") - 1)
+			-- Robux passes (2x Luck, VIP). Wired 2026-08-09 -- GamepassService has exposed
+			-- LuckMult since it shipped and nothing read it, so those passes took money
+			-- and did nothing. Additive like every other source, so a 2x pass is +1.0 onto
+			-- the sum rather than doubling the total: paying cannot outrun the stack.
+			--
+			-- ACCESS luck only, not the mutation roll further down. "Double your rarity
+			-- luck on throws" is what the pass says it does, and folding it into both
+			-- sums would pay it out twice for one purchase.
+			+ (GamepassService.LuckMult(player) - 1)
 		-- Perfect and auto stay as per-throw MULTIPLIERS on the summed total: they are throw
 		-- quality, not a stacked source. (Folding auto into the sum would erase the AFK penalty --
 		-- -0.45 off a ~15 total is nothing; x0.55 on the total is not.)
@@ -791,8 +929,9 @@ function ThrowHandler.Init()
 		-- WHICH WORLD IS THIS THROW IN. The tundra has its own ladder and its own pool, so
 		-- the curve, the pick and the pity bands all have to be asked for that world.
 		-- PlayerWorld returns BoundsGuard's region name, which is what WorldProgression
-		-- is keyed on.
-		local throwWorld = PlayerDataManager.PlayerWorld(player)
+		-- is keyed on. throwWorld is resolved further up, where the stone is picked for
+		-- this world -- the same answer has to serve both or a throw could roll one
+		-- world's ladder with the other world's rock.
 		local curve = RarityCurve.For(throwWorld)
 		-- tier name -> index within THIS world's ladder. The module-level tierIndexByName
 		-- is the valley's, and the tundra's bands are not the same distances.
@@ -836,6 +975,58 @@ function ThrowHandler.Init()
 		-- Valley: Secret Pete. Tundra: the ten Glitched. Same mechanism, different table.
 		local pickIndex = (rolledTier >= curve.TopTier) and curve.ApexIndex or rolledTier
 		local brainrotEntry, tier = RarityRoll.PickInTier(pickIndex, false, throwWorld)
+
+		--[[ === FLAT-ODDS NAMES, OUTSIDE THE DISTANCE LADDER ===
+		AnyTier entries (today: Chim) get ONE roll per throw at their own fixed odds,
+		whatever tier the throw actually reached. This is the whole point of the flag:
+		the tier walk in PickInTier only rolls a tier's fixed entries once it reaches
+		that tier, so before this a player who could not throw Mythic distance had a
+		ZERO chance at Chim rather than a long one -- no rock and no luck bought them a
+		ticket. Now the rock and the distance decide the ordinary catch, and this rolls
+		beside it regardless.
+
+		Run AFTER PickInTier and allowed to overwrite it, so a winner always lands even
+		if the ordinary pick already produced something.
+
+		LUCK ONLY EVER HELPS. accessLuck is clamped to >= 1 before it multiplies, so the
+		fixed chance is a FLOOR: a bad rock, foul weather or the AFK penalty can never
+		drag it under. It is also capped, because accessLuck is an additive stack that
+		routinely passes 15 on a developed account -- ungated, that would turn 1-in-250
+		into about 1-in-17 and hand the endgame a one-of-a-kind item every few minutes.
+		ANY_TIER_LUCK_CAP is the dial: 3 means the best possible odds are 1 in ~83.
+
+		RETIREMENT IS PER PLAYER. RetiredBy names a numeric save field and RetiredAt the
+		value at which this name stops being obtainable -- Chim retires at ChimQuest 3,
+		the moment it is handed to Gianluca. It is checked HERE rather than in
+		RarityRoll because those pools are cached per world and shared by everyone on
+		the server: retiring it in there would delete the Chim for every other player
+		on the server the instant one person finished the quest. ]]
+		local ANY_TIER_LUCK_CAP = 3
+		for _, entry in ipairs(RarityRoll.AnyTierEntries(throwWorld)) do
+			local retired = entry.RetiredBy
+				and (tonumber(data[entry.RetiredBy]) or 0) >= (entry.RetiredAt or 1)
+			-- Unique names are also capped at one per player, and that cap is enforced at
+			-- reveal time below. Skipping here as well saves rolling a winner that would
+			-- only be thrown away, and keeps the odds honest for anyone watching them.
+			local alreadyOwned = false
+			if uniqueByName[entry.Name] then
+				for _, owned in ipairs(data.Brainrots) do
+					if owned.Name == entry.Name then alreadyOwned = true; break end
+				end
+			end
+			if not retired and not alreadyOwned then
+				local luckMult = math.clamp(accessLuck, 1, ANY_TIER_LUCK_CAP)
+				if math.random() < entry.FixedChance * luckMult then
+					local anyTier = RarityRoll.TierByName(entry.Rarity, throwWorld)
+					-- No such tier in this world's ladder means there is no honest way to
+					-- reveal it; leave the ordinary catch alone rather than invent a tier.
+					if anyTier then
+						brainrotEntry, tier = entry, anyTier
+						break
+					end
+				end
+			end
+		end
 		-- Empty tier: never hand out a nil catch. Kept as the last line of defence --
 		-- the client now refuses to charge at a dock whose world has no roster (see
 		-- worldHasCatches / the CatchesEnabled attribute above), so in normal play this
@@ -897,6 +1088,9 @@ function ThrowHandler.Init()
 		local mutBoost = 1
 			+ (rebirthLuck - 1)                     -- +0.07 per rebirth
 			+ (PetHandler.LuckMult(player) - 1)     -- equipped egg pets (already additive)
+			-- the "Mutation Luck" SIGNATURE ABILITY, stacked on top of the Luck column
+			-- above: Warty Bloom, Croakspill, Moonlit Dust, Heartwood Bloom (2026-08-22)
+			+ (PetHandler.StatMult(player, "MutationLuck") - 1)
 			+ math.max(weatherMut - 1, 0)           -- event mutation bonus, same for everyone
 		-- the live event's own mutation gets first refusal, then the base table (scaled by boost)
 		local mutation = Mutations.Roll(mutBoost, ReplicatedStorage:GetAttribute("WeatherName"))
@@ -906,7 +1100,13 @@ function ThrowHandler.Init()
 		-- stone is still airborne so the FINAL skip can play as the bonk. Every
 		-- input to the roll (weatherMut) was already read above at this moment,
 		-- so the odds are byte-identical -- the roll just happens 1-4s earlier.
-		local sizeVariant = Sizes.Roll(weatherMut)
+		-- SIZE LUCK is a pet ability seam (2026-08-22). Sizes.Roll takes ONE boost and
+		-- scales every size's Chance by it, so the weather bonus and the pets' Size
+		-- ability have to arrive as a single number. MULTIPLIED rather than summed:
+		-- both are already multipliers against a base of 1, and the two are
+		-- independent sources (an event is live or it is not, regardless of loadout).
+		-- Carriers: Slow Bloom, Amber Swell, Longshank, Wildgrowth, Stiltgrowth.
+		local sizeVariant = Sizes.Roll(weatherMut * PetHandler.StatMult(player, "SizeLuck"))
 		-- TEST HOOK, mirror of ForceNextCatch above: consumed exactly once.
 		do
 			local wantSize = ServerStorage:GetAttribute("ForceNextSize")
@@ -952,12 +1152,45 @@ function ThrowHandler.Init()
 		-- throw progress counts right away; the catch is granted + revealed only once
 		-- the stone finishes skipping and settles in the water (see onLand below).
 		SeasonPassHandler.Notify(player, "Throw", 1)
-		DarrelService.Notify(player, "Throw", 1)
-		if perfect then SeasonPassHandler.Notify(player, "Perfect", 1) end
+		EmeraldService.Notify(player, "Throw", 1)
+		if perfect then
+			SeasonPassHandler.Notify(player, "Perfect", 1)
+			-- and the weekly slate, which has two Perfect quests on it. Deliberately
+			-- inside the `perfect` branch and therefore unreachable from an auto
+			-- throw -- `perfect` is forced false for those a few hundred lines up --
+			-- so these are the weekly quests an AFK session cannot farm.
+			EmeraldService.Notify(player, "Perfect", 1)
+			-- Skill pays gems directly (2026-08-18): a small, per-day-capped emerald bonus
+			-- for landing the sweet-spot band. Same `perfect` guard, so auto/AFK earns none.
+			EmeraldService.AwardPerfect(player)
+		end
 
 		local function revealCatch(splashPos)
 			local liveData = PlayerDataManager.Get(player)
 			if not liveData then return end -- player left mid-flight
+
+			-- === BRAINROT BAG SPACE (2026-08-20) ==============================
+			-- FIRST thing in the reveal, and deliberately above the mint and the
+			-- limited-stock claim below: both of those are IRREVERSIBLE side
+			-- effects on shared state. Claiming one of five Petes and then
+			-- discovering the bag is full would burn a global one-off on a catch
+			-- that never happened; minting a serial would leave a gap in the run.
+			--
+			-- The THROW still counted -- quest and emerald progress fired while
+			-- the stone was in the air, which is right: they measure throws, not
+			-- holdings. What is lost is the catch, and the player is told why.
+			if not BagConfig.HasBrainrotSpace(liveData, 1) then
+				local now = os.clock()
+				local seen = lastFullWarn[player.UserId]
+				if not seen or now - seen >= FULL_WARN_COOLDOWN then
+					lastFullWarn[player.UserId] = now
+					local r = remotes:FindFirstChild("PurchaseResult")
+					if r then
+						r:FireClient(player, { Success = false, Message = BagConfig.BrainrotFullMessage(liveData) })
+					end
+				end
+				return
+			end
 
 			-- === hard mint cap: reserve a slot BEFORE anything is granted ===
 			-- Claimed here rather than at roll time for two reasons: this is the moment the
@@ -1020,7 +1253,7 @@ function ThrowHandler.Init()
 			liveData.Discovered = liveData.Discovered or {}
 			liveData.Discovered[brainrotEntry.Name] = true
 			SeasonPassHandler.NotifyCatch(player, tier.Name)
-			if tierIndexByName[tier.Name] and tierIndexByName[tier.Name] >= 4 then DarrelService.Notify(player, "Catch", 1) end
+			if tierIndexByName[tier.Name] and tierIndexByName[tier.Name] >= 4 then EmeraldService.Notify(player, "Catch", 1) end
 			-- Maxwell's step 1 counts Secret-rarity catches. Guarded so a quest hiccup
 			-- can never break the catch itself.
 			pcall(MaxwellQuest.NotifyCatch, player, tier.Name)

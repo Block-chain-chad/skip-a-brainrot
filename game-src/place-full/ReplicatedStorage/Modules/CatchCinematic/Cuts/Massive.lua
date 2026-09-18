@@ -8,15 +8,11 @@
 -- underwater silhouette/eyes -> slow physical emergence -> huge splash -> camera
 -- pulls far enough back to establish the enormous scale -> MASSIVE -> aftermath ->
 -- restore. Intimidating, not comedic: no meme layer, no second bonk.
-local Workspace = game:GetService("Workspace")
-
 local folder = script.Parent.Parent
 local Config = require(folder:WaitForChild("Config"))
 local CutKit = require(folder:WaitForChild("CutKit"))
 local Types = require(folder:WaitForChild("Types"))
-local WaterFX = require(folder:WaitForChild("WaterFX"))
-local RockRig = require(folder:WaitForChild("RockRig"))
-local BrainrotRig = require(folder:WaitForChild("BrainrotRig"))
+local Shared = require(script.Parent:WaitForChild("Shared"))
 type Run = Types.Run
 
 local Massive = {}
@@ -39,33 +35,6 @@ Massive.BEATS = {
 Massive.EMERGENCE_RISE_TO = 0.5     -- fraction of the rise done by the end of `emergence`
 Massive.RIPPLE_SLOW_FRAC = 0.35     -- ripple beat: how far the train gets by its end
 Massive.SHADOW_AT_SILHOUETTE = 1.0  -- suctionAndShadow progress reached by the silhouette's end
-
--- ===== helpers =====
-local function calmAngry(run: Run)
-	if run.brain then
-		run.brain:calmEyes()
-	end
-	if run.model then
-		local rim = run.model:FindFirstChild("CinematicAura")
-		if rim and rim:IsA("Highlight") then
-			rim.OutlineColor = run.rarityColor
-		end
-	end
-end
-
--- Aim the creature so the rise's slow turn (0.6*pi inside setRise) lands square on
--- the camera.
-local function faceCamera(run: Run)
-	if not run.brain then
-		return
-	end
-	if run.heroEye == nil then
-		local eye, focus = CutKit.heroFraming(run)
-		run.heroEye, run.heroFocus = eye, focus
-	end
-	local aim = (run.heroEye or (run.surface + run.horiz * -40)) - run.surface
-	run.brain:setFacing(math.atan2(aim.X, aim.Z) - math.pi * 0.6)
-end
 
 -- ===== beat handlers =====
 local function enterBonk(run: Run)
@@ -127,7 +96,7 @@ end
 local function enterSilhouette(run: Run)
 	if run.brain then
 		run.brain:stageBelow()
-		faceCamera(run)
+		Shared.faceCamera(run)
 		-- glowing eyes under the surface where the model has eye parts; the aura rim
 		-- carries the read for the models that don't (enterEmergence).
 		run.eyesApplied = run.brain:angryEyes()
@@ -151,17 +120,8 @@ local function enterEmergence(run: Run)
 		run.brain:markBreached()
 		run.breached = true
 	end
-	if run.model then
-		pcall(function()
-			local rim = Instance.new("Highlight")
-			rim.Name = "CinematicAura"
-			rim.FillTransparency = 1
-			rim.OutlineColor = run.eyesApplied and run.rarityColor or Color3.fromRGB(255, 45, 25)
-			rim.OutlineTransparency = 0.25
-			rim.DepthMode = Enum.HighlightDepthMode.Occluded
-			rim.Parent = run.model
-		end)
-	end
+	-- RED when there were no eye parts to redden: the rim carries the anger instead.
+	Shared.rimHighlight(run, run.eyesApplied and run.rarityColor or Color3.fromRGB(255, 45, 25))
 	if run.post then
 		run.post:flash()
 	end
@@ -214,7 +174,7 @@ local function updateScale(run: Run, p: number)
 end
 
 local function enterBanner(run: Run)
-	calmAngry(run)
+	Shared.calmAngry(run)
 	if run.hype then
 		run.hype:banner(run.cut.bannerText, run.rarityColor)
 		run.hype:nameText(run.displayName)
@@ -241,52 +201,6 @@ local function enterAftermath(run: Run)
 	end
 end
 
-local function enterHandoff(run: Run)
-	calmAngry(run)
-	if run.shake then
-		run.shake:setSustain(0)
-	end
-	if run.hype then
-		run.hype:hideSkipPrompt()
-	end
-	if run.post then
-		run.post:easeBack(run.postCfg.easeBackSeconds or 1.2)
-	end
-	if run.audio then
-		run.audio:play("cardWhoosh", run.spectator and { where = run.surface } or nil)
-		run.audio:restoreAmbient(0.6 * run.stretch)
-	end
-	local seconds = CutKit.beatSeconds(run) * 0.42
-	if run.spectator then
-		return
-	end
-	if run.brain then
-		local target = Vector2.new(0.86, 0.92)
-		if run.hype then
-			local px = run.hype:bagTarget()
-			local cam = Workspace.CurrentCamera
-			local vs = cam and cam.ViewportSize or Vector2.new(1280, 720)
-			if vs.X > 0 and vs.Y > 0 then
-				target = Vector2.new(math.clamp(px.X / vs.X, 0, 1), math.clamp(px.Y / vs.Y, 0, 1))
-			end
-		end
-		run.brain:compressAndStreak(target, seconds, function()
-			if run.hype then
-				run.hype:cardArrive(run.rarityColor)
-			end
-		end)
-	end
-	if run.cam then
-		run.cam:returnToPlayer((Config.CAMERA.returnBlendSeconds or 0.8) * run.stretch, nil)
-	end
-end
-
-local function updateHandoff(run: Run, p: number)
-	if run.spectator and run.brain then
-		run.brain:setRise(1 - p)
-	end
-end
-
 Massive.handlers = {
 	bonk       = { enter = enterBonk },
 	still      = { enter = enterStill },
@@ -297,14 +211,10 @@ Massive.handlers = {
 	scale      = { enter = enterScale, update = updateScale },
 	banner     = { enter = enterBanner },
 	aftermath  = { enter = enterAftermath },
-	handoff    = { enter = enterHandoff, update = updateHandoff },
+	handoff    = Shared.handoff,
 }
 
-function Massive.everyFrame(run: Run)
-	if run.rock then
-		run.rock:update(run.t)
-	end
-end
+Massive.everyFrame = Shared.everyFrameRock
 
 -- Skip lands on `banner`: everything the skipped beats would have left behind, set
 -- directly under the darkest frame of the dip. Never a hard cut.
@@ -316,7 +226,7 @@ function Massive.onSkip(run: Run)
 	if run.water then
 		run.water:cleanup()
 	end
-	calmAngry(run)
+	Shared.calmAngry(run)
 	if run.brain then
 		run.brain:markBreached()
 		run.breached = true
@@ -339,35 +249,9 @@ function Massive.onSkip(run: Run)
 	end
 end
 
-function Massive.build(run: Run): boolean
-	local stage = run.stage :: Folder
-	local brain = BrainrotRig.new(stage, run.name, run.size or "Massive", run.surface)
-	if not brain then
-		warn("[Cuts.Massive] declining: no model for '" .. tostring(run.name) .. "'")
-		return false
-	end
-	run.brain = brain
-	CutKit.track(run, function()
-		brain:cleanup()
-	end)
-	CutKit.refreshGeometry(run)
-	if run.payload.RockId ~= nil then
-		local rock = RockRig.new(Config.ROCK, stage, run.payload.RockId, run.payload.RockColor, run.surface, run.rng)
-		run.rock = rock
-		CutKit.track(run, function()
-			rock:cleanup()
-		end)
-	end
-	local water = WaterFX.new(run.waterCfg, Config.PARTICLES, stage, run.surface, run.quality, run.rng)
-	run.water = water
-	CutKit.track(run, function()
-		water:cleanup()
-	end)
-	return true
+Massive.build = function(run: Run): boolean
+	return Shared.build(run, "Massive")
 end
-
-Massive.calmAngry = calmAngry
-Massive.faceCamera = faceCamera
 Massive.name = "Massive"
 Massive.beats = Massive.BEATS
 Massive.revealBeat = "emergence"

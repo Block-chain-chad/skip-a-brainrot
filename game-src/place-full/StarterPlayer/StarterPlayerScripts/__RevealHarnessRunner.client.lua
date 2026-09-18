@@ -69,4 +69,57 @@ task.spawn(function()
 		task.wait(0.1)
 	end
 end)
+-- AUTO-FISH (Studio only): while workspace attribute HarnessAutoFish is true, answer every
+-- ice-fishing Minigame step with a reel at the middle of the green band, so a landed fish
+-- can be produced without hand-timed clicks. The server trusts the reported fraction.
+do
+	local remotes = ReplicatedStorage:WaitForChild("Remotes")
+	local state = remotes:WaitForChild("IceFishingState", 10)
+	local reel = remotes:WaitForChild("IceFishingReel", 10)
+	if state and reel then
+		-- FISH TRACE: every IceFishingState payload, one line each, appended to HarnessFishLog
+		-- (cleared by setting it to ""), so a run can be read back without a screen.
+		state.OnClientEvent:Connect(function(p)
+			if type(p) ~= "table" then return end
+			local keys = {}
+			for k, v in pairs(p) do
+				local s
+				if type(v) == "table" then
+					s = "{" .. tostring(v.Name) .. "/" .. tostring(v.Rarity) .. "/" .. tostring(v.Mutation) .. "/" .. tostring(v.Size) .. "}"
+				else
+					s = tostring(v)
+				end
+				table.insert(keys, tostring(k) .. "=" .. s)
+			end
+			table.sort(keys)
+			local prev = workspace:GetAttribute("HarnessFishLog")
+			workspace:SetAttribute("HarnessFishLog", (type(prev) == "string" and prev or "")
+				.. string.format("%.2f ", os.clock() % 1000) .. table.concat(keys, " ") .. "\n")
+		end)
+		-- REMOTE FIRE: HarnessRemote = JSON { name = "IceFishingCast", args = { 0.8 } } fires
+		-- Remotes[name]:FireServer(args...) from this real LocalScript (the exec thread cannot).
+		workspace:GetAttributeChangedSignal("HarnessRemote"):Connect(function()
+			local req = workspace:GetAttribute("HarnessRemote")
+			if type(req) ~= "string" or req == "" then return end
+			workspace:SetAttribute("HarnessRemote", "")
+			local ok, err = pcall(function()
+				local spec = HttpService:JSONDecode(req)
+				local r = remotes:FindFirstChild(spec.name)
+				assert(r and r:IsA("RemoteEvent"), "no RemoteEvent " .. tostring(spec.name))
+				r:FireServer(table.unpack(spec.args or {}))
+			end)
+			workspace:SetAttribute("HarnessRemoteLog", (ok and "fired " or "ERROR ") .. tostring(ok and req or err))
+		end)
+		state.OnClientEvent:Connect(function(p)
+			if type(p) ~= "table" or not p.Minigame then return end
+			if workspace:GetAttribute("HarnessAutoFish") ~= true then return end
+			local mid = ((p.GreenMin or 0.4) + (p.GreenMax or 0.6)) / 2
+			task.delay(0.35, function()
+				if workspace:GetAttribute("HarnessAutoFish") == true then
+					reel:FireServer(mid)
+				end
+			end)
+		end)
+	end
+end
 print("[__RevealHarnessRunner] armed")
