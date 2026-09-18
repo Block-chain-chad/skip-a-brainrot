@@ -58,7 +58,14 @@ function Shared.faceCamera(run: Run)
 		run.heroEye, run.heroFocus = eye, focus
 	end
 	local aim = (run.heroEye or (run.surface + run.horiz * -40)) - run.surface
-	run.brain:setFacing(math.atan2(aim.X, aim.Z) - math.pi * 0.6)
+	-- FACE TO FACE (owner, 2026-09-18). Every roster model is authored facing -Z
+	-- (BrainrotThumb's convention, and all 218 template pivots are pure yaws), and
+	-- BrainrotRig poses as pivot0 * Angles(0, yaw, 0), so the posed front is
+	-- (-sin yaw, 0, -cos yaw): yaw = atan2(-aim.X, -aim.Z) points it AT the camera.
+	-- The old atan2(aim.X, aim.Z) pointed it dead away (measured 180 degrees at the
+	-- banner on every cut). The 0.6*pi is setRise's part-turn, subtracted here so the
+	-- creature finishes its emergence squared up to the player rather than starting so.
+	run.brain:setFacing(math.atan2(-aim.X, -aim.Z) - math.pi * 0.6)
 end
 
 local function enterHandoff(run: Run)

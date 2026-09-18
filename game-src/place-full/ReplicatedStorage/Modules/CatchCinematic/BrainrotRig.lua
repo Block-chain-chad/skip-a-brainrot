@@ -313,10 +313,13 @@ function BrainrotRig:setRise(alpha: number)
 end
 
 -- Pure function of alpha, the sky path: 0 = `fromHeight` studs ABOVE the rise pose,
--- 1 = the rise pose itself, with a 0.75-turn yaw and a sine ease-in-out. Used
+-- 1 = the rise pose itself, with ONE FULL turn of yaw and a sine ease-in-out. Used
 -- forward for God's descent and backward (1 - alpha) for Massive God's ascension.
--- Reveals the colours on first use: a creature in a beam of light is never a
--- silhouette.
+-- A full turn (was 0.75) so alpha 1 lands on exactly the risen pose's yaw: the
+-- creature arrives face to face with the player (owner, 2026-09-18), and Massive
+-- God's ascension starts from the pose it was already standing in instead of
+-- snapping 18 degrees. Reveals the colours on first use: a creature in a beam of
+-- light is never a silhouette.
 function BrainrotRig:setDescent(alpha: number, fromHeight: number)
 	if self._destroyed then
 		return
@@ -331,7 +334,7 @@ function BrainrotRig:setDescent(alpha: number, fromHeight: number)
 	local e = 0.5 - 0.5 * math.cos(math.pi * alpha)
 	local top = self._risePos + Vector3.new(0, fromHeight, 0)
 	local pos = top:Lerp(self._risePos, e)
-	self:_placeAt(pos, math.pi * 0.6 + alpha * math.pi * 1.5)
+	self:_placeAt(pos, math.pi * 0.6 + alpha * math.pi * 2)
 end
 
 -- The setRise alpha whose EASED height equals breachPose's fixed pose, computed

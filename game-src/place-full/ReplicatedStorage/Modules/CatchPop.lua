@@ -39,7 +39,13 @@ local PRESETS: { [string]: Preset } = {
 	Epic      = { length = 1.35, size = 136, scaleFrom = 0.45, overshoot = 1.20, bounce = 0.14, burst = 20, burstSpread = 75, glow = 0.65, shockwave = true,  rotation = 8,  uiBump = 0.03, dim = 0,    orbit = 0,  textAt = 0.32, textSlam = true,  floatAmp = 3, glowPulse = false },
 	Legendary = { length = 1.30, size = 144, scaleFrom = 0.40, overshoot = 1.18, bounce = 0.12, burst = 24, burstSpread = 85, glow = 0.80, shockwave = true,  rotation = 0,  uiBump = 0.03, dim = 0.12, orbit = 10, textAt = 0.40, textSlam = true,  floatAmp = 3, glowPulse = true },
 }
-local SPIN = 70          -- deg/s, same as the old CatchReveal
+-- FACE TO FACE (owner, 2026-09-18): the model opens dead-on to the player and stays
+-- there, with a slow +/-SWAY_DEG showcase sway instead of the old CatchReveal's 70 deg/s
+-- spin (which showed the back for half of every turn). One sway cycle is longer than
+-- any pop, so it never returns past dead-on before the pop closes.
+local SWAY_DEG = 18
+local SWAY_PERIOD = 2.4  -- seconds per full sway cycle
+local FRONT_DIR = Vector3.new(0, 0.45, -1).Unit   -- BrainrotThumb.DEFAULT_DIR's elevation, no side offset
 local FOV = 30
 local TOP_Y = 78         -- just under the top bar, same anchor CatchReveal used
 local FADE_OUT = 0.16
@@ -136,9 +142,9 @@ local function buildViewport(rec: { [string]: any }, preset: Preset, grant: Gran
 	cam.Parent = vp
 	vp.CurrentCamera = cam
 	rec.viewport = vp
-	local base = BrainrotThumb.DEFAULT_DIR
 	return function(t: number)
-		local dir = CFrame.Angles(0, math.rad(SPIN) * t, 0) * base
+		local yaw = math.rad(SWAY_DEG) * math.sin(2 * math.pi * t / SWAY_PERIOD)
+		local dir = CFrame.Angles(0, yaw, 0) * FRONT_DIR
 		cam.CFrame = CFrame.lookAt(centre + dir * dist, centre)
 	end
 end

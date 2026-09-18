@@ -513,3 +513,10 @@ Each step leaves the game playable and the harness green before the next starts.
 - **`godChoir`, `beamRise`, `secretHum`, `massiveRumble`, `roar`/`massiveRoar` are placeholder
   ids** (TODO in `Config.ASSETS`), and the God real-throw test consumed one of Secret Pete's
   five mint serials (MintRegistry does not roll back on entry deletion).
+- **Face to face (owner, 2026-09-18).** The revealed creature must face the player. Roster
+  models are authored facing -Z and every template pivot is a pure yaw, so
+  `Shared.faceCamera` now sets `atan2(-aim.X, -aim.Z) - 0.6π` (the old `atan2(aim.X, aim.Z)`
+  measured 180° off at the banner on every cut); `BrainrotRig:setDescent` turns one full
+  turn (was 0.75) so God/Massive God arrive squared up and the ascension starts continuous.
+  Measured after the change: 0–1° at the reveal beat of all six cuts. `CatchPop` opens
+  dead-on with a ±18° sway (2.4 s cycle) instead of CatchReveal's 70°/s spin.
