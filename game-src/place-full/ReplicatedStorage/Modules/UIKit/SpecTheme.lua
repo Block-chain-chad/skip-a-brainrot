@@ -186,7 +186,7 @@ S.Tween = {
 	PanelIn  = TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), -- PS99 restyle: bouncier entrance (was 0.22)
 	PanelOut = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 }
-S.Scale = { Hover = 1.06, Press = 0.94 } -- PS99 restyle: a touch livelier (was 1.05/0.95)
+S.Scale = { Hover = 1.03, Press = 0.97 } -- 2026-09-18 UI foundation (handoff §12): subtle; was 1.06/0.94 (PS99 restyle), 1.05/0.95 before that
 
 ------------------------------------------------------------------------- hud
 -- HUD chrome numbers, pre-scaled from the sheet's 1920 canvas onto this
@@ -225,6 +225,75 @@ S.Art = {
 	rebirth        = "rbxassetid://120595875472045",
 	coinsCounter   = "rbxassetid://118605863327022",
 	premiumCounter = "rbxassetid://101228590660547",
+}
+
+-------------------------------------------------------------------- 2026-09-18
+-- UI FOUNDATION ROUND 1 (spec docs/superpowers/specs/2026-09-18-ui-foundation-
+-- design.md). Semantic colour grammar (handoff §4), spacing scale (§16), sound
+-- names, and the BrainrotCard ladder (§5). S.Action.* keep their values as
+-- aliases -- S.Action.Neutral stays the light grey because every existing
+-- paint closure pairs it as the INACTIVE colour with S.Action.Go.
+S.Role = {
+	Positive       = S.Action.Go,                       -- equip / claim / confirm / teleport / buy with coins
+	Destructive    = S.Action.Danger,                   -- delete / remove / close (one red)
+	Neutral        = { hex("4AA8FF"), hex("1E7BE0") },  -- utility, filters, sort, ACTIVE tab (blue = navigation)
+	Gold           = S.Action.Robux,                    -- coins, rewards, value, prices (Robux prices carry the Robux mark)
+	Purple         = S.Action.Premium,                  -- gems, premium
+	Disabled       = S.Action.Neutral,                  -- inactive tabs, secondary chips (dark ink)
+	DisabledButton = { hex("B9C2CC"), hex("96A1AD") },  -- a disabled button's fill (label at 0.45 transparency)
+	Selection      = hex("29C5FF"),                     -- selected ring (= Tokens.activeRing)
+}
+S.Space = { micro = 8, small = 12, std = 16, section = 24, large = 32 } -- spec px, same sheet as S.Chrome
+S.Sound = { Click = "uiClick", PanelOpen = "panelOpen", PanelClose = "panelClose" } -- SoundKit ids
+S.Card = {
+	Plate     = { hex("3A4656"), hex("2A3543") },
+	Radius    = 14,
+	Edge      = 3,
+	BandFrac  = 0.20,
+	BandMin   = 24,
+	ArtInset  = 4,
+	Fill      = 0.70,           -- projected-box fill target (handoff §6: 65-75%)
+	Pip       = 7,
+	Badge     = 22,
+	BadgeSmall = 14,
+	MutationStar = 16,
+	ArtWellAlpha = 0.90,        -- white radial behind the model (transparency at centre)
+	MaxAnimatedLayers = 2,
+	Light = {                   -- the Bag's relit rig (BackpackPanel build3DOrSwatch, 2026-08-17)
+		Dir = Vector3.new(0.18, 0.32, -1).Unit,
+		Ambient = Color3.fromRGB(205, 210, 220),
+		LightColor = Color3.fromRGB(255, 248, 232),
+		LightDirection = Vector3.new(-0.18, -0.32, 1),
+	},
+	-- PROVISIONAL (spec §8.3): the Gallery stress section replaces these numbers.
+	MaxLive = { Desktop = 48, Tablet = 32, Phone = 20 },
+	Variants = {
+		grid    = { bandMin = 24, leftBadges = true,  rightCap = 2, title = false },
+		compact = { bandMin = 20, leftBadges = false, rightCap = 1, title = false },
+		hero    = { bandMin = 32, leftBadges = true,  rightCap = 3, title = true },
+	},
+	-- rarity tier name -> S.Rarity key
+	TIER_KEY = { Common = "COM", Uncommon = "UNC", Rare = "RARE", Epic = "EPIC",
+		Legendary = "LEG", Mythic = "MYTH", Secret = "SEC", God = "GOD" },
+	-- spec §7.4: one table drives every layer. foil = white-sheet transparency or nil,
+	-- aura = nil | "breathe" | "strong", band = "muted" | "solid" | "rainbow",
+	-- animated = the continuously animated layers (max 2), holo/sparkles booleans.
+	Ladder = {
+		COM  = { pips = 1, band = "muted",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {} },
+		UNC  = { pips = 1, band = "solid",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {} },
+		RARE = { pips = 2, band = "solid",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {} },
+		EPIC = { pips = 3, band = "solid",   foil = 0.87, aura = nil,       holo = false, sparkles = false, animated = {} },
+		LEG  = { pips = 4, band = "solid",   foil = 0.80, aura = "breathe", holo = false, sparkles = false, animated = { "aura" } },
+		MYTH = { pips = 5, band = "rainbow", foil = 0.70, aura = "breathe", holo = true,  sparkles = false, animated = { "band", "aura" } },
+		SEC  = { pips = 5, band = "rainbow", foil = 0.70, aura = "strong",  holo = true,  sparkles = true,  animated = { "band", "sparkles" } },
+		GOD  = { pips = 5, band = "rainbow", foil = 0.70, aura = "strong",  holo = true,  sparkles = true,  animated = { "band", "sparkles" } },
+	},
+	Rainbow = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, hex("FF2D6F")), ColorSequenceKeypoint.new(0.17, hex("FF9B2F")),
+		ColorSequenceKeypoint.new(0.33, hex("F5F24A")), ColorSequenceKeypoint.new(0.50, hex("58F06A")),
+		ColorSequenceKeypoint.new(0.67, hex("3FE0FF")), ColorSequenceKeypoint.new(0.83, hex("C93AFF")),
+		ColorSequenceKeypoint.new(1.00, hex("FF2D6F")),
+	}),
 }
 
 return S

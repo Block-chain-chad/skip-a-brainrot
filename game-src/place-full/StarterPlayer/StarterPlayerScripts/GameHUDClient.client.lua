@@ -2484,7 +2484,16 @@ function openPanel(id)
 	if mod then
 		if not panelInstances[id] then
 			local ok, built = pcall(mod.Build, ctx)
-			if not ok or typeof(built) ~= "Instance" then return end
+			if not ok then
+				-- fail-soft stays (the game survives a broken panel) but never silent:
+				-- spec 2026-09-18 UI foundation §11
+				warn(("[UIKit] panel %q Build failed: %s\n%s"):format(tostring(id), tostring(built), debug.traceback()))
+				return
+			end
+			if typeof(built) ~= "Instance" then
+				warn(("[UIKit] panel %q Build returned %s, expected a Frame"):format(tostring(id), typeof(built)))
+				return
+			end
 			built.Parent = host
 			built.Visible = false
 			panelInstances[id] = built
@@ -2683,6 +2692,12 @@ for _, m in ipairs(panelsFolder:GetChildren()) do
 		local ok, mod = pcall(require, m)
 		if ok and type(mod) == "table" and type(mod.Build) == "function" and type(mod.Id) == "string" then
 			panelModules[mod.Id] = mod
+		elseif not ok then
+			warn(("[UIKit] panel module %s failed to require: %s\n%s"):format(m.Name, tostring(mod), debug.traceback()))
+		elseif type(mod) == "table" and next(mod) == nil then
+			-- an empty table is the documented "not registered here" answer (GalleryPanel outside Studio)
+		else
+			warn(("[UIKit] panel module %s did not return { Id, Build } (got %s)"):format(m.Name, typeof(mod)))
 		end
 	end
 end
