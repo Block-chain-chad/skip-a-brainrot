@@ -399,8 +399,7 @@ return FxDriver
 - [ ] **Step 2: Compile-gate + behaviour test.** `execute_luau` (Edit):
 
 ```lua
-local CoreGui = game:GetService("CoreGui")
-local RS = game:GetService("ReplicatedStorage")
+-- [TEST LOADER PREAMBLE from .superpowers/sdd/2026-09-18-ui-foundation/test-loader.lua goes here]
 local f, e = loadstring(RS.Modules.UIKit.FxDriver.Source); assert(f, e)
 local Fx = load(kit.FxDriver)
 local sg = Instance.new("ScreenGui"); sg.Name = "UIKitScratch"; sg.Parent = CoreGui
