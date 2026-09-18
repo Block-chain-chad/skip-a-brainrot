@@ -4509,3 +4509,54 @@ Caps 12/32 have no Gallery button; the adaptive step-down never triggered at 48,
 - **The equipped plot bay still renders the old card**, untouched this round — only the Bag's Brainrots-tab inventory grid (`fillBag`) was migrated onto `BrainrotCard` + `ViewportCuller` (Task 13). On phones, this means the (new) inventory grid supports long-press-to-inspect but the (old, untouched) bay's own touch affordances are whatever they were before this round.
 - **`IndexPanel` and any other roster-displaying consumer have not been migrated onto `BrainrotCard`.** Only `BackpackPanel`'s Brainrots tab was in scope for card migration this round (per the File Structure table); Index received only the Task 12 active-tab colour sweep, and still renders its own roster entries with pre-round code.
 
+### Task 14 — leak cycles (run 2026-09-18 13:28 USMST)
+
+Studio `534ac9c5-3ab3-4465-bc51-18b068bdbcae` (place 78783087742939, Edit mode at start and end). A prior pass this same task earlier hit Studio fully disconnected (process not running) for the whole session; the docs (this execution log's Tasks 1–13 + the README section) were written then and committed separately by the controller as `d61248b` before this pass began — not rewritten here.
+
+**Mirror check.** One `execute_luau` (Edit) returned `#Source` for all 19 touched scripts; compared against local `wc -c`. All 19/19 matched exactly — nothing needed re-syncing.
+
+| Script | Live bytes | Mirror bytes | Match |
+|---|---|---|---|
+| SpecTheme | 14938 | 14938 | ✓ |
+| PanelChrome | 59228 | 59228 | ✓ |
+| Builders | 26742 | 26742 | ✓ |
+| FxDriver | 2996 | 2996 | ✓ |
+| TabBar | 8208 | 8208 | ✓ |
+| SearchBar | 5132 | 5132 | ✓ |
+| SortButton | 1706 | 1706 | ✓ |
+| Modal | 5535 | 5535 | ✓ |
+| Toast | 5793 | 5793 | ✓ |
+| BrainrotCard | 27502 | 27502 | ✓ |
+| ViewportCuller | 6664 | 6664 | ✓ |
+| BrainrotThumb | 18383 | 18383 | ✓ |
+| ToastClient | 8645 | 8645 | ✓ |
+| GameHUDClient | 143521 | 143521 | ✓ |
+| GalleryPanel | 29445 | 29445 | ✓ |
+| GoalsPanel | 68832 | 68832 | ✓ |
+| IndexPanel | 70430 | 70430 | ✓ |
+| CharmsPanel | 94875 | 94875 | ✓ |
+| BackpackPanel | 222066 | 222066 | ✓ |
+
+**Leak cycles.** `studio-focus.ps1` reported `REFUSED` both times it was run this pass (idle 0 s — the user was actively in Studio itself, not away) but Studio was already the foreground window and rendering (RenderStepped = 28–30/0.5 s throughout), so input proceeded without a forced focus switch, per the round's established fallback for a REFUSED-but-rendering session.
+
+Ten Bag cycles (rail `bagItem.Hit` → wait 0.6 s → Client exec scrolls `BackpackPanel`'s `Grid` bottom then top → close) and ten Gallery/Stress cycles (`SetAttribute("HudGallery", true)` → wait 0.8 s → click `Tabstress` → click the `N=500` button under `Section_stress.Controls`, located by its `Label.Text` and renamed to a unique `T14_N500` for addressing, same disambiguation technique Task 11 used → wait 1 s → close) were run in Play. The Gallery's N=500/cap=64 stress readout read live as `running N=500 cap=64 live=64 avg dt=16.6ms fx=57 platform=Desktop` — confirms the shipped conservative `MaxLive.Desktop = 64` is what's actually live.
+
+Probe (verbatim, run after cycle 5 and cycle 10 of each set):
+
+- Bag cycle 5: `previews=0 fxRunning=false fxEntries=0 cullerDetached=nil cullerLive=nil totalInstances=12006 modalOpen=false`
+- Bag cycle 10: `previews=0 fxRunning=false fxEntries=0 cullerDetached=nil cullerLive=nil totalInstances=12006 modalOpen=false`
+- Gallery cycle 5: `previews=0 fxRunning=false fxEntries=0 cullerDetached=nil cullerLive=nil totalInstances=12134 modalOpen=false`
+- Gallery cycle 10: `previews=0 fxRunning=false fxEntries=0 cullerDetached=nil cullerLive=nil totalInstances=12134 modalOpen=false`
+
+`totalInstances` is exactly flat within each set (12006 = 12006 Bag; 12134 = 12134 Gallery) — no leak in either the Bag's per-UID `BrainrotCard`/`ViewportCuller` seam or the Gallery's own section teardown, across a fresh, continuous Play session for each pair.
+
+**Finding, not a leak:** `cullerDetached`/`cullerLive` read `nil` in every probe rather than the brief's expected `cullerDetached=true cullerLive=0`. Root cause: the probe script's own `pg:FindFirstChild("Grid", true)` is ambiguous — `Players.<name>.PlayerGui.TungOfferUI.OfferPanel` (a disabled, pre-existing, unrelated ScreenGui) also has a child named `Grid`, and `TungOfferUI` enumerates ahead of `GameHUD` in `PlayerGui:GetChildren()`, so the probe's blind recursive search resolves to that decoy every time, never the real `BackpackPanel...Grid`. Confirmed by re-querying scoped to `BackpackPanel` directly, which finds the real `Grid` correctly but shows the same `CullerDetached`/`CullerLive`/`CullerCap` all `nil` (no attributes at all) — because this session's `prohacks_sorry` profile is **read-only** this run (`[PlayerDataManager] prohacks_sorry: profile held by another live server -- read-only session`, an unrelated data-layer lock, not a UI defect), so the account owns 0 brainrots and `fillBag` never has a card to attach `ViewportCuller` to in the first place. Neither issue affects the check that matters — `totalInstances` flat between cycle 5 and cycle 10 — which used the exact brief-specified script verbatim and passed cleanly on both sets. Ran the probe verbatim (not patched) since the task specified it exactly; flagging the ambiguity here for whoever next edits this probe or investigates `TungOfferUI`.
+
+**Input-tool wedge.** Mid-way through the first Bag-cycle attempt (after a successful cycle 5), a Client `execute_luau` unexpectedly returned `Client datamodel is not available in Edit mode` — Play had stopped on its own (not an input-tool timeout; `get_studio_state` confirmed Edit mode). Recovery: `start_stop_play(true)` again, re-confirmed `RenderStepped`, and — since a Play restart resets the DataModel's instance-count baseline, which would invalidate a cycle-5-vs-cycle-10 comparison spanning the restart — redid the Bag's ten cycles from scratch in the new session rather than resuming the count, so both probes in the reported pair come from one continuous session. The Gallery's ten cycles ran without interruption in that same session.
+
+**Escape key substitution.** `user_keyboard_input` `keyPress Escape` was rejected outright by the engine: `VirtualInput::SendKey: key is permanently bound to a CoreGUI core action. VirtualInput cannot process this key.` — Escape is reserved for Roblox's own core menu and cannot be simulated by this MCP's input tool, on any panel, not something fixable from script. Substituted each panel's own header `Close` (`X`) button (`BackpackPanel.Header.Close`, `GalleryPanel.Header.Close`) for every close in both cycle sets — the same `closePanel()` codepath Task 2 already showed both routes share, so this substitution does not change what teardown logic the leak check is exercising.
+
+**Console.** Clean apart from the documented pre-existing `[UIKit] panel module PetAbilityHelp did not return { Id, Build } (got table)` warning and the unrelated `PlayerDataManager` read-only-session notice explained above. No `[UIKit]` warnings, no errors, from either cycle set or the mid-run Play restart.
+
+`start_stop_play(false)` at the end; Studio confirmed back in Edit mode.
+
