@@ -28,6 +28,14 @@ function ViewportCuller.defaultCap(): number
 	return caps[class] or caps.Desktop
 end
 
+local function safeUnmount(c: Cullable)
+	if not c.isMounted() then return end
+	local ok, err = pcall(c.unmount)
+	if not ok then
+		warn(("[UIKit] ViewportCuller: unmount failed for %s: %s\n%s"):format(c.root:GetFullName(), tostring(err), debug.traceback()))
+	end
+end
+
 --- Pure planning step: which indices to mount (nearest-to-centre first, up to cap)
 --- and which to unmount. rects are card rectangles in the same space as viewTop.
 function ViewportCuller.planPass(rects: { Rect }, viewTop: number, viewH: number, margin: number, cap: number): { mount: { number }, unmount: { number } }
@@ -43,7 +51,7 @@ function ViewportCuller.planPass(rects: { Rect }, viewTop: number, viewH: number
 			table.insert(unmount, i)
 		end
 	end
-	table.sort(wanted, function(a, b) return a.d < b.d end)
+	table.sort(wanted, function(a, b) if a.d ~= b.d then return a.d < b.d end return a.i < b.i end)
 	local mount: { number } = {}
 	for k, w in ipairs(wanted) do
 		if k <= cap then table.insert(mount, w.i) else table.insert(unmount, w.i) end
@@ -64,6 +72,7 @@ function ViewportCuller.attach(scroll: ScrollingFrame, cards: { Cullable }, opts
 	local over = 0
 	local mountedCount = 0
 	local conns: { RBXScriptConnection } = {}
+	local handle: Handle
 
 	local function pass()
 		pending = false
@@ -78,14 +87,14 @@ function ViewportCuller.attach(scroll: ScrollingFrame, cards: { Cullable }, opts
 			if r.Parent then
 				table.insert(alive, c)
 				table.insert(rects, { y = r.AbsolutePosition.Y, h = r.AbsoluteSize.Y })
-			elseif c.isMounted() then
-				c.unmount()
+			else
+				safeUnmount(c)
 			end
 		end
 		local plan = ViewportCuller.planPass(rects, top, viewH, margin, cap)
 		for _, i in ipairs(plan.unmount) do
 			local c = alive[i]
-			if c.isMounted() then c.unmount() end
+			safeUnmount(c)
 		end
 		local live = 0
 		for _, i in ipairs(plan.mount) do
@@ -113,6 +122,10 @@ function ViewportCuller.attach(scroll: ScrollingFrame, cards: { Cullable }, opts
 	table.insert(conns, scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(schedule))
 	table.insert(conns, scroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(schedule))
 	table.insert(conns, scroll:GetPropertyChangedSignal("AbsolutePosition"):Connect(schedule))
+	-- a scroll that is destroyed or orphaned without detach() must not leak the Heartbeat
+	table.insert(conns, scroll.AncestryChanged:Connect(function(_, parent)
+		if parent == nil then handle.detach() end
+	end))
 	table.insert(conns, RunService.Heartbeat:Connect(function(dt)
 		if mountedCount == 0 then
 			over = 0
@@ -133,16 +146,19 @@ function ViewportCuller.attach(scroll: ScrollingFrame, cards: { Cullable }, opts
 			over = 0
 		end
 	end))
+	scroll:SetAttribute("CullerDetached", false)
+	scroll:SetAttribute("CullerLive", 0)
+	scroll:SetAttribute("CullerCap", cap)
 	schedule()
 
-	local handle: Handle = {
+	handle = {
 		refresh = schedule,
 		setCards = function(list: { Cullable })
 			-- cards dropped from the working set must not stay mounted forever
 			local keep: { [Cullable]: boolean } = {}
 			for _, c in ipairs(list) do keep[c] = true end
 			for _, c in ipairs(items) do
-				if not keep[c] and c.isMounted() then c.unmount() end
+				if not keep[c] then safeUnmount(c) end
 			end
 			items = list
 			schedule()
@@ -153,7 +169,7 @@ function ViewportCuller.attach(scroll: ScrollingFrame, cards: { Cullable }, opts
 			for _, c in ipairs(conns) do c:Disconnect() end
 			table.clear(conns)
 			for _, c in ipairs(items) do
-				if c.isMounted() then c.unmount() end
+				safeUnmount(c)
 			end
 			mountedCount = 0
 			if scroll.Parent then
