@@ -58,3 +58,9 @@ def test_vertex_colours_darken_and_compare_sheet(tmp_path):
     assert body and sum(dim[i][0] for i in body) < sum(bright[i][0] for i in body) * 0.7
     paths = R.compare_sheet([(m, meshes, m, dark)], tmp_path, "batch1", per_sheet=6)
     assert [p.name for p in paths] == ["batch1_sheet1.png"] and paths[0].stat().st_size > 0
+    # the AFTER column is the worst case: ratios dropped, so it is as bright as BEFORE
+    from PIL import Image
+    sheet = Image.open(paths[0])
+    before = sheet.crop((0, 20, 300, 300)); after = sheet.crop((300, 20, 600, 300))
+    red_b = sum(p[0] for p in before.get_flattened_data()); red_a = sum(p[0] for p in after.get_flattened_data())
+    assert abs(red_a - red_b) < red_b * 0.02

@@ -143,6 +143,12 @@ def contact_sheet(batch, out_dir) -> list[Path]:
     return paths
 
 
+def _flat(meshes: dict[str, Mesh]) -> dict[str, Mesh]:
+    """The same meshes with vertex-colour ratios dropped: what Roblox draws if the importer
+    discards COLOR_0 (every role in its representative colour) — the worst case."""
+    return {k: Mesh(m.role, m.positions, m.normals, m.uvs, m.indices, None) for k, m in meshes.items()}
+
+
 def compare_sheet(pairs, out_dir, prefix: str, per_sheet: int = 6) -> list[Path]:
     """Rows of before (exact colours) | after (representative colours) | after at pad distance."""
     out_dir = Path(out_dir)
@@ -155,8 +161,9 @@ def compare_sheet(pairs, out_dir, prefix: str, per_sheet: int = 6) -> list[Path]
         for i, (bm, bk, am, ak) in enumerate(chunk):
             y = 300 * i
             sheet.paste(render_model(bm, bk, 300), (0, y))
-            sheet.paste(render_model(am, ak, 300), (300, y))
-            sheet.paste(render_plot_tile(am, ak), (610, y + 50))
+            flat = _flat(ak)
+            sheet.paste(render_model(am, flat, 300), (300, y))
+            sheet.paste(render_plot_tile(am, flat), (610, y + 50))
             d.text((6, y + 4), f"{am.name}: BEFORE (parts, exact)", fill=(20, 20, 30))
             d.text((306, y + 4), "AFTER (mesh, flat colours = worst case)", fill=(20, 20, 30))
             d.text((614, y + 30), "pad distance", fill=(20, 20, 30))
