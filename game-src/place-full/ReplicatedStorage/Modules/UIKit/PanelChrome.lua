@@ -30,6 +30,7 @@ local Platform = require(game:GetService("ReplicatedStorage"):WaitForChild("Modu
 local SoundKit = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("SoundKit"))
 local FxDriver = require(script.Parent:WaitForChild("FxDriver"))
 local CLICK_VOLUME = 0.12 -- same level GameHUDClient.wireClick uses on the rail
+local soundWarned = false -- click sound stays fire-and-forget; log the FIRST failure only
 
 local PanelChrome = {}
 
@@ -175,7 +176,7 @@ function PanelChrome.read(props: {
 end
 
 ------------------------------------------------------------------- behaviour
---- Hover 1.05 / press 0.95 on any GuiButton -- tweened on SIZE about the
+--- Hover 1.03 / press 0.97 (S.Scale) on any GuiButton -- tweened on SIZE about the
 --- button's own footprint (UIScale tweens are silent no-ops in this place).
 --- Live AbsoluteSize drives the delta, so scale-sized buttons work too.
 function PanelChrome.bindPressFeedback(button: GuiButton)
@@ -233,7 +234,11 @@ function PanelChrome.bindPressFeedback(button: GuiButton)
 		button:SetAttribute("SfxWired", true)
 		button.MouseButton1Click:Connect(function()
 			if blocked() or button:GetAttribute("SfxMuted") == true then return end
-			pcall(SoundKit.play, S.Sound.Click, nil, { volume = CLICK_VOLUME })
+			local ok, err = pcall(SoundKit.play, S.Sound.Click, nil, { volume = CLICK_VOLUME })
+			if not ok and not soundWarned then
+				soundWarned = true
+				warn(("[UIKit] click sound failed (further failures not logged): %s\n%s"):format(tostring(err), debug.traceback()))
+			end
 		end)
 	end
 end
@@ -452,7 +457,7 @@ function PanelChrome.shell(props: {
 				b.BackgroundColor3 = c[1]
 				if g then g.Color = ColorSequence.new(c[1], c[2]) end
 				-- light Neutral fill takes dark ink + white stroke; the active
-				-- green takes the white shout + dark stroke (pill's build gate)
+				-- blue takes the white shout + dark stroke (pill's build gate)
 				local label = b:FindFirstChild("Label")
 				if label and label:IsA("TextLabel") then
 					local ls = label:FindFirstChildOfClass("UIStroke")
@@ -1209,7 +1214,7 @@ function PanelChrome.segmented(props: {
 			b.BackgroundColor3 = c[1]
 			if g then g.Color = ColorSequence.new(c[1], c[2]) end
 			-- same ink rule as addHeaderTabs: dark ink on the light Neutral,
-			-- white shout + dark stroke on the active green
+			-- white shout + dark stroke on the active blue
 			local label = b:FindFirstChild("Label")
 			if label and label:IsA("TextLabel") then
 				local ls = label:FindFirstChildOfClass("UIStroke")
