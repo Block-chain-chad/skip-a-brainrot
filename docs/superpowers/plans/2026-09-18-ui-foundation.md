@@ -3990,11 +3990,13 @@ end)
 
 - [ ] **Step 3: Compile-gate both.** `execute_luau` (Edit): `loadstring` on `GalleryPanel.Source` and `GameHUDClient.Source`; byte-scan for `HudGallery` (3 occurrences in GameHUDClient) and `sections.stress` in GalleryPanel. Also require the Gallery through a CoreGui clone of `GameHUDPanels` is NOT possible (it needs `ctx`); the live open is the test.
 
-- [ ] **Step 4: Live open + every section.** `start_stop_play(true)`. `execute_luau` (Client): `game.Players.LocalPlayer:SetAttribute("HudGallery", true); task.wait(1); return game.Players.LocalPlayer:GetAttribute("HudOpenPanel")` → expected `gallery`. `get_console_output` → no `[UIKit]` warnings other than the intentional ones. Foreground Studio; for each section click `LocalPlayer.PlayerGui.GameHUD.<host path>.GalleryPanel.Body.TabBar.Tab<id>` via `user_mouse_input` (find the host path once with `execute_luau` Client: `return game.Players.LocalPlayer.PlayerGui:FindFirstChild("GalleryPanel", true):GetFullName()`), then `screen_capture` — nine captures, saved in the scratchpad with the section name. What to look for: Tokens (7 role swatches, blue Neutral, grey Disabled), Buttons (busy dots pulsing, disabled grey), Shell (stat line under BAG, EQUIP BEST left of the close, footer with DELETE alone on the right), Tabs (blue active, ring), Inputs, Modal (click DELETE → dark scrim, dialog, click CANCEL → toast "Cancelled"), Cards (8-tier ladder; badge caps; framing labels ≤ 0.71 fill with off-centre ≤ 0.02; the pale and dark picks both visible on the navy plate), Stress (readout running), Legacy. Fix anything wrong in the Gallery or the component it exposes (component fixes re-run that task's test) before continuing.
+- [ ] **Step 4: Live open + every section.** `start_stop_play(true)`. `execute_luau` (Client): `game.Players.LocalPlayer:SetAttribute("HudGallery", true); task.wait(1); return game.Players.LocalPlayer:GetAttribute("HudOpenPanel")` → expected `gallery`. `get_console_output` → no `[UIKit]` warnings other than the intentional ones. Foreground Studio; for each section click `LocalPlayer.PlayerGui.GameHUD.<host path>.GalleryPanel.Body.TabBar.Tab<id>` via `user_mouse_input` (find the host path once with `execute_luau` Client: `return game.Players.LocalPlayer.PlayerGui:FindFirstChild("GalleryPanel", true):GetFullName()`), then `screen_capture` — nine captures, saved in the scratchpad with the section name. What to look for: Tokens (7 role swatches, blue Neutral, grey Disabled), Buttons (busy dots pulsing, disabled grey), Shell (stat line under BAG, EQUIP BEST left of the close, footer with DELETE alone on the right), Tabs (blue active, ring), Inputs, Modal (click DELETE → dark scrim, dialog, click CANCEL → toast "Cancelled"), Cards (8-tier ladder; badge caps; framing labels ≈ the current `S.Card.Fill` with off-centre ≤ 0.02; the pale and dark picks both visible on the navy plate), Stress (readout running), Legacy. Fix anything wrong in the Gallery or the component it exposes (component fixes re-run that task's test) before continuing.
 
 - [ ] **Step 5: Stress measurements → `MaxLive`.** With the Gallery on the Stress section (desktop): for each cap in 24 / 48 / 72 / 96 at N=500, click the cap button, click AUTO-SCROLL, wait 3 s, read the readout (`execute_luau` Client: find the `Section_stress` frame's caption `TextLabel` whose text starts with `running` and return it). Record `avg dt` per cap. **Rule:** `MaxLive.Desktop` = the largest tested cap whose avg dt ≤ 16.7 ms (if even 24 exceeds it, 24 with a warning in the commit message). Then the phone: `start_stop_play(false)`, `execute_luau` (Edit) `game.ReplicatedStorage:SetAttribute("PlatformOverride", "Phone")`, `start_stop_play(true)`, open the Gallery, Stress, N=250, caps 12 / 24 / 32 / 48 (click CAP 24 / 48; for 12 and 32 use `execute_luau` Client to call the same rebuild through the buttons is not possible — instead read the adaptive step-down: with CAP 48 and AUTO-SCROLL, note whether the culler warned and where it settled). **Rule:** `MaxLive.Phone` = the largest cap with avg dt ≤ 22 ms; `MaxLive.Tablet` = the midpoint of Desktop and Phone rounded to 8. Stop Play, `execute_luau` (Edit) `game.ReplicatedStorage:SetAttribute("PlatformOverride", nil); return game.ReplicatedStorage:GetAttribute("PlatformOverride")` → expected `nil`.
 
-- [ ] **Step 6: Write the measured caps.** `script_read` the `MaxLive` line in SpecTheme; `multi_edit` — `old_string`:
+- [ ] **Step 6: Write the measured caps and the card fill.** `script_read` the `MaxLive` and `Fill` lines in SpecTheme; `multi_edit` with two edits.
+
+Edit A — `old_string`:
 ```lua
 	-- PROVISIONAL (spec §8.3): the Gallery stress section replaces these numbers.
 	MaxLive = { Desktop = 48, Tablet = 32, Phone = 20 },
@@ -4006,7 +4008,16 @@ end)
 	-- round's commit message for the table.
 	MaxLive = { Desktop = <D>, Tablet = <T>, Phone = <P> },
 ```
-Compile-gate.
+
+Edit B — the fill target is relative to the ART HOLDER (≈76 % of the card height once the band and insets are out), so the handoff's "65–75 % of the card" is a holder fill of ≈0.85–0.95; 0.70 of the holder read as small next to today's sphere-fit cards (Task 8 measured the box fit at 0.70 sitting the camera 14–29 % farther than the old sphere fit). `old_string`:
+```lua
+	Fill      = 0.70,           -- projected-box fill target (handoff §6: 65-75%)
+```
+`new_string`:
+```lua
+	Fill      = 0.88,           -- projected-box fill of the ART HOLDER (~76% of the card), i.e. ~67% of the card: handoff §6's 65-75%. 0.70 read small (Task 8/11, 2026-09-18)
+```
+Compile-gate. Re-open the Gallery's Cards section once more and confirm the framing labels now print ≈0.88 and the ladder row's models fill their cards without touching the edge.
 
 - [ ] **Step 7: Mirror + commit.** New mirror file `game-src/place-full/StarterPlayer/StarterPlayerScripts/GameHUDPanels/GalleryPanel.lua`; overwrite `GameHUDClient.client.lua` and `SpecTheme.lua`; commit `feat(ui): Studio-only Gallery panel; MaxLive measured (desktop D / tablet T / phone P)` with the cap→dt table in the body.
 
