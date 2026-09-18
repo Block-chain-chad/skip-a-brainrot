@@ -25,8 +25,9 @@ Players should recognise what they got from the animation before the text appear
 - Mutations (`MutationConfig`): 12 on one ladder — Golden, Diamond (natural throw drops);
   Wet, Sandy, Electric, Frozen, Aurora, Celestial, Demon, Angel (weather-event only);
   Rainbow, Glitched (fusion only). `Mutations.Color(name)` gives each its colour.
-  `MutationFX.apply(model, name)` is the 3D presentation: PointLight + sparkle emitter,
-  plus a Highlight from Wet upward. None of those render inside a `ViewportFrame`.
+  `MutationFX.apply(model, name)` is the 3D presentation (bespoke per-mutation rewrite of
+  2026-08-13): it shifts each part's own colours/materials — which DO render inside a
+  `ViewportFrame` — and adds emitters, lights, beams and highlights, which do not.
 - Size (`SizeConfig`, Studio-only): an independent axis rolled beside Mutation. Two values
   matter here: Huge and Massive. `Sizes.Label(mutation, size, name)` builds the display
   name ("Golden Massive Tralalero").
