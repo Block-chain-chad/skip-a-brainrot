@@ -166,8 +166,18 @@ local RarityConfig = require(modules:WaitForChild("RarityConfig"))
 local Waves = require(modules:WaitForChild("BrainrotWaves"))
 local SupplySchedule = require(modules:WaitForChild("SupplySchedule"))
 local BrainrotThumb = require(modules:WaitForChild("BrainrotThumb"))
+-- WORLD TABS (2026-08-13): the Index now shows one tab per world with its own
+-- catch pool. WorldProgression is the game's single per-world roster authority
+-- (ThrowHandler rolls from it), so the Index enumerating it can never drift
+-- from what is actually catchable where.
+local WorldProgression = require(modules:WaitForChild("WorldProgression"))
 
-local IndexPanel = { Id = "index" }
+-- Id is "indexInner", NOT "index": since 2026-08-07 the Index is a TAB inside the
+-- Bag rather than a rail destination of its own. Nothing opens this id; the Bag
+-- builds it directly. (Same arrangement as GoalsPanel/PassPanel inside
+-- ProgressPanel -- the registry is keyed by Id, so a shared one would have two
+-- modules silently overwrite each other.)
+local IndexPanel = { Id = "indexInner" }
 
 ----------------------------------------------------------- palette (style replacement 2026-08-04, Pet-Sim guide)
 -- The per-panel accent palette is GONE. The guide gives every panel the same
@@ -205,20 +215,31 @@ local SILHOUETTE_PLATE_MIX = 0.88
 
 -- Tide pill: DailyPanel's warm #281608 was a cream-era brown and goes muddy
 -- against the guide's red header -- the pill keeps its dark-pill ROLE at the
--- guide's neutral slot ink instead (style replacement 2026-08-04). The gold
+-- PS99 cool dark row navy instead (restyled 2026-08-16). The gold
 -- countdown value stays: a value accent, not chrome.
-local TIDE_BG = Color3.fromHex("#363636")
+local TIDE_BG = Color3.fromHex("#2A3543") -- PS99 cool: dark row navy
 local TIDE_GOLD = Color3.fromHex("#ffd23e") -- DailyPanel's TIMER_GOLD countdown value
 
 ----------------------------------------------------------- availability (IndexClient lines 64-83, verbatim)
 local AV_LIVE, AV_SOON, AV_VAULTED = 1, 2, 3
 
-local function availabilityOf(name: string): (number, string?, number?)
+-- usesSupply: false for worlds whose roster is NOT on the Vault & Tide
+-- rotation (WorldProgression's own UsesSupplySchedule flag -- the Tundra).
+-- SupplySchedule.StatusOf answers "unreleased" for any name it does not know,
+-- which would mark EVERY entry of such a world as SOON -- so those worlds
+-- short-circuit to LIVE after the QUEST_ONLY/VAULTED checks, mirroring
+-- RarityRoll's own treatment (WorldProgression's comment: "QUEST_ONLY and
+-- VAULTED are still honoured"). Omitting the argument keeps the old
+-- one-argument behaviour, so the _availabilityOf probe hook is unchanged.
+local function availabilityOf(name: string, usesSupply: boolean?): (number, string?, number?)
 	if Waves.QUEST_ONLY and Waves.QUEST_ONLY[name] then
 		return AV_VAULTED, "quest", nil
 	end
 	if Waves.VAULTED and Waves.VAULTED[name] then
 		return AV_VAULTED, "vaulted", nil
+	end
+	if usesSupply == false then
+		return AV_LIVE, "live", nil
 	end
 	if Waves.FORCE_ON and Waves.FORCE_ON[name] then
 		return AV_LIVE, (SupplySchedule.CAPPED[name] and "capped" or "live"), nil
@@ -273,33 +294,90 @@ local function flattenRoster(config: { any }, rarityConfig: { any }): { any }
 	return out
 end
 
-local ordered = flattenRoster(BrainrotConfig, RarityConfig)
-local TOTAL_COUNT = #ordered
-
-local tierRank = {}
-for i, t in ipairs(RarityConfig) do
-	tierRank[t.Name] = i
-end
-
------------------------------------------------------------ catchable-only availability (IndexClient lines 131-152, verbatim)
-local orderedLive = {}
-local LIVE_COUNT = 0
-local lastPeriodKey = nil
-local function refreshAvailability()
-	local key = SupplySchedule.PeriodKey() .. "#" .. Waves.OverrideKey()
-	if key == lastPeriodKey then
-		return
-	end
-	lastPeriodKey = key
-	table.clear(orderedLive)
-	for _, rec in ipairs(ordered) do
-		if availabilityOf(rec.E.Name) == AV_LIVE then
-			orderedLive[#orderedLive + 1] = rec
+----------------------------------------------------------- per-world rosters (WORLD TABS, 2026-08-13)
+-- One record per world that owns a pool (aliases like Trading/Gardens are
+-- skipped -- they resolve to another world's roster and would duplicate its
+-- tab). Default world first, the rest sorted by name -- the same ordering
+-- convention WorldProgression's own indexRocks documents. Each record carries
+-- what used to be the module-level singletons (ordered/TOTAL_COUNT/tierRank/
+-- orderedLive/lastPeriodKey), per world. BrainrotConfig/RarityConfig are no
+-- longer read directly here: Valley's record IS them, via WorldProgression.
+local WORLD_TABS = {}
+do
+	local names = { WorldProgression.Default }
+	local rest = {}
+	for name, w in pairs(WorldProgression.Worlds) do
+		if name ~= WorldProgression.Default and not w.Alias then
+			rest[#rest + 1] = name
 		end
 	end
-	LIVE_COUNT = Waves.Counts()
+	table.sort(rest)
+	for _, n in ipairs(rest) do
+		names[#names + 1] = n
+	end
+	for _, name in ipairs(names) do
+		local w = WorldProgression.Worlds[name]
+		local ordered = flattenRoster(w.Pool, w.Rarities)
+		local tierRank = {}
+		for i, t in ipairs(w.Rarities) do
+			tierRank[t.Name] = i
+		end
+		WORLD_TABS[#WORLD_TABS + 1] = {
+			Id = name,
+			Label = w.Label or name,
+			Ordered = ordered,
+			Total = #ordered,
+			TierRank = tierRank,
+			UsesSupply = w.UsesSupplySchedule == true,
+			OrderedLive = {},
+			LastPeriodKey = nil,
+		}
+	end
 end
-refreshAvailability()
+
+local function worldTab(id)
+	for _, rec in ipairs(WORLD_TABS) do
+		if rec.Id == id then
+			return rec
+		end
+	end
+	return WORLD_TABS[1]
+end
+
+----------------------------------------------------------- catchable-only availability (IndexClient lines 131-152, per-world since the world tabs)
+-- LIVE_COUNT (Waves.Counts()) is gone with the split: it was assigned and
+-- never read anywhere in this module -- the same class of dead computation
+-- as IndexClient's own tierTotal/tierLive, documented in the header.
+local function refreshAvailability(w)
+	local key = SupplySchedule.PeriodKey() .. "#" .. Waves.OverrideKey()
+	if key == w.LastPeriodKey then
+		return
+	end
+	w.LastPeriodKey = key
+	table.clear(w.OrderedLive)
+	for _, rec in ipairs(w.Ordered) do
+		-- A ZERO THROW WEIGHT IS NOT CATCHABLE (2026-08-23). availabilityOf answers
+		-- "is this vaulted / away / live on the supply schedule", and for a world with
+		-- UsesSupplySchedule = false it returns AV_LIVE for EVERY entry -- so the 23
+		-- ice-fishing catches, which have Weight = 0 and can only be pulled through a
+		-- fishing hole, were listed under "Catchable" beside brainrots you can actually
+		-- hit with a rock. Measured: the 87 throwable tundra entries carry 800,000 of
+		-- roll weight between them and the 23 fish carry 0.
+		-- This is not a new rule, it is the existing one finally applied evenly.
+		-- The Valley has four zero-weight entries; TWO of them (Maxwell, Pippo
+		-- Olivardino) were already held out of this list by the QUEST_ONLY branch in
+		-- availabilityOf, and the other two (Secret Pete, Chim) were leaking through
+		-- exactly like the fish and are now correctly excluded as well -- verified
+		-- against Waves.QUEST_ONLY live, not assumed.
+		-- They stay in "All" and keep their own ICE FISHING ribbon -- hidden from a
+		-- filter, never hidden from the index.
+		local throwable = (rec.E.Weight or 0) > 0
+		if throwable and availabilityOf(rec.E.Name, w.UsesSupply) == AV_LIVE then
+			w.OrderedLive[#w.OrderedLive + 1] = rec
+		end
+	end
+end
+refreshAvailability(WORLD_TABS[1])
 
 ----------------------------------------------------------- ribbon priority (task-9-brief spec extension)
 -- Pure. vm: { Known: boolean, JustSeen: boolean, AvStatus: string?,
@@ -311,7 +389,10 @@ refreshAvailability()
 -- nearest token family per task-9-brief's colours (gold/muted/gold).
 --
 -- Priority, exactly per task-9-brief: NEW > LAST CHANCE > BACK IN >
--- FOREST EGG. The AvTs-and-not-IsEggSourced guard and the "retiring"/"away"
+-- FOREST EGG, with ICE FISHING added last (2026-08-23) on the same footing as
+-- FOREST EGG: both name a source that is NOT the throw loop, which is the one
+-- thing a player cannot work out from the tile itself.
+-- The AvTs-and-not-IsEggSourced guard and the "retiring"/"away"
 -- text are IndexClient lines 772-778, verbatim; the isEggSourced short
 -- circuit is IndexClient line 686+772's "and not isEggSourced" carried
 -- through so egg-sourced creatures never read a tide status at all, exactly
@@ -320,7 +401,9 @@ local function ribbonFor(vm): (string?, string?)
 	if vm.Known and not vm.JustSeen then
 		return "NEW", "new"
 	end
-	if vm.AvTs and not vm.IsEggSourced then
+	-- a tide status is meaningless for anything the supply schedule does not
+	-- govern, so egg- and fishing-sourced entries both short-circuit it
+	if vm.AvTs and not vm.IsEggSourced and not vm.IsFishSourced then
 		if vm.AvStatus == "retiring" then
 			return "LAST CHANCE " .. deltaText(vm.AvTs), "lastchance"
 		elseif vm.AvStatus == "away" then
@@ -329,6 +412,9 @@ local function ribbonFor(vm): (string?, string?)
 	end
 	if vm.IsEggSourced then
 		return "FOREST EGG", "forestegg"
+	end
+	if vm.IsFishSourced then
+		return "ICE FISHING", "icefishing"
 	end
 	return nil, nil
 end
@@ -373,7 +459,17 @@ task.spawn(function()
 end)
 
 ----------------------------------------------------------- Build
-function IndexPanel.Build(ctx)
+-- opts.embedded  built inside another panel: hides its own header and starts the
+--                body at the top, so the host supplies the one header/close.
+-- opts.width     render to a different width than the standalone 940. EVERY
+--                measurement below derives from PANEL_W -- grid cell size, the five
+--                filter chips, the discovery bar -- so a narrower panel reflows
+--                rather than clipping. That is what makes the Index embeddable
+--                where the Charm Codex was not (see BackpackPanel's switchTab: at
+--                1120 the Codex has to stay a doorway).
+function IndexPanel.Build(ctx, opts)
+	local EMBEDDED = (type(opts) == "table" and opts.embedded == true)
+	local WIDTH_OVERRIDE = (type(opts) == "table") and tonumber(opts.width) or nil
 	local T = ctx.Tokens
 	local UI = ctx.Builders
 
@@ -390,9 +486,9 @@ function IndexPanel.Build(ctx)
 	local CREAM_INK = T.color.white
 
 	----------------------------------------------------------- geometry (kit README §3.5, exact where tokenised)
-	local PANEL_W = T.size.panelWidth.index -- 940
+	local PANEL_W = WIDTH_OVERRIDE or T.size.panelWidth.index -- 940 standalone
 	local HEADER_H = T.size.headerHeight -- 92
-	local BODY_TOP = HEADER_H + 12
+	local BODY_TOP = EMBEDDED and 0 or (HEADER_H + 12)
 	local BODY_INNER_W = PANEL_W - T.pad.panel * 2 -- 908
 
 	local DISC_H = 48 -- kit "Discovery bar height 48"
@@ -417,14 +513,19 @@ function IndexPanel.Build(ctx)
 	}
 	local FILTER_W = (BODY_INNER_W - FILTER_GAP * (#FILTER_DEFS - 1)) / #FILTER_DEFS
 
-	local GRID_VIEWPORT_H = 392 -- kit "Viewport height 392, scroll-y"
+	-- WORLD TABS row height is STOLEN from the grid viewport rather than added:
+	-- BODY_H must not change, because the Bag embeds this panel into a host
+	-- sized for the old geometry (BackpackPanel's renderIndex) and a taller
+	-- body would overflow it. The grid scrolls, so it only costs visible rows.
+	local WTAB_H = 40
+	local GRID_VIEWPORT_H = 392 - WTAB_H - SECTION_GAP -- kit "Viewport height 392, scroll-y" minus the world tab row
 	local CELL_H = 122 -- kit "tile height 122"
 	local GRID_GAP = T.pad.gridGap -- 11, kit "gap 11"
 	local GRID_COLS = 6 -- kit "6 columns"
 	local SLOT_W = (BODY_INNER_W - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS
 	local ROW_H = CELL_H + GRID_GAP
 
-	local BODY_CONTENT_H = DISC_H + SECTION_GAP + FILTER_H + SECTION_GAP + GRID_VIEWPORT_H
+	local BODY_CONTENT_H = DISC_H + SECTION_GAP + WTAB_H + SECTION_GAP + FILTER_H + SECTION_GAP + GRID_VIEWPORT_H
 	local BODY_H = T.pad.panel * 2 + BODY_CONTENT_H
 	local GROUP_H = BODY_TOP + BODY_H
 
@@ -433,6 +534,7 @@ function IndexPanel.Build(ctx)
 
 	----------------------------------------------------------- module-local state (server-confirmed data, ephemeral UI selection)
 	local activeFilter = ctx.state.index.filter or "All"
+	local activeWorld = worldTab(ctx.state.index.world)
 	if ctx.state.index.seen == nil then
 		ctx.state.index.seen = {}
 	end
@@ -460,6 +562,10 @@ function IndexPanel.Build(ctx)
 	header.Name = "Header"
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 12
+	-- Built either way and merely HIDDEN when embedded: several hundred lines below
+	-- refer to `header` and its children, so skipping the build would mean auditing
+	-- all of them for nil. With BODY_TOP at 0 the body simply draws over it.
+	header.Visible = not EMBEDDED
 	-- Style replacement (2026-08-04, Pet-Sim guide): every panel header is the
 	-- guide's RED bar now -- Index's blue, Daily's purple, Pass's gold and
 	-- Goals' green all collapse into T.gradient.header. Still recoloured IN
@@ -630,7 +736,7 @@ function IndexPanel.Build(ctx)
 	rewardLabel.BackgroundTransparency = 1
 	rewardLabel.FontFace = T.font.ui
 	rewardLabel.TextSize = 13 -- kit "Nunito 13 label"
-	rewardLabel.TextColor3 = CREAM_INK -- 1d/1e sweep: textAccent gold vanished on the white chip; brown body ink instead
+	rewardLabel.TextColor3 = T.color.textOnLight -- PS99 cool (2026-08-16): CREAM_INK is white here and vanished on the white chip; dark ink instead
 	rewardLabel.Text = "100% REWARD: ?"
 	rewardLabel.Size = UDim2.new(1, -(10 + 30 + 10 + 10), 1, 0)
 	rewardLabel.Position = UDim2.new(0, 10 + 30 + 10, 0, 0)
@@ -639,10 +745,23 @@ function IndexPanel.Build(ctx)
 	rewardLabel.ZIndex = rewardChip.ZIndex + 1
 	rewardLabel.Parent = rewardChip
 
+	----------------------------------------------------------- world tab row (WORLD TABS, 2026-08-13)
+	local worldRow = Instance.new("Frame")
+	worldRow.Name = "WorldRow"
+	worldRow.Position = UDim2.fromOffset(0, DISC_H + SECTION_GAP)
+	worldRow.Size = UDim2.new(1, 0, 0, WTAB_H)
+	worldRow.BackgroundTransparency = 1
+	worldRow.ZIndex = 14
+	worldRow.Parent = body
+
+	local WTAB_W = (BODY_INNER_W - FILTER_GAP * (#WORLD_TABS - 1)) / #WORLD_TABS
+	local worldFrames: { [string]: Frame } = {}
+	local worldRings: { [string]: Frame } = {}
+
 	----------------------------------------------------------- filter chips
 	local filterRow = Instance.new("Frame")
 	filterRow.Name = "FilterRow"
-	filterRow.Position = UDim2.fromOffset(0, DISC_H + SECTION_GAP)
+	filterRow.Position = UDim2.fromOffset(0, DISC_H + SECTION_GAP + WTAB_H + SECTION_GAP)
 	filterRow.Size = UDim2.new(1, 0, 0, FILTER_H)
 	filterRow.BackgroundTransparency = 1
 	filterRow.ZIndex = 14
@@ -651,22 +770,131 @@ function IndexPanel.Build(ctx)
 	local filterFrames: { [string]: Frame } = {}
 	local filterRings: { [string]: Frame } = {}
 
+	-- =========================================================================
+	-- RARITY JUICE (2026-08-10): the Index wears the same dark-card language
+	-- as the Bag's juiced grid. Discovered entries earn the shine (foil from
+	-- Epic, holo band for the Mythic+ family); undiscovered ones stay quiet
+	-- on an opaque LIGHT silhouette plate (black-on-dark is nothing at all --
+	-- see the module header). One Heartbeat drives every animated piece and
+	-- prunes recycled/destroyed tiles (this grid rebuilds wholesale on every
+	-- render), standing down whenever the panel is hidden or the lists empty.
+	local SPEC_S = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("UIKit"):WaitForChild("SpecTheme"))
+	local JX_RUN = game:GetService("RunService")
+	local JX_RAINBOW = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromHex("FF2D6F")),
+		ColorSequenceKeypoint.new(0.17, Color3.fromHex("FF9B2F")),
+		ColorSequenceKeypoint.new(0.33, Color3.fromHex("F5F24A")),
+		ColorSequenceKeypoint.new(0.50, Color3.fromHex("58F06A")),
+		ColorSequenceKeypoint.new(0.67, Color3.fromHex("3FE0FF")),
+		ColorSequenceKeypoint.new(0.83, Color3.fromHex("C93AFF")),
+		ColorSequenceKeypoint.new(1.00, Color3.fromHex("FF2D6F")),
+	})
+	local JX_LEVEL_OF = { Common = "common", Uncommon = "common", Rare = "rare",
+		Epic = "epic", Legendary = "legend", Mythic = "rainbow", Secret = "rainbow", God = "rainbow" }
+	local JX = {
+		common  = { pips = 1 },
+		rare    = { pips = 2 },
+		epic    = { pips = 3, foil = 0.88 },
+		legend  = { pips = 4, foil = 0.82 },
+		rainbow = { pips = 5, foil = 0.72, holo = true },
+	}
+	local jxFx = { drift = {} }
+	local jxConn = nil
+	local function jxStop()
+		if jxConn then jxConn:Disconnect() jxConn = nil end
+		table.clear(jxFx.drift)
+	end
+	local function jxEnsure()
+		if jxConn then return end
+		local clock = 0
+		jxConn = JX_RUN.Heartbeat:Connect(function(dt)
+			if not wrapper.Visible then jxStop() return end
+			clock += dt
+			local slow = (clock * 0.10) % 2 - 1
+			local fast = (clock * 0.30) % 2 - 1
+			for i2 = #jxFx.drift, 1, -1 do
+				local e = jxFx.drift[i2]
+				if not e.g.Parent then table.remove(jxFx.drift, i2)
+				else e.g.Offset = Vector2.new(e.fast and fast or slow, 0) end
+			end
+			if #jxFx.drift == 0 then jxStop() end
+		end)
+	end
+
+	local function updateWorldVisuals()
+		-- same gold-active / neutral-rest treatment as the filter chips below
+		for id, ring in pairs(worldRings) do
+			ring.Visible = (id == activeWorld.Id)
+			local chip = worldFrames[id]
+			if chip then
+				local on = (id == activeWorld.Id)
+				local c = on and SPEC_S.Action.Go or SPEC_S.Action.Neutral -- delta 7: active = green
+				chip.BackgroundColor3 = c[1]
+				local g = chip:FindFirstChildOfClass("UIGradient")
+				if g then g.Color = ColorSequence.new(c[1], c[2]) end
+				-- pale Neutral is too light for white bubble text: dark ink +
+				-- white contextual stroke at rest, white + ink stroke on the
+				-- active green (label is NoPolish'd at build so this sticks)
+				local label = chip:FindFirstChildOfClass("TextLabel")
+				if label then
+					label.TextColor3 = on and T.color.white or T.color.textOnLight
+					for _, s in ipairs(label:GetChildren()) do
+						if s:IsA("UIStroke") then
+							s.Color = on and T.color.outline or T.color.white
+						end
+					end
+				end
+			end
+		end
+	end
+
 	local function updateFilterVisuals()
+		-- 2026-08-11 polish: the chips take the Bag's exact treatment -- gold
+		-- active / neutral rest (they were white cards, the one chip row in the
+		-- game still on the retired cream language). BackgroundColor3 moves
+		-- WITH the gradient: UIGradient MULTIPLIES the background colour.
 		for id, ring in pairs(filterRings) do
 			ring.Visible = (id == activeFilter)
+			local chip = filterFrames[id]
+			if chip then
+				local on = (id == activeFilter)
+				local c = on and SPEC_S.Action.Go or SPEC_S.Action.Neutral -- delta 7: active = green
+				chip.BackgroundColor3 = c[1]
+				local g = chip:FindFirstChildOfClass("UIGradient")
+				if g then g.Color = ColorSequence.new(c[1], c[2]) end
+				-- pale Neutral is too light for white bubble text: dark ink +
+				-- white contextual stroke at rest, white + ink stroke on the
+				-- active green (label is NoPolish'd at build so this sticks)
+				local label = chip:FindFirstChildOfClass("TextLabel")
+				if label then
+					label.TextColor3 = on and T.color.white or T.color.textOnLight
+					for _, s in ipairs(label:GetChildren()) do
+						if s:IsA("UIStroke") then
+							s.Color = on and T.color.outline or T.color.white
+						end
+					end
+				end
+			end
 		end
 	end
 
 	----------------------------------------------------------- grid viewport (scroll-y, kit "Viewport height 392")
 	local grid = Instance.new("ScrollingFrame")
 	grid.Name = "Grid"
-	grid.Position = UDim2.fromOffset(0, DISC_H + SECTION_GAP + FILTER_H + SECTION_GAP)
+	grid.Position = UDim2.fromOffset(0, DISC_H + SECTION_GAP + WTAB_H + SECTION_GAP + FILTER_H + SECTION_GAP)
 	grid.Size = UDim2.new(1, 0, 0, GRID_VIEWPORT_H)
-	grid.BackgroundTransparency = 1
+	-- 2026-08-10 rarity-juice: the grid IS the dark card well
+	grid.BackgroundColor3 = Color3.fromHex("11151D")
+	grid.BackgroundTransparency = 0
 	grid.BorderSizePixel = 0
+	do
+		local wc = Instance.new("UICorner")
+		wc.CornerRadius = UDim.new(0, 14)
+		wc.Parent = grid
+	end
 	grid.ScrollingDirection = Enum.ScrollingDirection.Y
-	grid.ScrollBarThickness = 10
-	grid.ScrollBarImageColor3 = Color3.fromHex("#c9b585") -- 1d/1e sweep (2026-08-04): scrollThumb's sage was tuned for the dark panel; a darker sibling of the card-border tan reads right on cream
+	grid.ScrollBarThickness = 5
+	grid.ScrollBarImageColor3 = Color3.fromHex("#2F394A") -- 1d/1e sweep (2026-08-04): scrollThumb's sage was tuned for the dark panel; a darker sibling of the card-border tan reads right on cream
 	grid.CanvasSize = UDim2.new()
 	grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	grid.ElasticBehavior = Enum.ElasticBehavior.Never
@@ -682,8 +910,11 @@ function IndexPanel.Build(ctx)
 	----------------------------------------------------------- custom ribbon builder (kit only defines NEW=red; the other 3 kinds are task-9-brief spec extensions)
 	local RIBBON_GRADIENT = {
 		lastchance = "goldSmall",
-		backin = "tab", -- "muted" per task-9-brief -- T.gradient.tab is the tabTop/tabBottom family, the nearest muted token
+		backin = "row", -- "muted" per task-9-brief -- PS99 cool (2026-08-16): T.gradient.row is the dark navy row family, so the ribbon's white text reads
 		forestegg = "goldSmall",
+		-- deliberately NOT goldSmall: gold already means "forest egg" on this grid,
+		-- and the cold navy row family reads as ice while keeping white text legible
+		icefishing = "row",
 	}
 
 	local function buildCustomRibbon(parent: Frame, text: string, kind: string): Frame
@@ -704,8 +935,18 @@ function IndexPanel.Build(ctx)
 		pad.Parent = r
 
 		local l = UI.label(r, text, "chip", T.color.white)
-		l.Size = UDim2.fromScale(1, 1)
-		l.AutomaticSize = Enum.AutomaticSize.None
+		-- RIBBON TEXT WAS TRUNCATING (fixed 2026-08-23). The frame is
+		-- AutomaticSize.X, so a child sized fromScale(1, 1) made the pair circular:
+		-- a scale-sized child measures as nothing, the frame collapsed to just its
+		-- 10+10 padding, and the label then took 100% of THAT. Measured live on a
+		-- real tile: TextBounds 50px inside a 36px label, TextTruncate = None, so
+		-- "ICE FISHING" drew as "CE FISHING".
+		-- This hit EVERY custom kind -- FOREST EGG and LAST CHANCE were clipping
+		-- too; it only stayed invisible while the strings were short enough to
+		-- almost fit. Auto-size the LABEL on X and let the frame follow it, which
+		-- is the direction AutomaticSize actually measures.
+		l.Size = UDim2.fromOffset(0, 24)
+		l.AutomaticSize = Enum.AutomaticSize.X
 		l.TextXAlignment = Enum.TextXAlignment.Center
 		return r
 	end
@@ -734,7 +975,7 @@ function IndexPanel.Build(ctx)
 		lbl.BackgroundTransparency = 1
 		lbl.FontFace = T.font.ui
 		lbl.TextSize = 11
-		lbl.TextColor3 = T.color.textAccent
+		lbl.TextColor3 = T.color.textAccentOnDark -- PS99 cool (2026-08-16): gold that reads on the dark chip over a dark tile
 		lbl.Text = string.format("%d/%d MINTED", minted, cap)
 		lbl.Size = UDim2.fromOffset(0, 16)
 		lbl.AutomaticSize = Enum.AutomaticSize.X
@@ -785,22 +1026,27 @@ function IndexPanel.Build(ctx)
 	end
 
 	local function updateVisible()
-		if #tiles == 0 then
-			return
-		end
 		local viewH = grid.AbsoluteSize.Y
 		if viewH <= 0 then
 			return
 		end
-		local top = grid.CanvasPosition.Y - viewH * VIS_MARGIN
-		local bottom = grid.CanvasPosition.Y + viewH * (1 + VIS_MARGIN)
-		for i, t in ipairs(tiles) do
-			local row = math.floor((i - 1) / GRID_COLS)
-			local y0 = row * ROW_H
-			if y0 + CELL_H >= top and y0 <= bottom then
-				fillTile(t)
-			else
-				clearTile(t)
+		-- Decide visibility from each tile's REAL on-screen position rather than a
+		-- computed row*ROW_H window. The old row-math left every row past the first
+		-- visible one blank once you scrolled (the higher rarities, which sit lower in
+		-- the grid, never rendered their silhouette). Position math can't drift from
+		-- the layout, and `pairs` (not ipairs) means a missing index can never cut the
+		-- sweep short. fillTile/clearTile stay idempotent, so this is still cheap.
+		local gridTop = grid.AbsolutePosition.Y
+		local margin = viewH * VIS_MARGIN
+		for _, t in pairs(tiles) do
+			local h = t.holder
+			if h then
+				local rel = h.AbsolutePosition.Y - gridTop
+				if rel < viewH + margin and rel + h.AbsoluteSize.Y > -margin then
+					fillTile(t)
+				else
+					clearTile(t)
+				end
 			end
 		end
 	end
@@ -825,7 +1071,8 @@ function IndexPanel.Build(ctx)
 		-- Frames plus three property connections each per paint.
 		local tileGrad = tile:FindFirstChildOfClass("UIGradient")
 		if tileGrad then
-			tileGrad.Color = ColorSequence.new(Color3.new(1, 1, 1))
+			-- 2026-08-10 rarity-juice: dark card, matching the Bag's grid well
+			tileGrad.Color = ColorSequence.new(Color3.fromHex("252E3D"), Color3.fromHex("171D27"))
 		end
 		-- SILHOUETTE INDEX: the border carries the RARITY colour (reference
 		-- video) rather than the flat tan -- it is what makes a wall of unknown
@@ -850,7 +1097,14 @@ function IndexPanel.Build(ctx)
 			-- contrast (the reference video silhouettes sit on a dark tile and
 			-- rely on near-black-on-dark; on our cream cards the same shape reads
 			-- far better as ink-on-paper, which is the pokedex language anyway)
-			artHolder.BackgroundTransparency = known and 0.4 or 0.86
+			-- on the dark card an unknown's black silhouette needs an opaque
+			-- LIGHT plate; discovered keeps a translucent tier wash
+			if known then
+				artHolder.BackgroundTransparency = 0.55
+			else
+				artHolder.BackgroundColor3 = tier.Color:Lerp(Color3.new(1, 1, 1), 0.85)
+				artHolder.BackgroundTransparency = 0
+			end
 			artHolder.BorderSizePixel = 0
 			artHolder.ClipsDescendants = true
 			artHolder.ZIndex = tile.ZIndex + 1
@@ -871,6 +1125,65 @@ function IndexPanel.Build(ctx)
 			--   known   -> WHITE + ink stroke, which is also what the reference
 			--              video does, and what reads on the tier wash
 			--   unknown -> the RARITY colour, the whole point of the label
+			local jxLevel = JX[JX_LEVEL_OF[tier.Name] or "common"] or JX.common
+			local band = Instance.new("Frame")
+			band.Name = "Band"
+			band.AnchorPoint = Vector2.new(0, 1)
+			band.Position = UDim2.fromScale(0, 1)
+			band.Size = UDim2.new(1, 0, 0, NAME_H + TILE_PAD * 2)
+			band.BorderSizePixel = 0
+			band.ZIndex = tile.ZIndex + 1
+			band.Parent = tile
+			if known and jxLevel.holo then
+				band.BackgroundColor3 = Color3.new(1, 1, 1)
+				local bg2 = Instance.new("UIGradient")
+				bg2.Color = JX_RAINBOW
+				bg2.Parent = band
+				table.insert(jxFx.drift, { g = bg2, fast = true })
+				jxEnsure()
+			else
+				band.BackgroundColor3 = tier.Color
+				band.BackgroundTransparency = known and 0.35 or 0.82
+			end
+
+			-- tier pips, top-left, same 5-level energy scale as the Bag
+			local pips = Instance.new("Frame")
+			pips.Name = "Pips"
+			pips.Position = UDim2.fromOffset(6, 6)
+			pips.Size = UDim2.fromOffset(52, 7)
+			pips.BackgroundTransparency = 1
+			pips.ZIndex = tile.ZIndex + 3
+			pips.Parent = tile
+			for i2 = 1, 5 do
+				local pip = Instance.new("Frame")
+				pip.Size = UDim2.fromOffset(5, 5)
+				pip.Position = UDim2.fromOffset((i2 - 1) * 10, 1)
+				pip.Rotation = 45
+				pip.BorderSizePixel = 0
+				pip.ZIndex = tile.ZIndex + 3
+				pip.BackgroundColor3 = (i2 <= jxLevel.pips) and tier.Color or Color3.fromHex("39414F")
+				pip.BackgroundTransparency = known and 0 or 0.45
+				pip.Parent = pips
+			end
+
+			-- discovered Epic+ earns the drifting foil, under the model art
+			if known and jxLevel.foil then
+				local foil = Instance.new("Frame")
+				foil.Name = "Foil"
+				foil.Size = UDim2.fromScale(1, 1)
+				foil.BackgroundColor3 = Color3.new(1, 1, 1)
+				foil.BackgroundTransparency = jxLevel.foil
+				foil.BorderSizePixel = 0
+				foil.ZIndex = artHolder.ZIndex
+				foil.Parent = artHolder
+				local fg2 = Instance.new("UIGradient")
+				fg2.Rotation = 25
+				fg2.Color = JX_RAINBOW
+				fg2.Parent = foil
+				table.insert(jxFx.drift, { g = fg2, fast = false })
+				jxEnsure()
+			end
+
 			local nameLbl = Instance.new("TextLabel")
 			nameLbl.Name = known and "Name" or "RarityWord"
 			nameLbl:SetAttribute("NoPolish", true)
@@ -903,8 +1216,11 @@ function IndexPanel.Build(ctx)
 		-- silhouette flag.
 
 		-- ribbon slot: NEW > LAST CHANCE > BACK IN > FOREST EGG (see ribbonFor)
-		local _, avStatus, avTs = availabilityOf(e.Name)
+		local _, avStatus, avTs = availabilityOf(e.Name, activeWorld.UsesSupply)
 		local isEggSourced = e.Source == "ForestEgg"
+		-- the ice-fishing catches were authored with Origin rather than Source
+		-- (BrainrotConfigTundra); accept either so neither field name is a trap
+		local isFishSourced = (e.Source == "IceFishing") or (e.Origin == "IceFishing")
 		local justSeen = seen[e.Name] == true
 		local rtext, rkind = ribbonFor({
 			Known = known,
@@ -912,6 +1228,7 @@ function IndexPanel.Build(ctx)
 			AvStatus = avStatus,
 			AvTs = avTs,
 			IsEggSourced = isEggSourced,
+			IsFishSourced = isFishSourced,
 		})
 		if rtext and rkind then
 			local rb
@@ -936,14 +1253,15 @@ function IndexPanel.Build(ctx)
 
 	----------------------------------------------------------- filter -> source list
 	local function sourceFor(filter: string)
+		local w = activeWorld
 		if filter == "Catchable" then
-			refreshAvailability()
-			return orderedLive
+			refreshAvailability(w)
+			return w.OrderedLive
 		end
 		if filter == "CR" or filter == "EL" or filter == "Mplus" then
 			local out = {}
-			for _, rec in ipairs(ordered) do
-				local rank = tierRank[rec.Tier.Name] or 0
+			for _, rec in ipairs(w.Ordered) do
+				local rank = w.TierRank[rec.Tier.Name] or 0
 				local pass = (filter == "CR" and rank >= 1 and rank <= 3)
 					or (filter == "EL" and rank >= 4 and rank <= 5)
 					or (filter == "Mplus" and rank >= 6)
@@ -953,7 +1271,7 @@ function IndexPanel.Build(ctx)
 			end
 			return out
 		end
-		return ordered -- "All"
+		return w.Ordered -- "All"
 	end
 
 	----------------------------------------------------------- seen/NEW bookkeeping (task-9-brief spec extension, see module header note)
@@ -980,7 +1298,7 @@ function IndexPanel.Build(ctx)
 	----------------------------------------------------------- render
 	local function render()
 		ensureSeenSeeded()
-		refreshAvailability()
+		refreshAvailability(activeWorld)
 
 		for _, c in ipairs(grid:GetChildren()) do
 			if c:IsA("GuiObject") then
@@ -989,17 +1307,26 @@ function IndexPanel.Build(ctx)
 		end
 		tiles = {}
 
+		-- discovery bar counts the ACTIVE WORLD's roster (the bar sits above the
+		-- world tabs, but per-world is the honest read: a full valley bar should
+		-- not deflate the day a second world's roster ships)
 		local found = 0
-		for _, rec in ipairs(ordered) do
+		for _, rec in ipairs(activeWorld.Ordered) do
 			if discovered[rec.E.Name] then
 				found += 1
 			end
 		end
-		discLabel.Text = string.format("%d / %d discovered", found, TOTAL_COUNT)
-		UI.setFill(discFill, TOTAL_COUNT > 0 and found / TOTAL_COUNT or 0, false)
+		discLabel.Text = string.format("%d / %d discovered", found, activeWorld.Total)
+		UI.setFill(discFill, activeWorld.Total > 0 and found / activeWorld.Total or 0, false)
 
-		tideValue.Text = deltaText(SupplySchedule.NextChange())
+		-- the tide is a Vault & Tide (valley) concept; a world off the rotation
+		-- has no tide to count down to
+		tideChip.Visible = activeWorld.UsesSupply
+		if activeWorld.UsesSupply then
+			tideValue.Text = deltaText(SupplySchedule.NextChange())
+		end
 
+		updateWorldVisuals()
 		updateFilterVisuals()
 
 		local source = sourceFor(activeFilter)
@@ -1018,15 +1345,9 @@ function IndexPanel.Build(ctx)
 		chip.Position = UDim2.fromOffset((i - 1) * (FILTER_W + FILTER_GAP), 0)
 		chip.ZIndex = 14
 		chip.Parent = filterRow
-		-- 1d/1e sweep (2026-08-04): the olive "tab" chips flip to white cards
-		-- on the cream body -- same in-place gradient/stroke recolor as the
-		-- grid tiles, and the hardShadow is dropped to match Daily's
-		-- flat-on-cream card language. The gold ActiveRing below is untouched
-		-- (a colored accent -- and it pops harder against white).
-		local chipGrad = chip:FindFirstChildOfClass("UIGradient")
-		if chipGrad then
-			chipGrad.Color = ColorSequence.new(Color3.new(1, 1, 1))
-		end
+		-- 2026-08-11 polish: white-card chips retired -- updateFilterVisuals
+		-- paints gold/neutral (the Bag's treatment) over the "tab" base at
+		-- build time and on every filter change. Only the stroke stays local.
 		local chipStroke = chip:FindFirstChildOfClass("UIStroke")
 		if chipStroke then
 			chipStroke.Color = CARD_BORDER
@@ -1037,6 +1358,12 @@ function IndexPanel.Build(ctx)
 		-- 1d/1e sweep: label sits on a white chip now -> brown body ink (the
 		-- cardLabel style's contextual ink text-stroke stays, Daily precedent)
 		local label = UI.label(chip, def.label, "cardLabel", CREAM_INK)
+		-- pale-Neutral sweep: updateFilterVisuals now flips this ink dark on
+		-- the light Neutral fill. UIPolish re-asserts WHITE on every
+		-- TextColor3 change of an unexempted label, so exempt it here or the
+		-- flip reverts the same frame. Font/size are unchanged by the exemption
+		-- (UI.label's FontFace is already FredokaOne, UIPolish's own FONT).
+		label:SetAttribute("NoPolish", true)
 		label.Size = UDim2.fromScale(1, 1)
 		label.AutomaticSize = Enum.AutomaticSize.None
 		label.TextXAlignment = Enum.TextXAlignment.Center
@@ -1075,6 +1402,67 @@ function IndexPanel.Build(ctx)
 	end
 	updateFilterVisuals()
 
+	----------------------------------------------------------- world tab wiring (WORLD TABS, 2026-08-13)
+	-- Deliberately the filter chips' own construction, verbatim, at WTAB_W --
+	-- a second visual language for a second chip row would read as noise.
+	for i, rec in ipairs(WORLD_TABS) do
+		local chip = UI.surface(worldRow, UDim2.fromOffset(WTAB_W, WTAB_H), "tab", T.radius.small, T.stroke.control)
+		chip.Name = "World" .. rec.Id
+		chip.Position = UDim2.fromOffset((i - 1) * (WTAB_W + FILTER_GAP), 0)
+		chip.ZIndex = 14
+		chip.Parent = worldRow
+		local chipStroke = chip:FindFirstChildOfClass("UIStroke")
+		if chipStroke then
+			chipStroke.Color = CARD_BORDER
+			chipStroke.Thickness = 3
+		end
+
+		local label = UI.label(chip, rec.Label, "cardLabel", CREAM_INK)
+		-- pale-Neutral sweep: updateWorldVisuals now flips this ink dark on
+		-- the light Neutral fill. UIPolish re-asserts WHITE on every
+		-- TextColor3 change of an unexempted label, so exempt it here or the
+		-- flip reverts the same frame. Font/size are unchanged by the exemption
+		-- (UI.label's FontFace is already FredokaOne, UIPolish's own FONT).
+		label:SetAttribute("NoPolish", true)
+		label.Size = UDim2.fromScale(1, 1)
+		label.AutomaticSize = Enum.AutomaticSize.None
+		label.TextXAlignment = Enum.TextXAlignment.Center
+		label.ZIndex = chip.ZIndex + 1
+
+		local ring = Instance.new("Frame")
+		ring.Name = "ActiveRing"
+		ring.Size = UDim2.new(1, 8, 1, 8)
+		ring.Position = UDim2.fromOffset(-4, -4)
+		ring.BackgroundTransparency = 1
+		ring.Visible = false
+		ring.ZIndex = chip.ZIndex + 2
+		ring.Parent = chip
+		UI.corner(ring, T.radius.small + 3)
+		local ringStroke = Instance.new("UIStroke")
+		ringStroke.Thickness = 4
+		ringStroke.Color = T.color.activeRing
+		ringStroke.Parent = ring
+
+		local hit = Instance.new("TextButton")
+		hit.Name = "Hit"
+		hit.Text = ""
+		hit.Size = UDim2.fromScale(1, 1)
+		hit.BackgroundTransparency = 1
+		hit.ZIndex = chip.ZIndex + 3
+		hit.Parent = chip
+		hit.MouseButton1Click:Connect(function()
+			if activeWorld ~= rec then
+				activeWorld = rec
+				ctx.state.index.world = rec.Id
+				render()
+			end
+		end)
+
+		worldFrames[rec.Id] = chip
+		worldRings[rec.Id] = ring
+	end
+	updateWorldVisuals()
+
 	----------------------------------------------------------- supply snapshot (IndexClient lines 98-111, verbatim throttle)
 	local function refreshSupplySnap()
 		if os.clock() - supplySnapAt < 60 then
@@ -1103,6 +1491,9 @@ function IndexPanel.Build(ctx)
 	-- own note; TweenService is GuiObject-only in this place).
 	local BLUR_NAME = "IndexPanelBlur"
 	local function setBlur(on: boolean)
+		-- centralised 2026-08-17: GameHUDClient owns the one shared HUDPanelBlur
+		-- (blur-never-dim); a second per-panel BlurEffect only stacked on top
+		do return end
 		local existing = Lighting:FindFirstChild(BLUR_NAME)
 		if on and not existing then
 			local blur = Instance.new("BlurEffect")

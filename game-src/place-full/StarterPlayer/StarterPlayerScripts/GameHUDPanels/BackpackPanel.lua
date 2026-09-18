@@ -95,11 +95,20 @@
 --     as a pinned tile) has no kit slot and is not mentioned in the task
 --     brief -- omitted here entirely, same "kit + brief only" discipline
 --     other panels' reports document for their own legacy-feature cuts.
---   * The kit's original "+ Slots" button and "slots" capacity concept are
+--   * SUPERSEDED 2026-08-20 -- see the paragraph below this one. The kit's
+--     original "+ Slots" button and "slots" capacity concept were
 --     REMOVED per the task brief's explicit spec delta (header counter is
 --     "N brainrots · M/6 held", not "28/60 slots"); the kit's dashed
 --     unowned-capacity placeholder tiles are dropped along with it -- there
 --     is no fixed capacity to draw empty slots for.
+--   * (2026-08-20) CAPACITY IS BACK, but only as a NUMBER. Both bags have a
+--     real cap now (BagConfig: 25 pets / 150 brainrots, both bought up at
+--     Enzo), so the header counter leads with it -- "N/150 brainrots",
+--     "N/25 pets" -- and turns red at the line. The kit's dashed placeholder
+--     TILES stay dropped: at 150 slots that is a wall of empty boxes, and one
+--     counter line says the same thing. The pet FOLLOW-slot row is the sole
+--     place empty slots are still drawn as cards -- there are at most eight,
+--     and the locked ones double as the shop for buying more.
 --   * Brainrot tiles show NO name/price text (kit's own capture renders
 --     item_NN.png filling nearly the whole 96x118 tile with only a qty chip
 --     and an occasional ribbon -- no label) -- that information lives in the
@@ -143,6 +152,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextService = game:GetService("TextService")
 local RunService = game:GetService("RunService") -- rarity-juice FX driver
+local Lighting = game:GetService("Lighting") -- backdrop blur (see setBlur near the wiring)
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -162,6 +172,9 @@ local IconArt = require(modules:WaitForChild("UIKit"):WaitForChild("IconArt"))
 -- 2026-08-09 HUD upgrade: the sheet's shell + parts (see UIKit.SpecTheme)
 local PC = require(modules:WaitForChild("UIKit"):WaitForChild("PanelChrome"))
 local S = require(modules:WaitForChild("UIKit"):WaitForChild("SpecTheme"))
+-- 2026-08-19: device class, for the touch-only card affordances in wireCardHit
+-- (long-press to inspect, always-visible fav badge -- a phone has no hover).
+local Platform = require(modules:WaitForChild("Platform"))
 local SeasonConfig = require(modules:WaitForChild("SeasonConfig")) -- Tags tab: TAGS labels
 -- The Index is a TAB in this panel now, not its own rail destination. Required
 -- from the sibling module rather than duplicated -- see renderIndex below.
@@ -170,6 +183,12 @@ local IndexPanel = require(script.Parent:WaitForChild("IndexPanel"))
 -- Index) instead of the openPanel("charms") doorway that closed the Bag.
 local CharmsPanel = require(script.Parent:WaitForChild("CharmsPanel"))
 local PetConfigModule = modules:WaitForChild("PetConfig") -- required live, see header note
+-- Bag capacity (2026-08-20). The SAME module the server refuses on, so the
+-- "17 / 25" this panel prints and the number that blocks an egg purchase are
+-- one rule in one file -- see BagConfig's own header on why it is shared.
+local BagConfig = require(modules:WaitForChild("BagConfig"))
+-- abbreviates $100,000,000 to $100M for the slot cards' price pills
+local NumberFormat = require(modules:WaitForChild("NumberFormat"))
 
 -- EVERY WORLD (fixed 2026-08-07). Built from BrainrotConfig alone, this left the 30
 -- tundra-exclusive brainrots unknown to the Bag -- $0/s, no rarity tint, sorted last.
@@ -269,9 +288,10 @@ end
 -- Size joins the grouping key: a Massive Kraken is a DIFFERENT stack from a plain one,
 -- the same way a Golden one already is. Without this they would merge and the count
 -- would lie about what you actually own.
--- Fav joins the grouping key (2026-08-12 rework): a favorited copy is padlocked
--- against selling, and folding it into the same stack as loose copies would make
--- one padlock icon lie about half its stack. Favorited copies form their own card.
+-- Fav joins the grouping key: a favorited copy (2026-08-22: the raid LOCK, PlotFav,
+-- sourced into `Fav` in applySnapshot) is padlocked against raids AND selling, and
+-- folding it into a stack of loose copies would make one padlock icon lie about half
+-- the stack. Favorited/locked copies form their own card.
 local function groupBrainrots(owned: { { Name: string, Mutation: string?, Size: string?, Uid: any, Fav: boolean? } })
 	local groups, order = {}, {}
 	for _, item in ipairs(owned) do
@@ -345,6 +365,12 @@ local petSlots: { string } = {}
 local keyState = { Gianluca = 0, Cellar = false, CellarPaid = false }
 -- Season-pass name-plate titles: which ones are owned, and which is worn.
 local tagState = { Owned = {}, Equipped = nil }
+-- Bag capacity + follow-slot purchases (2026-08-20). Upgrades is carried whole
+-- rather than pre-reduced to a number because BagConfig is what turns it into a
+-- cap -- keeping the raw table here means this panel never owns a copy of that
+-- arithmetic. PendingEggs is only ever needed as a COUNT (the Pets tab's claim
+-- button), so it is flattened on the way in.
+local bagState = { Upgrades = {}, PetSlotsBought = 0, PetSlotsRobux = 0, PendingEggs = 0, BagX2 = false }
 local onSnapshotChanged: (() -> ())? = nil
 -- 2026-08-10 rarity-juice pass: uids that arrived AFTER the first snapshot of
 -- this session wear a NEW badge until their tile is clicked. Client-only --
@@ -360,7 +386,12 @@ local function applySnapshot(snap)
 	allBrainrots = {}
 	for _, e in ipairs(snap.Brainrots) do
 		if e.Uid then
-			local copy = { Name = e.Name, Mutation = e.Mutation, Size = e.Size, Uid = e.Uid, PadIndex = e.PadIndex, Fav = e.Fav or false }
+			-- UNIFIED FAVORITE (2026-08-22): the bag's single "favorite" IS the raid
+			-- LOCK now (PlotFav) -- capacity-gated, plot-synced, and never-sell. Every
+			-- bag surface reads `Fav` (grouping key, badge, stack-apart), so sourcing it
+			-- from PlotFav here unifies the whole panel with no other display change. The
+			-- old never-sell `e.Fav` is retired (selling now gates on PlotFav too).
+			local copy = { Name = e.Name, Mutation = e.Mutation, Size = e.Size, Uid = e.Uid, PadIndex = e.PadIndex, Fav = e.PlotFav or false }
 			allBrainrots[#allBrainrots + 1] = copy
 			if not e.PadIndex then
 				ownedBrainrots[#ownedBrainrots + 1] = copy
@@ -410,6 +441,14 @@ local function applySnapshot(snap)
 		Owned = (typeof(snap.Tags) == "table") and snap.Tags or {},
 		Equipped = snap.EquippedTag,
 	}
+	bagState = {
+		Upgrades = (typeof(snap.Upgrades) == "table") and snap.Upgrades or {},
+		PetSlotsBought = tonumber(snap.PetSlotsBought) or 0,
+		PetSlotsRobux = tonumber(snap.PetSlotsRobux) or 0,
+		PendingEggs = (typeof(snap.PendingEggs) == "table") and #snap.PendingEggs or 0,
+		-- owns the 2x Backpack gamepass -> BagConfig.BrainrotCap doubles the shown cap
+		BagX2 = snap.BagX2 == true,
+	}
 end
 
 remotes.DataUpdated.OnClientEvent:Connect(function(payload)
@@ -446,7 +485,12 @@ function BackpackPanel.Build(ctx)
 	-- good, how big everything is"): the 152px labelled tab column becomes a
 	-- slim icon rail -- PS99's own category rail is exactly this -- and every
 	-- freed pixel goes to the content. 88px wider grids across ALL tabs.
-	local TABS_COL_W = 64
+	-- 2026-08-15 readability pass item 3: 100 -> 80. The rail is static chrome --
+	-- six tiles that never change -- and at 100 wide it was spending more panel
+	-- area than the inventory viewport it sits next to. Every pixel taken off it
+	-- flows through GRID_COL_W into INDEX_W/BR_W, so all six tabs get it, and the
+	-- 40px icon over a TextScaled label still sits comfortably at 80.
+	local TABS_COL_W = 80 -- 2026-08-13 mock restyle: labelled tab tiles (was the 64px icon rail)
 	local DETAIL_COL_W = 224
 	local CONTENT_H = BODY_H -- shell.body already carries its own padding
 	local BODY_INNER_W = 1000 -- 1080 - shell pad 36 - body pad 44
@@ -456,7 +500,7 @@ function BackpackPanel.Build(ctx)
 	-- section, because renderCharms above that section closes over it.
 	local INDEX_W = GRID_COL_W + COL_GAP + DETAIL_COL_W
 
-	local TAB_H = 62 -- icon-over-label tiles now (see the PS99 sizing pass note)
+	local TAB_H = 74 -- mock restyle: bigger icon-over-label tiles (62 before; 6x74+5x9 = 489 fits the 512 column)
 	local TAB_GAP = 9
 
 	local CHIP_H = 44 -- kit gives no chip spec for THIS panel; reused from §3.5 Index's
@@ -476,8 +520,19 @@ function BackpackPanel.Build(ctx)
 	-- five cards land at the same size as the Codex's. renderActiveTab also
 	-- reads these: for Pets it keeps the shared detail column visible but
 	-- drops it BELOW the slot row.
-	local PET_SLOTROW_H = 108
+	local PET_SLOTROW_H = 108 -- ONE card's height; the block below may be 2 of them
 	local PET_SLOTROW_GAP = 12
+	-- EIGHT SLOTS SINCE 2026-08-20 (3 free + 2 for cash + 3 for Robux), and eight
+	-- do not fit one row of the 762px tab body: the cards would come out 84px wide
+	-- and the occupant card alone spends 68 of those on its art plate, leaving
+	-- nothing for a name. Two rows of four instead -- which makes the cards WIDER
+	-- than the five-across row they replace (181 vs 142), so this is a gain for
+	-- the equipped-pet card as well as the only way the new slots fit at all.
+	-- Every layout that used to size off PET_SLOTROW_H now uses the BLOCK height.
+	local PET_SLOT_COLS = 4
+	local PET_SLOT_ROWS = 2
+	local PET_SLOTROW_VGAP = 10
+	local PET_SLOTROW_BLOCK_H = PET_SLOTROW_H * PET_SLOT_ROWS + PET_SLOTROW_VGAP * (PET_SLOT_ROWS - 1)
 
 	-- Pet grid: FOUR columns, not the brainrot grid's five (2026-08-11). A/B'd
 	-- on screen at both sizes -- the bigger cell is most of "make the pet card
@@ -489,6 +544,37 @@ function BackpackPanel.Build(ctx)
 	local PET_WELL_PAD = 8
 	local PET_SLOT_W = math.floor((GRID_COL_W - PET_WELL_PAD * 2 - GRID_GAP * (PET_COLS - 1)) / PET_COLS)
 	local PET_SLOT_H = math.floor(PET_SLOT_W * 1.07)
+
+	-- COLLAPSIBLE PET SLOT ROW (owner, 2026-08-22) -- the same fold the brainrot bay
+	-- has. The 2x4 slot grid is 226px of the tab body, and folding it hands every
+	-- one of those pixels to the pet grid below: one visible row of pets becomes
+	-- three. A 34px header strip ALWAYS survives the fold, because a collapse with
+	-- nothing left to click is a one-way door (the bay keeps its own header for the
+	-- same reason).
+	--
+	-- The flag lives on ctx.state.backpack, not a local, so the choice survives
+	-- closing the panel exactly like the selected tab and the bay's own fold do.
+	-- Every layout that positions off the slot row -- the row itself, the pet well
+	-- and the detail column in renderActiveTab -- reads petSlotBlockH(), so there is
+	-- ONE number to keep them in step instead of three copies to forget.
+	local PET_SLOTROW_HEAD_H = 34
+	local function petSlotsCollapsed(): boolean
+		return ctx.state.backpack.petSlotsCollapsed == true
+	end
+	-- The slot grid ALSO folds while the abilities sheet is open. That sheet is a
+	-- reading surface, and against an expanded slot row it gets 231px -- about two
+	-- abilities at a time, which is what made it hard to read (owner, 2026-08-22).
+	-- Folded it gets 464px. This deliberately does NOT touch the player's own fold
+	-- preference: close the sheet and the slots come back exactly as they were,
+	-- which is why this is a separate function from petSlotsCollapsed() rather than
+	-- a write to that flag.
+	local function petSlotsFolded(): boolean
+		return petSlotsCollapsed() or ctx.state.backpack.petAbilityHelp == true
+	end
+	local function petSlotBlockH(): number
+		if petSlotsFolded() then return PET_SLOTROW_HEAD_H end
+		return PET_SLOTROW_HEAD_H + 8 + PET_SLOTROW_BLOCK_H
+	end
 
 	----------------------------------------------------------- module-local state (ephemeral UI selection only; server-confirmed ownedBrainrots/ownedPets/petSlots now live at module top-level, see applySnapshot above)
 	local activeTab = ctx.state.backpack.tab or "Brainrots"
@@ -515,6 +601,7 @@ function BackpackPanel.Build(ctx)
 		name = "BackpackPanel",
 		title = "BAG",
 		key = "bag",
+		icon = S.Art.bag, -- PS99 restyle: the rail's own sticker floats in the header
 		size = S.ShellFor.backpack,
 		scroll = false,
 		listLayout = false,
@@ -524,6 +611,19 @@ function BackpackPanel.Build(ctx)
 	local body = shell.body
 	local shellZ = shell.z
 
+	-- 2026-08-16 PS99 RESTYLE: the Bag is a WHITE panel like the rest of the
+	-- HUD now -- white rim, pale cool body, dark outline on the rim and a
+	-- soft interior edge on the body. Contained to this panel; no
+	-- shared-theme edits.
+	wrapper.BackgroundColor3 = Color3.fromHex("FFFFFF")
+	body.BackgroundColor3 = Color3.fromHex("F5F8FC")
+	do
+		local ws = wrapper:FindFirstChildOfClass("UIStroke")
+		if ws then ws.Color = Color3.fromHex("313D4F") end
+		local bs = body:FindFirstChildOfClass("UIStroke")
+		if bs then bs.Color = Color3.fromHex("D8E0EA") end
+	end
+
 	-- Spec delta (task-8-brief): "N brainrots . M/6 held". Tracks the title
 	-- via TextBounds -- the shell title is a fixed-size frame, so its
 	-- AbsoluteSize never moves; its TextBounds does.
@@ -532,7 +632,7 @@ function BackpackPanel.Build(ctx)
 	counterLabel.BackgroundTransparency = 1
 	counterLabel.Font = S.Font.Read
 	counterLabel.TextSize = 24
-	counterLabel.TextColor3 = Color3.fromHex("E4FFE9")
+	counterLabel.TextColor3 = Color3.fromHex("33414F") -- ink on the white header plate
 	counterLabel.Text = "0 brainrots \u{00B7} 0/12 on plot"
 	counterLabel.AnchorPoint = Vector2.new(0, 0.5)
 	counterLabel.Size = UDim2.new(0, 380, 0, 30)
@@ -543,16 +643,20 @@ function BackpackPanel.Build(ctx)
 	do
 		local st = Instance.new("UIStroke")
 		st.Thickness = 2
-		st.Color = S.Outline
+		st.Color = Color3.new(1, 1, 1) -- white halo so the ink counter reads on the plate
 		st.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 		st.LineJoinMode = Enum.LineJoinMode.Round
 		st.Parent = counterLabel
 	end
 
 	local COUNTER_GAP = 32 -- visual pass 2026-08-10: 18 sat inside the title's ink stroke
-	local TITLE_LEFT = S.Chrome.HeaderPadding
+	local TITLE_LEFT = S.Chrome.HeaderPadding + 126 + 18 -- header sticker + gap (PC.shell icon shifts the title right)
 	local function layoutCounter()
-		counterLabel.Position = UDim2.new(0, TITLE_LEFT + shell.titleLabel.TextBounds.X + COUNTER_GAP, 0.5, 0)
+		-- PS99 restyle fix: TextBounds reads STALE (tiny) while the panel is
+		-- hidden, which parked the counter inside the big title. "BAG" at the
+		-- 52px title face is ~108px wide -- floor the measurement so a stale
+		-- bounds can never tuck the counter under the glyphs.
+		counterLabel.Position = UDim2.new(0, TITLE_LEFT + math.max(shell.titleLabel.TextBounds.X, 108) + COUNTER_GAP, 0.5, 0)
 	end
 	shell.titleLabel:GetPropertyChangedSignal("TextBounds"):Connect(layoutCounter)
 	layoutCounter()
@@ -636,6 +740,13 @@ function BackpackPanel.Build(ctx)
 
 	local tabFrames: { [string]: Frame } = {}
 	local tabRings: { [string]: Frame } = {}
+	local tabIcons: { [string]: GuiObject } = {}
+	-- PS99 sticker pass 2026-08-16: the rail's sticker language, brought inside.
+	-- Glyphs go 40 -> 54 (~35% up), the ACTIVE tab's glyph sits ~15% larger
+	-- again (set in updateTabVisuals so it survives re-renders), and each glyph
+	-- gets an alternating tilt. Tiles/rings/labels stay square.
+	local TAB_ICON = 54
+	local TAB_ICON_ACTIVE = 62
 
 	for i, def in ipairs(TAB_DEFS) do
 		local tab = UI.surface(tabsCol, UDim2.fromOffset(TABS_COL_W, TAB_H), "tab", T.radius.inner, T.stroke.control)
@@ -643,33 +754,56 @@ function BackpackPanel.Build(ctx)
 		tab.Position = UDim2.fromOffset(0, (i - 1) * (TAB_H + TAB_GAP))
 		tab.ZIndex = 14
 		tab.Parent = tabsCol
-		-- 2026-08-10 inner restyle: neutral spec plate on the light ground;
-		-- updateTabVisuals paints the active one gold
+		-- 2026-08-13 mock restyle: flat dark navy tiles (no gloss/shadow);
+		-- updateTabVisuals paints the active one green
 		local tabGrad = tab:FindFirstChildOfClass("UIGradient")
-		if tabGrad then tabGrad.Color = ColorSequence.new(S.Action.Neutral[1], S.Action.Neutral[2]) end
-		UI.gloss(tab, T.radius.inner)
-		-- tabsCol has no UIListLayout (each tab's Position is set manually
-		-- above), so UI.hardShadow's sibling-parented shadow Frame is safe to
-		-- add directly here -- no wrapper slot needed (see GoalsPanel/PassPanel's
-		-- HardShadow-in-UIListLayout trap note; this container doesn't have it).
-		UI.hardShadow(tab, T.shadowOffset.control, T.radius.inner)
+		if tabGrad then tabGrad.Color = ColorSequence.new(Color3.fromHex("161C28"), Color3.fromHex("10151F")) end
+		do
+			local ts = tab:FindFirstChildOfClass("UIStroke")
+			if ts then
+				ts.Color = Color3.fromHex("2A3242")
+				ts.Thickness = 2
+			end
+		end
 
-		-- Slim rail tiles (PS99 sizing pass): icon on top, small label under it.
-		-- Vector art where IconArt has a shape, the uploaded asset where one
-		-- exists; IconArt.draw parents and sizes its own root, hence the holder.
 		local icon: GuiObject
 		if def.art and IconArt.has(def.art) then
 			icon = Instance.new("Frame")
 			icon.BackgroundTransparency = 1
-			icon.Size = UDim2.fromOffset(28, 28)
+			icon.Size = UDim2.fromOffset(TAB_ICON, TAB_ICON)
 			icon.Parent = tab
-			IconArt.draw(icon, def.art, 28, tab.ZIndex + 2)
+			local artRoot = IconArt.draw(icon, def.art, TAB_ICON, tab.ZIndex + 2)
+			-- IconArt draws in OFFSET pixels, so resizing this container alone
+			-- would not scale the art -- and TweenService in this place only
+			-- animates GuiObject properties (a UIScale tween is a silent no-op).
+			-- Bridge: the hover/active code tweens or sets the container's Size
+			-- (legal), and this binding mirrors it into a UIScale by plain
+			-- property SET (also legal), so vector glyphs scale in lockstep.
+			-- The container renders nothing, so its own doubled-up bounds are
+			-- invisible; centring the art root keeps growth symmetric.
+			if artRoot then
+				artRoot.AnchorPoint = Vector2.new(0.5, 0.5)
+				artRoot.Position = UDim2.fromScale(0.5, 0.5)
+			end
+			local scaler = Instance.new("UIScale")
+			scaler.Parent = icon
+			icon:GetPropertyChangedSignal("Size"):Connect(function()
+				scaler.Scale = icon.Size.X.Offset / TAB_ICON
+			end)
 		else
-			icon = UI.artSlot(tab, UDim2.fromOffset(28, 28), def.icon)
+			icon = UI.artSlot(tab, UDim2.fromOffset(TAB_ICON, TAB_ICON), def.icon)
+			icon.BackgroundTransparency = 1
 		end
 		icon.Name = "Icon"
-		icon.AnchorPoint = Vector2.new(0.5, 0)
-		icon.Position = UDim2.new(0.5, 0, 0, 7)
+		-- Centre-anchored so the size pop grows from the middle instead of
+		-- shoving downward into the label (old geometry: 40px at top y=8,
+		-- visual centre y=28; new 54px centred at y=31 tucks ~4px behind the
+		-- word, which draws above it -- later sibling wins the ZIndex tie).
+		icon.AnchorPoint = Vector2.new(0.5, 0.5)
+		icon.Position = UDim2.new(0.5, 0, 0, 31)
+		-- Sticker tilt, alternating down the rail. Glyph ONLY -- never the
+		-- tile. Nothing here clips (UI.surface leaves ClipsDescendants false).
+		icon.Rotation = (i % 2 == 0) and -6 or 5
 		icon.ZIndex = tab.ZIndex + 2
 
 		local label = Instance.new("TextLabel")
@@ -677,10 +811,10 @@ function BackpackPanel.Build(ctx)
 		label.BackgroundTransparency = 1
 		label.Font = S.Font.Shout
 		label.TextColor3 = T.color.white
-		label.Text = def.label
+		label.Text = string.upper(def.label)
 		label.AnchorPoint = Vector2.new(0.5, 1)
-		label.Position = UDim2.new(0.5, 0, 1, -4)
-		label.Size = UDim2.new(1, -6, 0, 12)
+		label.Position = UDim2.new(0.5, 0, 1, -6)
+		label.Size = UDim2.new(1, -6, 0, 14)
 		label.TextScaled = true
 		label.ZIndex = tab.ZIndex + 2
 		label:SetAttribute("NoPolish", true)
@@ -697,8 +831,6 @@ function BackpackPanel.Build(ctx)
 			st.Parent = label
 		end
 
-		-- kit: "active = 4px #FFD84D INNER ring inset 0, radius 10" -- flush
-		-- with the tab's own edge (unlike GoalsPanel's OUTER +8/-4 tab ring).
 		local ring = Instance.new("Frame")
 		ring.Name = "ActiveRing"
 		ring.Size = UDim2.fromScale(1, 1)
@@ -708,8 +840,8 @@ function BackpackPanel.Build(ctx)
 		ring.Parent = tab
 		UI.corner(ring, 10)
 		local ringStroke = Instance.new("UIStroke")
-		ringStroke.Thickness = 4
-		ringStroke.Color = T.color.activeRing
+		ringStroke.Thickness = 3
+		ringStroke.Color = Color3.fromHex("7CE04A")
 		ringStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 		ringStroke.Parent = ring
 
@@ -723,6 +855,7 @@ function BackpackPanel.Build(ctx)
 
 		tabFrames[def.id] = tab
 		tabRings[def.id] = ring
+		tabIcons[def.id] = icon
 	end
 
 	----------------------------------------------------------- content column (flex, 524 wide)
@@ -736,20 +869,45 @@ function BackpackPanel.Build(ctx)
 
 	----------------------------------------------------------- detail column (224 wide, kit §3.2)
 	local detailHost = UI.surface(body, UDim2.fromOffset(DETAIL_COL_W, CONTENT_H), "subPanel", T.radius.control, T.stroke.control)	do
-		-- 2026-08-10 inner restyle: the detail column keeps WHITE text
-		-- everywhere (three renderers write it), so it wears the spec's slate
-		-- Inert ramp rather than a white row plate
+		-- 2026-08-16 PS99 white chrome: the dark-navy detail slab was the last
+		-- dark ground inside the white shell. It goes LIGHT (white -> pale cool),
+		-- and every renderer that writes into it now carries dark ink
+		-- (textMuted / textOnLight + NoPolish) instead of the OnDark family.
 		local dg = detailHost:FindFirstChildOfClass("UIGradient")
-		if dg then dg.Color = ColorSequence.new(S.Action.Inert[1], S.Action.Inert[2]) end
+		if dg then dg.Color = ColorSequence.new(Color3.fromHex("FFFFFF"), Color3.fromHex("F5F8FC")) end
+		local ds = detailHost:FindFirstChildOfClass("UIStroke")
+		if ds then ds.Color = Color3.fromHex("D8E0EA") end -- soft interior edge, same family as the body's
 	end
 	detailHost.Name = "Detail"
 	detailHost.Position = UDim2.fromOffset(TABS_COL_W + COL_GAP + GRID_COL_W + COL_GAP, 0)
 	detailHost.ZIndex = 14
 
-	local detailContent = Instance.new("Frame")
+	-- SCROLLING, not a plain Frame (owner, 2026-08-22: "the option to equip and
+	-- unequip pets gets cut off").
+	--
+	-- This column is a fixed-height clipped box, and the pet detail stacks hero 150
+	-- + name 26 + rarity chip 28 + stat rows + a 56 button, which is ~450px. With
+	-- the pet slot row EXPANDED the column is only 231px tall, so everything past
+	-- the stats fell off the bottom -- and the thing that fell off was the Equip
+	-- button, i.e. the only control in the column. That was already true before the
+	-- ability rows were added; they made it worse rather than caused it.
+	--
+	-- A ScrollingFrame fixes it for EVERY renderer that writes here (the brainrot
+	-- detail has the same stack), instead of each one having to budget its own
+	-- height. AutomaticCanvasSize means the UIListLayout's own measurement drives
+	-- the canvas, so nothing has to be totted up by hand.
+	local detailContent = Instance.new("ScrollingFrame")
 	detailContent.Name = "DetailContent"
 	detailContent.Size = UDim2.fromScale(1, 1)
 	detailContent.BackgroundTransparency = 1
+	detailContent.BorderSizePixel = 0
+	detailContent.ScrollingDirection = Enum.ScrollingDirection.Y
+	detailContent.ScrollBarThickness = 6
+	detailContent.ScrollBarImageColor3 = Color3.fromHex("3A4356")
+	detailContent.ScrollBarImageTransparency = 0.35
+	detailContent.CanvasSize = UDim2.new()
+	detailContent.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	detailContent.ElasticBehavior = Enum.ElasticBehavior.Never
 	detailContent.ZIndex = detailHost.ZIndex + 1
 	detailContent.Parent = detailHost
 	local detailPad = Instance.new("UIPadding")
@@ -799,7 +957,10 @@ function BackpackPanel.Build(ctx)
 		slot.Position = UDim2.new(0.5, 0, 0.5, -30)
 		slot.ZIndex = wrap.ZIndex + 1
 
+		-- light grounds now (pale body / light wells): muted INK, with NoPolish
+		-- so UIPolish cannot force it back to white
 		local label = UI.label(wrap, message, "buttonM", T.color.textMuted)
+		label:SetAttribute("NoPolish", true)
 		label.Name = "Message"
 		label.AnchorPoint = Vector2.new(0.5, 0.5)
 		label.Position = UDim2.new(0.5, 0, 0.5, 50)
@@ -811,7 +972,8 @@ function BackpackPanel.Build(ctx)
 
 	local function buildDetailPlaceholder(message: string)
 		clearChildren(detailContent)
-		local label = UI.label(detailContent, message, "cardLabel", T.color.textMuted)
+		local label = UI.label(detailContent, message, "cardLabel", T.color.textMuted) -- muted ink on the light detail ground
+		label:SetAttribute("NoPolish", true)
 		label.Name = "Placeholder"
 		label.LayoutOrder = 1
 		label.Size = UDim2.new(1, 0, 0, 60)
@@ -831,8 +993,10 @@ function BackpackPanel.Build(ctx)
 		row.Name = "Stat" .. key
 		row.LayoutOrder = order
 		row.Size = UDim2.new(1, 0, 0, 34)
-		row.BackgroundColor3 = Color3.new(0, 0, 0)
-		row.BackgroundTransparency = 0.7 -- rgba(0,0,0,.3)
+		-- PS99: light tile row on the light detail column (was rgba(0,0,0,.3)
+		-- on the retired dark slab)
+		row.BackgroundColor3 = Color3.fromHex("E4EAF2")
+		row.BackgroundTransparency = 0
 		row.BorderSizePixel = 0
 		row.ZIndex = detailContent.ZIndex + 1
 		row.Parent = detailContent
@@ -843,7 +1007,8 @@ function BackpackPanel.Build(ctx)
 		rowPad.PaddingRight = UDim.new(0, 10)
 		rowPad.Parent = row
 
-		local keyLabel = UI.label(row, key, "meta", T.color.textMuted)
+		local keyLabel = UI.label(row, key, "meta", T.color.textMuted) -- muted ink on the light tile
+		keyLabel:SetAttribute("NoPolish", true)
 		keyLabel.Name = "Key"
 		keyLabel.AnchorPoint = Vector2.new(0, 0.5)
 		keyLabel.Position = UDim2.new(0, 0, 0.5, 0)
@@ -857,7 +1022,8 @@ function BackpackPanel.Build(ctx)
 		valueLabel.BackgroundTransparency = 1
 		valueLabel.FontFace = T.font.display
 		valueLabel.TextSize = 18
-		valueLabel.TextColor3 = T.color.white
+		valueLabel.TextColor3 = T.color.textOnLight -- dark ink on the light tile
+		valueLabel:SetAttribute("NoPolish", true)
 		valueLabel.Text = value
 		valueLabel.AnchorPoint = Vector2.new(1, 0.5)
 		valueLabel.Position = UDim2.new(1, 0, 0.5, 0)
@@ -867,17 +1033,43 @@ function BackpackPanel.Build(ctx)
 		valueLabel.Parent = row
 	end
 
+	-- MISSING-ART PLACEHOLDER (2026-08-16 fix). This was a bare half-transparent
+	-- tinted plate -- and for an owned item whose Name the config no longer
+	-- knows, rarityTint() falls through to the rainbow band's #FF5252, which is
+	-- exactly the "flat salmon squares with $0/s" seen in the inventory grid
+	-- (entries with no BrainrotConfig/world-pool row and no model in
+	-- ReplicatedStorage.BrainrotModels). A missing model now reads as an honest
+	-- unknown: a large dark-ink '?' floating over the card's splash, no plate.
+	-- `tint` stays in the signature (every call site passes it) but no longer
+	-- paints anything.
 	local function buildSwatch(parent: Instance, size: UDim2, position: UDim2, zIndex: number, tint: Color3)
+		local _ = tint
 		local sw = Instance.new("Frame")
 		sw.Name = "Swatch"
 		sw.Size = size
 		sw.Position = position
-		sw.BackgroundColor3 = tint
-		sw.BackgroundTransparency = 0.5
+		sw.BackgroundTransparency = 1
 		sw.BorderSizePixel = 0
 		sw.ZIndex = zIndex
 		sw.Parent = parent
-		UI.corner(sw, T.radius.art)
+		local q = Instance.new("TextLabel")
+		q.Name = "MissingArt"
+		q.BackgroundTransparency = 1
+		q.Font = S.Font.Shout
+		q.TextScaled = true
+		q.Text = "?"
+		q.TextColor3 = Color3.fromHex("33414F") -- dark ink, house light-surface rule
+		q.AnchorPoint = Vector2.new(0.5, 0.5)
+		q.Position = UDim2.fromScale(0.5, 0.5)
+		q.Size = UDim2.fromScale(0.55, 0.72)
+		q.ZIndex = zIndex + 1
+		q:SetAttribute("NoPolish", true)
+		q.Parent = sw
+		local qs = Instance.new("UIStroke")
+		qs.Thickness = 2.5
+		qs.Color = Color3.new(1, 1, 1) -- white halo so the ink reads on any splash
+		qs.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+		qs.Parent = q
 		return sw
 	end
 
@@ -914,30 +1106,54 @@ function BackpackPanel.Build(ctx)
 	-- is a head-on portrait. Applied here, not in BrainrotThumb: the Index and
 	-- egg shop keep the renders they were approved with.
 	local BAG_ART_DIR = Vector3.new(0.18, 0.32, -1).Unit
+	-- RELIT (2026-08-17), the same treatment the PET path got on 08-11: the
+	-- stock viewport rig lit these from BEHIND the head-on portrait camera
+	-- (measured live: LightColor 140 grey travelling (-1,-1,-1) against a -Z
+	-- camera), so every dark-bodied brainrot rendered as a silhouette blob in
+	-- the bay and the grid. Key light now travels FROM the camera's side, warm
+	-- and bright; opts are opt-in in BrainrotThumb so the Index and egg shop
+	-- keep the renders they were approved with.
+	local BAG_ART_AMBIENT = Color3.fromRGB(205, 210, 220)
+	local BAG_ART_LIGHT = Color3.fromRGB(255, 248, 232)
+	local BAG_ART_LIGHT_DIR = Vector3.new(-0.18, -0.32, 1) -- ~= -BAG_ART_DIR: from the camera, not behind the model
 	local function build3DOrSwatch(parent: Instance, name: string, size: UDim2, position: UDim2, zIndex: number, tint: Color3)
-		local vp = BrainrotThumb.add(parent, name, { size = size, position = position, zIndex = zIndex, dir = BAG_ART_DIR })
+		local vp = BrainrotThumb.add(parent, name, { size = size, position = position, zIndex = zIndex, dir = BAG_ART_DIR,
+			ambient = BAG_ART_AMBIENT, lightColor = BAG_ART_LIGHT, lightDirection = BAG_ART_LIGHT_DIR })
 		if not vp then
-			local sw = Instance.new("Frame")
-			sw.Name = "Swatch"
-			sw.Size = size
-			sw.Position = position
-			sw.BackgroundColor3 = tint
-			sw.BackgroundTransparency = 0.5
-			sw.BorderSizePixel = 0
-			sw.ZIndex = zIndex
-			sw.Parent = parent
-			UI.corner(sw, T.radius.art)
+			-- same missing-art '?' the pet path uses (see buildSwatch's header:
+			-- the old tinted plate here WAS the salmon-square bug)
+			buildSwatch(parent, size, position, zIndex, tint)
 		end
 		return vp
 	end
 
 	----------------------------------------------------------- header counter refresh
+	-- 2026-08-20: the counter now leads with CAPACITY, and answers for whichever
+	-- bag you are looking at. Both bags have a hard ceiling as of this pass, and a
+	-- bare "117 brainrots" gave a player no way to see they were two catches from
+	-- the wall -- which is where the cap first announces itself, mid-throw.
+	-- Numbers come from BagConfig, the same module the server refuses on, so this
+	-- line cannot disagree with what actually happens.
+	local COUNTER_INK = Color3.fromHex("33414F")
+	local COUNTER_FULL = Color3.fromHex("C43B3B") -- reads on the white header plate
 	local function refreshHeader()
+		if activeTab == "Pets" then
+			local PetConfig = require(PetConfigModule)
+			local cap = BagConfig.PetCap(bagState.Upgrades)
+			local slotCap = tonumber(player:GetAttribute("PetSlotCap")) or PetConfig.SLOTS_FREE
+			counterLabel.Text = string.format("%d/%d pets \u{00B7} %d/%d equipped",
+				#ownedPets, cap, #petSlots, slotCap)
+			counterLabel.TextColor3 = (#ownedPets >= cap) and COUNTER_FULL or COUNTER_INK
+			return
+		end
 		local placed = 0
 		for _, e in ipairs(allBrainrots) do
 			if e.PadIndex then placed += 1 end
 		end
-		counterLabel.Text = string.format("%d brainrots \u{00B7} %d/%d on plot", #allBrainrots, placed, plotState.Unlocked)
+		local cap = BagConfig.BrainrotCap(bagState.Upgrades, bagState.BagX2)
+		counterLabel.Text = string.format("%d/%d brainrots \u{00B7} %d/%d on plot",
+			#allBrainrots, cap, placed, plotState.Unlocked)
+		counterLabel.TextColor3 = (#allBrainrots >= cap) and COUNTER_FULL or COUNTER_INK
 	end
 
 	----------------------------------------------------------- BRAINROTS tab
@@ -965,6 +1181,77 @@ function BackpackPanel.Build(ctx)
 		cell.ZIndex = 15
 		cell.Parent = parent
 		return cell
+	end
+
+	-- =========================================================================
+	-- PS99 FIELD-STUDY DELTA 4 (2026-08-16, user-approved): grid items lose
+	-- their cell boxes. Bare art floats on the panel ground, each item sitting
+	-- on a pastel crayon-scribble splash. Applied at the card FACTORIES so
+	-- every re-render keeps the treatment: the inventory grid's buildCard
+	-- (via its splashKey arg -- the equipped bay omits it and stays boxed;
+	-- boxes encode STATE there) and the pets grid's buildPetTile. Keys/tags
+	-- tabs and the rack slots are untouched this round.
+	local SPLASH_PASTELS = {
+		Color3.fromHex("F8C8DC"), -- pink
+		Color3.fromHex("C0EAF8"), -- cyan
+		Color3.fromHex("FFD9B0"), -- peach
+		Color3.fromHex("C8EFB0"), -- mint
+		Color3.fromHex("D8C8F5"), -- lavender
+	}
+	-- Secret-family tiers keep their special border colour as a pastel splash
+	-- tint (white:Lerp(border, 0.35)) instead of the 5-hue cycle, so that
+	-- identity survives the hidden card stroke. Ordinary tiers cycle by a
+	-- stable hash of the item key -- NOT the grid index -- so a search/sort
+	-- re-render never reshuffles an item's hue.
+	local SPLASH_SPECIAL_TIER: { [string]: boolean } = { Secret = true, God = true }
+	local function splashTint(tierName: string?, key: string, borderColour: Color3): Color3
+		if tierName and SPLASH_SPECIAL_TIER[tierName] then
+			return Color3.new(1, 1, 1):Lerp(borderColour, 0.35)
+		end
+		local h = 0
+		for i2 = 1, #key do
+			h = (h * 31 + (string.byte(key, i2) or 0)) % 977
+		end
+		return SPLASH_PASTELS[(h % #SPLASH_PASTELS) + 1]
+	end
+	-- A DEEP splash for PALE art (2026-08-25). These cards have no plate -- delta 4
+	-- above made them transparent and floats the art on this blob -- so the splash IS
+	-- the only backdrop the art gets. Measured, it was nowhere near strong enough:
+	-- blended over Surface.Body #F5F8FC at 0.25 transparency the five pastels land at
+	-- luminance 0.851-0.908, and a pale model's thumbnail CLIPS TO WHITE (see
+	-- BrainrotThumb.meanLuminance), so the contrast was only 0.09-0.15. Snowpuff
+	-- (0.960) on the cyan splash (0.908) was a white shape on a near-white shape --
+	-- the whole Tundra snow set, pets and brainrots alike, was invisible in this bag.
+	--
+	-- Deepening the SAME hue keeps the card's colour identity and the crayon-blob
+	-- language: only the VALUE changes, and only for art that needs it. The pastels
+	-- land at 0.595-0.637, i.e. contrast 0.36-0.41 -- matching the SellPanel art mat
+	-- (#96A6C0, 0.645) so the two panels stay in step. Dark art still separates
+	-- easily: Bramble Bear renders around 0.24-0.53 against a 0.60 splash.
+	local SPLASH_DEEP_INK = Color3.fromRGB(70, 86, 110)
+	local SPLASH_DEEP_MIX = 0.45
+	local function addSplash(card: GuiObject, colour: Color3, selected: boolean?, deep: boolean?): ImageLabel
+		local splash = Instance.new("ImageLabel")
+		splash.Name = "Splash"
+		splash.BackgroundTransparency = 1
+		splash.Image = "rbxassetid://111764682902637" -- white crayon blob, transparent bg
+		splash.ScaleType = Enum.ScaleType.Fit
+		splash.AnchorPoint = Vector2.new(0.5, 0.5)
+		splash.Position = UDim2.fromScale(0.5, 0.5)
+		splash.Size = UDim2.new(1.15, 0, 1.15, 0)
+		splash.ImageColor3 = if deep then colour:Lerp(SPLASH_DEEP_INK, SPLASH_DEEP_MIX) else colour
+		-- a SELECTED card reads stronger (PS99 boxes encode state; where a
+		-- selection ring exists it still appears separately, unchanged).
+		-- A deep splash also goes (near) opaque -- blending it back toward the
+		-- white well is what flattened the pastels in the first place.
+		splash.ImageTransparency = if deep
+			then (if selected then 0 else 0.05)
+			else (if selected then 0.05 else 0.25)
+		-- just above the now-invisible plate (card = 15), below all art and
+		-- labels (16+); also the FIRST child so equal-Z siblings render above
+		splash.ZIndex = 15
+		splash.Parent = card
+		return splash
 	end
 
 	-- =========================================================================
@@ -1036,9 +1323,10 @@ function BackpackPanel.Build(ctx)
 	-- chips retired with the 2026-08-12 rework -- the equipped/bench split plus
 	-- search does their job in less vertical space than the chip row cost.
 	local searchQuery = ""
-	local SORT_MODES = { "value", "rarity", "count", "az" }
-	local SORT_LABEL = { value = "VALUE", rarity = "RARITY", count = "COUNT", az = "A-Z" }
-	local sortMode = "value"
+	-- "Backpack Layout" handoff (2026-08-13): three sorts, RARITY default
+	local SORT_MODES = { "rarity", "newest", "az" }
+	local SORT_LABEL = { rarity = "RARITY", newest = "NEWEST", az = "A\u{2013}Z" }
+	local sortMode = "rarity"
 	-- Forward decls for the rework's overlays (assigned below buildJuiceTile,
 	-- used inside it -- same forward-declare-then-assign idiom as the renderers).
 	local openReplacePicker: ((group: any) -> ())? = nil
@@ -1077,10 +1365,9 @@ function BackpackPanel.Build(ctx)
 		edge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 		edge.LineJoinMode = Enum.LineJoinMode.Round
 		edge.Parent = card
-		local cardGrad = Instance.new("UIGradient")
-		cardGrad.Rotation = 90
-		cardGrad.Color = ColorSequence.new(Color3.fromHex("252E3D"), Color3.fromHex("171D27"))
-		cardGrad.Parent = card
+		-- (the old dark-navy card gradient is gone with the plate: a gradient on
+		-- a fully transparent background painted nothing, and could only come
+		-- back as a dark box if the transparency ever regressed)
 
 		if level.aura then
 			local aura = Instance.new("Frame")
@@ -1193,10 +1480,10 @@ function BackpackPanel.Build(ctx)
 		bname.ZIndex = 19
 		bname:SetAttribute("NoPolish", true)
 		bname.Parent = band
-		if not level.holo then
+		do
 			local bst = Instance.new("UIStroke")
-			bst.Thickness = 1.6
-			bst.Color = Color3.fromHex("071323")
+			bst.Thickness = 2.4
+			bst.Color = Color3.new(1, 1, 1) -- white halo so the ink reads over any splash
 			bst.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 			bst.Parent = bname
 		end
@@ -1383,97 +1670,55 @@ function BackpackPanel.Build(ctx)
 		end
 	end
 
-	----------------------------------------------------------- hover tooltip (2026-08-12 rework)
-	-- One reusable frame, PC-only (no hover on touch). Replaces the retired
-	-- detail column: name, tier, income, stack size and what a click will do.
-	local cardTip: Frame? = nil
-	local tipName, tipMeta, tipCta
-	local function ensureTip()
-		if cardTip then return end
-		local tip = Instance.new("Frame")
-		tip.Name = "CardTip"
-		tip.Size = UDim2.fromOffset(240, 92)
-		tip.BackgroundColor3 = Color3.fromHex("171D27")
-		tip.BorderSizePixel = 0
-		tip.Visible = false
-		tip.ZIndex = shellZ + 45
-		tip.Parent = wrapper
-		UI.corner(tip, 12)
-		local st = Instance.new("UIStroke")
-		st.Thickness = 3
-		st.Color = S.Outline
-		st.Parent = tip
-
-		tipName = Instance.new("TextLabel")
-		tipName.BackgroundTransparency = 1
-		tipName.Font = S.Font.Shout
-		tipName.TextSize = 17
-		tipName.TextColor3 = Color3.new(1, 1, 1)
-		tipName.TextXAlignment = Enum.TextXAlignment.Left
-		tipName.TextTruncate = Enum.TextTruncate.AtEnd
-		tipName.Position = UDim2.fromOffset(12, 8)
-		tipName.Size = UDim2.new(1, -24, 0, 22)
-		tipName.ZIndex = tip.ZIndex + 1
-		tipName:SetAttribute("NoPolish", true)
-		tipName.Parent = tip
-
-		tipMeta = Instance.new("TextLabel")
-		tipMeta.BackgroundTransparency = 1
-		tipMeta.Font = S.Font.Read
-		tipMeta.TextSize = 14
-		tipMeta.TextColor3 = Color3.fromHex("9AA6B8")
-		tipMeta.TextXAlignment = Enum.TextXAlignment.Left
-		tipMeta.Position = UDim2.fromOffset(12, 34)
-		tipMeta.Size = UDim2.new(1, -24, 0, 18)
-		tipMeta.ZIndex = tip.ZIndex + 1
-		tipMeta:SetAttribute("NoPolish", true)
-		tipMeta.Parent = tip
-
-		tipCta = Instance.new("TextLabel")
-		tipCta.BackgroundTransparency = 1
-		tipCta.Font = S.Font.Shout
-		tipCta.TextSize = 13
-		tipCta.TextXAlignment = Enum.TextXAlignment.Left
-		tipCta.Position = UDim2.fromOffset(12, 60)
-		tipCta.Size = UDim2.new(1, -24, 0, 18)
-		tipCta.ZIndex = tip.ZIndex + 1
-		tipCta:SetAttribute("NoPolish", true)
-		tipCta.Parent = tip
-		cardTip = tip
-	end
+	----------------------------------------------------------- hover tooltip (2026-08-12 rework; PS99 delta 10 2026-08-16)
+	-- ONE shared PanelChrome tooltip now (PC.tooltip: the white shadowed card,
+	-- self-positioning beside its anchor with scale-relative math -- immune by
+	-- construction to the ~0.72 cumulative-UIScale offset trap the old bespoke
+	-- CardTip had to hand-correct). Created once at Build time on the shell
+	-- root; PC-only (no hover on touch). Carries what the retired detail
+	-- column used to show -- name, tier, income, stack size -- with the old
+	-- CTA line mapped into `desc` and stack count / fav padlock into `meta`.
+	local cardTip = PC.tooltip({ parent = wrapper, zIndex = shellZ + 45 })
 
 	hideCardTip = function()
-		if cardTip then cardTip.Visible = false end
+		cardTip.hide()
 	end
 
 	showCardTip = function(group, anchor: GuiObject)
-		if not game:GetService("UserInputService").MouseEnabled then return end
-		ensureTip()
-		local tip = cardTip :: Frame
-		local tier = infoByName[group.Name] and infoByName[group.Name].Rarity or "?"
-		tipName.Text = Sizes.Label(group.Mutation, group.Size, group.Name)
-		tipMeta.Text = tier .. " \u{00B7} " .. shortCash(valueOf(group.Name, group.Mutation, group.Size)) .. "/s"
-			.. (group.count > 1 and (" \u{00B7} x" .. group.count) or "")
-			.. (group.Fav and " \u{00B7} LOCKED" or "")
+		-- 2026-08-19 TOUCH FIX. This used to `return` outright when there was no
+		-- mouse, which -- combined with the tip being triggered from MouseEnter
+		-- (a signal touch never fires) -- meant PHONE PLAYERS COULD NOT READ ITEM
+		-- NAMES AT ALL: the 2026-08-14 pass moved names off the cards INTO this
+		-- tooltip, so the card shows art/rate/count/star and nothing else. Touch
+		-- now reaches it by long-press (see wireCardHit), so the gate is gone.
+		local tierName = infoByName[group.Name] and infoByName[group.Name].Rarity
+		local ramp = S.Rarity[RARITY_RAMP_KEY2[tierName] or "COM"] or S.Rarity.COM
+		-- the old tip's CTA line rides in `desc` so no information is dropped
+		local desc
 		if group.PadIndex then
-			tipCta.Text = "Click to take it off your plot"
-			tipCta.TextColor3 = Color3.fromHex("FF6B6B")
+			desc = "Click to take it off your plot"
 		elseif countPlaced() < plotState.Unlocked then
-			tipCta.Text = "Click to place it on your plot"
-			tipCta.TextColor3 = Color3.fromHex("7CE04A")
+			desc = "Click to place it on your plot"
 		else
-			tipCta.Text = "Plot full \u{2014} click to pick a swap"
-			tipCta.TextColor3 = Color3.fromHex("FFC531")
+			desc = "Plot full \u{2014} unlock another slot"
 		end
-		-- anchor-relative, clamped inside the panel
-		local wPos = wrapper.AbsolutePosition
-		local aPos, aSize = anchor.AbsolutePosition, anchor.AbsoluteSize
-		local x = (aPos.X - wPos.X) + aSize.X * 0.5 - 120
-		local y = (aPos.Y - wPos.Y) - 100
-		x = math.clamp(x, 8, math.max(8, wrapper.AbsoluteSize.X - 248))
-		if y < 8 then y = (aPos.Y - wPos.Y) + aSize.Y + 8 end
-		tip.Position = UDim2.fromOffset(x, y)
-		tip.Visible = true
+		local meta: string? = nil
+		if group.count and group.count > 1 then
+			meta = "x" .. tostring(group.count)
+		end
+		if group.Fav then
+			meta = (meta and (meta .. " \u{00B7} ") or "") .. "LOCKED"
+		end
+		cardTip.show(anchor, {
+			name = Sizes.Label(group.Mutation, group.Size, group.Name),
+			rarity = tierName or "?",
+			rarityColor = ramp[2],
+			-- top-family tiers retint the whole card, PC.tooltip's own signal
+			tintCard = tierName == "Secret" or tierName == "God",
+			desc = desc,
+			meta = meta,
+			price = shortCash(valueOf(group.Name, group.Mutation, group.Size)) .. "/s",
+		})
 	end
 
 	----------------------------------------------------------- modals (2026-08-12 rework)
@@ -1495,8 +1740,13 @@ function BackpackPanel.Build(ctx)
 		scrim.Text = ""
 		scrim.AutoButtonColor = false
 		scrim.Size = UDim2.fromScale(1, 1)
-		scrim.BackgroundColor3 = T.scrim
-		scrim.BackgroundTransparency = T.scrimAlpha
+		-- WHITE WASH, not a dark dim (2026-08-17 round-9): this scrim sits over
+		-- the panel's own GUI content, which a Lighting BlurEffect cannot blur,
+		-- so the dim-to-blur recipe does not apply here. On the light PS99 shell
+		-- the light-UI sheet treatment reads right: a white wash recedes the
+		-- panel behind the dialog without going dark. Click-to-cancel unchanged.
+		scrim.BackgroundColor3 = Color3.new(1, 1, 1)
+		scrim.BackgroundTransparency = 0.3
 		scrim.BorderSizePixel = 0
 		scrim.ZIndex = shellZ + 30
 		scrim.Parent = wrapper
@@ -1561,7 +1811,7 @@ function BackpackPanel.Build(ctx)
 		body.BackgroundTransparency = 1
 		body.Font = S.Font.Read
 		body.TextSize = 15
-		body.TextColor3 = Color3.fromHex("55605A")
+		body.TextColor3 = Color3.fromHex("5D6B7A")
 		body.TextWrapped = true
 		body.Text = "Adds a permanent spot to your plot, in every world your camp exists in."
 		body.AnchorPoint = Vector2.new(0.5, 0)
@@ -1583,7 +1833,7 @@ function BackpackPanel.Build(ctx)
 		coin.Position = UDim2.new(0, 10, 0.5, 0)
 		coin.ZIndex = z + 3
 		coin.Parent = chip
-		local amount = UI.label(chip, shortCash(price), "value", T.color.textAccent)
+		local amount = UI.label(chip, shortCash(price), "value", T.color.textAccentOnDark)
 		amount.AnchorPoint = Vector2.new(0, 0.5)
 		amount.Position = UDim2.new(0, 46, 0.5, 0)
 		amount.ZIndex = z + 3
@@ -1643,7 +1893,7 @@ function BackpackPanel.Build(ctx)
 		body.BackgroundTransparency = 1
 		body.Font = S.Font.Read
 		body.TextSize = 15
-		body.TextColor3 = Color3.fromHex("55605A")
+		body.TextColor3 = Color3.fromHex("5D6B7A")
 		body.TextWrapped = true
 		body.Text = "All " .. plotState.Unlocked .. " spots are taken. Pick who "
 			.. Sizes.Label(incoming.Mutation, incoming.Size, incoming.Name)
@@ -1655,7 +1905,7 @@ function BackpackPanel.Build(ctx)
 		body:SetAttribute("NoPolish", true)
 		body.Parent = dlg
 
-		-- lowest earner gets the gold callout -- the obvious drop
+		-- lowest earner gets the highlighted callout -- the obvious drop
 		local lowestUid, lowestV = nil, math.huge
 		for _, e in ipairs(placedEntries) do
 			local v = valueOf(e.Name, e.Mutation, e.Size)
@@ -1669,7 +1919,7 @@ function BackpackPanel.Build(ctx)
 		gridHost.Size = UDim2.new(1, -48, 1, -174)
 		gridHost.CanvasSize = UDim2.new()
 		gridHost.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		gridHost.ScrollBarThickness = 8
+		gridHost.ScrollBarThickness = 5
 		gridHost.ScrollingDirection = Enum.ScrollingDirection.Y
 		gridHost.ElasticBehavior = Enum.ElasticBehavior.Never
 		gridHost.ZIndex = z + 2
@@ -1689,7 +1939,7 @@ function BackpackPanel.Build(ctx)
 			opt.Text = ""
 			opt.AutoButtonColor = false
 			opt.LayoutOrder = i
-			opt.BackgroundColor3 = isLowest and Color3.fromHex("FFF3D1") or Color3.fromHex("F2F4FA")
+			opt.BackgroundColor3 = isLowest and Color3.fromHex("E4EDFB") or Color3.fromHex("F2F4FA")
 			opt.BorderSizePixel = 0
 			opt.ZIndex = z + 3
 			opt.Parent = gridHost
@@ -1800,6 +2050,9 @@ function BackpackPanel.Build(ctx)
 	local LABEL_H = 34
 	local CARD_W, CARD_H = 140, 162
 
+	-- (no live call sites since the 2026-08-13 mock restyle replaced the tray
+	-- with buildBaySlot; kept -- and normalized to the delta-8 state
+	-- vocabulary below -- in case the rack tray earns its spot back)
 	local function buildRackSlot(tray, spot: number, entry, zBase: number)
 		local x = RACK_PAD + ((spot - 1) % 8) * (RACK_SLOT + RACK_GAP)
 		local y = RACK_PAD + math.floor((spot - 1) / 8) * (RACK_SLOT + RACK_GAP)
@@ -1834,7 +2087,8 @@ function BackpackPanel.Build(ctx)
 		local unlocked = spot <= plotState.Unlocked
 		local isNext = (spot == plotState.Unlocked + 1)
 		if entry then
-			slot.BackgroundColor3 = Color3.fromHex("1D2A1C")
+			-- delta 8 FILLED: white tile + item art (green ring = placed)
+			slot.BackgroundColor3 = Color3.fromHex("FFFFFF")
 			stroke.Color = Color3.fromHex("3DDC84")
 			local art = Instance.new("Frame")
 			art.BackgroundTransparency = 1
@@ -1848,7 +2102,7 @@ function BackpackPanel.Build(ctx)
 			inc.BackgroundTransparency = 1
 			inc.Font = S.Font.Shout
 			inc.TextSize = 12
-			inc.TextColor3 = Color3.fromHex("7CE04A")
+			inc.TextColor3 = Color3.fromHex("3E8E1F") -- readable green ink on the white tile
 			inc.Text = shortCash(valueOf(entry.Name, entry.Mutation, entry.Size)) .. "/s"
 			inc.AnchorPoint = Vector2.new(0.5, 1)
 			inc.Position = UDim2.new(0.5, 0, 1, -3)
@@ -1859,34 +2113,82 @@ function BackpackPanel.Build(ctx)
 
 			local tipGroup = { Name = entry.Name, Mutation = entry.Mutation, Size = entry.Size,
 				Fav = entry.Fav, count = 1, uids = { entry.Uid }, PadIndex = entry.PadIndex }
+			-- TOUCH (2026-08-25): this equipped-rack slot offered its stats ONLY on
+			-- MouseEnter, so on a phone -- which has no hover -- the value, mutation
+			-- and size of an already-placed brainrot were unreachable; the single
+			-- thing a tap could do was store it, sight unseen. Same contract the bag
+			-- cards got in wireCardHit: tap = the action, long-press = inspect, and
+			-- the release that ends an inspect is swallowed so looking at a brainrot
+			-- never also un-places it. Written inline because wireCardHit's locals
+			-- are declared further down this file and are not in scope here.
+			local slotTouch = Platform.IsTouch
+			local SLOT_LONG_PRESS = 0.35
+			local slotToken = 0
+			local slotSuppress = false
 			slot.MouseEnter:Connect(function()
-				if showCardTip then showCardTip(tipGroup, slot) end
+				if showCardTip and not slotTouch then showCardTip(tipGroup, slot) end
 			end)
 			slot.MouseLeave:Connect(function()
+				if hideCardTip and not slotTouch then hideCardTip() end
+			end)
+			slot.MouseButton1Down:Connect(function()
+				if not slotTouch then return end
+				-- reset on the way IN: MouseButton1Up/Click only fire when the release
+				-- lands ON the button, so a finger that slides off mid-press would
+				-- leave slotSuppress latched and swallow the NEXT genuine tap
+				slotSuppress = false
+				slotToken += 1
+				local myToken = slotToken
 				if hideCardTip then hideCardTip() end
+				task.delay(SLOT_LONG_PRESS, function()
+					if myToken ~= slotToken or not slot.Parent then return end
+					slotSuppress = true
+					if showCardTip then showCardTip(tipGroup, slot) end
+				end)
+			end)
+			slot.MouseButton1Up:Connect(function()
+				if slotTouch then
+					slotToken += 1 -- cancel any long-press that has not fired yet
+				end
 			end)
 			slot.MouseButton1Click:Connect(function()
+				if slotSuppress then
+					-- this release ended an inspect long-press: leave the tip up and
+					-- do NOT store the brainrot
+					slotSuppress = false
+					return
+				end
 				if hideCardTip then hideCardTip() end
 				remotes.StoreBrainrot:FireServer(entry.Uid)
 			end)
 		elseif unlocked then
-			slot.BackgroundColor3 = Color3.fromHex("161C26")
-			stroke.Color = Color3.fromHex("2A3242")
+			-- delta 8 EMPTY: white tile + one large charcoal '+' (the shared
+			-- empty-equip glyph; the "OPEN" word retired with it)
+			slot.BackgroundColor3 = Color3.fromHex("FFFFFF")
+			stroke.Color = Color3.fromHex("D3DCE7")
 			local open = Instance.new("TextLabel")
+			open.Name = "Plus"
 			open.BackgroundTransparency = 1
-			open.Font = S.Font.Read
-			open.TextSize = 12
-			open.Text = "OPEN"
-			open.TextColor3 = Color3.fromHex("46536B")
+			open.Font = S.Font.Shout
+			open.TextSize = 53 -- ~55% of the 96px rack slot
+			open.Text = "+"
+			open.TextColor3 = Color3.fromHex("33414F")
 			open.AnchorPoint = Vector2.new(0.5, 0.5)
 			open.Position = UDim2.fromScale(0.5, 0.5)
-			open.Size = UDim2.fromScale(1, 0.4)
+			open.Size = UDim2.fromScale(1, 1)
 			open.ZIndex = zBase + 1
 			open:SetAttribute("NoPolish", true)
 			open.Parent = slot
 		else
 			local price = plotState.Prices[spot]
-			slot.BackgroundColor3 = Color3.fromHex("12161E")
+			-- delta 8: the NEXT slot is PURCHASABLE -- a gold tile (gold =
+			-- money); the rest are LOCKED -- charcoal-grey. White base so the
+			-- gradient's colours land exactly (UIGradient multiplies).
+			slot.BackgroundColor3 = Color3.new(1, 1, 1)
+			UI.gradient(slot, if isNext
+				then ColorSequence.new(S.Action.Gold[1], S.Action.Gold[2])
+				else ColorSequence.new(Color3.fromHex("4A5666"), Color3.fromHex("39434F")))
+			no.TextColor3 = isNext and Color3.fromHex("3A2A05") or Color3.new(1, 1, 1) -- rank ink follows the tile
 			stroke.Color = isNext and T.color.activeRing or Color3.fromHex("222A38")
 			stroke.Thickness = isNext and 3 or 2.5
 			local lockHolder = Instance.new("Frame")
@@ -1896,12 +2198,12 @@ function BackpackPanel.Build(ctx)
 			lockHolder.Size = UDim2.fromOffset(20, 20)
 			lockHolder.ZIndex = zBase + 1
 			lockHolder.Parent = slot
-			buildPadlock(lockHolder, 18, isNext and T.color.activeRing or Color3.fromHex("46536B"), zBase + 1)
+			buildPadlock(lockHolder, 18, isNext and Color3.fromHex("3A2A05") or Color3.new(1, 1, 1), zBase + 1) -- dark ink on gold, white on charcoal
 			local pr = Instance.new("TextLabel")
 			pr.BackgroundTransparency = 1
 			pr.Font = S.Font.Shout
 			pr.TextSize = 12
-			pr.TextColor3 = isNext and T.color.textAccent or Color3.fromHex("46536B")
+			pr.TextColor3 = isNext and Color3.fromHex("3A2A05") or Color3.new(1, 1, 1)
 			pr.Text = price and shortCash(price) or "???"
 			pr.AnchorPoint = Vector2.new(0.5, 1)
 			pr.Position = UDim2.new(0.5, 0, 1, -5)
@@ -1918,19 +2220,79 @@ function BackpackPanel.Build(ctx)
 	end
 
 	renderBrainrots = function()
-		-- KEEP THE PLAYER'S PLACE (2026-08-13, user recording): every equip/store
-		-- pushes a snapshot, which lands here as a full rebuild -- snapping the
-		-- collection back to the top mid-browse, so equipping ten benched
-		-- brainrots meant ten scroll-back-downs. `grid` still points at the
-		-- PREVIOUS render's scroller at this point: alive means this is a
-		-- re-render of a tab the player is already looking at, so its offset is
-		-- carried over; destroyed (another tab rendered since, or first open)
-		-- means arriving fresh, which SHOULD start at the top -- exactly the
-		-- distinction the open/switch CanvasPosition resets rely on.
+		-- KEEP THE PLAYER'S PLACE: carry the inventory scroll over when `grid`
+		-- is still alive (same-tab re-render); destroyed = fresh arrival, top.
 		local keepScroll = (grid and grid.Parent) and grid.CanvasPosition or nil
 		clearChildren(contentHost)
 		refreshHeader()
 		hideCardTip()
+
+		-- ================================================================
+		-- 2026-08-13 MOCK RESTYLE (user reference image, "sizing and
+		-- everything"): dark navy sections on the dark body; EQUIPPED bay =
+		-- 8x2 grid of ~100x126 CARDS (art on top, name, tier chip pill below,
+		-- gold star = mutated, gold padlock = favorited) over an INVENTORY
+		-- section (title + owned count, wide SEARCH pill, RARITY/NEWEST/A-Z
+		-- pills, scroll grid of the same cards). Green = EQUIPPED chip,
+		-- active sort, "N / M" count. Bay = the 16 plot spots; click a bay
+		-- card to store, a bag card to equip; full plot flashes the toast.
+		local CARD_GAP = 8
+		local WELL_PAD = 12
+		local CARD_W = math.floor((BR_W - WELL_PAD * 2 - CARD_GAP * 7) / 8) -- ~100
+		-- 132, up from 126, and the extra 6px all goes to artwork -- see buildCard:
+		-- the tier chip that used to eat the bottom 25px is gone, so the art well
+		-- grows from CARD_H-56 (70px) to CARD_H-30 (102px), a ~46% bigger pet in a
+		-- card only 5% taller. Measured against the reference: its artwork fills
+		-- ~85% of a tile where ours filled barely a third.
+		local CARD_H = 132
+		local GRIDW = CARD_W * 8 + CARD_GAP * 7
+		local HEAD_H = 40
+		-- THE EQUIPPED BAY GETS ITS OWN, SHORTER CARD. Measured before this change:
+		-- the 16-slot bay held 264px of grid while the 166-item INVENTORY got a 113px
+		-- scroll viewport -- SHORTER THAN ONE 130px TILE -- so no inventory row was
+		-- ever fully visible at any scroll position and every card was sheared
+		-- through its bottom. 16.5px of height per equipped item against 0.68px per
+		-- inventory item is a 24:1 inversion, and it is the single biggest reason
+		-- this panel is hard to navigate. The bay is a glance-and-go strip, so its
+		-- cards go art-only at 84px (hover still names them), handing ~96px back.
+		local EQ_H = 84
+		-- COLLAPSE STATE. Folding the bay is deliberately NOT the "one grid" merge
+		-- the readability audit asked for. That merge would have deleted the bay
+		-- outright and marked equipped items with a corner dot -- but this bay is
+		-- the PLOT: buildBaySlot gates each of the 16 cells on plotState.Unlocked,
+		-- prices the locked ones from plotState.Prices[spot] and highlights the next
+		-- one to buy. Deleting it would have taken a progression and purchase
+		-- surface with it. Folding gives back the same height on demand and leaves
+		-- the plot untouched when open. Collapsed keeps the header strip (EQUIPPED
+		-- chip, slot count, TOTAL $/s, UNEQUIP ALL) and drops only the 2x8 pad grid.
+		local bayCollapsed = ctx.state.backpack.bayCollapsed == true
+		local BAY_H = if bayCollapsed
+			then WELL_PAD + HEAD_H + WELL_PAD                               -- 64
+			else WELL_PAD + HEAD_H + 8 + EQ_H * 2 + CARD_GAP + WELL_PAD     -- 248
+		local SECTION_GAP = 10
+		local INV_HEAD_H = 38
+		local TweenService = game:GetService("TweenService")
+		local HOVER_INFO = TweenInfo.new(0.11, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+		-- LIGHT SURFACES (user, 2026-08-14: "ours is so dark and trash", holding up
+		-- Pet Simulator's inventory as the standard). The reference puts its pet art
+		-- on a near-WHITE field, and that single choice does most of the "easier to
+		-- see" work -- our brainrots are dark, saturated models, and on a near-black
+		-- card they had almost no separation from it. The wells and cards go light
+		-- (2026-08-16: the shell is white now too), so the grid reads as a bright
+		-- sheet inset in the frame (which is the reference's own arrangement) and
+		-- every caption sitting OUTSIDE a well keeps its light-on-dark treatment.
+		local C_WELL = Color3.fromHex("EEF2F8")
+		local C_WELL_STROKE = Color3.fromHex("D3DCE7")
+		local C_CARD = Color3.fromHex("FFFFFF")
+		local C_CARD2 = Color3.fromHex("F2F5FA")
+		local C_TILE = Color3.fromHex("E4EAF2")
+		local C_SUB = Color3.fromHex("7C8CA0")   -- cool muted ink for light surfaces
+		local C_GREEN1, C_GREEN2 = Color3.fromHex("7DE86A"), Color3.fromHex("28B93C")
+		local C_GREENTEXT = Color3.fromHex("3E8E1F")   -- neon green died on cream
+		local C_GOLD = Color3.fromHex("FFD84D")
+		local C_PLACE = Color3.fromHex("9AA8B9")
+		local C_INK = Color3.fromHex("0B1018")
 
 		local placedByPad: { [number]: any } = {}
 		local placedEntries = {}
@@ -1941,357 +2303,1366 @@ function BackpackPanel.Build(ctx)
 			end
 		end
 		table.sort(placedEntries, function(x, y) return (x.PadIndex or 0) < (y.PadIndex or 0) end)
-
-		----------------------------------------------------- plot label row
-		local labelRow = Instance.new("Frame")
-		labelRow.Name = "PlotLabelRow"
-		labelRow.Size = UDim2.new(0, BR_W, 0, LABEL_H)
-		labelRow.BackgroundTransparency = 1
-		labelRow.ZIndex = 14
-		labelRow.Parent = contentHost
-
 		local plotIncome = 0
 		for _, e in ipairs(placedEntries) do
 			plotIncome += valueOf(e.Name, e.Mutation, e.Size)
 		end
-		local pill = Instance.new("Frame")
-		pill.Name = "IncomePill"
-		pill.BackgroundColor3 = Color3.fromHex("1D2A1C")
-		pill.BorderSizePixel = 0
-		pill.Size = UDim2.fromOffset(200, 30)
-		pill.Position = UDim2.fromOffset(0, 2)
-		pill.ZIndex = 15
-		pill.Parent = labelRow
-		UI.corner(pill, 10)
-		local pst = Instance.new("UIStroke")
-		pst.Thickness = 2.5
-		pst.Color = Color3.fromHex("3DDC84")
-		pst.Parent = pill
-		local pillText = Instance.new("TextLabel")
-		pillText.BackgroundTransparency = 1
-		pillText.Font = S.Font.Shout
-		pillText.TextSize = 15
-		pillText.TextColor3 = Color3.fromHex("7CE04A")
-		pillText.Text = "PLOT INCOME  " .. shortCash(plotIncome) .. "/s"
-		pillText.Size = UDim2.fromScale(1, 1)
-		pillText.ZIndex = 16
-		pillText:SetAttribute("NoPolish", true)
-		pillText.Parent = pill
+		local lockedCount = 16 - plotState.Unlocked
 
-		local plotCount = Instance.new("TextLabel")
-		plotCount.BackgroundTransparency = 1
-		plotCount.Font = S.Font.Shout
-		plotCount.TextSize = 20
-		plotCount.TextColor3 = S.Surface.ReadInk
-		plotCount.Text = "Your Plot  " .. #placedEntries .. "/" .. plotState.Unlocked
-		plotCount.AnchorPoint = Vector2.new(1, 0)
-		plotCount.Position = UDim2.new(0, BR_W, 0, 4)
-		plotCount.Size = UDim2.fromOffset(200, 26)
-		plotCount.TextXAlignment = Enum.TextXAlignment.Right
-		plotCount.ZIndex = 15
-		plotCount:SetAttribute("NoPolish", true)
-		plotCount.Parent = labelRow
-
-		-- search + sort live IN this row now (the size pass reclaimed their old row)
-		local SORT_W = 108
-		local sortBtn = Instance.new("TextButton")
-		sortBtn.Name = "SortButton"
-		sortBtn.AnchorPoint = Vector2.new(1, 0)
-		sortBtn.Position = UDim2.new(0, BR_W - 200 - 8, 0, 2)
-		sortBtn.Size = UDim2.fromOffset(SORT_W, 30)
-		sortBtn.BackgroundColor3 = Color3.fromHex("1A2130")
-		sortBtn.BorderSizePixel = 0
-		sortBtn.Text = "\u{2195} " .. (SORT_LABEL[sortMode] or "VALUE")
-		sortBtn.TextColor3 = Color3.new(1, 1, 1)
-		sortBtn.Font = S.Font.Shout
-		sortBtn.TextSize = 14
-		sortBtn.AutoButtonColor = true
-		sortBtn.ZIndex = 15
-		sortBtn:SetAttribute("NoPolish", true)
-		sortBtn.Parent = labelRow
-		do
-			local c = Instance.new("UICorner")
-			c.CornerRadius = UDim.new(0, 10)
-			c.Parent = sortBtn
-			local st = Instance.new("UIStroke")
-			st.Thickness = 2
-			st.Color = Color3.fromHex("2C3444")
-			st.Parent = sortBtn
+		-------------------------------------------------- toast
+		local function ensureToast(): Frame
+			local existing = wrapper:FindFirstChild("BagToast")
+			if existing and existing:IsA("Frame") then
+				return existing
+			end
+			local tf = Instance.new("Frame")
+			tf.Name = "BagToast"
+			tf.AnchorPoint = Vector2.new(0.5, 0)
+			tf.AutomaticSize = Enum.AutomaticSize.X
+			tf.Size = UDim2.fromOffset(0, 52)
+			tf.BackgroundColor3 = C_GREEN1
+			tf.BorderSizePixel = 0
+			tf.Visible = false
+			tf.ZIndex = shellZ + 45
+			tf:SetAttribute("PolishOnDark", true)
+			tf.Parent = wrapper
+			UI.corner(tf, 14)
+			UI.gradient(tf, ColorSequence.new(C_GREEN1, C_GREEN2))
+			do
+				local st = Instance.new("UIStroke")
+				st.Thickness = 3
+				st.Color = C_INK
+				st.Parent = tf
+			end
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft = UDim.new(0, 18)
+			pad.PaddingRight = UDim.new(0, 18)
+			pad.Parent = tf
+			local lay = Instance.new("UIListLayout")
+			lay.FillDirection = Enum.FillDirection.Horizontal
+			lay.VerticalAlignment = Enum.VerticalAlignment.Center
+			lay.Padding = UDim.new(0, 8)
+			lay.SortOrder = Enum.SortOrder.LayoutOrder
+			lay.Parent = tf
+			local ic = Instance.new("ImageLabel")
+			ic.Name = "Icon"
+			ic.BackgroundTransparency = 1
+			ic.Image = T.icons.bag
+			ic.Size = UDim2.fromOffset(26, 26)
+			ic.LayoutOrder = 1
+			ic.ZIndex = tf.ZIndex + 1
+			ic.Parent = tf
+			local l = Instance.new("TextLabel")
+			l.Name = "Text"
+			l.BackgroundTransparency = 1
+			l.Font = S.Font.Shout
+			l.TextSize = 18
+			l.TextColor3 = Color3.new(1, 1, 1)
+			l.AutomaticSize = Enum.AutomaticSize.X
+			l.Size = UDim2.new(0, 0, 1, 0)
+			l.LayoutOrder = 2
+			l.ZIndex = tf.ZIndex + 1
+			l:SetAttribute("NoPolish", true)
+			l.Parent = tf
+			do
+				local st = Instance.new("UIStroke")
+				st.Thickness = 2
+				st.Color = C_INK
+				st.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+				st.Parent = l
+			end
+			return tf
 		end
 
+		local function flash(text: string, tone: string)
+			local tf = ensureToast()
+			local g = tf:FindFirstChildOfClass("UIGradient")
+			if g then
+				if tone == "error" then
+					g.Color = ColorSequence.new(Color3.fromHex("FF6B6B"), Color3.fromHex("D83E3E"))
+				elseif tone == "warn" then
+					g.Color = ColorSequence.new(Color3.fromHex("FFE066"), Color3.fromHex("E8930F"))
+				else
+					g.Color = ColorSequence.new(C_GREEN1, C_GREEN2)
+				end
+			end
+			local l = tf:FindFirstChild("Text")
+			if l and l:IsA("TextLabel") then
+				l.Text = text
+			end
+			local gen = (tonumber(tf:GetAttribute("Gen")) or 0) + 1
+			tf:SetAttribute("Gen", gen)
+			tf.Visible = true
+			tf.Position = UDim2.new(0.5, 0, 0, -60)
+			TweenService:Create(tf, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ Position = UDim2.new(0.5, 0, 0, 16) }):Play()
+			task.delay(2.4, function()
+				if tf.Parent and tf:GetAttribute("Gen") == gen then
+					tf.Visible = false
+				end
+			end)
+		end
+
+		-------------------------------------------------- card pieces
+		local function lum(c: Color3): number
+			return 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B
+		end
+
+		-- 8-point sparkle badge (mutated marker). VIOLET, not gold (2026-08-17):
+		-- gold means real money in the PS99 grammar, and a gold star on most of a
+		-- rarity-sorted page read as 30 coin icons; violet is the game's
+		-- "special" family (emeralds, epics).
+		local function buildStarBadge(card: Frame, xOff: number)
+			local h = Instance.new("Frame")
+			h.Name = "StarBadge"
+			h.AnchorPoint = Vector2.new(1, 0)
+			h.Position = UDim2.new(1, xOff, 0, 4)
+			h.Size = UDim2.fromOffset(22, 22)
+			h.BackgroundTransparency = 1
+			h.ZIndex = 20
+			h.Parent = card
+			for _, r in ipairs({ 0, 45 }) do
+				local part = Instance.new("Frame")
+				part.AnchorPoint = Vector2.new(0.5, 0.5)
+				part.Position = UDim2.fromScale(0.5, 0.5)
+				part.Size = UDim2.fromOffset(13, 13)
+				part.Rotation = r
+				part.BackgroundColor3 = Color3.fromHex("C14CFF")
+				part.BorderSizePixel = 0
+				part.ZIndex = 20
+				part.Parent = h
+				UI.corner(part, 3)
+				local ps = Instance.new("UIStroke")
+				ps.Thickness = 1.5
+				ps.Color = Color3.fromHex("5E0FB8")
+				ps.Parent = part
+			end
+		end
+
+		-- pink padlock badge = the raid LOCK (2026-08-22 unified favorite). A real
+		-- button above the card hit; solid PINK when locked (matching the plot's pink
+		-- glow), revealed dim on card hover otherwise so favoriting stays reachable.
+		-- Click toggles the lock (ToggleLock, capacity-gated) -- same as right-click.
+		local function buildFavBadge(card: Frame, fav: boolean, uids: any, xOff: number): TextButton
+			local b = Instance.new("TextButton")
+			b.Name = "FavBadge"
+			b.Text = ""
+			b.AutoButtonColor = false
+			b.AnchorPoint = Vector2.new(1, 0)
+			b.Position = UDim2.new(1, xOff, 0, 4)
+			b.Size = UDim2.fromOffset(22, 22)
+			b.BackgroundColor3 = fav and Color3.fromHex("FF78C8") or Color3.fromHex("10141C")
+			b.BackgroundTransparency = fav and 0 or 0.35
+			b.BorderSizePixel = 0
+			b.Visible = fav
+			b:SetAttribute("Fav", fav)
+			b.ZIndex = 22
+			b.Parent = card
+			-- DELIBERATELY SHORT OF 44 (2026-08-25). This badge rendered 16x16 on a
+			-- phone, the worst target in the game -- but the full 44px floor is the
+			-- WRONG fix here and is not applied. Reaching 44 on screen means ~60 design
+			-- px, most of the card's own width, and on touch every badge is permanently
+			-- visible (wireCardHit reveals them, there being no hover to reveal them
+			-- with) -- so a grid of 129 of them would blanket the cards and eat the taps
+			-- meant to PLACE a brainrot, trading a bad target for a broken one. 30px
+			-- roughly doubles it and leaves the card the tappable thing on the tile.
+			-- Reaching the real minimum needs the lock moved off the tile entirely
+			-- (into the long-press tooltip); logged, not done here.
+			--
+			-- MUST come after `b.Parent` above: touchMin measures what rendered, so on
+			-- an unparented instance it has nothing to measure and returns silently.
+			UI.touchMin(b, 30)
+			UI.corner(b, 7)
+			do
+				local bs = Instance.new("UIStroke")
+				bs.Thickness = 2
+				bs.Color = fav and Color3.fromHex("C74C93") or Color3.fromHex("2C3444")
+				bs.Parent = b
+				local ink = fav and Color3.fromHex("5A1E3F") or C_PLACE
+				local lockBody = Instance.new("Frame")
+				lockBody.AnchorPoint = Vector2.new(0.5, 1)
+				lockBody.Position = UDim2.new(0.5, 0, 1, -4)
+				lockBody.Size = UDim2.fromOffset(10, 7)
+				lockBody.BackgroundColor3 = ink
+				lockBody.BorderSizePixel = 0
+				lockBody.ZIndex = 23
+				lockBody.Parent = b
+				UI.corner(lockBody, 2)
+				local shackle = Instance.new("Frame")
+				shackle.AnchorPoint = Vector2.new(0.5, 1)
+				shackle.Position = UDim2.new(0.5, 0, 1, -10)
+				shackle.Size = UDim2.fromOffset(7, 5)
+				shackle.BackgroundTransparency = 1
+				shackle.ZIndex = 23
+				shackle.Parent = b
+				UI.corner(shackle, 999)
+				local ss = Instance.new("UIStroke")
+				ss.Thickness = 2
+				ss.Color = ink
+				ss.Parent = shackle
+			end
+			b.MouseButton1Click:Connect(function()
+				-- 2026-08-22: the bag favorite IS the raid lock now -- toggle it through
+				-- ToggleLock (capacity-gated, plot-synced), not the retired ToggleFavorite.
+				local r = remotes:FindFirstChild("ToggleLock")
+				if r then r:FireServer(uids) end
+			end)
+			return b
+		end
+
+		-- The mock card: dark navy, 3px tier-coloured border, art on top,
+		-- name, tier chip pill. Count stacks get a small x-chip top-left.
+		-- `cardH` lets the equipped bay ask for its shorter, art-only card; the
+		-- inventory grid omits it and gets the full-height card with its name.
+		local function buildCard(cell: Frame, name: string, mutation: string?, size: string?, count: number, cardH: number?, splashKey: string?): Frame
+			local H = cardH or CARD_H
+			local compact = H < CARD_H
+			local tierName = infoByName[name] and infoByName[name].Rarity
+			local ramp = S.Rarity[RARITY_RAMP_KEY2[tierName] or "COM"] or S.Rarity.COM
+			local card = Instance.new("Frame")
+			card.Name = "Card"
+			card.Size = UDim2.fromScale(1, 1)
+			card.BackgroundColor3 = C_CARD
+			card.BorderSizePixel = 0
+			card.ZIndex = 15
+			card.Parent = cell
+			UI.corner(card, 14)
+			-- PS99 delta 4 (2026-08-16): an inventory-grid card (splashKey ~= nil)
+			-- loses the cell box -- plate invisible, art floats on a pastel splash
+			-- inserted FIRST so every existing child renders above it. The
+			-- equipped bay passes no splashKey and keeps its boxed look (state).
+			if splashKey then
+				card.BackgroundTransparency = 1
+				-- 21 of the 215 brainrots are pale enough to vanish into a pastel
+				-- splash (Orso Frigorifero 0.965, Inverno Eterno 0.953, Ombra
+				-- Bianca 0.953, Balena Polare 0.940 -- the tundra set). Resolving
+				-- the master here is free: BrainrotThumb caches it, and the art
+				-- call a few lines below would have built it anyway.
+				addSplash(card, splashTint(tierName, splashKey, ramp[2]), nil,
+					BrainrotThumb.isPale(BrainrotThumb.master(name)))
+			end
+			do
+				local g = Instance.new("UIGradient")
+				g.Rotation = 90
+				g.Color = ColorSequence.new(C_CARD, C_CARD2)
+				g.Parent = card
+				local st = Instance.new("UIStroke")
+				-- 2px, not 3: on the old near-black card the ring was the only thing
+				-- holding the tile together, so it had to shout. Against a light card
+				-- a saturated 2px ramp reads stronger and stops a rarity-sorted row
+				-- from looking like a fence of identical neon bars.
+				st.Thickness = 2
+				st.Color = ramp[2]
+				st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+				st.LineJoinMode = Enum.LineJoinMode.Round
+				st.Parent = card
+				if splashKey then
+					-- delta 4: border hidden, object kept. No hover/selection code
+					-- re-enables this stroke on the inventory grid (clicking IS the
+					-- action; there is no selected state on this tab) -- rarity now
+					-- lives in the hover tooltip, and Secret-family tiers keep it
+					-- via their splash tint.
+					st.Transparency = 1
+					st.Enabled = false
+				end
+			end
+
+			local art = Instance.new("Frame")
+			art.Name = "Art"
+			art.Position = UDim2.fromOffset(4, 4)
+			-- FULL-BLEED ART (2026-08-15). The name row used to reserve the bottom 22px
+			-- of every inventory card for text that truncated 90% of the time -- and
+			-- truncated from the RIGHT, while our names are mutation-first, so it
+			-- dropped the distinguishing half and left rows of "Diamond...". The art
+			-- now takes the whole card in both modes: 102 -> 124px on an inventory
+			-- card. The full name lives on hover, where it has room to wrap.
+			art.Size = UDim2.new(1, -8, 0, H - 8)
+			art.BackgroundTransparency = 1
+			art.ZIndex = 16
+			art.Parent = card
+			build3DOrSwatch(art, name, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), 17, rarityTint(T, tierName))
+
+			-- ...AND THE NUMBER YOU ACTUALLY DECIDE WITH GOES ON TOP OF IT. Sorting,
+			-- equipping and selling are all $/s decisions; the name only tells you
+			-- which meme it is. White glyphs under a heavy dark stroke (the
+			-- reference's trick) stay legible over ANY artwork -- a pale brainrot, a
+			-- near-black one, or the bare card while a model is still streaming in.
+			-- Bottom-centre, clear of the count chip (top-left) and fav lock (top-right).
+			local rate = Instance.new("TextLabel")
+			rate.Name = "Rate"
+			rate.BackgroundTransparency = 1
+			rate.Font = S.Font.Shout
+			rate.TextSize = compact and 13 or 15
+			rate.TextColor3 = Color3.new(1, 1, 1)
+			rate.Text = shortCash(valueOf(name, mutation, size)) .. "/s"
+			rate.AnchorPoint = Vector2.new(0.5, 1)
+			rate.Position = UDim2.new(0.5, 0, 1, -3)
+			rate.Size = UDim2.new(1, -8, 0, compact and 15 or 17)
+			rate.ZIndex = 19
+			rate:SetAttribute("NoPolish", true)
+			rate.Parent = card
+			do
+				local rs = Instance.new("UIStroke")
+				rs.Thickness = 2.5
+				rs.Color = Color3.fromHex("10141C")
+				rs.Parent = rate
+			end
+
+			-- NO TIER CHIP. It restated, in 10px text, exactly what the card's own 3px
+			-- tier-coloured border already says -- and it cost 25px of the card, which
+			-- is the single biggest reason our artwork was a third the size of the
+			-- reference's. The border reads far better now that the card behind it is
+			-- light, and the hover tooltip still spells the tier out in words.
+
+			if count > 1 then
+				local cc = Instance.new("TextLabel")
+				cc.Name = "CountChip"
+				cc.BackgroundColor3 = Color3.fromHex("10141C")
+				cc.BackgroundTransparency = 0.2
+				cc.Font = S.Font.Read
+				cc.TextSize = 11
+				cc.TextColor3 = Color3.new(1, 1, 1)
+				cc.Text = "x" .. count
+				cc.Position = UDim2.fromOffset(4, 4)
+				cc.AutomaticSize = Enum.AutomaticSize.X
+				cc.Size = UDim2.fromOffset(0, 18)
+				cc.BorderSizePixel = 0
+				cc.ZIndex = 20
+				cc:SetAttribute("NoPolish", true)
+				cc.Parent = card
+				UI.corner(cc, 6)
+				local ccp = Instance.new("UIPadding")
+				ccp.PaddingLeft = UDim.new(0, 6)
+				ccp.PaddingRight = UDim.new(0, 6)
+				ccp.Parent = cc
+			end
+
+			return card
+		end
+
+		-- hover lift + tooltip + click + hover-revealed fav toggle
+		-- TOUCH RELEASE-ANYWHERE GUARD (2026-08-19). MouseButton1Up/Click fire
+		-- only when the release lands OVER the button, so on a phone a finger that
+		-- slides off a card before lifting -- the ordinary scroll gesture on this
+		-- grid -- leaves that card sunk at Position(0,1) forever. ONE shared
+		-- UserInputService connection watches every release instead of paying for
+		-- a connection per card (this grid can hold hundreds).
+		local pressedCard: Frame? = nil
+		local function setPressedCard(c: Frame?)
+			pressedCard = c
+		end
+		do
+			local UIS = game:GetService("UserInputService")
+			UIS.InputEnded:Connect(function(input)
+				if input.UserInputType ~= Enum.UserInputType.Touch
+					and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+				local c = pressedCard
+				pressedCard = nil
+				if c and c.Parent then
+					TweenService:Create(c, HOVER_INFO, { Position = UDim2.fromOffset(0, 0) }):Play()
+				end
+			end)
+		end
+
+		local function wireCardHit(cell: Frame, card: Frame, tipGroup: any, favBadge: TextButton?, onClick: () -> ())
+			local hit = Instance.new("TextButton")
+			hit.Name = "Hit"
+			hit.Text = ""
+			hit.Size = UDim2.fromScale(1, 1)
+			hit.BackgroundTransparency = 1
+			hit.ZIndex = 21
+			hit.Parent = cell
+			-- press feedback (2026-08-17): the cards answered hover but not the
+			-- click itself -- a 1px sink on Down, released to whichever state the
+			-- cursor is in, same contract the rail buttons keep
+			local hovered = false
+			-- TOUCH (2026-08-19): a phone has no hover, so everything this card
+			-- revealed on MouseEnter was unreachable -- the info tooltip AND the
+			-- favourite button. Touch gets: long-press to inspect (below), and a
+			-- permanently visible fav badge (there is no hover to reveal it).
+			local isTouch = Platform.IsTouch
+			local LONG_PRESS = 0.35
+			local pressToken = 0
+			local suppressClick = false
+			if isTouch and favBadge and not favBadge:GetAttribute("Fav") then
+				favBadge.Visible = true
+			end
+			hit.MouseEnter:Connect(function()
+				hovered = true
+				cell.ZIndex = 30
+				TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, -3) }):Play()
+				if favBadge and not favBadge:GetAttribute("Fav") then
+					favBadge.Visible = true
+				end
+				if tipGroup and showCardTip and not isTouch then
+					showCardTip(tipGroup, card)
+				end
+			end)
+			hit.MouseLeave:Connect(function()
+				hovered = false
+				cell.ZIndex = 15
+				TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, 0) }):Play()
+				if favBadge and not favBadge:GetAttribute("Fav") and not isTouch then
+					favBadge.Visible = false
+				end
+				if hideCardTip and not isTouch then
+					hideCardTip()
+				end
+			end)
+			hit.MouseButton1Down:Connect(function()
+				TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, 1) }):Play()
+				if not isTouch then return end
+				-- long-press = inspect. Held past LONG_PRESS the tip opens and the
+				-- release is swallowed, so inspecting never also places the item.
+				--
+				-- EVERY press starts from a clean slate. MouseButton1Up/Click only
+				-- fire when the release happens OVER the button, so a finger that
+				-- slides off mid-press -- i.e. the ordinary scroll gesture on this
+				-- grid -- never clears state set here. Left latched, `suppressClick`
+				-- would swallow the NEXT genuine tap. Reset on the way in, and let
+				-- the release-anywhere guard below un-sink the card.
+				suppressClick = false
+				pressToken += 1
+				local myToken = pressToken
+				if hideCardTip then hideCardTip() end
+				setPressedCard(card)
+				task.delay(LONG_PRESS, function()
+					if myToken ~= pressToken or not card.Parent then return end
+					suppressClick = true
+					-- the press has been consumed by the inspect: settle the card back
+					-- to rest so it does not sit sunk while the tip is up
+					TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, 0) }):Play()
+					if tipGroup and showCardTip then showCardTip(tipGroup, card) end
+				end)
+			end)
+			hit.MouseButton1Up:Connect(function()
+				TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, hovered and -3 or 0) }):Play()
+				if isTouch then
+					pressToken += 1 -- cancel any pending long-press
+					setPressedCard(nil)
+				end
+			end)
+			hit.MouseButton1Click:Connect(function()
+				if suppressClick then
+					-- this release ended an inspect long-press: leave the tip up and
+					-- do NOT run the card's action
+					suppressClick = false
+					return
+				end
+				if hideCardTip then
+					hideCardTip()
+				end
+				onClick()
+			end)
+			-- RIGHT-CLICK = toggle the RAID LOCK (2026-08-20). Fires ToggleLock with the
+			-- whole stack's uids; the server caps it against the Padlock upgrade, pink-
+			-- glows the placed copies and re-pushes so the bag repaints.
+			hit.MouseButton2Click:Connect(function()
+				if hideCardTip then hideCardTip() end
+				local r = remotes:FindFirstChild("ToggleLock")
+				if r and tipGroup and tipGroup.uids then
+					r:FireServer(tipGroup.uids)
+				end
+			end)
+		end
+
+		local function buildWell(y: number, h: number): Frame
+			local w = Instance.new("Frame")
+			w.BackgroundColor3 = C_WELL
+			w.BorderSizePixel = 0
+			w.Position = UDim2.fromOffset(0, y)
+			w.Size = UDim2.fromOffset(BR_W, h)
+			w.ZIndex = 13
+			w.Parent = contentHost
+			UI.corner(w, 16)
+			local st = Instance.new("UIStroke")
+			st.Thickness = 2
+			st.Color = C_WELL_STROKE
+			st.Parent = w
+			return w
+		end
+
+		local function darkPill(parent: Instance, h: number): Frame
+			local f = Instance.new("Frame")
+			f.BackgroundColor3 = C_TILE
+			f.BorderSizePixel = 0
+			f.AutomaticSize = Enum.AutomaticSize.X
+			f.Size = UDim2.fromOffset(0, h)
+			f.ZIndex = 15
+			f.Parent = parent
+			UI.corner(f, 999)
+			local st = Instance.new("UIStroke")
+			st.Thickness = 2
+			st.Color = C_WELL_STROKE
+			st.Parent = f
+			return f
+		end
+
+		local function flatButton(parent: Instance, text: string, w: number, h: number, active: boolean, danger: boolean?): TextButton
+			local b = Instance.new("TextButton")
+			b.Name = text
+			b.Text = ""
+			b.AutoButtonColor = true
+			b.BackgroundColor3 = if danger then Color3.fromHex("FF6B6B") elseif active then C_GREEN1 else C_TILE
+			b.BorderSizePixel = 0
+			b.Size = UDim2.fromOffset(w, h)
+			b.ZIndex = 15
+			b.Parent = parent
+			UI.corner(b, 12)
+			do
+				local g = Instance.new("UIGradient")
+				g.Rotation = 90
+				if danger then
+					g.Color = ColorSequence.new(Color3.fromHex("FF6B6B"), Color3.fromHex("D83E3E"))
+				elseif active then
+					g.Color = ColorSequence.new(C_GREEN1, C_GREEN2)
+				else
+					g.Color = ColorSequence.new(C_TILE, Color3.fromHex("10151F"))
+				end
+				g.Parent = b
+				local st = Instance.new("UIStroke")
+				st.Thickness = 2
+				st.Color = if danger then Color3.fromHex("6E1414") elseif active then Color3.fromHex("1E5C12") else C_WELL_STROKE
+				st.Parent = b
+			end
+			local l = Instance.new("TextLabel")
+			l.Name = "Label"
+			l.BackgroundTransparency = 1
+			l.Font = S.Font.Shout
+			l.TextSize = 15
+			-- an inactive button sits on C_TILE, which is light now, so its resting
+			-- label has to be ink; active/danger keep white on their green/red fill
+			l.TextColor3 = if (active or danger) then Color3.new(1, 1, 1) else Color3.fromHex("33414F")
+			l.Text = text
+			l.Size = UDim2.fromScale(1, 1)
+			l.ZIndex = 16
+			l:SetAttribute("NoPolish", true)
+			l.Parent = b
+			if active or danger then
+				local ls = Instance.new("UIStroke")
+				ls.Thickness = 2
+				ls.Color = C_INK
+				ls.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+				ls.Parent = l
+			end
+			-- TOUCH FLOOR: KNOWN SHORT, DELIBERATELY NOT PATCHED HERE (2026-08-25).
+			-- Measured on a phone-classed client these pills render 71x27 (the three
+			-- sort tabs), 97x27 (UNEQUIP ALL) and 83x24 (the plot fold) -- all under
+			-- Roblox's 44px minimum on the short axis.
+			--
+			-- UI.touchMin was applied here and then REVERTED: it does not fail safely
+			-- in this panel. 44 screen px is ~59 DESIGN px at the scale the bag runs
+			-- at, and both bands these pills live in are shorter than that (bay header
+			-- 40, inventory header 38). Measured with the floor on: the plot fold broke
+			-- its band by 7.4px and ended up 1.5px INTO the equipped grid, and UNEQUIP
+			-- ALL broke it by 16.4px and overlapped the first row of cards outright.
+			-- Growing the bands instead pushes the whole inventory down by about a card
+			-- row -- and the smaller the screen, the LARGER that push gets, because the
+			-- design size required is 44/panelScale.
+			--
+			-- Which makes this a panel-density decision, not a per-control one: the bag
+			-- is authored at a size that gets scaled to roughly half on a handset, and
+			-- no amount of inflating individual pills fixes that without wrecking the
+			-- composition. Left short and on the record rather than silently broken.
+			return b
+		end
+
+		-- One bay slot: card / empty / locked
+		local function buildBaySlot(holder: Frame, spot: number, entry: any)
+			local cell = Instance.new("Frame")
+			cell.Name = "BaySlot" .. spot
+			cell.BackgroundTransparency = 1
+			cell.LayoutOrder = spot
+			cell.ZIndex = 15
+			cell.Parent = holder
+
+			local unlocked = spot <= plotState.Unlocked
+			if entry then
+				local card = buildCard(cell, entry.Name, entry.Mutation, entry.Size, 1, EQ_H)
+				local xOff = -4
+				local favB = buildFavBadge(card, entry.Fav == true, { entry.Uid }, xOff)
+				xOff -= 26
+				if entry.Mutation then
+					buildStarBadge(card, xOff)
+				end
+				local tipGroup = { Name = entry.Name, Mutation = entry.Mutation, Size = entry.Size,
+					Fav = entry.Fav, count = 1, uids = { entry.Uid }, PadIndex = entry.PadIndex }
+				wireCardHit(cell, card, tipGroup, favB, function()
+					remotes.StoreBrainrot:FireServer(entry.Uid)
+				end)
+			elseif unlocked then
+				-- delta 8 (2026-08-16): EMPTY equip slot = white tile + one
+				-- large charcoal '+' -- the shared empty-equip glyph (the
+				-- dashed inset and faint plus placeholder retired with it)
+				local card = Instance.new("Frame")
+				card.Name = "Empty"
+				card.Size = UDim2.fromScale(1, 1)
+				card.BackgroundColor3 = C_CARD
+				card.BorderSizePixel = 0
+				card.ZIndex = 15
+				card.Parent = cell
+				UI.corner(card, 14)
+				do
+					local st = Instance.new("UIStroke")
+					st.Thickness = 2
+					st.Color = C_WELL_STROKE
+					st.Parent = card
+				end
+				local plus = Instance.new("TextLabel")
+				plus.Name = "Plus"
+				plus.BackgroundTransparency = 1
+				plus.Font = S.Font.Shout
+				plus.TextSize = 46 -- ~55% of the 84px bay card
+				plus.TextColor3 = Color3.fromHex("33414F")
+				plus.Text = "+"
+				plus.Size = UDim2.fromScale(1, 1)
+				plus.ZIndex = 17
+				plus:SetAttribute("NoPolish", true)
+				plus.Parent = card
+			else
+				local price = plotState.Prices[spot]
+				local isNext = (spot == plotState.Unlocked + 1)
+				local card = Instance.new("Frame")
+				card.Name = "Locked"
+				card.Size = UDim2.fromScale(1, 1)
+				-- delta 8 state fills: the NEXT slot is PURCHASABLE -- a gold
+				-- tile (gold = money); the rest are LOCKED -- charcoal-grey.
+				-- White base so the gradient's colours land exactly.
+				card.BackgroundColor3 = Color3.new(1, 1, 1)
+				card.BorderSizePixel = 0
+				card.ZIndex = 15
+				card.Parent = cell
+				UI.corner(card, 14)
+				UI.gradient(card, if isNext
+					then ColorSequence.new(S.Action.Gold[1], S.Action.Gold[2])
+					else ColorSequence.new(Color3.fromHex("4A5666"), Color3.fromHex("39434F")))
+				do
+					local st = Instance.new("UIStroke")
+					st.Thickness = 2
+					st.Color = isNext and Color3.fromHex("8A6510") or C_WELL_STROKE
+					st.Parent = card
+				end
+				local lockHolder = Instance.new("Frame")
+				lockHolder.Name = "Lock"
+				lockHolder.BackgroundTransparency = 1
+				lockHolder.AnchorPoint = Vector2.new(0.5, 0)
+				lockHolder.Position = UDim2.new(0.5, 0, 0, 18)
+				lockHolder.Size = UDim2.fromOffset(27, 27)
+				lockHolder.ZIndex = 17
+				lockHolder.Parent = card
+				buildPadlock(lockHolder, 20, isNext and Color3.fromHex("3A2A05") or Color3.new(1, 1, 1), 17) -- dark ink on gold, white on charcoal
+
+				local pill = Instance.new("Frame")
+				pill.Name = "PricePill"
+				pill.AnchorPoint = Vector2.new(0.5, 0)
+				pill.AutomaticSize = Enum.AutomaticSize.X
+				pill.Size = UDim2.fromOffset(0, 24)
+				pill.Position = UDim2.new(0.5, 0, 0, -11)
+				-- delta 8: gold pill only on the PURCHASABLE (next) slot;
+				-- plain LOCKED slots price themselves in white on charcoal
+				pill.BackgroundColor3 = Color3.new(1, 1, 1)
+				pill.BorderSizePixel = 0
+				pill.ZIndex = 24
+				pill.Parent = cell
+				UI.corner(pill, 999)
+				UI.gradient(pill, if isNext
+					then ColorSequence.new(Color3.fromHex("FFE066"), Color3.fromHex("E8930F"))
+					else ColorSequence.new(Color3.fromHex("4A5666"), Color3.fromHex("39434F")))
+				do
+					local st = Instance.new("UIStroke")
+					st.Thickness = 2
+					st.Color = C_INK
+					st.Parent = pill
+					local ppad = Instance.new("UIPadding")
+					ppad.PaddingLeft = UDim.new(0, 6)
+					ppad.PaddingRight = UDim.new(0, 9)
+					ppad.Parent = pill
+					local plist = Instance.new("UIListLayout")
+					plist.FillDirection = Enum.FillDirection.Horizontal
+					plist.VerticalAlignment = Enum.VerticalAlignment.Center
+					plist.Padding = UDim.new(0, 4)
+					plist.SortOrder = Enum.SortOrder.LayoutOrder
+					plist.Parent = pill
+					local pcoin = Instance.new("ImageLabel")
+					pcoin.Name = "Coin"
+					pcoin.BackgroundTransparency = 1
+					pcoin.Image = T.icons.coin
+					pcoin.Size = UDim2.fromOffset(16, 16)
+					pcoin.LayoutOrder = 1
+					pcoin.ZIndex = 25
+					pcoin.Parent = pill
+					local pl = Instance.new("TextLabel")
+					pl.Name = "Price"
+					pl.BackgroundTransparency = 1
+					pl.Font = S.Font.Read
+					pl.TextSize = 13
+					pl.TextColor3 = if isNext then Color3.fromHex("3A2A05") else Color3.new(1, 1, 1)
+					pl.Text = if price then shortCash(price) else "???"
+					pl.AutomaticSize = Enum.AutomaticSize.X
+					pl.Size = UDim2.fromOffset(0, 24)
+					pl.LayoutOrder = 2
+					pl.ZIndex = 25
+					pl:SetAttribute("NoPolish", true)
+					pl.Parent = pill
+				end
+
+				local afford = price ~= nil and plotState.Cash >= price
+				local enabled = isNext and afford
+				local btn = Instance.new("TextButton")
+				btn.Name = "UnlockButton"
+				btn.Text = ""
+				btn.AutoButtonColor = enabled
+				btn.Active = enabled
+				btn.BackgroundColor3 = if enabled then C_GOLD else Color3.fromHex("232B3A")
+				btn.BorderSizePixel = 0
+				btn.AnchorPoint = Vector2.new(0.5, 1)
+				btn.Position = UDim2.new(0.5, 0, 1, -6)
+				btn.Size = UDim2.new(1, -12, 0, 36)
+				btn.ZIndex = 18
+				btn.Parent = card
+				UI.corner(btn, 10)
+				do
+					local g = Instance.new("UIGradient")
+					g.Rotation = 90
+					g.Color = if enabled
+						then ColorSequence.new(Color3.fromHex("FFE066"), Color3.fromHex("E8930F"))
+						else ColorSequence.new(Color3.fromHex("232B3A"), Color3.fromHex("1A2130"))
+					g.Parent = btn
+					local st = Instance.new("UIStroke")
+					st.Thickness = 2
+					st.Color = if enabled then Color3.fromHex("8A6510") else C_WELL_STROKE
+					st.Parent = btn
+					local l = Instance.new("TextLabel")
+					l.Name = "Label"
+					l.BackgroundTransparency = 1
+					l.Font = S.Font.Shout
+					l.TextSize = 14
+					l.TextColor3 = if enabled then Color3.fromHex("3A2A05") else C_PLACE
+					l.Text = "UNLOCK"
+					l.Size = UDim2.fromScale(1, 1)
+					l.ZIndex = 19
+					l:SetAttribute("NoPolish", true)
+					l.Parent = btn
+				end
+				if enabled and price then
+					btn.MouseButton1Click:Connect(function()
+						if plotState.Cash < price then
+							flash("NOT ENOUGH COINS", "error")
+							return
+						end
+						local r = remotes:FindFirstChild("BuyPlotSpot")
+						if r then
+							r:FireServer()
+							flash("SLOT UNLOCKED", "success")
+						end
+					end)
+				end
+			end
+		end
+
+		-------------------------------------------------- EQUIPPED BAY
+		local bay = buildWell(0, BAY_H)
+		bay.Name = "EquippedBay"
+
+		local bayHead = Instance.new("Frame")
+		bayHead.Name = "BayHeader"
+		bayHead.Position = UDim2.fromOffset(WELL_PAD, WELL_PAD)
+		bayHead.Size = UDim2.new(1, -WELL_PAD * 2, 0, HEAD_H)
+		bayHead.BackgroundTransparency = 1
+		bayHead.ZIndex = 15
+		bayHead.Parent = bay
+
+		local headLeft = Instance.new("Frame")
+		headLeft.Name = "Left"
+		headLeft.BackgroundTransparency = 1
+		headLeft.AutomaticSize = Enum.AutomaticSize.X
+		headLeft.Size = UDim2.new(0, 0, 1, 0)
+		headLeft.ZIndex = 15
+		headLeft.Parent = bayHead
+		do
+			local ll = Instance.new("UIListLayout")
+			ll.FillDirection = Enum.FillDirection.Horizontal
+			ll.VerticalAlignment = Enum.VerticalAlignment.Center
+			ll.Padding = UDim.new(0, 12)
+			ll.SortOrder = Enum.SortOrder.LayoutOrder
+			ll.Parent = headLeft
+		end
+
+		local chip = Instance.new("Frame")
+		chip.Name = "EquippedChip"
+		chip.AutomaticSize = Enum.AutomaticSize.X
+		chip.Size = UDim2.fromOffset(0, 32)
+		chip.LayoutOrder = 1
+		chip.BackgroundColor3 = C_GREEN1
+		chip.BorderSizePixel = 0
+		chip.ZIndex = 16
+		chip.Parent = headLeft
+		UI.corner(chip, 10)
+		do
+			local g = Instance.new("UIGradient")
+			g.Rotation = 90
+			g.Color = ColorSequence.new(C_GREEN1, C_GREEN2)
+			g.Parent = chip
+			local st = Instance.new("UIStroke")
+			st.Thickness = 2
+			st.Color = Color3.fromHex("1E5C12")
+			st.Parent = chip
+			local cp = Instance.new("UIPadding")
+			cp.PaddingLeft = UDim.new(0, 14)
+			cp.PaddingRight = UDim.new(0, 14)
+			cp.Parent = chip
+			local cl = Instance.new("TextLabel")
+			cl.Name = "Label"
+			cl.BackgroundTransparency = 1
+			cl.Font = S.Font.Shout
+			cl.TextSize = 15
+			cl.TextColor3 = Color3.new(1, 1, 1)
+			cl.Text = "EQUIPPED"
+			cl.AutomaticSize = Enum.AutomaticSize.X
+			cl.Size = UDim2.new(0, 0, 1, 0)
+			cl.ZIndex = 17
+			cl:SetAttribute("NoPolish", true)
+			cl.Parent = chip
+			local cs = Instance.new("UIStroke")
+			cs.Thickness = 2
+			cs.Color = C_INK
+			cs.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+			cs.Parent = cl
+		end
+
+		local filledWrap = Instance.new("Frame")
+		filledWrap.Name = "Filled"
+		filledWrap.BackgroundTransparency = 1
+		filledWrap.AutomaticSize = Enum.AutomaticSize.X
+		filledWrap.Size = UDim2.new(0, 0, 1, 0)
+		filledWrap.LayoutOrder = 2
+		filledWrap.ZIndex = 15
+		filledWrap.Parent = headLeft
+		do
+			local fl = Instance.new("UIListLayout")
+			fl.FillDirection = Enum.FillDirection.Horizontal
+			fl.VerticalAlignment = Enum.VerticalAlignment.Center
+			fl.Padding = UDim.new(0, 8)
+			fl.SortOrder = Enum.SortOrder.LayoutOrder
+			fl.Parent = filledWrap
+			local cnt = Instance.new("TextLabel")
+			cnt.Name = "Count"
+			cnt.BackgroundTransparency = 1
+			cnt.Font = S.Font.Read
+			cnt.TextSize = 20
+			cnt.TextColor3 = C_GREENTEXT
+			cnt.Text = #placedEntries .. " / " .. plotState.Unlocked
+			cnt.AutomaticSize = Enum.AutomaticSize.X
+			cnt.Size = UDim2.new(0, 0, 1, 0)
+			cnt.LayoutOrder = 1
+			cnt.ZIndex = 16
+			cnt:SetAttribute("NoPolish", true)
+			cnt.Parent = filledWrap
+			local cap = Instance.new("TextLabel")
+			cap.Name = "Caption"
+			cap.BackgroundTransparency = 1
+			cap.Font = S.Font.Read
+			cap.TextSize = 13
+			cap.TextColor3 = C_SUB
+			cap.Text = "SLOTS FILLED"
+			cap.AutomaticSize = Enum.AutomaticSize.X
+			cap.Size = UDim2.new(0, 0, 1, 0)
+			cap.LayoutOrder = 2
+			cap.ZIndex = 16
+			cap:SetAttribute("NoPolish", true)
+			cap.Parent = filledWrap
+		end
+
+		if lockedCount > 0 then
+			local lockPill = darkPill(headLeft, 26)
+			lockPill.Name = "LockedPill"
+			lockPill.LayoutOrder = 3
+			do
+				local st = lockPill:FindFirstChildOfClass("UIStroke")
+				if st then
+					st.Color = C_GOLD
+					st.Transparency = 0.5
+				end
+				local lp = Instance.new("UIPadding")
+				lp.PaddingLeft = UDim.new(0, 10)
+				lp.PaddingRight = UDim.new(0, 10)
+				lp.Parent = lockPill
+				local ll = Instance.new("TextLabel")
+				ll.Name = "Label"
+				ll.BackgroundTransparency = 1
+				ll.Font = S.Font.Read
+				ll.TextSize = 12
+				ll.TextColor3 = C_GOLD
+				ll.Text = lockedCount .. " LOCKED"
+				ll.AutomaticSize = Enum.AutomaticSize.X
+				ll.Size = UDim2.new(0, 0, 1, 0)
+				ll.ZIndex = 16
+				ll:SetAttribute("NoPolish", true)
+				ll.Parent = lockPill
+			end
+		end
+
+		local headRight = Instance.new("Frame")
+		headRight.Name = "Right"
+		headRight.BackgroundTransparency = 1
+		headRight.AnchorPoint = Vector2.new(1, 0)
+		headRight.Position = UDim2.new(1, 0, 0, 0)
+		headRight.AutomaticSize = Enum.AutomaticSize.X
+		headRight.Size = UDim2.new(0, 0, 1, 0)
+		headRight.ZIndex = 15
+		headRight.Parent = bayHead
+		do
+			local rl = Instance.new("UIListLayout")
+			rl.FillDirection = Enum.FillDirection.Horizontal
+			rl.HorizontalAlignment = Enum.HorizontalAlignment.Right
+			rl.VerticalAlignment = Enum.VerticalAlignment.Center
+			rl.Padding = UDim.new(0, 12)
+			rl.SortOrder = Enum.SortOrder.LayoutOrder
+			rl.Parent = headRight
+		end
+
+		local totalPill = darkPill(headRight, 36)
+		totalPill.Name = "TotalPill"
+		totalPill.LayoutOrder = 1
+		do
+			local tp = Instance.new("UIPadding")
+			tp.PaddingLeft = UDim.new(0, 8)
+			tp.PaddingRight = UDim.new(0, 14)
+			tp.Parent = totalPill
+			local tl = Instance.new("UIListLayout")
+			tl.FillDirection = Enum.FillDirection.Horizontal
+			tl.VerticalAlignment = Enum.VerticalAlignment.Center
+			tl.Padding = UDim.new(0, 8)
+			tl.SortOrder = Enum.SortOrder.LayoutOrder
+			tl.Parent = totalPill
+			local tcoin = Instance.new("ImageLabel")
+			tcoin.Name = "Coin"
+			tcoin.BackgroundTransparency = 1
+			tcoin.Image = T.icons.coin
+			tcoin.Size = UDim2.fromOffset(24, 24)
+			tcoin.LayoutOrder = 1
+			tcoin.ZIndex = 16
+			tcoin.Parent = totalPill
+			local tm = Instance.new("TextLabel")
+			tm.Name = "Caption"
+			tm.BackgroundTransparency = 1
+			tm.Font = S.Font.Read
+			tm.TextSize = 13
+			tm.TextColor3 = C_SUB
+			tm.Text = "TOTAL"
+			tm.AutomaticSize = Enum.AutomaticSize.X
+			tm.Size = UDim2.new(0, 0, 1, 0)
+			tm.LayoutOrder = 2
+			tm.ZIndex = 16
+			tm:SetAttribute("NoPolish", true)
+			tm.Parent = totalPill
+			local tv = Instance.new("TextLabel")
+			tv.Name = "Value"
+			tv.BackgroundTransparency = 1
+			tv.Font = S.Font.Read
+			tv.TextSize = 18
+			tv.TextColor3 = C_GOLD
+			tv.Text = shortCash(plotIncome) .. "/s"
+			tv.AutomaticSize = Enum.AutomaticSize.X
+			tv.Size = UDim2.new(0, 0, 1, 0)
+			tv.LayoutOrder = 3
+			tv.ZIndex = 16
+			tv:SetAttribute("NoPolish", true)
+			tv.Parent = totalPill
+		end
+
+		local unequipSlot = Instance.new("Frame")
+		unequipSlot.Name = "UnequipSlot"
+		unequipSlot.BackgroundTransparency = 1
+		unequipSlot.Size = UDim2.fromOffset(130, 36)
+		unequipSlot.LayoutOrder = 2
+		unequipSlot.ZIndex = 15
+		unequipSlot.Parent = headRight
+		local unequipBtn = flatButton(unequipSlot, "UNEQUIP ALL", 130, 36, false, true)
+		unequipBtn.Name = "UnequipAll"
+		unequipBtn.MouseButton1Click:Connect(function()
+			for _, e in ipairs(placedEntries) do
+				remotes.StoreBrainrot:FireServer(e.Uid)
+			end
+		end)
+
+		-- The fold control sits in the bay header; LayoutOrder 0 puts it left of the
+		-- EQUIPPED chip, and it reuses flatButton so it matches every other pill in
+		-- the panel. Collapsing hands 184px straight to the inventory, taking its
+		-- scroll viewport from 1.3 rows to 2.6 -- 8 fully visible tiles to 16.
+		-- renderBrainrots() is the same self-re-render the sort pills already use,
+		-- and the flag lives on ctx.state.backpack so the choice survives closing
+		-- the panel, exactly like the selected tab does.
+		do
+			local tog = flatButton(headLeft, if bayCollapsed then "SHOW PLOT" else "HIDE PLOT", 112, 32, false)
+			tog.Name = "BayToggle"
+			tog.LayoutOrder = 0
+			tog.MouseButton1Click:Connect(function()
+				ctx.state.backpack.bayCollapsed = not bayCollapsed
+				renderBrainrots()
+			end)
+		end
+
+		if not bayCollapsed then
+			local bayGrid = Instance.new("Frame")
+			bayGrid.Name = "BayGrid"
+			bayGrid.AnchorPoint = Vector2.new(0.5, 0)
+			bayGrid.Position = UDim2.new(0.5, 0, 0, WELL_PAD + HEAD_H + 8)
+			bayGrid.Size = UDim2.fromOffset(GRIDW, EQ_H * 2 + CARD_GAP)
+			bayGrid.BackgroundTransparency = 1
+			bayGrid.ZIndex = 15
+			bayGrid.Parent = bay
+			do
+				local bgl = Instance.new("UIGridLayout")
+				bgl.CellSize = UDim2.fromOffset(CARD_W, EQ_H)
+				bgl.CellPadding = UDim2.fromOffset(CARD_GAP, CARD_GAP)
+				bgl.SortOrder = Enum.SortOrder.LayoutOrder
+				bgl.Parent = bayGrid
+			end
+			for spot = 1, 16 do
+				buildBaySlot(bayGrid, spot, placedByPad[spot])
+			end
+		end
+
+		-------------------------------------------------- INVENTORY
+		local invHead = Instance.new("Frame")
+		invHead.Name = "InventoryHeader"
+		invHead.Position = UDim2.fromOffset(0, BAY_H + SECTION_GAP)
+		invHead.Size = UDim2.fromOffset(BR_W, INV_HEAD_H)
+		invHead.BackgroundTransparency = 1
+		invHead.ZIndex = 14
+		invHead.Parent = contentHost
+
+		local invLeft = Instance.new("Frame")
+		invLeft.Name = "Left"
+		invLeft.BackgroundTransparency = 1
+		invLeft.AutomaticSize = Enum.AutomaticSize.X
+		invLeft.Size = UDim2.new(0, 0, 1, 0)
+		invLeft.ZIndex = 14
+		invLeft.Parent = invHead
+		do
+			local il = Instance.new("UIListLayout")
+			il.FillDirection = Enum.FillDirection.Horizontal
+			il.VerticalAlignment = Enum.VerticalAlignment.Center
+			il.Padding = UDim.new(0, 12)
+			il.SortOrder = Enum.SortOrder.LayoutOrder
+			il.Parent = invLeft
+			local title = Instance.new("TextLabel")
+			title.Name = "Title"
+			title.BackgroundTransparency = 1
+			title.Font = S.Font.Shout
+			title.TextSize = 22
+			-- INVENTORY sits on the panel BODY, which SpecTheme now paints pale cool
+		-- (#F5F8FC) -- white here was invisible the moment the wells went light.
+		title.TextColor3 = Color3.fromHex("33414F")
+			title.Text = "INVENTORY"
+			title.AutomaticSize = Enum.AutomaticSize.X
+			title.Size = UDim2.new(0, 0, 1, 0)
+			title.LayoutOrder = 1
+			title.ZIndex = 15
+			title:SetAttribute("NoPolish", true)
+			title.Parent = invLeft
+			local ts = Instance.new("UIStroke")
+			ts.Thickness = 2
+			ts.Color = C_INK
+			ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+			ts.Parent = title
+		end
+		local bagCount = Instance.new("TextLabel")
+		bagCount.Name = "OwnedCount"
+		bagCount.BackgroundTransparency = 1
+		bagCount.Font = S.Font.Read
+		bagCount.TextSize = 14
+		bagCount.TextColor3 = C_SUB
+		bagCount.Text = ""
+		bagCount.AutomaticSize = Enum.AutomaticSize.X
+		bagCount.Size = UDim2.new(0, 0, 1, 0)
+		bagCount.LayoutOrder = 2
+		bagCount.ZIndex = 15
+		bagCount:SetAttribute("NoPolish", true)
+		bagCount.Parent = invLeft
+
+		local SORT_W, SORT_GAP2 = 96, 8
+		local sorts = Instance.new("Frame")
+		sorts.Name = "SortButtons"
+		sorts.AnchorPoint = Vector2.new(1, 0.5)
+		sorts.Position = UDim2.new(1, 0, 0.5, 0)
+		sorts.Size = UDim2.fromOffset(3 * SORT_W + 2 * SORT_GAP2, 36)
+		sorts.BackgroundTransparency = 1
+		sorts.ZIndex = 14
+		sorts.Parent = invHead
+		for i, mode in ipairs(SORT_MODES) do
+			local slot = Instance.new("Frame")
+			slot.Name = "Sort" .. mode
+			slot.BackgroundTransparency = 1
+			slot.Position = UDim2.fromOffset((i - 1) * (SORT_W + SORT_GAP2), 0)
+			slot.Size = UDim2.fromOffset(SORT_W, 36)
+			slot.ZIndex = 14
+			slot.Parent = sorts
+			local sb = flatButton(slot, SORT_LABEL[mode], SORT_W, 36, mode == sortMode, false)
+			sb.Name = "Button"
+			sb.MouseButton1Click:Connect(function()
+				if sortMode ~= mode then
+					sortMode = mode
+					renderBrainrots()
+				end
+			end)
+		end
+
+		-- SEARCH LIVES IN THE TOP ROW (user, 2026-08-14: "move the search to the top
+		-- like theirs"). The reference parks it top-right beside the close button,
+		-- above everything; ours was buried in the middle of the panel, in the
+		-- INVENTORY header between the equipped bay and the grid, which is the last
+		-- place you look. headRight is the bay header's right-aligned list, so
+		-- LayoutOrder 0 puts search leftmost in that group -- ahead of TOTAL and
+		-- UNEQUIP ALL -- and it costs ZERO extra height because that row already
+		-- exists. It also survives collapsing the plot, since the header stays.
+		local SEARCH_W = 220   -- 280 crowded TOTAL and UNEQUIP ALL out of the row
+		local searchHost = Instance.new("Frame")
+		searchHost.Name = "SearchBox"
+		searchHost.LayoutOrder = 0
+		searchHost.Size = UDim2.fromOffset(SEARCH_W, 36)
+		searchHost.BackgroundColor3 = C_TILE
+		searchHost.BorderSizePixel = 0
+		searchHost.ZIndex = 15
+		searchHost.Parent = headRight
+		UI.corner(searchHost, 999)
+		do
+			local st = Instance.new("UIStroke")
+			st.Thickness = 2
+			st.Color = C_WELL_STROKE
+			st.Parent = searchHost
+			local mag = Instance.new("Frame")
+			mag.Name = "Mag"
+			mag.BackgroundTransparency = 1
+			mag.AnchorPoint = Vector2.new(0, 0.5)
+			mag.Position = UDim2.new(0, 13, 0.5, 0)
+			mag.Size = UDim2.fromOffset(16, 16)
+			mag.ZIndex = 16
+			mag.Parent = searchHost
+			local lens = Instance.new("Frame")
+			lens.Name = "Lens"
+			lens.Position = UDim2.fromOffset(1, 1)
+			lens.Size = UDim2.fromOffset(11, 11)
+			lens.BackgroundTransparency = 1
+			lens.ZIndex = 16
+			lens.Parent = mag
+			UI.corner(lens, 999)
+			local ls = Instance.new("UIStroke")
+			ls.Thickness = 2.2
+			ls.Color = Color3.fromHex("7C8CA0")   -- the lens sits on a light pill now
+			ls.Transparency = 0.25
+			ls.Parent = lens
+			local handle = Instance.new("Frame")
+			handle.Name = "Handle"
+			handle.AnchorPoint = Vector2.new(1, 1)
+			handle.Position = UDim2.new(1, 0, 1, 0)
+			handle.Size = UDim2.fromOffset(7, 3)
+			handle.Rotation = 45
+			handle.BackgroundColor3 = Color3.fromHex("7C8CA0")
+			handle.BackgroundTransparency = 0.45
+			handle.BorderSizePixel = 0
+			handle.ZIndex = 16
+			handle.Parent = mag
+			UI.corner(handle, 999)
+		end
 		local box = Instance.new("TextBox")
-		box.Name = "SearchBox"
-		box.Position = UDim2.fromOffset(208, 2)
-		box.Size = UDim2.fromOffset(BR_W - 208 - 200 - 8 - SORT_W - 8 - 8, 30)
-		box.BackgroundColor3 = Color3.fromHex("1A2130")
-		box.BorderSizePixel = 0
+		box.Name = "Input"
+		box.BackgroundTransparency = 1
+		box.Position = UDim2.fromOffset(36, 0)
+		box.Size = UDim2.new(1, -48, 1, 0)
 		box.Text = searchQuery
-		box.PlaceholderText = "Search\u{2026}"
-		box.PlaceholderColor3 = Color3.fromHex("5D6878")
-		box.TextColor3 = Color3.new(1, 1, 1)
+		box.PlaceholderText = "SEARCH..."
+		box.PlaceholderColor3 = C_PLACE
+		box.TextColor3 = Color3.fromHex("1C2029")   -- the search field sits on C_TILE
 		box.Font = S.Font.Read
-		box.TextSize = 16
+		box.TextSize = 14
 		box.ClearTextOnFocus = false
 		box.TextXAlignment = Enum.TextXAlignment.Left
-		box.ZIndex = 15
+		box.TextTruncate = Enum.TextTruncate.AtEnd
+		box.ZIndex = 16
 		box:SetAttribute("NoPolish", true)
-		box.Parent = labelRow
-		do
-			local c = Instance.new("UICorner")
-			c.CornerRadius = UDim.new(0, 10)
-			c.Parent = box
-			local st = Instance.new("UIStroke")
-			st.Thickness = 2
-			st.Color = Color3.fromHex("2C3444")
-			st.Parent = box
-			local pad = Instance.new("UIPadding")
-			pad.PaddingLeft = UDim.new(0, 10)
-			pad.PaddingRight = UDim.new(0, 10)
-			pad.Parent = box
-		end
+		box.Parent = searchHost
 
-		----------------------------------------------------- rack tray
-		local tray = Instance.new("Frame")
-		tray.Name = "PlotRack"
-		tray.Position = UDim2.fromOffset(math.floor((BR_W - TRAY_W) / 2), LABEL_H + 8)
-		tray.Size = UDim2.fromOffset(TRAY_W, TRAY_H)
-		tray.BackgroundColor3 = Color3.fromHex("11151D")
-		tray.BorderSizePixel = 0
-		tray.ZIndex = 13
-		tray.Parent = contentHost
-		UI.corner(tray, 16)
-		local tst = Instance.new("UIStroke")
-		tst.Thickness = 2
-		tst.Color = Color3.fromHex("2A3242")
-		tst.Parent = tray
-
-		for spot = 1, 16 do
-			buildRackSlot(tray, spot, placedByPad[spot], 14)
-		end
-
-		----------------------------------------------------- collection well
-		-- (search + sort moved up into the plot label row -- see above)
-		local wellY = LABEL_H + 8 + TRAY_H + 8
-		local well = Instance.new("Frame")
-		well.Name = "GridWell"
-		well.Position = UDim2.fromOffset(0, wellY)
-		well.Size = UDim2.new(0, BR_W, 0, CONTENT_H - wellY)
-		well.BackgroundColor3 = Color3.fromHex("11151D")
-		well.BorderSizePixel = 0
-		well.ZIndex = 13
-		well.Parent = contentHost
-		UI.corner(well, 16)
-		local wstroke = Instance.new("UIStroke")
-		wstroke.Thickness = 2
-		wstroke.Color = Color3.fromHex("2A3242")
-		wstroke.Parent = well
+		local subY = BAY_H + SECTION_GAP + INV_HEAD_H + SECTION_GAP
+		local sub = buildWell(subY, CONTENT_H - subY)
+		sub.Name = "InventoryWell"
 
 		local scroll = Instance.new("ScrollingFrame")
 		scroll.Name = "Grid"
-		scroll.Position = UDim2.fromOffset(8, 8)
-		scroll.Size = UDim2.new(1, -16, 1, -16)
+		scroll.Position = UDim2.fromOffset(10, 10)
+		scroll.Size = UDim2.new(1, -20, 1, -20)
 		scroll.BackgroundTransparency = 1
 		scroll.BorderSizePixel = 0
 		scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 		scroll.ScrollBarThickness = 8
-		scroll.ScrollBarImageColor3 = Color3.fromHex("2F394A")
+		scroll.ScrollBarImageColor3 = Color3.fromHex("3A4356")
 		scroll.CanvasSize = UDim2.new()
 		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 		scroll.ElasticBehavior = Enum.ElasticBehavior.Never
 		scroll.ZIndex = 14
-		scroll.Parent = well
+		scroll.Parent = sub
 		grid = scroll
-
-		local list = Instance.new("UIListLayout")
-		list.SortOrder = Enum.SortOrder.LayoutOrder
-		list.Padding = UDim.new(0, 10)
-		list.Parent = scroll
-
-		local function sectionHeader(order: number, text: string, n: number, tint: Color3)
-			local h = Instance.new("Frame")
-			h.Name = "Header" .. order
-			h.LayoutOrder = order
-			h.Size = UDim2.new(1, -12, 0, 20)
-			h.BackgroundTransparency = 1
-			h.ZIndex = 15
-			h.Parent = scroll
-			local dot = Instance.new("Frame")
-			dot.Size = UDim2.fromOffset(12, 12)
-			dot.Position = UDim2.fromOffset(2, 4)
-			dot.BackgroundColor3 = tint
-			dot.BorderSizePixel = 0
-			dot.ZIndex = 16
-			dot.Parent = h
-			UI.corner(dot, 999)
-			local lbl = Instance.new("TextLabel")
-			lbl.BackgroundTransparency = 1
-			lbl.Font = S.Font.Shout
-			lbl.TextSize = 14
-			lbl.TextColor3 = tint
-			lbl.Text = text .. "  (" .. n .. ")"
-			lbl.Position = UDim2.fromOffset(22, 0)
-			lbl.Size = UDim2.new(1, -22, 1, 0)
-			lbl.TextXAlignment = Enum.TextXAlignment.Left
-			lbl.ZIndex = 16
-			lbl:SetAttribute("NoPolish", true)
-			lbl.Parent = h
-			return h
+		do
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft = UDim.new(0, math.max(0, math.floor((BR_W - 20 - GRIDW) / 2)))
+			pad.Parent = scroll
+			local gl = Instance.new("UIGridLayout")
+			gl.CellSize = UDim2.fromOffset(CARD_W, CARD_H)
+			gl.CellPadding = UDim2.fromOffset(CARD_GAP, CARD_GAP)
+			gl.SortOrder = Enum.SortOrder.LayoutOrder
+			gl.Parent = scroll
 		end
 
-		local function sectionGrid(order: number): Frame
-			local gf = Instance.new("Frame")
-			gf.Name = "Section" .. order
-			gf.LayoutOrder = order
-			gf.Size = UDim2.new(1, -12, 0, 0)
-			gf.AutomaticSize = Enum.AutomaticSize.Y
-			gf.BackgroundTransparency = 1
-			gf.ZIndex = 14
-			gf.Parent = scroll
-			local gl2 = Instance.new("UIGridLayout")
-			gl2.CellSize = UDim2.fromOffset(CARD_W, CARD_H)
-			gl2.CellPadding = UDim2.fromOffset(8, 8)
-			gl2.SortOrder = Enum.SortOrder.LayoutOrder
-			gl2.Parent = gf
-			return gf
-		end
-
-		-- fillSections rebuilds only the section contents, so live search typing
-		-- never rebuilds the TextBox out from under the keyboard focus
-		local function fillSections()
+		-- fillBag rebuilds only the cells, so search typing keeps its focus
+		local function fillBag()
 			for _, c in ipairs(scroll:GetChildren()) do
-				if c:IsA("GuiObject") then c:Destroy() end
+				if c:IsA("GuiObject") then
+					c:Destroy()
+				end
+			end
+			local oldMsg = sub:FindFirstChild("EmptyMsg")
+			if oldMsg then
+				oldMsg:Destroy()
 			end
 
 			local q = searchQuery:lower():gsub("^%s+", ""):gsub("%s+$", "")
-			local function matches(name, mutation, size)
-				if q == "" then return true end
-				return name:lower():find(q, 1, true) ~= nil
-					or (mutation and mutation:lower():find(q, 1, true) ~= nil)
-					or (size and size:lower():find(q, 1, true) ~= nil)
-			end
-
-			-- equipped section: one card per placed copy, rack order
-			local shownPlaced = {}
-			for _, e in ipairs(placedEntries) do
-				if matches(e.Name, e.Mutation, e.Size) then
-					shownPlaced[#shownPlaced + 1] = e
-				end
-			end
-			sectionHeader(1, "ON YOUR PLOT", #shownPlaced, Color3.fromHex("7CE04A"))
-			local placedGrid = sectionGrid(2)
-			local placedSet = {}
-			if #shownPlaced == 0 then
-				local none = Instance.new("TextLabel")
-				none.BackgroundTransparency = 1
-				none.Font = S.Font.Read
-				none.TextSize = 14
-				none.TextColor3 = Color3.fromHex("5D6878")
-				none.Text = #placedEntries == 0
-					and "Nothing on your plot yet \u{2014} click a brainrot below, or hit EQUIP BEST."
-					or "No equipped brainrot matches your search."
-				none.LayoutOrder = 2
-				none.Size = UDim2.new(1, -12, 0, 26)
-				none.ZIndex = 15
-				none:SetAttribute("NoPolish", true)
-				none.Parent = scroll
-				placedGrid:Destroy()
-			else
-				for i, e in ipairs(shownPlaced) do
-					placedSet[e.Uid] = e.PadIndex
-					local g = { Name = e.Name, Mutation = e.Mutation, Size = e.Size, Fav = e.Fav,
-						count = 1, uids = { e.Uid }, PadIndex = e.PadIndex }
-					buildJuiceTile(placedGrid, i, g, false, placedSet)
-				end
-			end
-
-			-- bench section: stacked groups, current sort mode
 			local groups = groupBrainrots(ownedBrainrots)
-			local bench = {}
+			local bag = {}
 			for _, g in ipairs(groups) do
-				if matches(g.Name, g.Mutation, g.Size) then
-					bench[#bench + 1] = g
+				if q == ""
+					or g.Name:lower():find(q, 1, true) ~= nil
+					or (g.Mutation ~= nil and g.Mutation:lower():find(q, 1, true) ~= nil)
+					or (g.Size ~= nil and g.Size:lower():find(q, 1, true) ~= nil)
+				then
+					bag[#bag + 1] = g
 				end
 			end
-			local function rankOf(g)
-				local tier = infoByName[g.Name] and infoByName[g.Name].Rarity
-				return tierRank[tier] or 0
-			end
+
+			-- sorts: RARITY (tier then income), NEWEST (snapshot append order
+			-- stands in for the missing timestamp), A-Z
 			if sortMode == "rarity" then
-				table.sort(bench, function(x, y)
-					local rx, ry = rankOf(x), rankOf(y)
-					if rx ~= ry then return rx > ry end
+				table.sort(bag, function(x, y)
+					local rx = tierRank[infoByName[x.Name] and infoByName[x.Name].Rarity] or 0
+					local ry = tierRank[infoByName[y.Name] and infoByName[y.Name].Rarity] or 0
+					if rx ~= ry then
+						return rx > ry
+					end
 					return valueOf(x.Name, x.Mutation, x.Size) > valueOf(y.Name, y.Mutation, y.Size)
 				end)
-			elseif sortMode == "count" then
-				table.sort(bench, function(x, y)
-					if x.count ~= y.count then return x.count > y.count end
-					return valueOf(x.Name, x.Mutation, x.Size) > valueOf(y.Name, y.Mutation, y.Size)
+			elseif sortMode == "newest" then
+				local pos = {}
+				for i, e in ipairs(ownedBrainrots) do
+					pos[e.Uid] = i
+				end
+				local newestOf = {}
+				for _, g in ipairs(bag) do
+					local best = 0
+					for _, uid in ipairs(g.uids) do
+						local p = pos[uid]
+						if p and p > best then
+							best = p
+						end
+					end
+					newestOf[g] = best
+				end
+				table.sort(bag, function(x, y)
+					return (newestOf[x] or 0) > (newestOf[y] or 0)
 				end)
-			elseif sortMode == "az" then
-				table.sort(bench, function(x, y)
-					if x.Name ~= y.Name then return x.Name < y.Name end
+			else
+				table.sort(bag, function(x, y)
+					if x.Name ~= y.Name then
+						return x.Name < y.Name
+					end
 					return valueOf(x.Name, x.Mutation, x.Size) > valueOf(y.Name, y.Mutation, y.Size)
 				end)
 			end
 
-			sectionHeader(3, "NOT EQUIPPED", #bench, Color3.fromHex("8B93A8"))
-			if #bench == 0 then
+			bagCount.Text = #bag .. " / " .. #groups .. " owned"
+
+			if #bag == 0 then
 				local none = Instance.new("TextLabel")
+				none.Name = "EmptyMsg"
 				none.BackgroundTransparency = 1
 				none.Font = S.Font.Read
 				none.TextSize = 14
-				none.TextColor3 = Color3.fromHex("5D6878")
-				none.Text = #ownedBrainrots == 0
-					and "Nothing in the bag \u{2014} go skip some rocks!"
-					or "No benched brainrot matches your search."
-				none.LayoutOrder = 4
-				none.Size = UDim2.new(1, -12, 0, 26)
+				none.TextColor3 = C_SUB
+				none.Text = if #ownedBrainrots == 0
+					then "Nothing in the bag \u{2014} go skip some rocks!"
+					else "Nothing in the bag matches that search."
+				none.Size = UDim2.fromScale(1, 1)
 				none.ZIndex = 15
 				none:SetAttribute("NoPolish", true)
-				none.Parent = scroll
-			else
-				local benchGrid = sectionGrid(4)
-				for i, g in ipairs(bench) do
-					buildJuiceTile(benchGrid, i, g, false, {})
+				none.Parent = sub
+				return
+			end
+
+			for i, g in ipairs(bag) do
+				local cell = Instance.new("Frame")
+				cell.Name = "BagCell" .. i
+				cell.BackgroundTransparency = 1
+				cell.LayoutOrder = i
+				cell.ZIndex = 15
+				cell.Parent = scroll
+				-- stable per-item key: the pastel splash hue must not reshuffle
+				-- when search/sort re-render the grid (delta 4 spec)
+				local card = buildCard(cell, g.Name, g.Mutation, g.Size, g.count, nil,
+					g.Name .. "|" .. tostring(g.Mutation) .. "|" .. tostring(g.Size))
+				local xOff = -4
+				local favB = buildFavBadge(card, g.Fav == true, g.uids, xOff)
+				xOff -= 26
+				if g.Mutation then
+					buildStarBadge(card, xOff)
 				end
+				wireCardHit(cell, card, g, favB, function()
+					for _, uid in ipairs(g.uids) do
+						newUids[uid] = nil
+					end
+					if countPlaced() < plotState.Unlocked then
+						remotes.EquipBrainrot:FireServer(g.uids[1])
+					else
+						flash("NO FREE SLOTS \u{2014} UNLOCK ONE", "error")
+					end
+				end)
 			end
 		end
 
-		fillSections()
+		fillBag()
 
 		if keepScroll then
-			-- AutomaticCanvasSize settles a frame after the cells land, and a
-			-- restore set before that clamps to 0 -- assert after the defer, then
-			-- once more a beat later so it survives the canvas resize. (Search
-			-- typing and sort clicks deliberately DON'T restore: a reordered or
-			-- filtered list starting at the top is what those actions mean.)
+			-- restore after AutomaticCanvasSize settles (defer + a beat later)
 			local s = scroll
 			task.defer(function()
-				if s.Parent then s.CanvasPosition = keepScroll end
+				if s.Parent then
+					s.CanvasPosition = keepScroll
+				end
 			end)
 			task.delay(0.06, function()
-				if s.Parent then s.CanvasPosition = keepScroll end
+				if s.Parent then
+					s.CanvasPosition = keepScroll
+				end
 			end)
 		end
 
 		box:GetPropertyChangedSignal("Text"):Connect(function()
 			searchQuery = box.Text
-			fillSections()
-		end)
-		sortBtn.MouseButton1Click:Connect(function()
-			for i, mode in ipairs(SORT_MODES) do
-				if mode == sortMode then
-					sortMode = SORT_MODES[(i % #SORT_MODES) + 1]
-					break
-				end
-			end
-			sortBtn.Text = "\u{2195} " .. (SORT_LABEL[sortMode] or "VALUE")
-			fillSections()
+			fillBag()
 		end)
 	end
 
 	----------------------------------------------------------- PETS tab
+	-- Drops any pinned Equip footer and gives the scroll area its full height back.
+	-- Called at the top of every path that repaints this column so the footer can
+	-- never outlive the pet it belongs to -- including the no-selection path below,
+	-- which returns early.
+	local function clearDetailFooter()
+		local pinned = detailHost:FindFirstChild("DetailFooter")
+		if pinned then pinned:Destroy() end
+		detailContent.Size = UDim2.fromScale(1, 1)
+	end
+
 	local function renderPetDetail(pet, def)
+		clearDetailFooter()
 		if not pet or not def then
 			buildDetailPlaceholder("Select a pet to see its stats.")
 			return
@@ -2304,13 +3675,14 @@ function BackpackPanel.Build(ctx)
 		hero.Name = "Hero"
 		hero.LayoutOrder = 1
 		hero.Size = UDim2.new(1, 0, 0, 150)
-		hero.BackgroundColor3 = Color3.fromHex("252E3D")
+		hero.BackgroundColor3 = Color3.fromHex("FFFFFF")
 		hero.BorderSizePixel = 0
 		hero.ZIndex = detailContent.ZIndex + 1
 		hero.Parent = detailContent
 		UI.corner(hero, T.radius.small) -- kit "hero art ... radius 12"
-		-- dark card + rarity edge, matching the grid tiles below it
-		UI.gradient(hero, ColorSequence.new(Color3.fromHex("252E3D"), Color3.fromHex("171D27")))
+		-- PS99: light art well + rarity edge (the dark card family left with the
+		-- dark detail slab)
+		UI.gradient(hero, ColorSequence.new(Color3.fromHex("FFFFFF"), Color3.fromHex("EEF2F8")))
 		local heroStroke = UI.stroke(hero, T.stroke.control)
 		if heroStroke then heroStroke.Color = heroRamp[2] end
 		-- BUG (fixed 2026-08-11): this called build3DOrSwatch(def.Name) -- the
@@ -2320,7 +3692,8 @@ function BackpackPanel.Build(ctx)
 		-- only the ten retired brainrot stand-ins ever rendered here.
 		build3DPetOrSwatch(hero, def, UDim2.new(1, -12, 1, -12), UDim2.fromOffset(6, 6), hero.ZIndex + 1, rarityTint(T, def.Rarity))
 
-		local name = UI.label(detailContent, def.Name, "cardLabel", T.color.white)
+		local name = UI.label(detailContent, def.Name, "cardLabel", T.color.textOnLight) -- ink on the light column
+		name:SetAttribute("NoPolish", true)
 		name.Name = "Name"
 		name.LayoutOrder = 2
 		name.Size = UDim2.new(1, 0, 0, 26)
@@ -2337,17 +3710,39 @@ function BackpackPanel.Build(ctx)
 		chip.ZIndex = detailContent.ZIndex + 1
 		chip.Parent = detailContent
 		UI.corner(chip, T.radius.small)
-		UI.gradient(chip, T.gradient.row)
-		UI.stroke(chip, T.stroke.hairline)
-		local chipLabel = UI.label(chip, def.Rarity:upper(), "chip", rarityTint(T, def.Rarity))
+		-- PS99: the chip rode T.gradient.row (dark navy). Flipped to the light
+		-- slot ramp; the rarity colour moves to the chip's EDGE so the word
+		-- itself stays readable ink (pale tiers died as text colour on white).
+		UI.gradient(chip, T.gradient.slot)
+		local chipStroke = UI.stroke(chip, T.stroke.hairline)
+		if chipStroke then chipStroke.Color = rarityTint(T, def.Rarity) end
+		local chipLabel = UI.label(chip, def.Rarity:upper(), "chip", T.color.textOnLight)
 		chipLabel.Size = UDim2.fromScale(1, 1)
 		chipLabel.AutomaticSize = Enum.AutomaticSize.None
 		chipLabel.TextXAlignment = Enum.TextXAlignment.Center
 		chipLabel.ZIndex = chip.ZIndex + 1
+		chipLabel:SetAttribute("NoPolish", true)
 
 		local luck, income = PetConfig.BoostsFor(pet.Id)
 		buildStatRow(4, "LUCK", trimNum(luck) .. "x")
 		buildStatRow(5, "MONEY", trimNum(income) .. "x")
+
+		-- THE SIGNATURE ABILITY (2026-08-22). Two ordinary stat rows rather than a
+		-- bespoke card: this column is a stack of identical tiles, and an ability drawn
+		-- to look different would read as a separate feature instead of as the pet's
+		-- third number. First row names it, second states the seam and the bonus, so
+		-- two pets can be compared on it directly.
+		-- Both rows are SKIPPED for a pet with no ability rather than drawn empty.
+		-- Nothing in the shipped roster hits that branch (PetConfig.Audit proves it).
+		-- ONE row, not two (2026-08-22). Two rows spent 68px of a 231px column on a
+		-- single stat and pushed the Equip button further out of view; this says the
+		-- same three things -- which stat, what it is called, how much -- in one.
+		local ability = PetConfig.AbilityFor(pet.Id)
+		if ability then
+			local kind = PetConfig.ABILITY_KINDS[ability.Kind]
+			buildStatRow(6, string.upper(kind.Label),
+				("%s +%s"):format(ability.Name or kind.Label, trimNum(ability.Amount or 0)))
+		end
 
 		local isEquipped = false
 		for _, u in ipairs(petSlots) do
@@ -2363,17 +3758,31 @@ function BackpackPanel.Build(ctx)
 		-- blocked no longer a dead end: the slot cards above unequip on click,
 		-- so the label points there instead of just stating the number
 		local label = blocked and "FULL \u{2014} CLICK A SLOT" or (isEquipped and "Unequip" or "Equip")
-		-- FIX F1: same EquipSlot wrapper as renderBrainrotDetail's EquipButton
-		-- above -- detailContent is UIListLayout-managed; see that comment for
-		-- why the raw UI.button(detailContent, ...) call used to strand a
-		-- phantom HardShadow list item.
+		-- (The old FIX F1 note lived here -- it explained why this button needed a
+		-- wrapper Frame rather than being parented straight to the UIListLayout-managed
+		-- detailContent. Still true of renderBrainrotDetail's button, no longer true of
+		-- this one: it is not in the list at all any more.)
+		--
+		-- A PINNED FOOTER, not the last row of the list (owner, 2026-08-22: "the
+		-- option to equip and unequip pets gets cut off").
+		--
+		-- With the pet slot row expanded this column is 231px tall and one pet's
+		-- stats are ~440px of canvas, so an Equip button at the END of the list is
+		-- always below the fold. Making the column scroll (see detailContent) made it
+		-- reachable, but the only control in the column should not have to be hunted
+		-- for. It lives on detailHost OUTSIDE the scrolling content, and
+		-- detailContent gives up a matching strip at its bottom so no stat row can
+		-- scroll underneath it. clearDetailFooter() undoes both.
+		local FOOTER_H = 56
+		detailContent.Size = UDim2.new(1, 0, 1, -(FOOTER_H + 12))
 		local equipSlot = Instance.new("Frame")
-		equipSlot.Name = "EquipSlot"
-		equipSlot.LayoutOrder = 6
-		equipSlot.Size = UDim2.new(1, 0, 0, 56)
+		equipSlot.Name = "DetailFooter"
+		equipSlot.AnchorPoint = Vector2.new(0.5, 1)
+		equipSlot.Position = UDim2.new(0.5, 0, 1, -12)
+		equipSlot.Size = UDim2.new(1, -24, 0, FOOTER_H)
 		equipSlot.BackgroundTransparency = 1
-		equipSlot.ZIndex = detailContent.ZIndex + 1
-		equipSlot.Parent = detailContent
+		equipSlot.ZIndex = detailHost.ZIndex + 3
+		equipSlot.Parent = detailHost
 
 		local btn = UI.button(equipSlot, label, blocked and "disabled" or "green", UDim2.fromScale(1, 1), "buttonM")
 		btn.Name = "EquipButton"
@@ -2386,6 +3795,14 @@ function BackpackPanel.Build(ctx)
 				remotes.PetEquip:FireServer(pet.Uid, not isEquipped)
 			end)
 		end
+
+		-- === SELL: MOVED OUT OF THE BAG (2026-08-21, owner call) ==============
+		-- Pets are sold at MARCO'S STALL ONLY. The two-step SELL pill that used
+		-- to sit here under Equip is gone: a permanent action should not be one
+		-- stray click away inside the menu players open to equip. SellPanel's
+		-- pet tab is the single drain now, and its multi-select + confirm is
+		-- the guard the in-place arm/disarm was standing in for.
+		-- remotes.SellPet is untouched -- SellPanel is simply its only caller.
 	end
 
 	local function findPet(uid)
@@ -2397,20 +3814,17 @@ function BackpackPanel.Build(ctx)
 		return nil
 	end
 
-	-- PET TILES ARE JUICED CARDS (2026-08-11, user: "make the pet card art look
-	-- better"). The brainrot grid's language -- dark card, rarity outline, pips,
-	-- bottom band -- with three deliberate differences, each A/B'd on screen
-	-- against the old white plate before any of it was written:
-	--
-	--   * SOFTER FX. foil 0.92/0.88/0.84 and aura 0.5, well above the brainrot
-	--     tiles' 0.87/0.80/0.70 and 0.35. At tile size those numbers buried the
-	--     model under a colour wash and read WORSE than the plain plate did --
-	--     the top two tiers were the whole reason to look again.
-	--   * The band carries the PET'S NAME, not its tier. A pet is an individual,
-	--     and its tier is already the outline, the pips and the band's colour;
-	--     the old tile named the pet nowhere at all.
-	--   * A LUCK PILL instead of the brainrots' xN count -- pet records are
-	--     unique (no stacking), and the multiplier is what you choose one by.
+	-- PET GRID TILES (2026-08-11 juiced cards; 2026-08-16 ported to the PS99
+	-- house grid language). What survives from the juiced pass: the pips, the
+	-- holo art ring, the LUCK PILL (pet records are unique -- no stacking --
+	-- and the multiplier is what you choose one by) and the band frame that
+	-- carries the PET'S NAME. What changed 2026-08-16: the dark plate, the
+	-- ramp-coloured banner and the aura/foil washes are gone -- art floats on
+	-- a pastel splash over the LIGHT well, the name is naked dark ink with a
+	-- white halo, and Secret/God identity rides the splash tint
+	-- (SPLASH_SPECIAL_TIER).
+	-- (foil/aura fields are legacy after the 2026-08-16 port -- only pips and
+	-- holo still draw; the fields stay so the ensureFx gate reads unchanged)
 	local PET_JUICE = {
 		common  = { pips = 1, foil = nil,  aura = false, holo = false },
 		rare    = { pips = 2, foil = nil,  aura = false, holo = false },
@@ -2433,57 +3847,41 @@ function BackpackPanel.Build(ctx)
 		card.Position = UDim2.fromScale(0.5, 0.5)
 		card.Size = UDim2.fromScale(1, 1)
 		card.BackgroundColor3 = Color3.fromHex("252E3D")
+		-- PS99 delta 4 (2026-08-16): pet grid cards lose the cell box -- plate
+		-- invisible, art floats on a pastel splash. Clipping off so the 1.15x
+		-- splash is not rect-cut at the card edge (ClipsDescendants ignores
+		-- UICorner, so nothing else relied on it visually -- band/aura/foil all
+		-- sit inside the rect).
+		card.BackgroundTransparency = 1
 		card.BorderSizePixel = 0
-		card.ClipsDescendants = true
+		card.ClipsDescendants = false
 		card.ZIndex = 15
 		card.Parent = cell
 		UI.corner(card, 14)
+		-- splash FIRST so every existing child keeps rendering above it; a
+		-- selected pet gets the stronger splash on top of its SelectedRing
+		addSplash(card, splashTint(def.Rarity, tostring(def.Name), ramp[2]), isSelected,
+			BrainrotThumb.isPale(BrainrotThumb.petMaster(def.Model, def.Name)))
 		local edge = Instance.new("UIStroke")
 		edge.Thickness = 3
 		edge.Color = ramp[2]
 		edge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 		edge.LineJoinMode = Enum.LineJoinMode.Round
+		-- delta 4: border hidden, object kept. Selection is the separate
+		-- SelectedRing below and the equipped pulse is its own UIStroke --
+		-- nothing re-enables this one, so it hides fully.
+		edge.Transparency = 1
+		edge.Enabled = false
 		edge.Parent = card
-		local cardGrad = Instance.new("UIGradient")
-		cardGrad.Rotation = 90
-		cardGrad.Color = ColorSequence.new(Color3.fromHex("252E3D"), Color3.fromHex("171D27"))
-		cardGrad.Parent = card
+		-- (the old dark-navy card gradient is gone with the plate: a gradient on
+		-- a fully transparent background painted nothing, and could only come
+		-- back as a dark box if the transparency ever regressed)
 
-		if level.aura then
-			local aura = Instance.new("Frame")
-			aura.Name = "Aura"
-			aura.AnchorPoint = Vector2.new(0, 1)
-			aura.Position = UDim2.new(0, 0, 1, -PET_BAND_H)
-			aura.Size = UDim2.new(1, 0, 0.42, 0)
-			aura.BackgroundColor3 = ramp[2]
-			aura.BorderSizePixel = 0
-			aura.ZIndex = 15
-			aura.Parent = card
-			local ag = Instance.new("UIGradient")
-			ag.Rotation = -90
-			ag.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0.6),
-				NumberSequenceKeypoint.new(1, 1),
-			})
-			ag.Parent = aura
-			table.insert(fx.pulseBg, { f = aura, lo = 0.4, hi = 0.72 })
-		end
-
-		if level.foil then
-			local foil = Instance.new("Frame")
-			foil.Name = "Foil"
-			foil.Size = UDim2.new(1, 0, 1, -PET_BAND_H)
-			foil.BackgroundColor3 = Color3.new(1, 1, 1)
-			foil.BackgroundTransparency = level.foil
-			foil.BorderSizePixel = 0
-			foil.ZIndex = 16
-			foil.Parent = card
-			local fg = Instance.new("UIGradient")
-			fg.Rotation = 25
-			fg.Color = RAINBOW
-			fg.Parent = foil
-			table.insert(fx.drift, { g = fg, fast = false })
-		end
+		-- PS99 port (2026-08-16): the aura wash and rainbow foil rectangles are
+		-- gone. They were dark-card juice, and on the light well they re-drew
+		-- exactly the boxy plate the splash treatment removes. Top-tier identity
+		-- now rides the splash tint (SPLASH_SPECIAL_TIER), the pips and the holo
+		-- ring on the art.
 
 		local shadowOval = Instance.new("Frame")
 		shadowOval.Name = "ContactShadow"
@@ -2573,9 +3971,14 @@ function BackpackPanel.Build(ctx)
 		pill.Name = "LuckPill"
 		pill.AnchorPoint = Vector2.new(1, 0)
 		pill.Position = UDim2.new(1, bx, 0, 6)
-		pill.Size = UDim2.fromOffset(38, 18)
-		pill.BackgroundColor3 = Color3.fromHex("0E1420")
-		pill.BackgroundTransparency = 0.15
+		-- 60, not 38: the pill used to read just "5x", which on a tile that can have
+		-- several identical neighbours looks exactly like a STACK COUNT (owner read it
+		-- as "5 of this pet", 2026-08-22). Pets are listed one tile per pet and never
+		-- stacked, so the number needed a noun on it.
+		pill.Size = UDim2.fromOffset(60, 18)
+		-- PS99: light pill, dark ink (was a near-black chip from the dark skin)
+		pill.BackgroundColor3 = Color3.fromHex("FFFFFF")
+		pill.BackgroundTransparency = 0.1
 		pill.BorderSizePixel = 0
 		pill.ZIndex = 19
 		pill.Parent = card
@@ -2590,9 +3993,9 @@ function BackpackPanel.Build(ctx)
 		pl.BackgroundTransparency = 1
 		pl.Size = UDim2.fromScale(1, 1)
 		pl.Font = S.Font.Shout
-		pl.TextSize = 12
-		pl.Text = trimNum(luck) .. "x"
-		pl.TextColor3 = ramp[1]
+		pl.TextSize = 11
+		pl.Text = trimNum(luck) .. "x LUCK"
+		pl.TextColor3 = Color3.fromHex("33414F") -- ink; the pill's ramp stroke keeps the rarity accent
 		pl.ZIndex = 20
 		pl:SetAttribute("NoPolish", true)
 		pl.Parent = pill
@@ -2608,23 +4011,19 @@ function BackpackPanel.Build(ctx)
 		band.BorderSizePixel = 0
 		band.ZIndex = 18
 		band.Parent = card
-		if level.holo then
-			band.BackgroundColor3 = Color3.new(1, 1, 1)
-			local bg = Instance.new("UIGradient")
-			bg.Color = RAINBOW
-			bg.Parent = band
-			table.insert(fx.drift, { g = bg, fast = true })
-		else
-			band.BackgroundColor3 = ramp[2]
-			band.BackgroundTransparency = 0.25
-		end
+		-- PS99 port (2026-08-16): the ramp-coloured banner (hot magenta on the
+		-- top tiers) and its holo rainbow strip are gone. The band frame stays
+		-- for layout (art/shadow maths anchor to PET_BAND_H) but paints nothing;
+		-- the name goes naked dark ink with a white halo -- the house light-grid
+		-- treatment, same as the key tiles' captions.
+		band.BackgroundTransparency = 1
 		local bname = Instance.new("TextLabel")
 		bname.Name = "PetName"
 		bname.BackgroundTransparency = 1
 		bname.Font = S.Font.Shout
 		bname.TextSize = 15
 		bname.TextTruncate = Enum.TextTruncate.AtEnd
-		bname.TextColor3 = level.holo and Color3.fromHex("12060C") or Color3.new(1, 1, 1)
+		bname.TextColor3 = Color3.fromHex("33414F") -- dark ink on the light well
 		bname.Text = string.upper(def.Name or "?")
 		bname.TextXAlignment = Enum.TextXAlignment.Center
 		bname.Position = UDim2.fromOffset(5, 0)
@@ -2632,10 +4031,10 @@ function BackpackPanel.Build(ctx)
 		bname.ZIndex = 19
 		bname:SetAttribute("NoPolish", true)
 		bname.Parent = band
-		if not level.holo then
+		do -- every tier gets the halo now (holo used to skip it for its rainbow strip)
 			local bst = Instance.new("UIStroke")
-			bst.Thickness = 1.6
-			bst.Color = Color3.fromHex("071323")
+			bst.Thickness = 2.4
+			bst.Color = Color3.new(1, 1, 1) -- white halo so the ink reads over any splash
 			bst.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 			bst.Parent = bname
 		end
@@ -2666,13 +4065,25 @@ function BackpackPanel.Build(ctx)
 		-- TweenService is NOT a local in this module (buildJuiceTile calls it
 		-- inline for the same reason) -- a bare `TweenService` here is nil and
 		-- would throw on the first hover.
+		-- press feedback (2026-08-17): same Down-sink/Up-release the brainrot
+		-- cards got -- a tile that answers hover but not the click reads dead
+		local petHovered = false
 		hit.MouseEnter:Connect(function()
+			petHovered = true
 			cell.ZIndex = 30
 			game:GetService("TweenService"):Create(card, PET_HOVER, { Size = UDim2.new(1, 8, 1, 8) }):Play()
 		end)
 		hit.MouseLeave:Connect(function()
+			petHovered = false
 			cell.ZIndex = 15
 			game:GetService("TweenService"):Create(card, PET_HOVER, { Size = UDim2.fromScale(1, 1) }):Play()
+		end)
+		hit.MouseButton1Down:Connect(function()
+			game:GetService("TweenService"):Create(card, PET_HOVER, { Size = UDim2.new(1, -4, 1, -4) }):Play()
+		end)
+		hit.MouseButton1Up:Connect(function()
+			game:GetService("TweenService"):Create(card, PET_HOVER,
+				{ Size = petHovered and UDim2.new(1, 8, 1, 8) or UDim2.fromScale(1, 1) }):Play()
 		end)
 		hit.MouseButton1Click:Connect(function()
 			selectedPetUid = pet.Uid
@@ -2697,42 +4108,121 @@ function BackpackPanel.Build(ctx)
 
 		-- 2026-08-11 (user request, reworked same day from the recording): the
 		-- SAME slot row the Charm Codex tab leads with -- full tab-body width,
-		-- the Codex's 108-tall cards. Five cards: 3 free, slots 4-5 ride the
-		-- pet-slots gamepass. The REAL cap comes from the server ("PetSlotCap"
-		-- attribute, PetHandler.publishLoadout); the client cannot ask
-		-- MarketplaceService about pass ownership itself, and falling back to
-		-- SLOTS_FREE just draws 4-5 locked until it lands.
+		-- the Codex's 108-tall cards. EIGHT cards since 2026-08-20, in two rows of
+		-- four: 3 free, 4-5 for cash, 6-8 for Robux (PetConfig.SLOT_PRICES /
+		-- SLOT_ROBUX, which is also where the "gamepass adds two" model this row
+		-- used to draw was retired). The REAL cap still comes from the server
+		-- ("PetSlotCap" attribute, PetHandler.PublishLoadout) rather than being
+		-- recomputed here: it folds in the legacy gamepass floor, which the client
+		-- cannot ask MarketplaceService about itself. Falling back to SLOTS_FREE
+		-- just draws 4-8 locked until the attribute lands.
 		-- AN OCCUPIED CARD IS A BUTTON: click = unequip that pet (the recording
 		-- showed the user clicking the cards and nothing answering -- and with
 		-- every slot full there was no visible road to a different loadout).
 		-- Rebuilt on every render: petSlots and the cap both arrive via
 		-- DataUpdated -> scheduleRender, so the row can never show stale slots.
 		local petCap = tonumber(player:GetAttribute("PetSlotCap")) or PetConfig.SLOTS_FREE
-		local totalSlots = math.max(PetConfig.SLOTS_PREMIUM, petCap)
+		-- ALWAYS DRAW ALL EIGHT (2026-08-20). The row used to stop at the premium
+		-- cap, so slots you could buy simply did not exist on screen -- and a slot
+		-- nobody can see is a slot nobody buys. Locked cards now state their own
+		-- price, which makes the row the shop for them.
+		-- ZERO WHEN FOLDED is how the fold is implemented: the card loop below simply
+		-- does not run. Wrapping the loop in a conditional would have been the same
+		-- thing with an extra level of indentation over ~200 lines of card building.
+		local totalSlots = if petSlotsFolded() then 0 else math.max(PetConfig.SLOTS_MAX, petCap)
 		local petsByUid = {}
 		for _, p in ipairs(ownedPets) do petsByUid[p.Uid] = p end
 
 		local slotRow = Instance.new("Frame")
 		slotRow.Name = "PetSlotRow"
-		slotRow.Size = UDim2.fromOffset(INDEX_W, PET_SLOTROW_H)
+		slotRow.Size = UDim2.fromOffset(INDEX_W, petSlotBlockH())
 		slotRow.BackgroundTransparency = 1
 		slotRow.ZIndex = 14
 		slotRow.Parent = contentHost
 
+		-- HEADER STRIP. Always drawn, folded or not -- it is what you click to get the
+		-- slots back, and it carries the abilities help toggle too. Both controls flip
+		-- a ctx.state.backpack flag and re-run renderPets(), the same self-re-render
+		-- the sort pills and the bay's fold already use.
+		do
+			local head = Instance.new("Frame")
+			head.Name = "SlotHead"
+			head.Size = UDim2.fromOffset(INDEX_W, PET_SLOTROW_HEAD_H)
+			head.BackgroundTransparency = 1
+			head.ZIndex = 15
+			head.Parent = slotRow
+
+			local cap = UI.label(head, ("PET SLOTS  %d / %d"):format(#petSlots, petCap), "meta", T.color.textOnLight)
+			cap.Name = "SlotCount"
+			cap:SetAttribute("NoPolish", true)
+			cap.AnchorPoint = Vector2.new(0, 0.5)
+			cap.Position = UDim2.new(0, 2, 0.5, 0)
+			cap.Size = UDim2.fromOffset(240, PET_SLOTROW_HEAD_H)
+			cap.AutomaticSize = Enum.AutomaticSize.None
+			cap.TextXAlignment = Enum.TextXAlignment.Left
+			cap.ZIndex = 16
+
+			-- UI.button, NOT flatButton: flatButton is declared INSIDE renderBrainrots
+			-- and is not in scope here (calling it from this tab is a nil-call that
+			-- kills the whole pet render -- caught on screen 2026-08-22). UI.button is
+			-- the panel-wide builder and is what the equip button here already uses.
+			local tog = UI.button(head, if petSlotsCollapsed() then "SHOW SLOTS" else "HIDE SLOTS", "blue", UDim2.fromOffset(118, 30), "buttonM")
+			tog.Name = "PetSlotToggle"
+			tog.AnchorPoint = Vector2.new(1, 0.5)
+			tog.Position = UDim2.new(1, 0, 0.5, 0)
+			tog.ZIndex = 16
+			tog.MouseButton1Click:Connect(function()
+				ctx.state.backpack.petSlotsCollapsed = not petSlotsCollapsed()
+				-- renderActiveTab(), NOT renderPets(): the DETAIL COLUMN's position and
+				-- height are set in renderActiveTab, and it is the thing that then calls
+				-- renderPets. Re-rendering the pets alone moved the well and left the
+				-- detail column stranded at the expanded offset with a 233px gap above
+				-- it (measured on screen 2026-08-22). No recursion: this path only runs
+				-- on a click.
+				renderActiveTab()
+			end)
+
+			local helpOn = ctx.state.backpack.petAbilityHelp == true
+			local help = UI.button(head, if helpOn then "BACK TO PETS" else "WHAT ABILITIES DO", if helpOn then "green" else "purple", UDim2.fromOffset(176, 30), "buttonM")
+			help.Name = "AbilityHelpToggle"
+			help.AnchorPoint = Vector2.new(1, 0.5)
+			help.Position = UDim2.new(1, -126, 0.5, 0)
+			help.ZIndex = 16
+			help.MouseButton1Click:Connect(function()
+				ctx.state.backpack.petAbilityHelp = not helpOn
+				renderActiveTab()
+			end)
+		end
+
 		local slotCardGap = 12
-		local slotCardW = math.floor((INDEX_W - slotCardGap * (totalSlots - 1)) / totalSlots)
+		local slotCardW = math.floor((INDEX_W - slotCardGap * (PET_SLOT_COLS - 1)) / PET_SLOT_COLS)
 		for i = 1, totalSlots do
 			local slotLocked = i > petCap
+			-- How this particular slot opens: free / cash / Robux. PetConfig owns
+			-- that mapping so the card can print its own price without the panel
+			-- knowing which slots cost what.
+			local unlock = PetConfig.SlotUnlock(i)
+			-- Only the NEXT locked slot is buyable -- they open in order, and the
+			-- server refuses anything else. Drawing slot 5 as buyable while 4 is
+			-- shut would be the panel offering a sale the server declines.
+			local isNextSlot = slotLocked and (i == petCap + 1)
 			local occupant = petSlots[i] and petsByUid[petSlots[i]]
 			local occDef = occupant and PetConfig.Pets[occupant.Id]
 			-- same card language as the Codex's slot row: white spec card when
-			-- usable, dark Inert slab when gamepass-locked
+			-- usable. 2026-08-17: a gamepass-locked slot is delta 8's PURCHASABLE
+			-- state, not its dead-LOCKED state -- real money opens it, so it
+			-- wears the same gold tile the bay's next plot slot does (the old
+			-- charcoal slabs were the two darkest boxes on the whole panel).
 			local card = PC.plate({
 				name = "PetSlot" .. i,
 				size = UDim2.fromOffset(slotCardW, PET_SLOTROW_H),
-				position = UDim2.fromOffset((i - 1) * (slotCardW + slotCardGap), 0),
+				position = UDim2.fromOffset(
+					((i - 1) % PET_SLOT_COLS) * (slotCardW + slotCardGap),
+					-- cards start BELOW the header strip that carries the fold control
+					PET_SLOTROW_HEAD_H + 8
+						+ math.floor((i - 1) / PET_SLOT_COLS) * (PET_SLOTROW_H + PET_SLOTROW_VGAP)),
 				colors = if slotLocked
-					then { Color3.fromHex("4A4030"), Color3.fromHex("302A1F") } -- LemonPop warm dark (was slate 2A3B4F/1D2C3E)
+					then { S.Action.Gold[1], S.Action.Gold[2] } -- delta 8 PURCHASABLE gold
 					else { S.Surface.RowTop, S.Surface.RowBottom },
 				radius = 16,
 				outline = 5,
@@ -2740,9 +4230,13 @@ function BackpackPanel.Build(ctx)
 				parent = slotRow,
 				gloss = false,
 			})
+			if slotLocked then
+				local cs = card:FindFirstChildOfClass("UIStroke")
+				if cs then cs.Color = Color3.fromHex("8A6510") end -- bay purchasable-slot edge
+			end
 			PC.read({
 				name = "Eyebrow", text = ("SLOT %02d"):format(i), size = 14,
-				color = if slotLocked then Color3.fromHex("A79A7C") else S.Surface.ReadSub, -- LemonPop disabled taupe (was slate 8FA2B6)
+				color = if slotLocked then Color3.fromHex("3A2A05") else S.Surface.ReadSub, -- dark ink on gold (bay rule)
 				frameSize = UDim2.new(1, -24, 0, 18),
 				position = UDim2.new(0, 12, 0, 10),
 				zIndex = 16, parent = card,
@@ -2755,11 +4249,14 @@ function BackpackPanel.Build(ctx)
 				-- place the rarity is stated now (the text line it replaced cost the
 				-- name so much width that "Bramble Bear" truncated).
 				local slotRamp = S.Rarity[RARITY_RAMP_KEY2[occDef.Rarity] or "COM"] or S.Rarity.COM
+				-- 2026-08-17: LIGHT art well (renderPetDetail's hero treatment) --
+				-- the dark navy plate was a pre-PS99 leftover and rendered every
+				-- equipped pet as a near-black square at 56px
 				local artPlate = PC.plate({
 					name = "ArtPlate",
 					size = UDim2.fromOffset(56, 56),
 					position = UDim2.fromOffset(12, 30),
-					colors = { Color3.fromHex("2A3446"), Color3.fromHex("151B24") },
+					colors = { Color3.fromHex("FFFFFF"), Color3.fromHex("EEF2F8") },
 					radius = 12,
 					outline = 3,
 					zIndex = 16,
@@ -2793,25 +4290,64 @@ function BackpackPanel.Build(ctx)
 					zIndex = 16, parent = card,
 				})
 			else
-				local occLabel = PC.read({
-					name = "Occupant",
-					text = if slotLocked then "Locked" else "Empty",
-					size = 22,
-					color = if slotLocked then Color3.fromHex("C3CEDA") else S.Surface.ReadSub,
-					frameSize = UDim2.new(1, -24, 0, 26),
-					position = UDim2.new(0, 12, 0, 34),
-					zIndex = 16, parent = card,
-				})
-				occLabel.TextScaled = true
-				local occFit = Instance.new("UITextSizeConstraint")
-				occFit.MaxTextSize = 22
-				occFit.MinTextSize = 10
-				occFit.Parent = occLabel
+				-- delta 8 state glyphs: a LOCKED slot wears a white padlock on
+				-- its charcoal slab (the "Locked" word retired -- the eyebrow
+				-- ranks the slot and the gold caption below carries the
+				-- gamepass note; gold stays because gamepass = real money);
+				-- an EMPTY slot wears the shared large charcoal '+'.
+				if slotLocked then
+					local lockHolder = Instance.new("Frame")
+					lockHolder.Name = "Occupant"
+					lockHolder.BackgroundTransparency = 1
+					lockHolder.AnchorPoint = Vector2.new(0.5, 0)
+					lockHolder.Position = UDim2.new(0.5, 0, 0, 32)
+					lockHolder.Size = UDim2.fromOffset(26, 26)
+					lockHolder.ZIndex = 16
+					lockHolder.Parent = card
+					buildPadlock(lockHolder, 22, Color3.fromHex("3A2A05"), 16) -- dark ink on gold, same as the bay's purchasable padlock
+				else
+					local plus = Instance.new("TextLabel")
+					plus.Name = "Occupant"
+					plus.BackgroundTransparency = 1
+					plus.Font = S.Font.Shout
+					plus.TextSize = 59 -- ~55% of the 108px slot card
+					plus.TextColor3 = Color3.fromHex("33414F")
+					plus.Text = "+"
+					plus.Size = UDim2.fromScale(1, 1)
+					plus.ZIndex = 16
+					plus:SetAttribute("NoPolish", true)
+					plus.Parent = card
+				end
+				-- WHAT OPENS THIS SLOT, printed on the card (2026-08-20). The old
+				-- single "GAMEPASS . +2 SLOTS" line was true of a model that no
+				-- longer exists: slots 4-5 are cash now and 6-8 are Robux, so the
+				-- caption has to say WHICH and HOW MUCH or the row is just five
+				-- padlocks. Only the next one in line reads as a call to action --
+				-- see isNextSlot -- because that is the only one the server sells.
+				local captionText
+				if not slotLocked then
+					captionText = "EQUIP A PET BELOW"
+				elseif unlock.Kind == "cash" then
+					captionText = isNextSlot
+						and ("BUY \u{00B7} " .. NumberFormat.Cash(unlock.Price))
+						or NumberFormat.Cash(unlock.Price)
+				elseif unlock.Kind == "gamepass" then
+					-- Live is false while the product id is the 0 sentinel, which is
+					-- every one of them today -- so the card advertises the price it
+					-- WILL be and says plainly that it is not on sale yet, rather
+					-- than offering a purchase that cannot complete.
+					captionText = unlock.Live
+						and ("R$" .. tostring(unlock.Robux))
+						or ("R$" .. tostring(unlock.Robux) .. " \u{00B7} SOON")
+				else
+					captionText = "LOCKED"
+				end
 				local caption = PC.read({
 					name = "Caption",
-					text = if slotLocked then "GAMEPASS \u{00B7} +2 SLOTS" else "EQUIP A PET BELOW",
+					text = captionText,
 					size = 12,
-					color = if slotLocked then Color3.fromHex("FFC53D") else S.Surface.ReadSub,
+					-- dark ink now that the slab itself is gold (gold-on-charcoal retired)
+					color = if slotLocked then Color3.fromHex("3A2A05") else S.Surface.ReadSub,
 					frameSize = UDim2.new(1, -24, 0, 16),
 					position = UDim2.new(0, 12, 1, -24),
 					zIndex = 16, parent = card,
@@ -2838,34 +4374,140 @@ function BackpackPanel.Build(ctx)
 				hit.MouseButton1Click:Connect(function()
 					remotes.PetEquip:FireServer(uidToDrop, false)
 				end)
+			elseif isNextSlot and unlock.Kind == "gamepass" and unlock.Live then
+				-- Slots 6-8 are GAME PASSES (2026-08-19). The click still goes through
+				-- BuyPetSlot rather than prompting from here: the server re-derives which
+				-- slot is actually next and opens the prompt itself, so a stale panel can
+				-- never put the wrong pass in front of someone.
+				local hit = Instance.new("TextButton")
+				hit.Name = "Hit"
+				hit.Text = ""
+				hit.Size = UDim2.fromScale(1, 1)
+				hit.BackgroundTransparency = 1
+				hit.ZIndex = 17
+				hit.Parent = card
+				local passSlot = i
+				hit.MouseButton1Click:Connect(function()
+					remotes.BuyPetSlot:FireServer(passSlot)
+				end)
+			elseif isNextSlot and unlock.Kind == "cash" then
+				-- CLICK THE NEXT LOCKED SLOT TO BUY IT. Server-authoritative like
+				-- every other control on this panel: the slot number is all that
+				-- goes over, and PetHandler re-derives which slot is actually owed
+				-- and what it costs. A stale panel can therefore ask for the wrong
+				-- slot but never buy one at the wrong price.
+				--
+				-- No confirm step: this spends cash rather than destroying
+				-- anything, the price is printed on the card being clicked, and
+				-- the server refuses outright when the player cannot afford it.
+				local hit = Instance.new("TextButton")
+				hit.Name = "Hit"
+				hit.Text = ""
+				hit.Size = UDim2.fromScale(1, 1)
+				hit.BackgroundTransparency = 1
+				hit.ZIndex = 17
+				hit.Parent = card
+				local slotToBuy = i
+				hit.MouseButton1Click:Connect(function()
+					remotes.BuyPetSlot:FireServer(slotToBuy)
+				end)
 			end
 		end
 
-		-- Dark card well, same as the brainrot grid: the juiced pet cards are dark
-		-- now and floated oddly straight on the light body.
+		-- PS99 (2026-08-16): LIGHT sheet well, the same treatment as the brainrot
+		-- inventory well. The old dark #11151D slab was the pre-restyle skin and
+		-- read as a black photo-box block inside the white shell.
 		local petWell = Instance.new("Frame")
 		petWell.Name = "PetWell"
-		petWell.Position = UDim2.fromOffset(0, PET_SLOTROW_H + PET_SLOTROW_GAP)
-		petWell.Size = UDim2.fromOffset(GRID_COL_W, CONTENT_H - PET_SLOTROW_H - PET_SLOTROW_GAP)
-		petWell.BackgroundColor3 = Color3.fromHex("11151D")
+		petWell.Position = UDim2.fromOffset(0, petSlotBlockH() + PET_SLOTROW_GAP)
+		petWell.Size = UDim2.fromOffset(GRID_COL_W, CONTENT_H - petSlotBlockH() - PET_SLOTROW_GAP)
+		petWell.BackgroundColor3 = Color3.fromHex("EEF2F8")
 		petWell.BorderSizePixel = 0
 		petWell.ZIndex = 13
 		petWell.Parent = contentHost
 		UI.corner(petWell, 16)
 		local pwStroke = Instance.new("UIStroke")
 		pwStroke.Thickness = 2
-		pwStroke.Color = Color3.fromHex("2A3242")
+		pwStroke.Color = Color3.fromHex("D3DCE7")
 		pwStroke.Parent = petWell
+
+		-- "WHAT ABILITIES DO" reference sheet, toggled from the slot-row header.
+		-- Built in its own module (GameHUDPanels.PetAbilityHelp) because this file is
+		-- past the 200,000-char Source-write ceiling and can only take small patches.
+		-- It covers the grid rather than replacing it -- see that module's header.
+		if ctx.state.backpack.petAbilityHelp == true then
+			local okHelp, errHelp = pcall(function()
+				require(script.Parent:WaitForChild("PetAbilityHelp")).Build({
+					parent = petWell, UI = UI, T = T, S = S,
+					PetConfig = PetConfig, trimNum = trimNum, pad = PET_WELL_PAD,
+				})
+			end)
+			-- A broken help sheet must not take the Pets tab with it: fall through to
+			-- the normal grid, which is built below either way.
+			if not okHelp then
+				warn("[BackpackPanel] PetAbilityHelp failed: " .. tostring(errHelp))
+			end
+		end
+
+		-- === REWARD EGGS WAITING ON BAG SPACE (2026-08-20) ====================
+		-- A wheel crate (or any reward that cannot refuse) hatched into a full pet
+		-- bag parks its eggs on the profile instead of losing them -- see
+		-- SeasonPassHandler's Egg branch. This banner is where the player gets
+		-- them back, and it is the reason the parked state is visible at all: a
+		-- jackpot the player was told about once, in a toast, over a spinning
+		-- wheel, is a jackpot they will not remember they are owed.
+		--
+		-- Lives INSIDE the pet well and pushes the grid down, so it costs nothing
+		-- when it is absent (the overwhelmingly common case) and the whole tab's
+		-- geometry stays as it was.
+		local CLAIM_H = 46
+		local claimOffset = 0
+		if bagState.PendingEggs > 0 then
+			local n = bagState.PendingEggs
+			local banner = PC.plate({
+				name = "PendingEggs",
+				size = UDim2.new(1, -PET_WELL_PAD * 2, 0, CLAIM_H),
+				position = UDim2.fromOffset(PET_WELL_PAD, PET_WELL_PAD),
+				colors = { S.Action.Gold[1], S.Action.Gold[2] },
+				radius = 12,
+				outline = 3,
+				zIndex = 15,
+				parent = petWell,
+				gloss = false,
+			})
+			PC.read({
+				name = "Copy",
+				text = ("%d reward egg%s waiting \u{2014} make room to hatch %s")
+					:format(n, n == 1 and "" or "s", n == 1 and "it" or "them"),
+				size = 15,
+				color = Color3.fromHex("3A2A05"), -- dark ink on gold, the bay's rule
+				frameSize = UDim2.new(1, -160, 1, 0),
+				position = UDim2.new(0, 14, 0, 0),
+				zIndex = 16, parent = banner,
+			})
+			local claimBtn = UI.button(banner, "CLAIM", "green", UDim2.fromOffset(120, 32), "buttonM")
+			claimBtn.Name = "ClaimEggs"
+			claimBtn.AnchorPoint = Vector2.new(1, 0.5)
+			claimBtn.Position = UDim2.new(1, -10, 0.5, 0)
+			claimBtn.ZIndex = 17
+			claimBtn.MouseButton1Click:Connect(function()
+				-- Grants nothing that was not already won and already paid for, so a
+				-- double click gets one reveal and then nothing. If there is still
+				-- no room the server answers with the bag-full line.
+				remotes.ClaimPendingEggs:FireServer()
+			end)
+			claimOffset = CLAIM_H + PET_WELL_PAD
+		end
 
 		local scroll = Instance.new("ScrollingFrame")
 		scroll.Name = "PetGrid"
-		scroll.Position = UDim2.fromOffset(PET_WELL_PAD, PET_WELL_PAD)
-		scroll.Size = UDim2.new(1, -PET_WELL_PAD * 2, 1, -PET_WELL_PAD * 2)
+		scroll.Position = UDim2.fromOffset(PET_WELL_PAD, PET_WELL_PAD + claimOffset)
+		scroll.Size = UDim2.new(1, -PET_WELL_PAD * 2, 1, -PET_WELL_PAD * 2 - claimOffset)
 		scroll.BackgroundTransparency = 1
 		scroll.BorderSizePixel = 0
 		scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 		scroll.ScrollBarThickness = 8
-		scroll.ScrollBarImageColor3 = Color3.fromHex("2F394A")
+		scroll.ScrollBarImageColor3 = Color3.fromHex("3A4356") -- dark thumb on the light well, brainrot-grid parity
 		scroll.CanvasSize = UDim2.new()
 		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 		scroll.ElasticBehavior = Enum.ElasticBehavior.Never
@@ -2891,6 +4533,19 @@ function BackpackPanel.Build(ctx)
 			if ra ~= rb then
 				return ra < rb
 			end
+			-- RARITY, THEN A-Z BY NAME (owner, 2026-08-22). It used to fall straight
+			-- through to the Uid, which is a random GUID -- so within a rarity the
+			-- grid was in no order at all and the copies of one pet were scattered
+			-- across the whole tier. Sorting by name groups every duplicate together
+			-- as a side effect, which is what makes a bag of 19 Moss Larvas readable.
+			local na = (da and da.Name) or tostring(a.Id)
+			local nb = (db and db.Name) or tostring(b.Id)
+			if na ~= nb then
+				return na < nb
+			end
+			-- Uid last, purely so the sort is STABLE: two copies of one pet are equal
+			-- on both keys above, and an unstable comparator would let them swap
+			-- places between renders and make the selection ring appear to jump.
 			return tostring(a.Uid) < tostring(b.Uid)
 		end)
 
@@ -2918,6 +4573,17 @@ function BackpackPanel.Build(ctx)
 	-- report). It embeds now, exactly like the Index below: built ONCE with
 	-- the tab body's box, cached, detached before any clearChildren pass can
 	-- destroy it, pcall self-heal on a dead cache.
+	--[[ CHARMS ARE NOT SHIPPING YET (2026-08-19, owner). Every charm surface in
+	the game answers the same way now -- this tab, and Lil Miss's three stalls via
+	MerchantConfig.ComingSoon. It is not arbitrary: CharmConfig's own header says
+	the real charms do not exist and every name and number in it is a stand-in,
+	and there is no charm remote anywhere in the game, so nothing in the Codex
+	could be equipped even though it renders.
+
+	THE CODEX IS LEFT INTACT below rather than deleted -- it is a working 1120x700
+	panel and re-authoring it later would be the real cost. Flip CHARMS_READY to
+	true and the tab comes back exactly as it was, with no other edit here. ]]
+	local CHARMS_READY = false
 	local charmsFrame = nil
 	renderCharms = function()
 		if charmsFrame then
@@ -2926,6 +4592,10 @@ function BackpackPanel.Build(ctx)
 		end
 		clearChildren(contentHost)
 		refreshHeader()
+		if not CHARMS_READY then
+			buildEmptyState(contentHost, "Coming soon!")
+			return
+		end
 		if not charmsFrame then
 			local ok, built = pcall(CharmsPanel.Build, ctx, { embedded = true, width = INDEX_W, height = CONTENT_H })
 			if ok and typeof(built) == "Instance" then
@@ -2991,7 +4661,7 @@ function BackpackPanel.Build(ctx)
 				caption = "Gianluca",
 				name = "Stupid Gianluca's Key",
 				art = "keyGianluca",
-				tint = T.color.textAccent,
+				tint = Color3.fromHex("E8B23A"), -- gold key (textAccent is BLUE in the PS99 palette)
 				qty = keyState.Gianluca,
 				from = "Gianluca",
 				opens = "Cellar hatch",   -- see the length note on the cellar key above
@@ -3017,7 +4687,7 @@ function BackpackPanel.Build(ctx)
 		holder.ZIndex = zIndex
 		holder.Parent = parent
 		UI.corner(holder, T.radius.art)
-		UI.gradient(holder, ColorSequence.new(Color3.fromHex("FFFFFF"), Color3.fromHex("FFF4D9"))) -- LemonPop slot family (was slate F2F7FC/DCE6F0)
+		UI.gradient(holder, ColorSequence.new(Color3.fromHex("FFFFFF"), Color3.fromHex("EEF2F8"))) -- PS99 cool slot family
 
 		local art = IconArt.draw(holder, def.art, artSize, zIndex + 1)
 		if art then
@@ -3060,7 +4730,7 @@ function BackpackPanel.Build(ctx)
 		caption.BackgroundTransparency = 1
 		caption.FontFace = T.font.display
 		caption.TextSize = 14
-		caption.TextColor3 = T.color.white
+		caption.TextColor3 = Color3.fromHex("33414F") -- ink on the light key tile
 		caption.Text = def.caption
 		caption.AnchorPoint = Vector2.new(0.5, 1)
 		caption.Position = UDim2.new(0.5, 0, 1, -5)
@@ -3071,7 +4741,7 @@ function BackpackPanel.Build(ctx)
 		caption.Parent = tile
 		local capStroke = Instance.new("UIStroke")
 		capStroke.Thickness = 2.5
-		capStroke.Color = T.color.outline
+		capStroke.Color = Color3.new(1, 1, 1) -- white halo behind ink text
 		capStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 		capStroke.Parent = caption
 
@@ -3082,7 +4752,7 @@ function BackpackPanel.Build(ctx)
 			qty.Font = S.Font.Shout
 			qty:SetAttribute("NoPolish", true)
 			qty.TextSize = 20
-			qty.TextColor3 = T.color.white
+			qty.TextColor3 = Color3.fromHex("33414F") -- ink on the light key tile
 			qty.Text = "x" .. tostring(def.qty)
 			qty.AnchorPoint = Vector2.new(1, 0)
 			qty.Position = UDim2.new(1, -6, 0, 4)
@@ -3092,7 +4762,7 @@ function BackpackPanel.Build(ctx)
 			qty.Parent = tile
 			local qtyStroke = Instance.new("UIStroke")
 			qtyStroke.Thickness = 2.5
-			qtyStroke.Color = T.color.outline
+			qtyStroke.Color = Color3.new(1, 1, 1) -- white halo behind ink text
 			qtyStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 			qtyStroke.Parent = qty
 		end
@@ -3145,7 +4815,8 @@ function BackpackPanel.Build(ctx)
 		UI.stroke(hero, T.stroke.control)
 		buildKeyArt(hero, def, 118, hero.ZIndex + 1)
 
-		local name = UI.label(detailContent, def.name, "cardLabel", T.color.white)
+		local name = UI.label(detailContent, def.name, "cardLabel", T.color.textOnLight) -- ink on the light column
+		name:SetAttribute("NoPolish", true)
 		name.Name = "KeyName"
 		name.LayoutOrder = 2
 		name.Size = UDim2.new(1, 0, 0, 48)
@@ -3160,7 +4831,8 @@ function BackpackPanel.Build(ctx)
 			buildStatRow(5, "Held", tostring(def.qty))
 		end
 
-		local status = UI.label(detailContent, def.status, "meta", T.color.claimRing)
+		local status = UI.label(detailContent, def.status, "meta", Color3.fromHex("3E8E1F")) -- readable green ink; claimRing neon died on the light column
+		status:SetAttribute("NoPolish", true)
 		status.Name = "Status"
 		status.LayoutOrder = 6
 		status.Size = UDim2.new(1, 0, 0, 76)
@@ -3279,7 +4951,7 @@ function BackpackPanel.Build(ctx)
 			local row = PC.plate({
 				name = "Tag" .. def.id,
 				size = UDim2.fromOffset(GRID_COL_W - 14, 62),
-				colors = worn and S.Action.Gold or { S.Surface.RowTop, S.Surface.RowBottom },
+				colors = worn and S.Action.Go or { S.Surface.RowTop, S.Surface.RowBottom }, -- delta 7: equipped = green
 				radius = 20,
 				outline = 5,
 				zIndex = 15,
@@ -3297,7 +4969,10 @@ function BackpackPanel.Build(ctx)
 			name.ZIndex = row.ZIndex + 2
 
 			local btn = UI.button(row, worn and "WEARING" or "WEAR",
-				worn and "green" or "gold", UDim2.fromOffset(110, 38), "buttonM")
+				-- 2026-08-17 round-10 catch: WEAR was the last gold act button --
+				-- titles cost nothing, and act = green game-wide (the worn ROW
+				-- fill carries the state; both buttons stay green)
+				"green", UDim2.fromOffset(110, 38), "buttonM")
 			btn.Name = "WearButton"
 			btn.AnchorPoint = Vector2.new(1, 0.5)
 			btn.Position = UDim2.new(1, -12, 0.5, 0)
@@ -3368,18 +5043,38 @@ function BackpackPanel.Build(ctx)
 	local RENDERERS = { Brainrots = renderBrainrots, Pets = renderPets, Charms = renderCharms, Keys = renderKeys, Tags = renderTags, Index = renderIndex }
 
 	local function updateTabVisuals()
-		-- sheet: selected = gold, unselected = neutral; the ring retires.
-		-- BackgroundColor3 moves WITH the gradient (2026-08-11): UIGradient
-		-- MULTIPLIES the background, so gold-gradient-over-neutral-base was
-		-- rendering the selected tab olive.
+		-- mock restyle: selected = green plate + green ring; unselected = dark
+		-- tile. BackgroundColor3 moves WITH the gradient (UIGradient MULTIPLIES
+		-- the background -- the 2026-08-11 olive-tab lesson).
 		for id, ring in pairs(tabRings) do
-			ring.Visible = false
 			local tabF = tabFrames[id]
 			local g = tabF and tabF:FindFirstChildOfClass("UIGradient")
-			local c = (id == activeTab) and S.Action.Gold or S.Action.Neutral
-			tabF.BackgroundColor3 = c[1]
-			if g then g.Color = ColorSequence.new(c[1], c[2]) end
-			tabF.ZIndex = (id == activeTab) and 15 or 14
+			local active = (id == activeTab)
+			-- The rail was the last dark surface in the panel: a 105px near-black
+			-- column running its full height beside a now-light body. Inactive tiles
+			-- go light, and their label has to flip with them (below) or it vanishes.
+			local c1 = active and Color3.fromHex("7DE86A") or Color3.fromHex("EEF2F8")
+			local c2 = active and Color3.fromHex("28B93C") or Color3.fromHex("DDE3EC")
+			tabF.BackgroundColor3 = c1
+			if g then g.Color = ColorSequence.new(c1, c2) end
+			local st = tabF:FindFirstChildOfClass("UIStroke")
+			if st then st.Color = active and Color3.fromHex("1E5C12") or Color3.fromHex("C9D4E0") end
+			-- (fix 2026-08-16) the tab label is named "Label", not "Text" -- the old
+			-- lookup never found it, so the inactive ink below never applied
+			local lbl = tabF:FindFirstChild("Label", true)
+			if lbl and lbl:IsA("TextLabel") then
+				lbl.TextColor3 = if active then Color3.new(1, 1, 1) else Color3.fromHex("33414F")
+			end
+			-- sticker pass: the active tab's glyph sits ~15% larger. SET, not
+			-- tweened, so it survives every re-render path through here (the
+			-- IconArt UIScale binding follows the Size property either way).
+			local ic = tabIcons[id]
+			if ic then
+				local s = active and TAB_ICON_ACTIVE or TAB_ICON
+				ic.Size = UDim2.fromOffset(s, s)
+			end
+			ring.Visible = active
+			tabF.ZIndex = active and 15 or 14
 		end
 	end
 
@@ -3394,8 +5089,10 @@ function BackpackPanel.Build(ctx)
 		-- hide it). Geometry restored for every other tab.
 		if activeTab == "Pets" then
 			detailHost.Visible = true
-			detailHost.Position = UDim2.fromOffset(TABS_COL_W + COL_GAP + GRID_COL_W + COL_GAP, PET_SLOTROW_H + PET_SLOTROW_GAP)
-			detailHost.Size = UDim2.fromOffset(DETAIL_COL_W, CONTENT_H - PET_SLOTROW_H - PET_SLOTROW_GAP)
+			-- petSlotBlockH(), not the raw block: the detail column has to move with the
+			-- slot row's fold or it strands a 226px gap above itself when folded
+			detailHost.Position = UDim2.fromOffset(TABS_COL_W + COL_GAP + GRID_COL_W + COL_GAP, petSlotBlockH() + PET_SLOTROW_GAP)
+			detailHost.Size = UDim2.fromOffset(DETAIL_COL_W, CONTENT_H - petSlotBlockH() - PET_SLOTROW_GAP)
 		else
 			detailHost.Visible = not wide
 			detailHost.Position = UDim2.fromOffset(TABS_COL_W + COL_GAP + GRID_COL_W + COL_GAP, 0)
@@ -3410,6 +5107,10 @@ function BackpackPanel.Build(ctx)
 		if charmsFrame and activeTab ~= "Charms" then
 			charmsFrame.Parent = nil
 		end
+
+		-- A pinned detail footer belongs to the PETS tab alone; drop it before any
+		-- other tab paints into this column, or it would hang over their content.
+		clearDetailFooter()
 
 		local fn = RENDERERS[activeTab]
 		if fn then
@@ -3437,12 +5138,31 @@ function BackpackPanel.Build(ctx)
 		end
 	end
 
+	local tabTween = game:GetService("TweenService")
 	for id, tab in pairs(tabFrames) do
 		local hit = tab:FindFirstChild("Hit")
 		if hit then
 			hit.MouseButton1Click:Connect(function()
 				switchTab(id)
 			end)
+			-- sticker pass 2026-08-16: hover pops the GLYPH only, never the
+			-- tile (rings/labels/geometry stay put). Wired once here alongside
+			-- the click hookup -- this loop runs once per Build, so the
+			-- connections never stack. Base size respects the active bump.
+			local ic = tabIcons[id]
+			if ic then
+				hit.MouseEnter:Connect(function()
+					local base = (id == activeTab) and TAB_ICON_ACTIVE or TAB_ICON
+					local s = math.floor(base * 1.12 + 0.5)
+					tabTween:Create(ic, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+						{ Size = UDim2.fromOffset(s, s) }):Play()
+				end)
+				hit.MouseLeave:Connect(function()
+					local base = (id == activeTab) and TAB_ICON_ACTIVE or TAB_ICON
+					tabTween:Create(ic, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+						{ Size = UDim2.fromOffset(base, base) }):Play()
+				end)
+			end
 		end
 	end
 	updateTabVisuals()
@@ -3478,7 +5198,25 @@ function BackpackPanel.Build(ctx)
 		ctx.closePanel()
 	end)
 
+	----------------------------------------------------------- backdrop blur (mirrors SettingsPanel's recipe)
+	local BLUR_NAME = "BackpackPanelBlur"
+	local function setBlur(on: boolean)
+		-- centralised 2026-08-17: GameHUDClient owns the one shared HUDPanelBlur
+		-- (blur-never-dim); a second per-panel BlurEffect only stacked on top
+		do return end
+		local existing = Lighting:FindFirstChild(BLUR_NAME)
+		if on and not existing then
+			local blur = Instance.new("BlurEffect")
+			blur.Name = BLUR_NAME
+			blur.Size = 8
+			blur.Parent = Lighting
+		elseif not on and existing then
+			existing:Destroy()
+		end
+	end
+
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
+		setBlur(wrapper.Visible)
 		if wrapper.Visible then
 			renderActiveTab()
 			local g = contentHost:FindFirstChildWhichIsA("ScrollingFrame")
@@ -3488,6 +5226,17 @@ function BackpackPanel.Build(ctx)
 		end
 	end)
 
+	-- any path that hides the HOST while this wrapper stays Visible must
+	-- still kill the global BlurEffect; restore it when the host returns
+	ctx.host:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not ctx.host.Visible then
+			setBlur(false)
+		elseif wrapper.Visible then
+			setBlur(true)
+		end
+	end)
+
+	setBlur(wrapper.Visible) -- sync once so a pre-wired Visible state still gets its blur
 	renderActiveTab() -- initial paint (zero/stale state) before the first server response lands
 
 	return wrapper

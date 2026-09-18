@@ -10,8 +10,8 @@
 -- 1350x775 canvas instead, so .Hud carries those numbers pre-scaled by 0.703.
 --
 -- OWNER DECISION (2026-08-09): the premium counter does NOT use the handoff's
--- new darrel face. The uploaded premiumCounter asset is the pill rebuilt with
--- the face and gems removed; UIKit.IconArt's drawn darrel face is placed over
+-- new emerald face. The uploaded premiumCounter asset is the pill rebuilt with
+-- the face and gems removed; UIKit.IconArt's drawn emerald face is placed over
 -- its left end at runtime. Keep it that way.
 
 local S = {}
@@ -25,39 +25,64 @@ end
 -- theme-design.md): the sheet's slate families go warm. Identity colours
 -- (rail plates, rarity tiers, premium violet, action green/gold) stay; the
 -- gray/slate grounds, neutrals and inks move to LemonPop. Old values inline.
-S.Outline = hex("241F14") -- every interactive surface wears this edge (was slate 071323)
+-- 2026-08-16 PS99 RESTYLE (user reference: Pet Simulator 99, chosen from their
+-- Continue row): WHITE unified chrome. Panels are one clean white shell -- no
+-- coloured header slabs -- the TITLE carries panel identity (coloured bubble
+-- letters, white stroke), close is a pink-red rounded square overlapping the
+-- corner, CTAs are candy green, interiors use SOFT grey-blue edges while
+-- buttons keep the chunky dark edge that matches the nav-rail stickers.
+S.Outline = hex("313D4F") -- chunky edge for BUTTONS/close (PS99 cool navy; was warm 241F14)
+S.OutlineSoft = hex("D8E0EA") -- NEW: soft interior edge for rows/tiles/body wells
 
+-- PS99 restyle: every header plate is WHITE -- identity moved to S.TitleInk.
+-- (pre-restyle plates: bag 7DE86A/28B93C, goals FFC21A/FF8A00, worlds
+-- 27D7FF/078DEB, shop FFD83D/FFB900, settings C2A878/8A7350, rebirth green)
 S.Plate = {
-	bag      = { hex("7DE86A"), hex("28B93C") },
-	goals    = { hex("FFC21A"), hex("FF8A00") },
-	worlds   = { hex("27D7FF"), hex("078DEB") },
-	shop     = { hex("FFD83D"), hex("FFB900") },
-	settings = { hex("C2A878"), hex("8A7350") }, -- LemonPop warm tan (was slate 5B7086/28394E)
-	rebirth  = { hex("7DE86A"), hex("28B93C") },
+	bag      = { hex("FFFFFF"), hex("EFF3F9") },
+	goals    = { hex("FFFFFF"), hex("EFF3F9") },
+	worlds   = { hex("FFFFFF"), hex("EFF3F9") },
+	shop     = { hex("FFFFFF"), hex("EFF3F9") },
+	settings = { hex("FFFFFF"), hex("EFF3F9") },
+	rebirth  = { hex("FFFFFF"), hex("EFF3F9") },
+}
+
+-- NEW (PS99 restyle): per-panel title colour -- the old plate hues live on as
+-- bubble-lettered titles on the white shell. White-stroked via PanelChrome.
+S.TitleInk = {
+	bag      = hex("2FBE4F"),
+	goals    = hex("FF9F1C"),
+	daily    = hex("FF9F1C"), -- daily gift orange (2026-08-18 DailyPanel re-shell)
+	worlds   = hex("29C5FF"),
+	shop     = hex("FFB300"),
+	settings = hex("4AA8FF"),
+	rebirth  = hex("FF5DA0"),
+	default  = hex("29C5FF"),
 }
 
 S.Action = {
-	Go      = { hex("8FE3A0"), hex("28B93C") },  -- travel / claim / buy: ONE green per region
-	Neutral = { hex("C2A878"), hex("8A7350") },  -- inactive tab, in progress (LemonPop tab tan; was slate 8FA2B6/5A6E82)
-	Inert   = { hex("8A7C5E"), hex("5C5138") },  -- "you are here", locked (LemonPop disabled taupe; was slate 4A5B6E/2A3B4F)
-	Danger  = { hex("FF6B6B"), hex("D83E3E") },  -- close button (LemonPop red; was FF7A6B/D6281B)
+	Go      = { hex("63DE43"), hex("31A824") },  -- travel / claim / buy: PS99 candy green (was 8FE3A0/28B93C)
+	Neutral = { hex("D3DCE6"), hex("B7C4D3") },  -- inactive tab, in progress (PS99 light grey; was mid grey-blue B9C6D6/8B9DB3)
+	Inert   = { hex("93A1B4"), hex("6E7E94") },  -- "you are here", locked (cool; was taupe 8A7C5E/5C5138)
+	Pale    = { hex("EBF1F7"), hex("DEE6EF") },  -- inert STATE fill (statePlate default): barely off the ground -- PS99 grammar, chrome means clickable, so a non-button never wears a saturated ramp
+	Danger  = { hex("FF5D80"), hex("E02454") },  -- close button (PS99 pink-red; was FF6B6B/D83E3E)
 	Gold    = { hex("FFE9A8"), hex("FFC53D") },  -- selected tab, tier plate
-	Premium = { hex("C14CFF"), hex("7D19E8") },  -- darrels
+	Robux   = { hex("FFCF40"), hex("F09A0C") },  -- REAL-MONEY price pills ONLY (PS99 grammar: gold = Robux, nothing else; white shout + dark stroke stays legible on this saturation)
+	Premium = { hex("C14CFF"), hex("7D19E8") },  -- emeralds
 	Warn    = { hex("FFF0C2"), hex("FFD866") },
-	GreenFill = { hex("8FE86A"), hex("3FB63B") }, -- slider fill / free track / toggle-on
+	GreenFill = { hex("6EE04E"), hex("35A82A") }, -- slider fill / free track / toggle-on (PS99 green)
 	Knob    = { hex("FFE07A"), hex("FFB300") },   -- slider knob
-	Violet  = { hex("E4CCFF"), hex("B981F0") },   -- reward chips (darrels are violet everywhere)
-	VioletRow = { hex("F6EDFF"), hex("DCC6F5") }, -- shop darrel-family rows
+	Violet  = { hex("E4CCFF"), hex("B981F0") },   -- reward chips (emeralds are violet everywhere)
+	VioletRow = { hex("F6EDFF"), hex("DCC6F5") }, -- shop emerald-family rows
 }
 
 S.Surface = {
-	Shell     = hex("302A1F"), -- warm dark shell rim (was navy 25384F)
-	Body      = hex("FFF6CF"), -- lemon-cream body ground (was slate-blue DCE6F0)
-	RowTop    = hex("FFFFFF"), -- spec rows stay LIGHT cards = LemonPop slot family
-	RowBottom = hex("FFF4D9"), -- (was #E4EDF7)
-	Track     = hex("302A1F"), -- (was 2A3B4F)
-	ReadInk   = hex("33261A"),  -- body text (LemonPop ink; was 12283D)
-	ReadSub   = hex("7A6A52"),  -- subtitles / meta (was 4D6480)
+	Shell     = hex("FFFFFF"), -- PS99: the shell IS white (was warm dark rim 302A1F)
+	Body      = hex("F5F8FC"), -- soft cool inset ground (was lemon FFF6CF)
+	RowTop    = hex("FFFFFF"), -- white cards, soft-stroked (unchanged)
+	RowBottom = hex("F4F7FB"), -- (was FFF4D9)
+	Track     = hex("2E3A4C"), -- cool navy track so white bar labels stay legible (was 302A1F)
+	ReadInk   = hex("33414F"),  -- body text (cool navy; was warm 33261A)
+	ReadSub   = hex("7C8CA0"),  -- subtitles / meta (was 7A6A52)
 }
 
 S.Rarity = {
@@ -106,29 +131,29 @@ end
 S.Chrome = {
 	ShellSize     = Vector2.new(1180, 760),
 	ShellRadius   = 44,
-	ShellOutline  = 12,
+	ShellOutline  = 7,  -- PS99: white shell wears a slimmer edge (was 12)
 	ShellPadding  = 18,
 
 	HeaderHeight  = 112,
 	HeaderRadius  = 30,
-	HeaderOutline = 8,
+	HeaderOutline = 0,  -- PS99: header merges into the white shell (was 8)
 	HeaderPadding = 26,
 
 	CloseSize     = 84,
-	CloseOutline  = 7,
+	CloseOutline  = 5,  -- white-stroked pink square (was 7 dark)
 
 	BodyRadius    = 32,
-	BodyOutline   = 8,
+	BodyOutline   = 2,  -- soft grey-blue seam only (was 8 dark)
 	BodyPadding   = 22,
 
 	RowHeight     = 112,
 	RowGap        = 16,
 	RowRadius     = 24,
-	RowOutline    = 6,
+	RowOutline    = 3,  -- soft-stroked (was 6 dark)
 
 	IconTile      = 78,
 	IconRadius    = 20,
-	IconOutline   = 5,
+	IconOutline   = 3,  -- soft-stroked (was 5 dark)
 
 	CtaSize       = Vector2.new(230, 76),
 	CtaRadius     = 22,
@@ -158,10 +183,10 @@ S.Tween = {
 	HoverIn  = TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 	HoverOut = TweenInfo.new(0.10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 	Press    = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-	PanelIn  = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	PanelIn  = TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), -- PS99 restyle: bouncier entrance (was 0.22)
 	PanelOut = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 }
-S.Scale = { Hover = 1.05, Press = 0.95 }
+S.Scale = { Hover = 1.06, Press = 0.94 } -- PS99 restyle: a touch livelier (was 1.05/0.95)
 
 ------------------------------------------------------------------------- hud
 -- HUD chrome numbers, pre-scaled from the sheet's 1920 canvas onto this
@@ -174,7 +199,7 @@ S.Hud = {
 	EdgePad     = 18,                    -- shared with the currency cluster
 	CounterH    = 70,                    -- 100 @1920
 	CashW       = 155,                   -- 221 @1920
-	DarrelsW    = 162,                   -- 231 @1920
+	EmeraldsW    = 162,                   -- 231 @1920
 	CounterGap  = 10,                    -- 14 @1920
 	-- Counter value overlays, in scale units of each counter image --
 	-- MEASURED against the pill pixels inside the PNGs, not the sheet's
@@ -182,14 +207,14 @@ S.Hud = {
 	-- height in both arts, and the cash pill's number area starts right of
 	-- the painted coin stack.
 	ValuePosCash    = Vector2.new(0.71, 0.61),
-	ValuePosDarrels = Vector2.new(0.66, 0.62),
+	ValuePosEmeralds = Vector2.new(0.66, 0.62),
 	ValueSize   = Vector2.new(0.50, 0.38),
 }
 
 ------------------------------------------------------------------------- art
 -- Uploaded 2026-08-09 from design_handoff_hud_upgrade/assets (served via
 -- python -m http.server + upload_image, same route as Tokens.icons).
--- premiumCounter is the REBUILT pill: baked darrel face + gems removed
+-- premiumCounter is the REBUILT pill: baked emerald face + gems removed
 -- (owner keeps the game's own drawn face), digits removed from both counters.
 S.Art = {
 	bag            = "rbxassetid://135692251028443",
