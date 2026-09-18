@@ -1,5 +1,11 @@
 # game-src — mirrors of Studio scripts (visual system, shipped 2026-07-25)
 
+## Brainrot Forge (2026-09-17) -- how NEW brainrots are made now
+- Standard: `docs/brainrot-build-standard.md`. Pipeline spec + plan: `docs/superpowers/{specs,plans}/2026-09-17-brainrot-forge-pilot*.md`.
+- `tools/brainrot_forge/` (Python): design scripts -> per-colour baked meshes -> `out/<batch>/<batch>_batch.glb` + `manifest.json` + previews. The user imports the glb via File > Import (Ctrl+M); Roblox's importer turns glTF 180 degrees about Y, so exports are pre-turned (`robloxForward`).
+- `BrainrotForge.lua` -> `ServerStorage.BrainrotForge` (build-time assembler), `BrainrotBudget.lua` -> `ServerStorage.BrainrotBudget` (build-time gate). Neither is required by game code. The MCP exec sandbox cannot `require` any module here -- load them with `loadstring(module.Source)()` in Edit mode.
+- WARNING: `BrainrotLooks.lua` / `BrainrotBodyBuilder.lua` / `BrainrotModelFactory.lua` below are DEAD CODE since 2026-07-25 (the roster was replaced the same day; verified 2026-08-28) -- kept as history only.
+
 The live source of truth is Roblox Studio. These are commit-time mirrors:
 - BrainrotLooks.lua -> ReplicatedStorage.Modules.BrainrotLooks (213 recipes)
 - BrainrotBodyBuilder.lua -> ReplicatedStorage.Modules.BrainrotBodyBuilder
