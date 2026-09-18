@@ -35,8 +35,16 @@ end
 
 local function tick(dt: number)
 	clock += dt
-	for id, e in pairs(entries) do
-		if isShown(e.gui) then
+	-- Snapshot the ids first: a step may register (adding a key mid-`pairs` is
+	-- undefined) or unregister. Registrations made during a tick run next frame.
+	local ids: { number } = {}
+	for id in pairs(entries) do
+		table.insert(ids, id)
+	end
+	table.sort(ids)
+	for _, id in ipairs(ids) do
+		local e = entries[id]
+		if e and isShown(e.gui) then
 			local ok, err = pcall(e.step, clock, dt)
 			if not ok then
 				warn(("[UIKit] FxDriver entry %d threw and was removed: %s\n%s"):format(id, tostring(err), debug.traceback()))
