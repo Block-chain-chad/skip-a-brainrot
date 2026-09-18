@@ -1239,7 +1239,7 @@ function GoalsPanel.Build(ctx, opts)
 		for id, btn in pairs(tabButtons) do
 			local g = btn:FindFirstChildOfClass("UIGradient")
 			local active = (id == activeTab)
-			local c = active and S.Action.Go or S.Action.Neutral -- delta 7: active = green
+			local c = active and S.Role.Neutral or S.Role.Disabled -- 2026-09-18 UI foundation: blue = navigation (was delta 7 green)
 			btn.BackgroundColor3 = c[1]
 			if g then g.Color = ColorSequence.new(c[1], c[2]) end
 			-- pale-Neutral sweep: the light Neutral fill cannot carry white bubble

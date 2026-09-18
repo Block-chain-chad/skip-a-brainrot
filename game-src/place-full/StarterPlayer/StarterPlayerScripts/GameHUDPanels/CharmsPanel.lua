@@ -1070,7 +1070,7 @@ local function buildCharmGrid(ctx, host: GuiObject, w: number, h: number)
 			-- Pale-Neutral sweep: the label ink flips WITH the fill -- dark ink
 			-- + white stroke on the light Neutral, white + ink stroke on the
 			-- active green (root is NoPolish, so these colours are final).
-			local c = if on then SpecS.Action.Go else SpecS.Action.Neutral -- delta 7: active = green
+			local c = if on then SpecS.Role.Neutral else SpecS.Role.Disabled -- 2026-09-18 UI foundation: blue = navigation (was delta 7 green)
 			tab.frame.BackgroundColor3 = c[1]
 			local g = tab.frame:FindFirstChildOfClass("UIGradient")
 			if g then g.Color = ColorSequence.new(c[1], c[2]) end

@@ -828,7 +828,7 @@ function IndexPanel.Build(ctx, opts)
 			local chip = worldFrames[id]
 			if chip then
 				local on = (id == activeWorld.Id)
-				local c = on and SPEC_S.Action.Go or SPEC_S.Action.Neutral -- delta 7: active = green
+				local c = on and SPEC_S.Role.Neutral or SPEC_S.Role.Disabled -- 2026-09-18 UI foundation: blue = navigation (was delta 7 green)
 				chip.BackgroundColor3 = c[1]
 				local g = chip:FindFirstChildOfClass("UIGradient")
 				if g then g.Color = ColorSequence.new(c[1], c[2]) end
@@ -858,7 +858,7 @@ function IndexPanel.Build(ctx, opts)
 			local chip = filterFrames[id]
 			if chip then
 				local on = (id == activeFilter)
-				local c = on and SPEC_S.Action.Go or SPEC_S.Action.Neutral -- delta 7: active = green
+				local c = on and SPEC_S.Role.Neutral or SPEC_S.Role.Disabled -- 2026-09-18 UI foundation: blue = navigation (was delta 7 green)
 				chip.BackgroundColor3 = c[1]
 				local g = chip:FindFirstChildOfClass("UIGradient")
 				if g then g.Color = ColorSequence.new(c[1], c[2]) end
