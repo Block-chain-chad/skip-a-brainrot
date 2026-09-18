@@ -7,6 +7,9 @@
 --   grantsSince {maxUid}-> entries with Uid > maxUid (what the test granted)
 --   revertUids  {uids}  -> remove those entries by exact Uid, restore BrainrotsCaught by
 --                          the count removed, Save + PushUpdate
+--   undiscover  {names} -> clear Discovered[name] for test catches of never-owned names
+--                          (PushUpdate re-marks anything still held, so only a name with
+--                          no remaining copy actually clears)
 -- Returns immediately outside Studio. Never touches any other player's data.
 local RunService = game:GetService("RunService")
 if not RunService:IsStudio() then return end
@@ -84,6 +87,22 @@ function ops.revertUids(req)
 		pcall(PDM.PushUpdate, p)
 	end
 	return "removed " .. removed .. "; now " .. #data.Brainrots .. " brainrots"
+end
+
+function ops.undiscover(req)
+	local p = player1()
+	local data = p and PDM.Get(p)
+	if not data then return "no data" end
+	local cleared = 0
+	for _, name in ipairs(req.names or {}) do
+		if data.Discovered and data.Discovered[name] then
+			data.Discovered[name] = nil
+			cleared += 1
+		end
+	end
+	pcall(PDM.Save, p)
+	pcall(PDM.PushUpdate, p)
+	return "cleared " .. cleared .. "; Sigma check=" .. tostring(data.Discovered and data.Discovered["Sigma Boy"])
 end
 
 local busy = false

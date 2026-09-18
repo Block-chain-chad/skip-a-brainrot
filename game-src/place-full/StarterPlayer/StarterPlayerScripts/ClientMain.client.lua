@@ -1103,6 +1103,10 @@ end
 
 local function startCharge()
 	if cooldown or charging then return end
+	-- A takeover cut is playing (Takeover sets RevealActive for the catcher; spec S11):
+	-- no throws until the camera is back. Client-side on purpose -- it only guards
+	-- the local camera round-trip.
+	if player:GetAttribute("RevealActive") == true then return end
 	if not inThrowZone then return end
 	-- Nothing to catch in this world yet (World 2 pending its roster). Refusing HERE
 	-- rather than letting the server abandon the throw is the whole point: the old

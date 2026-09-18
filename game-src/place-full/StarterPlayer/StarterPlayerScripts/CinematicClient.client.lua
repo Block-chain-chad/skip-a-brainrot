@@ -7,8 +7,8 @@
 -- lands on the same real-world instant as the server's final skip contact.
 --
 -- Three outcomes per broadcast, and EXACTLY one of them always happens:
---   1. thrower, size wants a cinematic   -> Bridge.arm + Sequencer.play (full takeover)
---   2. bystander within SPECTATOR_RADIUS -> Sequencer.play(spectator) (world FX only)
+--   1. thrower, size wants a cinematic   -> Bridge.arm + Takeover.play (full takeover)
+--   2. bystander within SPECTATOR_RADIUS -> Takeover.play(spectator) (world FX only)
 --   3. anyone else, or a declined/errored play -> stockLanding() below
 --
 -- (3) IS NOT OPTIONAL. The server suppresses the final splash and destroys its own
@@ -53,13 +53,30 @@ local function softRequire(name: string): any
 	return mod
 end
 
-local Sequencer = softRequire("Sequencer")
+local Takeover = softRequire("Takeover")
+-- Cuts.Registry, fail-soft like the two above: nil means no cut can be looked up,
+-- so every broadcast collapses to the stock landing. (A Folder cannot go through
+-- softRequire, which require()s its argument.)
+local Registry = nil
+do
+	local cuts = cinFolder:WaitForChild("Cuts", 5)
+	local inst = cuts and cuts:WaitForChild("Registry", 5)
+	if inst then
+		local ok, mod = pcall(require, inst)
+		if ok then
+			Registry = mod
+		else
+			warn("[CinematicClient] Cuts.Registry failed to load (" .. tostring(mod) .. ") -- stock landings only")
+		end
+	else
+		warn("[CinematicClient] Cuts.Registry missing -- stock landings only")
+	end
+end
 local Bridge = softRequire("Bridge")
 local SoundKit = require(modules:WaitForChild("SoundKit"))
-local MassiveEmergence = require(modules:WaitForChild("MassiveEmergence"))
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local cinematicRemote = remotes:WaitForChild("MassiveCinematic")
+local cinematicRemote = remotes:WaitForChild("CatchCinematic")
 
 -- ============================ stock landing ============================
 
@@ -110,8 +127,8 @@ end
 -- on a cold client) and the bonk is on a hard clock. Worst case a texture pops in
 -- late; the timeline never waits.
 local SOUND_SLOTS = {
-	"bonkClonk", "rumbleLoop", "bassDrop", "waterExplosion",
-	"roar", "plink", "memeAudio", "cardWhoosh",
+	"finalSkip", "massiveRumble", "bassDrop", "waterExplosion",
+	"massiveRoar", "bannerHit", "cardWhoosh",
 }
 
 local function preload(brainrotName: string)
@@ -171,47 +188,28 @@ local function onCinematic(payload: { [string]: any })
 	local totalTime = math.max(tonumber(payload.TotalTime) or 0, 0)
 
 	-- ============================ Studio debug seam ============================
-	-- __variantOverride is NEVER sent by the real server -- ThrowHandler only ever
-	-- builds {UserId,BrainrotName,Rarity,RarityColor,Mutation,Size,RockId,RockColor,
-	-- Seed} plus the arc fields (see its own comment at the cinematicRemote build).
-	-- Only ServerScriptService.CinematicCommand's /cinematic debug command sets it,
-	-- gated identically server-side. Gated AGAIN here (field presence + IsStudio())
-	-- as defence in depth, matching every other test seam in this build (Sequencer.
-	-- debugHold, the TestHook below): the payload arrives over a real RemoteEvent, so
-	-- a non-Studio client must never honour it even if an upstream gate were ever
-	-- weakened. "hugeold" is the side-by-side comparator against the Sequencer cut --
-	-- it bypasses the Sequencer ENTIRELY and hands off to the pre-cinematic cutscene
-	-- directly, so it returns before any of the wants/bridge machinery below runs.
-	if RunService:IsStudio() and payload.__variantOverride == "hugeold" then
-		local wait = math.max(totalTime - (os.clock() - receipt), 0)
-		task.delay(wait, function()
-			local ok, err = pcall(MassiveEmergence.play, {
-				Size = "Huge",
-				SplashPos = endPos,
-				Name = payload.BrainrotName,
-				RarityColor = payload.RarityColor,
-			})
-			if not ok then
-				warn("[CinematicClient] debug hugeold MassiveEmergence.play errored: " .. tostring(err))
-			end
-		end)
-		return
+	-- __cutOverride is NEVER sent by the real server -- ThrowHandler only ever builds
+	-- {UserId,BrainrotName,Rarity,RarityColor,Mutation,Size,Cut,RockId,RockColor,Seed}
+	-- plus the arc fields. Only ServerScriptService.CinematicCommand's /cinematic debug
+	-- command sets it, gated identically server-side. Gated AGAIN here (field presence
+	-- + IsStudio()) as defence in depth: the payload arrives over a real RemoteEvent,
+	-- so a non-Studio client must never honour it even if an upstream gate were ever
+	-- weakened.
+	--
+	-- The server names the cut (payload.Cut). The client re-derives it from the same
+	-- Config.CUT_FOR as a guard against a mid-session Config edit or an older server:
+	-- when the two disagree, NO cut is safer than the wrong cut.
+	local cutName: string? = Config.CUT_FOR(payload.Rarity, payload.Size)
+	if type(payload.Cut) == "string" and payload.Cut ~= cutName then
+		cutName = nil
 	end
-
-	-- The server only broadcasts for sizes Config says are cinematic, but the client
-	-- re-reads Config anyway: a mid-session Config edit (or an older server) must
-	-- never leave a client running a variant it has no beats for, and this is also
-	-- what picks full vs trimmed.
-	local variant = (Config.SIZES :: any)[payload.Size]
-	if RunService:IsStudio() and (payload.__variantOverride == "trimmed" or payload.__variantOverride == "full") then
-		-- Demo override: forces a variant regardless of Config.SIZES' current tuning
-		-- (e.g. Huge is "none" pending the owner's pick) -- see CinematicCommand's
-		-- /cinematic massive|huge.
-		variant = payload.__variantOverride
+	if RunService:IsStudio() and type(payload.__cutOverride) == "string" then
+		cutName = payload.__cutOverride
 	end
-	-- Sequencer == nil is the fail-soft above: no cut is possible, so every branch
+	local cut = (cutName and Registry) and Registry.get(cutName) or nil
+	-- Takeover == nil is the fail-soft above: no cut is possible, so every branch
 	-- below collapses to the stock landing rather than touching a nil module.
-	local wants = (variant == "full" or variant == "trimmed") and Sequencer ~= nil
+	local wants = cut ~= nil and Takeover ~= nil
 
 	local isThrower = payload.UserId == player.UserId
 	local spectator = not isThrower
@@ -226,8 +224,8 @@ local function onCinematic(payload: { [string]: any })
 		end
 	end
 
-	if wants and Sequencer.isActive() then
-		-- Never stack rigs. The Sequencer would refuse anyway; checking here means
+	if wants and Takeover.isActive() then
+		-- Never stack rigs. The Takeover would refuse anyway; checking here means
 		-- the fallback is scheduled from the start instead of discovered late.
 		wants = false
 	end
@@ -247,7 +245,7 @@ local function onCinematic(payload: { [string]: any })
 	if wants and isThrower and not skipBridge then
 		-- Armed NOW, not at the bonk: ThrowResult can (just) beat our scheduled play()
 		-- to the client, and CatchRevealClient has to be able to adopt it. The expiry
-		-- covers the flight plus the cancel window; the Sequencer's markRunning extends
+		-- covers the flight plus the cancel window; the Takeover's markRunning extends
 		-- it to cover the cutscene itself once the run commits.
 		bridgeGen = Bridge.arm(payload, totalTime + Config.CANCEL_TIMEOUT + 3)
 		if bridgeGen == nil then
@@ -290,7 +288,7 @@ local function onCinematic(payload: { [string]: any })
 			return
 		end
 
-		-- Sequencer.play BLOCKS for the whole cinematic, but the accept/decline answer
+		-- Takeover.play BLOCKS for the whole cinematic, but the accept/decline answer
 		-- is needed NOW so the fallback lands ON the bonk rather than ten seconds after
 		-- it. opts.onCommit fires synchronously the instant play commits, and task.spawn
 		-- runs the thread up to its first yield -- which play only reaches after
@@ -299,16 +297,15 @@ local function onCinematic(payload: { [string]: any })
 		-- isActive() guess (which can be true for somebody else's spectator run).
 		local committed = false
 		task.spawn(function()
-			local ok, err = pcall(Sequencer.play, payload, {
+			local ok, err = pcall(Takeover.play, cut, payload, {
 				spectator = spectator,
-				variant = variant,
 				bridgeGen = bridgeGen,
 				onCommit = function()
 					committed = true
 				end,
 			})
 			if not ok then
-				warn("[CinematicClient] Sequencer.play errored: " .. tostring(err))
+				warn("[CinematicClient] Takeover.play errored: " .. tostring(err))
 			end
 		end)
 

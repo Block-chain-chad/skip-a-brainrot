@@ -9,9 +9,15 @@ local PlayerDataManager = require(ServerScriptService.Modules.PlayerDataManager)
 local RarityRoll = require(ServerScriptService.Modules.RarityRoll)
 local RarityCurve = require(ReplicatedStorage.Modules.RarityCurve)
 local PityConfig = require(ReplicatedStorage.Modules.PityConfig)
-local RockConfig = require(ReplicatedStorage.Modules.RockConfig)
+-- RockConfig is reached through WorldProgression now: the index below has to cover
+-- every world's shelf, not just the valley's.
+local WorldProgression = require(ReplicatedStorage.Modules.WorldProgression)
 local RarityConfig = require(ReplicatedStorage.Modules.RarityConfig)
 local Mutations = require(ReplicatedStorage.Modules.MutationConfig)
+-- SIZE is a second, INDEPENDENT mutation axis, rolled separately from Mutations and
+-- stored beside it rather than instead of it -- see SizeConfig's header for why it is
+-- not simply more rows in MutationConfig.List.
+local Sizes = require(ReplicatedStorage.Modules.SizeConfig)
 local RebirthConfig = require(ReplicatedStorage.Modules.RebirthConfig)
 local UpgradeConfig = require(ReplicatedStorage.Modules.UpgradeConfig)
 local OfferingConfig = require(ReplicatedStorage.Modules.OfferingConfig)
@@ -19,7 +25,9 @@ local BrainrotSpawner = require(ServerScriptService.Modules.BrainrotSpawner)
 local InventoryHandler = require(ServerScriptService.Modules.InventoryHandler)
 local MaxwellQuest = require(ServerScriptService.Modules.MaxwellQuest)
 
-local TungQuest = require(ServerScriptService.Modules.TungQuest)local SeasonPassHandler = require(ServerScriptService.Modules.SeasonPassHandler)
+local TungQuest = require(ServerScriptService.Modules.TungQuest)
+local TundraQuest = require(ServerScriptService.Modules.TundraQuest)
+local SeasonPassHandler = require(ServerScriptService.Modules.SeasonPassHandler)
 local MintRegistry = require(ServerScriptService.Modules.MintRegistry)
 local LimitedStock = require(ServerScriptService.Modules.LimitedStock)
 local Waves = require(ReplicatedStorage.Modules.BrainrotWaves)
@@ -33,8 +41,12 @@ local remotes = ReplicatedStorage.Remotes
 local THROW_Z = 15
 local MAX_TOTAL_DISTANCE = 900
 
+-- EVERY world's rocks, not just the valley's. A rock bought at the tundra stall is a
+-- normal owned rock and can be thrown anywhere; if this index held only RockConfig,
+-- data.EquippedRock would miss and the fallback below would silently demote its owner
+-- to Pebble mid-throw.
 local rockById = {}
-for _, rock in ipairs(RockConfig) do
+for _, rock in ipairs(WorldProgression.AllRocks()) do
 	rockById[rock.Id] = rock
 end
 
@@ -63,6 +75,34 @@ if not pityRemote then
 	pityRemote = Instance.new("RemoteEvent")
 	pityRemote.Name = "PityThrow"
 	pityRemote.Parent = remotes
+end
+
+-- fired to EVERY client at flight start when a throw has already rolled a
+-- cinematic-worthy size: the thrower stages the takeover, nearby players the
+-- spectator variant. Fired from spawnSkippingStone because only it knows the
+-- arc's timing and end point.
+-- Renamed MassiveCinematic -> CatchCinematic (2026-09-17): it now carries every cut
+-- (Mythic, Secret, God, Huge, Massive, MassiveGod), chosen by Config.CUT_FOR.
+local cinematicRemote = remotes:FindFirstChild("CatchCinematic")
+if not cinematicRemote then
+	cinematicRemote = Instance.new("RemoteEvent")
+	cinematicRemote.Name = "CatchCinematic"
+	cinematicRemote.Parent = remotes
+end
+-- COSMETIC MODULE, DELIBERATELY A SOFT DEPENDENCY. This is the core throw loop, and a
+-- cutscene must never eat a catch: a hard require here would mean that renaming,
+-- deleting or breaking CatchCinematic takes EVERY throw in the game down with it. The
+-- pcall covers the path lookup as well as the require, because indexing a missing
+-- CatchCinematic folder throws on its own. The fallback is a CUT_FOR that always says
+-- nil, which reads as "nothing is cinematic" -- throws then grant catches exactly as
+-- they did before this build, just with no cutscene.
+local okCin, CinematicConfig = pcall(function()
+	return require(ReplicatedStorage.Modules.CatchCinematic.Config)
+end)
+if not okCin or type(CinematicConfig) ~= "table" or type(CinematicConfig.CUT_FOR) ~= "function" then
+	warn("[ThrowHandler] CatchCinematic.Config unavailable (" .. tostring(CinematicConfig)
+		.. "); catch cutscenes are disabled for this server")
+	CinematicConfig = { CUT_FOR = function() return nil end }
 end
 
 -- Each rock's own thrown look now lives in ReplicatedStorage.Modules.RockDesign
@@ -96,6 +136,22 @@ end
 
 -- Cached rather than walked per throw: GameWorld has tens of thousands of descendants
 -- and this would otherwise run on every skip, every splash.
+-- DOES THIS WORLD HAVE ANYTHING TO CATCH AT ALL (2026-08-07).
+-- World 2's roster (BrainrotConfigTundra) is deliberately EMPTY pending real content,
+-- and an empty pool makes RarityRoll.PickInTier return nil for every tier -- so a throw
+-- there falls into the "empty tier" abandon below. To the player that is indistinguishable
+-- from the game swallowing the throw: the bar charges, PERFECT lands, and then nothing
+-- happens until the client's ~6.7s watchdog frees the bar.
+--
+-- Publishing the answer as an ATTRIBUTE ON THE DOCK lets the client refuse BEFORE the
+-- charge and say why. No remote needed: attributes on workspace parts replicate on their
+-- own, and the flag re-derives itself whenever the zone list is rebuilt -- so the day the
+-- tundra roster is filled in, this turns true with no code change anywhere.
+local function worldHasCatches(worldName)
+	local w = worldName and WorldProgression.Resolve(worldName)
+	return w ~= nil and #(w.Pool or {}) > 0
+end
+
 local throwZones = {}
 local function rebuildThrowZones()
 	table.clear(throwZones)
@@ -104,6 +160,10 @@ local function rebuildThrowZones()
 	for _, d in ipairs(gw:GetDescendants()) do
 		if d:IsA("BasePart") and d.Name == "ThrowZone" then
 			table.insert(throwZones, d)
+			-- FAIL OPEN: only ever written false for a world positively known to be
+			-- empty. A client reading nil (zone seen before this ran) treats the dock
+			-- exactly as it always did, so the valley can never be blocked by a race.
+			d:SetAttribute("CatchesEnabled", worldHasCatches(PlayerDataManager.WorldOf(d.Position)))
 		end
 	end
 end
@@ -428,7 +488,7 @@ local function spawnSplash(pos, big, surfaceY)
 	end
 end
 
-local function spawnSkippingStone(player, distance, rock, onLand, zone)
+local function spawnSkippingStone(player, distance, rock, onLand, zone, cinematic)
 	local origin, dir = getThrowOrigin(player)
 	local horiz = Vector3.new(0, 0, 1) -- always toward the distance markers
 	-- Both skip areas face +Z, so the path is still a straight run up the lane; what
@@ -467,6 +527,21 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone)
 	-- latency cancels and a client-side tick at k*segTime lands on the splash.
 	remotes.StoneThrown:FireClient(player, origin, points[#points], totalTime, distance, nContacts, segTime)
 
+	-- The SAME moment, but to EVERYONE. Only this function knows the arc's timing and
+	-- where it ends, so the fields the client cannot derive are appended here rather
+	-- than at roll time. Clients tick their own clock from receipt, exactly as they
+	-- already do for StoneThrown above, so the send latency cancels the same way.
+	if cinematic then
+		-- The settle point, used as-is: every point after the origin is built from
+		-- startFlat, whose Y is already surfaceY, so there is nothing to reconstruct.
+		cinematic.EndPos = points[#points]
+		cinematic.SurfaceY = surfaceY
+		cinematic.TotalTime = totalTime
+		cinematic.NContacts = nContacts
+		cinematic.SegTime = segTime
+		cinematicRemote:FireAllClients(cinematic)
+	end
+
 	task.spawn(function()
 		local spin = 0
 		for k = 1, #points - 1 do
@@ -494,22 +569,35 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone)
 			end
 			-- splash at each water contact (bigger on the final landing)
 			local isLast = k == #points - 1
-			spawnSplash(b, isLast, surfaceY)
-			playSplashSound(b, isLast, k, #points - 1, surfaceY)
+			-- A cinematic throw's FINAL contact is the bonk: clients stage it
+			-- themselves (dry clonk, ricochet), so the server plays no splash
+			-- and hands the stone off by destroying its copy at the contact.
+			if not (isLast and cinematic) then
+				spawnSplash(b, isLast, surfaceY)
+				playSplashSound(b, isLast, k, #points - 1, surfaceY)
+			end
 		end
 		local last = points[#points]
-		stone:PivotTo(CFrame.new(last.X, surfaceY, last.Z) * CFrame.Angles(math.rad(6), 0, 0))
-		Debris:AddItem(stone, 1.3)
-		if onLand then onLand() end -- the stone has settled in the water -> reveal the catch
+		if cinematic then
+			stone:Destroy()
+		else
+			stone:PivotTo(CFrame.new(last.X, surfaceY, last.Z) * CFrame.Angles(math.rad(6), 0, 0))
+			Debris:AddItem(stone, 1.3)
+		end
+		-- Hand the settle point UP to the reveal. A Massive catch stages a cutscene of the
+		-- creature rising out of the water, and this is the only place that knows exactly
+		-- where the water was broken -- surfaceY comes from the zone, so it is right for the
+		-- tundra deck as well as the hub dock.
+		if onLand then onLand(Vector3.new(last.X, surfaceY, last.Z)) end
 	end)
 end
 
 -- EVERY camp the player owns. A brainrot is one entry in data.Brainrots rendered on each
 -- of their plots, so a catch made in the valley has to appear on the tundra camp too --
 -- otherwise walking through the portal looks like it ate half your collection.
-local function spawnBrainrotOnPlot(player, brainrotEntry, padIndex, mutation)
+local function spawnBrainrotOnPlot(player, brainrotEntry, padIndex, mutation, sizeVariant)
 	for _, plot in ipairs(PlayerDataManager.GetPlots(player)) do
-		BrainrotSpawner.Spawn(plot, brainrotEntry, padIndex, mutation)
+		BrainrotSpawner.Spawn(plot, brainrotEntry, padIndex, mutation, nil, sizeVariant)
 	end
 end
 
@@ -582,6 +670,13 @@ function ThrowHandler.Init()
 	end
 
 	remotes.ThrowRequest.OnServerEvent:Connect(function(player, power, clientPerfect, auto)
+		-- ICE FISHING: while the Frozen Tundra lake is frozen, World-2 throwing is OFF --
+		-- players fish at the holes instead. Authoritative backstop; ClientMain also hides
+		-- the throw minigame at the tundra dock. Valley throwing is unaffected.
+		if ReplicatedStorage:GetAttribute("IceFishingActive")
+			and PlayerDataManager.PlayerWorld(player) == "Tundra" then
+			return
+		end
 		local now = os.clock()
 		if now - (lastThrow[player.UserId] or 0) < THROW_COOLDOWN then return end
 		if inFlight[player.UserId] then return end   -- previous stone is still skipping
@@ -660,18 +755,32 @@ function ThrowHandler.Init()
 		local weatherLuck = ReplicatedStorage:GetAttribute("WeatherLuck") or 1
 		local weatherMut = ReplicatedStorage:GetAttribute("WeatherMut") or 1
 
-		-- access luck shifts the whole curve up: rock + upgrades + OFFERINGS + wheel boost
-		-- + placed-pet + perfect. Rebirth luck is deliberately excluded here (it feeds
-		-- MUTATION odds below instead) so a permanent multiplier can't run tier access away.
-		local petLuck = 1
+		-- ADDITIVE access luck: every source contributes a BONUS (its multiplier minus 1)
+		-- and the bonuses SUM onto a base of 1, instead of multiplying against each other.
+		-- Stacking is now linear and self-limiting -- rock + charm + offerings + wheel boost +
+		-- placed pets each add their bit, so a maxed setup lands near +15 rather than the old
+		-- runaway x60. Rebirth luck is still excluded here (it feeds MUTATION odds below).
+		-- Placed-brainrot luck is summed the same way PetConfig.StackedMult already sums
+		-- equipped pets: two +0.5 pets make +1.0, never x2.25.
+		local petLuckBonus = 0
 		for _, e in ipairs(data.Brainrots) do
-			if e.PadIndex and petLuckByName[e.Name] then petLuck *= petLuckByName[e.Name] end
+			if e.PadIndex and petLuckByName[e.Name] then
+				petLuckBonus += (petLuckByName[e.Name] - 1)
+			end
 		end
-		local accessLuck = rock.Luck
-			* UpgradeConfig.Mult(data.Upgrades, "Luck")
-			* OfferingConfig.LuckMult(data.Offerings)
-			* PlayerDataManager.BoostMult(data, "Luck")
-			* petLuck
+		-- Weather adds a flat event bonus IDENTICAL for every player. weatherLuck is a
+		-- multiplier attribute, so (weatherLuck - 1) is that bonus -- 0 when no luck event is live.
+		local weatherAccessBonus = math.max(weatherLuck - 1, 0)
+		local personalAccess = 1
+			+ (rock.Luck - 1)
+			+ (UpgradeConfig.Mult(data.Upgrades, "Luck") - 1)
+			+ (OfferingConfig.LuckMult(data.Offerings) - 1)
+			+ (PlayerDataManager.BoostMult(data, "Luck") - 1)
+			+ petLuckBonus
+		-- Perfect and auto stay as per-throw MULTIPLIERS on the summed total: they are throw
+		-- quality, not a stacked source. (Folding auto into the sum would erase the AFK penalty --
+		-- -0.45 off a ~15 total is nothing; x0.55 on the total is not.)
+		local accessLuck = (personalAccess + weatherAccessBonus)
 			* (perfect and PERFECT_LUCK_MULT or 1)
 			* (isAuto and AUTO_LUCK_MULT or 1)
 
@@ -727,7 +836,12 @@ function ThrowHandler.Init()
 		-- Valley: Secret Pete. Tundra: the ten Glitched. Same mechanism, different table.
 		local pickIndex = (rolledTier >= curve.TopTier) and curve.ApexIndex or rolledTier
 		local brainrotEntry, tier = RarityRoll.PickInTier(pickIndex, false, throwWorld)
-		if not brainrotEntry then abandonFlight(); return end   -- empty tier: never hand out a nil catch
+		-- Empty tier: never hand out a nil catch. Kept as the last line of defence --
+		-- the client now refuses to charge at a dock whose world has no roster (see
+		-- worldHasCatches / the CatchesEnabled attribute above), so in normal play this
+		-- is unreachable. It still catches the narrower case of a world that HAS a
+		-- roster whose every entry is filtered out by isLive (all vaulted / sold out).
+		if not brainrotEntry then abandonFlight(); return end
 
 		-- set by the test hook below; makes this catch exempt from the
 		-- reveal-time catchability re-check (see revealCatch)
@@ -774,18 +888,55 @@ function ThrowHandler.Init()
 			end
 		end
 
-		-- rebirth + weather luck overflow into MUTATION odds instead of tier access
-		--
-		-- Pet luck is applied OUTSIDE the clamp, on purpose. Inside it the whole pet-luck
-		-- feature was inert: rebirth luck alone already pushes this product past the ceiling
-		-- of 6, so a 5x Secret pet moved the number by exactly nothing. Pets are the one luck
-		-- source a player spends darrels for, so they multiply the clamped base rather than
-		-- competing for room underneath it. NOTE: this genuinely raises mutation odds for
-		-- anyone with a pet equipped -- that is the intended effect, but it is the knob to
-		-- reach for if mutations start feeling too common.
-		weatherMut = weatherMut * math.clamp(rebirthLuck * weatherLuck, 1, 6) * PetHandler.LuckMult(player)
-		-- the live event's own mutation gets first refusal, then the base table
-		local mutation = Mutations.Roll(weatherMut, ReplicatedStorage:GetAttribute("WeatherName"))
+		-- ADDITIVE mutation luck, same rule as access luck above: rebirth + equipped-pet bonuses
+		-- SUM onto a base of 1, and the event's own mutation value adds the same flat bonus for
+		-- everyone. The old x6 clamp is GONE -- additive stacking is already self-limiting, and
+		-- the clamp only existed to stop the multiplicative product exploding (which also made
+		-- rebirth luck swallow pet luck whole). Equipped pets come through PetHandler.LuckMult,
+		-- which is itself additive across pets, so this is one consistent sum end to end.
+		local mutBoost = 1
+			+ (rebirthLuck - 1)                     -- +0.07 per rebirth
+			+ (PetHandler.LuckMult(player) - 1)     -- equipped egg pets (already additive)
+			+ math.max(weatherMut - 1, 0)           -- event mutation bonus, same for everyone
+		-- the live event's own mutation gets first refusal, then the base table (scaled by boost)
+		local mutation = Mutations.Roll(mutBoost, ReplicatedStorage:GetAttribute("WeatherName"))
+
+		-- SIZE ROLLED AT THROW TIME (2026-08-08, cinematic build). It rolled in
+		-- revealCatch at landing before; the cinematic needs the answer while the
+		-- stone is still airborne so the FINAL skip can play as the bonk. Every
+		-- input to the roll (weatherMut) was already read above at this moment,
+		-- so the odds are byte-identical -- the roll just happens 1-4s earlier.
+		local sizeVariant = Sizes.Roll(weatherMut)
+		-- TEST HOOK, mirror of ForceNextCatch above: consumed exactly once.
+		do
+			local wantSize = ServerStorage:GetAttribute("ForceNextSize")
+			if type(wantSize) == "string" and wantSize ~= "" then
+				if Sizes.ByName[wantSize] then
+					ServerStorage:SetAttribute("ForceNextSize", nil)
+					sizeVariant = wantSize
+					warn("[ThrowHandler] TEST override consumed: next catch is " .. wantSize)
+				else
+					-- Left ARMED on purpose, exactly as ForceNextCatch leaves a bad name in
+					-- place: a typo is fixed by correcting the attribute, and a hook that
+					-- silently disarmed itself would look identical to one that fired.
+					warn("[ThrowHandler] ForceNextSize names an unknown size: " .. tostring(wantSize))
+				end
+			end
+		end
+		-- Which cut, if any, this throw will play (spec S4). nil on the overwhelmingly
+		-- common throw, which is exactly the "no cutscene" case.
+		local cutName = CinematicConfig.CUT_FOR(tier.Name, sizeVariant)
+		local cinematic = cutName and {
+			UserId = player.UserId,
+			BrainrotName = brainrotEntry.Name,   -- may be superseded by reveal-time
+			Rarity = tier.Name,                  -- fallback swaps; client prefers
+			RarityColor = tier.Color,            -- ThrowResult's name if it differs
+			Mutation = mutation,
+			Size = sizeVariant,
+			Cut = cutName,
+			RockId = rock.Id, RockColor = rock.Color,
+			Seed = math.random(1, 2 ^ 30),
+		} or nil
 
 		-- === serial identity: only for catches worth arguing over ===
 		-- Top three tiers or anything mutated. Commons would flood the mint store
@@ -804,7 +955,7 @@ function ThrowHandler.Init()
 		DarrelService.Notify(player, "Throw", 1)
 		if perfect then SeasonPassHandler.Notify(player, "Perfect", 1) end
 
-		local function revealCatch()
+		local function revealCatch(splashPos)
 			local liveData = PlayerDataManager.Get(player)
 			if not liveData then return end -- player left mid-flight
 
@@ -863,6 +1014,9 @@ function ThrowHandler.Init()
 				end
 			end
 
+			-- Read BEFORE the write below: the reveal's "NEW BRAINROT!" header is server
+			-- authoritative (spec S10) and "new" means "not in the index before this grant".
+			local wasDiscovered = liveData.Discovered ~= nil and liveData.Discovered[brainrotEntry.Name] == true
 			liveData.Discovered = liveData.Discovered or {}
 			liveData.Discovered[brainrotEntry.Name] = true
 			SeasonPassHandler.NotifyCatch(player, tier.Name)
@@ -872,6 +1026,11 @@ function ThrowHandler.Init()
 			pcall(MaxwellQuest.NotifyCatch, player, tier.Name)
 
 			pcall(TungQuest.NotifyCatch, player, tier.Name)
+			-- World 2's arc: this ONE hook does both of its jobs -- counting the trial
+			-- tiers and rolling the drill salvage -- because both mean "a skip finished
+			-- in the tundra", and throwWorld is the only thing that decides whether it
+			-- is that world's business at all.
+			pcall(TundraQuest.NotifyCatch, player, tier.Name, throwWorld)
 			-- Mint() never yields and never errors -- it returns nil whenever the
 			-- registry is cold or the DataStore is down. A missing serial costs the
 			-- player a garnish; a blocked or lost catch would cost them the catch.
@@ -888,11 +1047,18 @@ function ThrowHandler.Init()
 			end
 
 			-- caught brainrots go to the inventory; the player places them when they choose
+			-- Rolled at THROW time now, not here -- sizeVariant is an upvalue of this closure
+			-- (see the roll above) because the cinematic has to be staged while the stone is
+			-- still in the air. It is still rolled on the SAME catch as the colour mutation,
+			-- and stored ALONGSIDE it: the two stack, so "Golden Massive" is a real outcome.
+			-- nil is the overwhelmingly common result, and nil is exactly what every brainrot
+			-- saved before today already reads as -- which is why this needs no migration.
 			local caught = {
 				Name = brainrotEntry.Name,
 				PadIndex = nil,
 				Pending = 0,
 				Mutation = mutation,
+				Size = sizeVariant,
 				Uid = PlayerDataManager.TakeUid(liveData),
 			}
 			if serial then
@@ -921,12 +1087,19 @@ function ThrowHandler.Init()
 				CashPerSecond = brainrotEntry.CashPerSecond,
 				Mutation = mutation,
 				MutationMult = Mutations.Mult(mutation),
+				-- SIZE is the second mutation axis. Size drives the emergence cutscene on the
+				-- client, and SplashPos is where to stage it -- both nil on an ordinary catch,
+				-- which is exactly the "no cutscene" case.
+				Size = sizeVariant,
+				SizeMult = Sizes.Mult(sizeVariant),
+				SplashPos = splashPos,
 				Perfect = perfect,
 				-- all three are nil unless this catch was worth tracking AND the mint
 				-- registry answered; the popup should just omit the line when nil
 				Serial = serial,     -- e.g. 47 -> the popup can show "#47"
 				MintedAt = mintedAt,
 				Exists = exists,     -- how many of this exact class are still alive
+				IsNew = not wasDiscovered,   -- server-authoritative "NEW BRAINROT!" (spec S10)
 			})
 
 			-- pity: catching a tier clears its dry streak, and every LOWER pity tier's too
@@ -943,18 +1116,18 @@ function ThrowHandler.Init()
 
 		-- launch the skip; reveal the catch the moment the stone settles
 		task.delay(0.16, function()
-			spawnSkippingStone(player, distance, rock, function()
+			spawnSkippingStone(player, distance, rock, function(splashPos)
 				-- Cleared AFTER the reveal, not before: revealCatch can yield on a limited
 				-- mint claim, and the throw should stay locked for that. pcall so a failed
 				-- reveal can never leave the player permanently unable to throw.
-				local ok, err = pcall(revealCatch)
+				local ok, err = pcall(revealCatch, splashPos)
 				if flightToken[player.UserId] == token then
 					inFlight[player.UserId] = nil
 				end
 				if not ok then
 					warn("[ThrowHandler] revealCatch failed for " .. player.Name .. ": " .. tostring(err))
 				end
-			end, throwZone)
+			end, throwZone, cinematic)
 		end)
 
 		-- Watchdog: if that task ever dies before landing, the flag would strand the

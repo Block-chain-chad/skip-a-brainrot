@@ -6,14 +6,20 @@ local Config = {}
 
 Config.DEBUG_TIMESCALE = 1.0
 
--- Which sizes trigger the cinematic from a REAL catch. Server reads this too.
--- "full" = 17.9s sequence, "trimmed" = HUGE_TRIM variant, "none" = existing behavior.
--- Huge stays "none" until the owner picks after the side-by-side demo.
-Config.SIZES = { Massive = "full", Huge = "none" } :: { [string]: string }
-
--- After the handoff beat: run the existing PullCeremony too? (comparison pending)
--- Live override for the demo: workspace attribute "CinematicCeremonyAfter" (boolean).
-Config.RUN_PULL_CEREMONY_AFTER = false
+-- THE ROUTING TABLE (spec S4, locked). Evaluated top to bottom on the CONFIRMED
+-- grant; the first match wins; nil means "no cut -- play a pop". Mutation never
+-- appears here: Golden/Diamond and the other ten are visual variants only (S3.8).
+-- Server (ThrowHandler, IceFishingEvent) and client (RevealRouter, CinematicClient,
+-- Bridge) all read this one function.
+function Config.CUT_FOR(rarity: string?, size: string?): string?
+	if size == "Massive" and rarity == "God" then return "MassiveGod" end
+	if size == "Massive" then return "Massive" end
+	if size == "Huge" then return "Huge" end
+	if rarity == "God" then return "God" end
+	if rarity == "Secret" then return "Secret" end
+	if rarity == "Mythic" then return "Mythic" end
+	return nil
+end
 
 Config.SPECTATOR_RADIUS = 250          -- studs from EndPos; beyond = ignore entirely
 Config.SKIP = { delay = 1.0, holdSeconds = 0.45, exitFadeSeconds = 0.18 }
@@ -32,31 +38,8 @@ Config.SKIP = { delay = 1.0, holdSeconds = 0.45, exitFadeSeconds = 0.18 }
 -- the bonk, so the only thing this costs a genuine failure is a fuller wind-down.
 Config.CANCEL_TIMEOUT = 6.0
 
--- Beat boundaries in seconds from the bonk (t=0 = the final skip contact).
--- RETUNED v2 2026-08-09, owner feedback watching v1 live: "too fast, no suspense,
--- the brainrot doesn't emerge slowly like a beast." Dread 1.6->3.5s, silence
--- 0.45->0.75s, rise 2->5s. Total 10.7 -> 15.9s. The skip prompt covers repeat views.
-Config.BEATS = {
-	{ name = "bonk",     t0 = 0.00, t1 = 0.35 },
-	{ name = "travel",   t0 = 0.35, t1 = 1.60 },
-	{ name = "dread",    t0 = 1.60, t1 = 5.60 },  -- 4.0s: the length of the suspense build
-	{ name = "silence",  t0 = 5.60, t1 = 6.35 },  -- DO NOT shorten or soften
-	{ name = "eruption", t0 = 6.35, t1 = 7.20 },
-	{ name = "rise",     t0 = 7.20, t1 = 13.70 },
-	{ name = "hype",     t0 = 13.70, t1 = 16.20 },
-	{ name = "handoff",  t0 = 16.20, t1 = 17.90 },
-}
-Config.SECOND_BONK_T = 10.6
-
--- Trimmed Huge cut (~4.3s): no silence, no hype. Same beat names, new bounds.
-Config.HUGE_TRIM = {
-	{ name = "bonk",     t0 = 0.00, t1 = 0.30 },
-	{ name = "travel",   t0 = 0.30, t1 = 1.00 },
-	{ name = "dread",    t0 = 1.00, t1 = 1.80 },
-	{ name = "eruption", t0 = 1.80, t1 = 2.40 },
-	{ name = "rise",     t0 = 2.40, t1 = 3.60 },
-	{ name = "handoff",  t0 = 3.60, t1 = 4.30 },
-}
+-- Beat tables live at the top of each cut module (Cuts.Massive.BEATS, Cuts.Huge.BEATS,
+-- ...) since the 2026-09-17 reveal build; this module holds framework-wide tunables.
 
 Config.CAMERA = {
 	fovBase = 70, fovPunchHi = 95, fovPunchSettle = 78, fovPunchDur = 0.5,
@@ -66,17 +49,17 @@ Config.CAMERA = {
 	heroDistMult = 0.95, heroHeightFrac = 0.18, orbitDegrees = 45,
 	returnBlendSeconds = 0.8,
 	zoomPunchScale = 0.86,         -- hype-beat punch: dist multiplier per punch
+	-- CutKit.farFraming, the pulled-back SCALE shot: distance = max(height*farHeightMult,
+	-- width*farDistMult) + pad; eye sits farHeightFrac of the height above the water (low).
+	farDistMult = 1.3, farHeightMult = 1.8, farHeightFrac = 0.12,
 }
 Config.SHAKE = {
 	dreadRampTo = 0.4, eruption = 1.0, riseSustain = 0.10,
 	traumaDecayPerSec = 1.4, maxOffset = 0.9, maxRollDeg = 1.2,
 }
-Config.ROCK = {
-	ricochetApex = 120,            -- absurdly high, on purpose. Do not "fix".
-	ricochetLateral = 6, spinRadPerSec = 9.0,
-	plinkPauseSeconds = 0.35,      -- hang above the head before the second bonk
-	tumbleSeconds = 0.8,
-}
+-- The rock after the final skip contact: sinks, tumbling slowly, then hides. (The
+-- ricochet / second-bonk joke was removed 2026-09-17 with the comedy layer.)
+Config.ROCK = { sinkSeconds = 0.8, sinkDepth = 2.0, spinRadPerSec = 2.0 }
 Config.WATER = {
 	stillWater = true,             -- glassy-still: zero local WaterWaveSize/Speed
 	rippleTrainCount = 5, rippleMaxRadiusMult = 3.2, rippleAccel = 1.6,
@@ -95,30 +78,21 @@ Config.POSTFX = {
 	flashSeconds = 0.08, easeBackSeconds = 1.2,
 }
 Config.REDUCED_MOTION = { shakeMult = 0.25, allowFlash = false }
-Config.HYPE = {
-	bannerScalePop = 1.35,
-	-- ABSOLUTE cinematic seconds, and they MUST land inside the hype beat
-	-- (13.70-16.20): updateHype is their only caller, so a time outside that
-	-- window never fires at all. This ONE array gates BOTH the camera's three
-	-- zoom punches AND HypeUI's meme fly-ins -- RETIME IT WHENEVER Config.BEATS
-	-- MOVES (the v2 retune left 6.9/7.5/8.2 behind and silently lost both).
-	zoomPunchTimes = { 13.9, 14.6, 15.3 },
-	memeTexts = { "NO SHOT", "ABSOLUTE UNIT", "HE'S REAL", "W CATCH", "SHEEEESH", "CAUGHT LIVE" },
-	confettiBurst = 90, speedLineCount = 14,
-}
+Config.HYPE = { bannerScalePop = 1.35 }
 -- Sound slots. "kit:<name>" resolves through SoundKit.play; raw ids through SoundKit.playId.
 Config.ASSETS = {
-	bonkClonk      = "rbxassetid://122682383632262", -- snappy cartoon bonk, 0.65s (owner picked #2 on the audition board)
-	rumbleLoop     = "rbxassetid://1837834264", -- APM "REVERSE HARD STOP-Noise Build 03", 4.0s: builds and hard-stops exactly at the silence beat
+	finalSkip      = "kit:splashBig",      -- the last skip contact: same cue as every other throw's landing
+	rumbleLoop     = "rbxassetid://1837834264", -- APM "REVERSE HARD STOP-Noise Build 03", 4.0s build
+	massiveRumble  = "rbxassetid://1837834264", -- was rumbleLoop; TODO: replace with a 2.5s low build
 	bassDrop       = "kit:catchBigHit",
 	waterExplosion = "kit:splashBig",
-	roar           = "kit:catchGod",      -- TODO: replace — creature roar, ~2-3s
-	plink          = "kit:catchCommon",   -- the second bonk: tiny, comically quiet
-	memeAudio      = "kit:catchSecret",   -- TODO: replace — the heel-turn meme track (owner upload)
+	roar           = "kit:catchGod",      -- TODO: replace -- creature roar, ~2-3s
+	massiveRoar    = "kit:catchGod",      -- TODO: replace -- creature roar, ~2-3s
+	bannerHit      = "kit:catchBigHit",
 	cardWhoosh     = "kit:catchSparkle",
 	VOLUMES = {
-		bonkClonk = 0.85, rumbleLoop = 0.8, bassDrop = 0.9, waterExplosion = 0.8,
-		roar = 0.7, plink = 0.18, memeAudio = 0.6, cardWhoosh = 0.4,
+		finalSkip = 0.68, rumbleLoop = 0.8, massiveRumble = 0.8, bassDrop = 0.9, waterExplosion = 0.8,
+		roar = 0.7, massiveRoar = 0.7, bannerHit = 0.6, cardWhoosh = 0.4,
 	},
 }
 

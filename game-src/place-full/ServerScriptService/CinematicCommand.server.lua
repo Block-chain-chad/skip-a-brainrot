@@ -1,36 +1,22 @@
--- CinematicCommand: Studio/admin debug controls for the Massive Catch Cinematic
--- build (task-8-brief). Two chat commands, both gated identically to
--- ServerScriptService.AdminAnnouncements (RunService:IsStudio() OR the same
--- ALLOWED_USER_IDS allowlist, copied as-is):
+-- CinematicCommand: Studio-only debug control for the reward reveal cuts (2026-09-17
+-- build; originally the Massive Catch Cinematic's task-8 demo command). One chat
+-- command, Studio-only:
 --
---   /cinematic [name words...] [massive|huge|hugeold|spectator]
---       Fabricates a MassiveCinematic payload and FireClients it to ONLY the
---       requesting player (or, for "spectator", with UserId=0 so THEIR OWN
---       client takes the spectator branch instead of the thrower branch).
---       GRANTS NOTHING. Touches no PlayerDataManager data, no inventory, no
---       currency -- this is a visual-only remote fire, exactly the one
+--   /cinematic [name words...] [mythic|secret|god|huge|massive|massivegod] [spectator]
+--       Fabricates a CatchCinematic payload for the named cut (default massive) and
+--       FireClients it to ONLY the requesting player (or, for "spectator", with
+--       UserId=0 so THEIR OWN client takes the spectator branch instead of the
+--       thrower branch). GRANTS NOTHING. Touches no PlayerDataManager data, no
+--       inventory, no currency -- this is a visual-only remote fire, exactly the one
 --       ThrowHandler already fires for a real throw. Unknown brainrot name ->
 --       warn(), nothing fired.
 --
---   /cinceremony on|off
---       Sets the workspace attribute CinematicCeremonyAfter (boolean), which
---       CatchRevealClient already reads as a live override for
---       Config.RUN_PULL_CEREMONY_AFTER (see that file's ThrowResult handler).
---       Workspace-attribute rather than per-player so it persists across a
---       respawn within the same demo session.
---
--- "massive"/"huge"/"spectator" all set payload.__variantOverride so the demo
--- forces a specific cut regardless of Config.SIZES' CURRENT tuning (Huge is
--- "none" today, pending the owner's side-by-side pick) -- see CinematicClient's
--- own Studio debug seam for why. "hugeold" instead routes to the OLD
--- MassiveEmergence cutscene, bypassing the Takeover entirely, for the direct
--- comparison. Every payload also sets __debugNoBridge: a fabricated payload has
--- no real ThrowResult behind it, and without this the Takeover would arm the
--- Bridge, wait out Config.CANCEL_TIMEOUT for a grant that will never come, and
--- cancel the run a few seconds in -- exactly the failure a demo command must
--- not have. Both fields are Studio-only no-ops outside Studio (see
--- CinematicClient), by design: none of this is meant to run on a published
--- server, matching every other test seam in this build.
+-- The payload sets __cutOverride so the demo forces the named cut regardless of the
+-- roster's real rarity, and __debugNoBridge: a fabricated payload has no real
+-- ThrowResult behind it, and without this the Takeover would arm the Bridge, wait
+-- out Config.CANCEL_TIMEOUT for a grant that will never come, and cancel the run a
+-- few seconds in -- exactly the failure a demo command must not have. Both fields
+-- are Studio-only no-ops outside Studio (see CinematicClient), by design.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -39,24 +25,12 @@ local Workspace = game:GetService("Workspace")
 
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local cinematicRemote = remotes:WaitForChild("MassiveCinematic")
+local cinematicRemote = remotes:WaitForChild("CatchCinematic")
 
 local BrainrotConfig = require(modules:WaitForChild("BrainrotConfig"))
 local BrainrotConfigTundra = require(modules:WaitForChild("BrainrotConfigTundra"))
 local RarityConfig = require(modules:WaitForChild("RarityConfig"))
 local RarityConfigTundra = require(modules:WaitForChild("RarityConfigTundra"))
-
--- Same allowlist as AdminAnnouncements -- copied as-is, not re-derived, so the
--- two commands never drift out of sync on who counts as an admin.
-local ALLOWED_USER_IDS = { 71510820 }
-
-local function isAllowed(player: Player): boolean
-	return table.find(ALLOWED_USER_IDS, player.UserId) ~= nil
-end
-
-local function canUse(player: Player): boolean
-	return RunService:IsStudio() or isAllowed(player)
-end
 
 -- ============================== name -> rarity/colour ==============================
 -- BrainrotConfig (hub) and BrainrotConfigTundra (World 2) each carry a plain
@@ -149,28 +123,37 @@ end
 -- ============================== /cinematic ==============================
 
 local DEFAULT_NAME = "Kraken Congelato"
-local VARIANTS = { massive = true, huge = true, hugeold = true, spectator = true }
+-- /cinematic [name words...] [mythic|secret|god|huge|massive|massivegod] [spectator]
+-- The last token(s) pick the cut (default massive) and whether the caller watches as a
+-- spectator. Rarity/Size on the payload follow the cut so Config.CUT_FOR agrees with
+-- __cutOverride on the client; the roster's real rarity is used for pop-tier names.
+local CUTS = { mythic = "Mythic", secret = "Secret", god = "God", huge = "Huge", massive = "Massive", massivegod = "MassiveGod" }
 
 -- Pebble: RockConfig's own cheapest/first rock, MaxDistance 25, Color (140,140,140).
 local ROCK_ID = "Pebble"
 local ROCK_COLOR = Color3.fromRGB(140, 140, 140)
 
-local function fireCinematic(player: Player, name: string, variant: string)
+local function fireCinematic(player: Player, name: string, cut: string, spectator: boolean)
 	local endPos, surfaceY = endPosFor(player)
 	if not endPos then
 		warn("[CinematicCommand] " .. player.Name .. ": no character to throw from, nothing fired")
 		return
 	end
 
-	local rarity, color = rarityAndColorFor(name)
+	local rosterRarity, color = rarityAndColorFor(name)
+	-- Rarity/Size the cut implies (so CUT_FOR on the client agrees with the override).
+	local rarity = (cut == "God" or cut == "MassiveGod") and "God"
+		or (cut == "Secret") and "Secret" or (cut == "Mythic") and "Mythic" or rosterRarity
+	local size = (cut == "Massive" or cut == "MassiveGod") and "Massive" or (cut == "Huge") and "Huge" or nil
 
 	local payload: { [string]: any } = {
-		UserId = (variant == "spectator") and 0 or player.UserId,
+		UserId = spectator and 0 or player.UserId,
 		BrainrotName = name,
 		Rarity = rarity,
 		RarityColor = color,
 		Mutation = nil,
-		Size = "Massive",
+		Size = size,
+		Cut = cut,
 		RockId = ROCK_ID,
 		RockColor = ROCK_COLOR,
 		Seed = math.random(1, 2 ^ 30),
@@ -179,24 +162,11 @@ local function fireCinematic(player: Player, name: string, variant: string)
 		TotalTime = 0.1, -- near-immediate bonk, per task-8-brief
 		NContacts = 1,
 		SegTime = 0.1,
-		-- Studio-only debug seam CinematicClient reads -- see that file and this
+		-- Studio-only debug seams CinematicClient reads -- see that file and this
 		-- module's own header comment. Never meaningful outside Studio.
 		__debugNoBridge = true,
+		__cutOverride = cut,
 	}
-
-	if variant == "huge" then
-		payload.Size = "Huge"
-		payload.__variantOverride = "trimmed"
-	elseif variant == "hugeold" then
-		payload.Size = "Huge"
-		payload.__variantOverride = "hugeold"
-	else
-		-- "massive" and "spectator" both want the full cut, forced regardless of
-		-- Config.SIZES.Massive's current value (today "full" anyway, but the demo
-		-- command should not go quiet the moment the owner starts flipping that
-		-- tunable while comparing variants).
-		payload.__variantOverride = "full"
-	end
 
 	cinematicRemote:FireClient(player, payload)
 end
@@ -207,11 +177,16 @@ local function parseCinematic(player: Player, body: string)
 		table.insert(tokens, w)
 	end
 
-	local variant = "massive"
+	local spectator = false
+	if #tokens > 0 and string.lower(tokens[#tokens]) == "spectator" then
+		spectator = true
+		table.remove(tokens)
+	end
+	local cut = "Massive"
 	if #tokens > 0 then
 		local lastLower = string.lower(tokens[#tokens])
-		if VARIANTS[lastLower] then
-			variant = lastLower
+		if CUTS[lastLower] then
+			cut = CUTS[lastLower]
 			table.remove(tokens)
 		end
 	end
@@ -224,21 +199,9 @@ local function parseCinematic(player: Player, body: string)
 		return
 	end
 
-	fireCinematic(player, name, variant)
+	fireCinematic(player, name, cut, spectator)
 end
 
--- ============================== /cinceremony ==============================
-
-local function parseCinCeremony(player: Player, body: string)
-	local arg = string.lower(string.match(body, "%S+") or "")
-	if arg == "on" then
-		Workspace:SetAttribute("CinematicCeremonyAfter", true)
-	elseif arg == "off" then
-		Workspace:SetAttribute("CinematicCeremonyAfter", false)
-	else
-		warn("[CinematicCommand] " .. player.Name .. ": /cinceremony expects 'on' or 'off'")
-	end
-end
 
 -- ============================== chat wiring ==============================
 -- Same shape as AdminAnnouncements.parseCommand: "<command> " prefix -> body,
@@ -257,12 +220,11 @@ local function onPlayerChatted(player: Player, message: string)
 	local cinBody = stripCommand(message, "/cinematic")
 	if cinBody then
 		-- SPLIT GATE (review fix, task 8): /cinematic is Studio-only, full stop --
-		-- deliberately NOT the isAllowed() allowlist branch canUse() gives
-		-- /cinceremony below. Every seam this command depends on to be USEFUL
-		-- (__variantOverride and __debugNoBridge, both read in CinematicClient) is
-		-- itself gated on RunService:IsStudio(), so a live-server admin invocation
-		-- could only ever produce a degraded run: huge/hugeold silently no-op
-		-- (Config.SIZES.Huge is "none" today) and massive/spectator would arm the
+		-- deliberately NOT an isAllowed() allowlist branch. Every seam this command
+		-- depends on to be USEFUL (__cutOverride and __debugNoBridge, both read in
+		-- CinematicClient) is itself gated on RunService:IsStudio(), so a live-server
+		-- admin invocation could only ever produce a degraded run: the override would
+		-- silently no-op and the payload would arm the
 		-- REAL Bridge (skipBridge never engages outside Studio) and hard-cancel
 		-- ~3s in waiting for a ThrowResult that will never come. Worse than merely
 		-- degraded: arming the real Bridge on a live server opens a genuine
@@ -276,19 +238,6 @@ local function onPlayerChatted(player: Player, message: string)
 		-- fallback -- unreachable on a published server even for an admin.
 		if RunService:IsStudio() then
 			parseCinematic(player, cinBody)
-		end
-		return
-	end
-
-	local ceremonyBody = stripCommand(message, "/cinceremony")
-	if ceremonyBody then
-		-- /cinceremony only ever flips the cosmetic workspace attribute
-		-- CinematicCeremonyAfter, which the REAL catch pipeline's
-		-- CatchRevealClient reads -- no MassiveCinematic fire, no Bridge contact,
-		-- so the live-server admin allowlist (canUse -- IsStudio() OR isAllowed())
-		-- stays safe to keep here.
-		if canUse(player) then
-			parseCinCeremony(player, ceremonyBody)
 		end
 		return
 	end
