@@ -43,3 +43,18 @@ def test_contact_sheet_writes_files(tmp_path):
     names = sorted(p.name for p in paths)
     assert names == ["contact_sheet.png", "sample.png"]
     assert all(p.stat().st_size > 0 for p in paths)
+
+
+def test_vertex_colours_darken_and_compare_sheet(tmp_path):
+    m, meshes = sample()
+    dark = {k: v for k, v in meshes.items()}
+    from brainrot_forge.bake import Mesh
+    body = meshes["body"]
+    darker = Mesh("body", list(body.positions), list(body.normals), list(body.uvs), list(body.indices), [(0.5, 0.5, 0.5)] * len(body.positions))
+    dark["body"] = darker
+    bright = list(R.render_model(m, meshes, size=128).get_flattened_data())
+    dim = list(R.render_model(m, dark, size=128).get_flattened_data())
+    body = [i for i, p in enumerate(bright) if p != R.SKY]          # compare drawn pixels only, not the sky
+    assert body and sum(dim[i][0] for i in body) < sum(bright[i][0] for i in body) * 0.7
+    paths = R.compare_sheet([(m, meshes, m, dark)], tmp_path, "batch1", per_sheet=6)
+    assert [p.name for p in paths] == ["batch1_sheet1.png"] and paths[0].stat().st_size > 0

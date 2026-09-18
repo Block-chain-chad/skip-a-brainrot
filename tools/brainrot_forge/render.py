@@ -46,7 +46,11 @@ def _triangles(model: VoxelModel, meshes: dict[str, Mesh]):
         rgb = _hex_rgb(model.palette[role])
         for i in range(0, len(mesh.indices), 3):
             ids = mesh.indices[i:i + 3]
-            yield [mesh.positions[j] for j in ids], mesh.normals[ids[0]], rgb
+            colour = rgb
+            if mesh.colors is not None:
+                k = mesh.colors[ids[0]]
+                colour = (rgb[0] * k[0], rgb[1] * k[1], rgb[2] * k[2])
+            yield [mesh.positions[j] for j in ids], mesh.normals[ids[0]], colour
 
 
 def _project(model, meshes, size_px, height_px=None, dir=DEFAULT_DIR):
@@ -136,4 +140,27 @@ def contact_sheet(batch, out_dir) -> list[Path]:
     p = out_dir / "contact_sheet.png"
     sheet.save(p)
     paths.append(p)
+    return paths
+
+
+def compare_sheet(pairs, out_dir, prefix: str, per_sheet: int = 6) -> list[Path]:
+    """Rows of before (exact colours) | after (representative colours) | after at pad distance."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for s in range(0, len(pairs), per_sheet):
+        chunk = pairs[s:s + per_sheet]
+        sheet = Image.new("RGB", (300 + 300 + 220, 300 * len(chunk)), SKY)
+        d = ImageDraw.Draw(sheet)
+        for i, (bm, bk, am, ak) in enumerate(chunk):
+            y = 300 * i
+            sheet.paste(render_model(bm, bk, 300), (0, y))
+            sheet.paste(render_model(am, ak, 300), (300, y))
+            sheet.paste(render_plot_tile(am, ak), (610, y + 50))
+            d.text((6, y + 4), f"{am.name}: BEFORE (parts, exact)", fill=(20, 20, 30))
+            d.text((306, y + 4), "AFTER (mesh, flat colours = worst case)", fill=(20, 20, 30))
+            d.text((614, y + 30), "pad distance", fill=(20, 20, 30))
+        p = out_dir / f"{prefix}_sheet{s // per_sheet + 1}.png"
+        sheet.save(p)
+        paths.append(p)
     return paths

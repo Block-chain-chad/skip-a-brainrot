@@ -17,7 +17,7 @@ from . import __version__
 from .bake import Mesh, triangle_report
 from .voxel import VoxelModel
 
-Batch = list[tuple[VoxelModel, dict[str, Mesh]]]
+Batch = list[tuple[VoxelModel, dict[str, Mesh]]]   # or ConvertedModel: same duck-typed fields plus the manifest extras
 
 _MAGIC = 0x46546C67
 _JSON = 0x4E4F534A
@@ -78,18 +78,22 @@ def write_glb(path: str | Path, batch: Batch, flip_z: bool = False, roblox_forwa
             p_blob = b"".join(struct.pack("<3f", *p) for p in pos)
             n_blob = b"".join(struct.pack("<3f", *n) for n in nrm)
             t_blob = b"".join(struct.pack("<2f", *uv) for uv in mesh.uvs)
+            c_blob = b"".join(struct.pack("<3f", *c) for c in mesh.colors) if mesh.colors is not None else None
             i_blob = struct.pack(f"<{len(idx)}I", *idx)
             lo = [min(p[k] for p in pos) for k in range(3)]
             hi = [max(p[k] for p in pos) for k in range(3)]
             a_pos = accessor(view(p_blob, _ARRAY_BUFFER), _FLOAT, len(pos), "VEC3", lo, hi)
             a_nrm = accessor(view(n_blob, _ARRAY_BUFFER), _FLOAT, len(nrm), "VEC3")
             a_uv = accessor(view(t_blob, _ARRAY_BUFFER), _FLOAT, len(mesh.uvs), "VEC2")
+            attributes = {"POSITION": a_pos, "NORMAL": a_nrm, "TEXCOORD_0": a_uv}
+            if c_blob is not None:
+                attributes["COLOR_0"] = accessor(view(c_blob, _ARRAY_BUFFER), _FLOAT, len(mesh.colors), "VEC3")
             a_idx = accessor(view(i_blob, _ELEMENT_ARRAY_BUFFER), _UINT, len(idx), "SCALAR")
             r, g, b = srgb_to_linear(model.palette[role])
             materials.append({"name": name, "pbrMetallicRoughness": {
                 "baseColorFactor": [r, g, b, 1.0], "metallicFactor": 0.0, "roughnessFactor": 1.0}})
             meshes.append({"name": name, "primitives": [{
-                "attributes": {"POSITION": a_pos, "NORMAL": a_nrm, "TEXCOORD_0": a_uv},
+                "attributes": attributes,
                 "indices": a_idx, "material": len(materials) - 1, "mode": 4}]})
             nodes.append({"name": name, "mesh": len(meshes) - 1})
 
@@ -140,6 +144,7 @@ def read_glb(path: str | Path) -> dict[str, dict]:
             "uvs": read(prim["attributes"]["TEXCOORD_0"]),
             "indices": read(prim["indices"]),
             "color": tuple(color),
+            "colors": read(prim["attributes"]["COLOR_0"]) if "COLOR_0" in prim["attributes"] else None,
         }
     return out
 
@@ -157,6 +162,11 @@ def build_manifest(batch: Batch, roblox_forward: bool = True) -> dict:
             "heightScale": model.height_scale, "widthScale": model.width_scale,
             "motion": model.motion, "material": model.material, "fx": model.fx,
             "bbox": [w, h, d], "triangles": tris, "totalTriangles": sum(tris.values()),
+            "attributes": dict(getattr(model, "attributes", {}) or {}),
+            "materials": dict(getattr(model, "materials", None) or {role: model.material for role in role_meshes}),
+            "poseRotation": list(model.pose_rotation) if getattr(model, "pose_rotation", None) else None,
+            "poseCentre": list(model.pose_centre) if getattr(model, "pose_centre", None) else None,
+            "vertexColors": bool(getattr(model, "vertex_colors", False)),
         }
     return {"version": 1, "generator": f"brainrot_forge {__version__}", "pitch": pitch,
             "robloxForward": roblox_forward, "models": models}

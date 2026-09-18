@@ -125,3 +125,31 @@ def test_manifest_records_roblox_forward():
     m = cube()
     assert G.build_manifest(batch_of(m))["robloxForward"] is True
     assert G.build_manifest(batch_of(m), roblox_forward=False)["robloxForward"] is False
+
+
+def test_color0_round_trip_and_manifest_extras(tmp_path):
+    m = cube("V")
+    meshes = bake(m)
+    mesh = meshes["body"]
+    mesh.colors = [(1.0, 0.5, 0.25)] * len(mesh.positions)
+    path = tmp_path / "vc.glb"
+    G.write_glb(path, [(m, meshes)], roblox_forward=False)
+    node = G.read_glb(path)["V__body"]
+    assert node["colors"] == [(1.0, 0.5, 0.25)] * len(mesh.positions)
+    plain = tmp_path / "plain.glb"
+    G.write_glb(plain, batch_of(cube()), roblox_forward=False)
+    assert G.read_glb(plain)["T__body"]["colors"] is None
+
+    class Converted:  # the ConvertedModel shape, minimal
+        name = "Conv"; rarity = "Secret"; world = "Tundra"; pitch = 0.2; motion = "hover"; material = "Plastic"
+        palette = {"c00": "#FF0000"}; materials = {"c00": "Neon"}; attributes = {"Tier": "Secret", "HeightScale": 1.46}
+        fx = True; pose_rotation = (0, 0, 1, 0, 1, 0, -1, 0, 0); pose_centre = (1.0, 2.0, 3.0); vertex_colors = True
+        height_scale = 1.46; width_scale = 1.0
+        def size_studs(self): return (1.0, 1.0, 1.0)
+    cm = Converted()
+    man = G.build_manifest([(cm, {"c00": mesh})])
+    e = man["models"]["Conv"]
+    assert e["materials"] == {"c00": "Neon"} and e["attributes"]["Tier"] == "Secret" and e["fx"] is True
+    assert e["poseRotation"] == [0, 0, 1, 0, 1, 0, -1, 0, 0] and e["poseCentre"] == [1.0, 2.0, 3.0] and e["vertexColors"] is True
+    pilot = G.build_manifest(batch_of(cube()))["models"]["T"]
+    assert pilot["materials"] == {"body": "Plastic"} and pilot["attributes"] == {} and pilot["poseRotation"] is None and pilot["vertexColors"] is False
