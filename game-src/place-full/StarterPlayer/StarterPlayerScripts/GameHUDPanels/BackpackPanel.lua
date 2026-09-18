@@ -3443,6 +3443,7 @@ function BackpackPanel.Build(ctx)
 		local search = SearchBar.new({
 			placeholder = "SEARCH...", width = SEARCH_W, height = 36, parent = headRight, zIndex = 15, layoutOrder = 0,
 			onChanged = function(q)
+				if q == searchQuery then return end -- set() re-emits the same query on every re-render
 				searchQuery = q
 				if gridUi.fill then gridUi.fill() end
 			end,
@@ -3585,6 +3586,7 @@ function BackpackPanel.Build(ctx)
 				})
 				card.Activated:Connect(function()
 					newUids[e.Uid] = nil
+					card.setState({ new = false }) -- clear the NEW badge locally, plot-full branch included
 					if countPlaced() < plotState.Unlocked then
 						remotes.EquipBrainrot:FireServer(e.Uid)
 					else
@@ -5190,11 +5192,15 @@ function BackpackPanel.Build(ctx)
 
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
 		setBlur(wrapper.Visible)
-		if not wrapper.Visible and gridUi.culler then
+		if not wrapper.Visible then
 			-- 2026-09-18: a hidden Bag holds no live viewports and no culler
-			-- connections; reopening re-renders the tab and re-attaches
-			gridUi.culler.detach()
-			gridUi.culler = nil
+			-- connections; reopening re-renders the tab and re-attaches. A search
+			-- debounce landing after close must not rebuild a hidden grid either.
+			gridUi.fill = nil
+			if gridUi.culler then
+				gridUi.culler.detach()
+				gridUi.culler = nil
+			end
 		end
 		if wrapper.Visible then
 			renderActiveTab()

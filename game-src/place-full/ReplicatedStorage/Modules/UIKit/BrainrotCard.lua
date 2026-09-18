@@ -53,6 +53,9 @@ local UNLIT_PIP = Color3.fromHex("39414F")
 local RAINBOW_INK = Color3.fromHex("12060C")
 local NEW_RED = Color3.fromHex("FF3D6E")
 local INK_DARK = Color3.fromHex("10141C")
+-- touch has no hover: a press held this long is an INSPECT (HoverStart), never a
+-- tap -- the same 0.35 s the Bag's old wireCardHit used (2026-08-19 touch fix)
+local LONG_PRESS = 0.35
 
 local warned: { [string]: boolean } = {}
 local function warnOnce(key: string, msg: string)
@@ -545,6 +548,8 @@ function BrainrotCard.new(props: Props): Card
 	hit.Parent = plate
 
 	local isDown = false
+	local pressToken = 0 -- touch long-press: bumps per press so a stale delay never fires
+	local longPressed = false -- touch: the current press became an inspect
 	local function release()
 		isDown = false
 		if hovering then moveTo(LIFT, S.Tween.HoverIn) else moveTo(REST, S.Tween.HoverOut) end
@@ -557,6 +562,9 @@ function BrainrotCard.new(props: Props): Card
 		hoverStartEv:Fire()
 	end)
 	hit.MouseLeave:Connect(function()
+		-- touch: the inspect state is owned by the press logic below; a touch-end
+		-- MouseLeave must not cancel it the instant the finger lifts
+		if touchOnly then return end
 		local wasHovering = hovering
 		hovering = false
 		if lockBtn and state.locked ~= true and not touchOnly then lockBtn.Visible = false end
@@ -569,12 +577,31 @@ function BrainrotCard.new(props: Props): Card
 		isDown = true
 		pressedRelease = release
 		moveTo(SINK, S.Tween.Press)
+		if touchOnly then
+			if longPressed then
+				-- a new press ends the previous inspect
+				longPressed = false
+				hovering = false
+				if lockBtn and state.locked ~= true then lockBtn.Visible = true end -- touch keeps it visible (subdued)
+				hoverEndEv:Fire()
+			end
+			pressToken += 1
+			local my = pressToken
+			task.delay(LONG_PRESS, function()
+				if isDown and my == pressToken and cell.Parent then
+					longPressed = true
+					hovering = true
+					hoverStartEv:Fire()
+				end
+			end)
+		end
 	end)
 	hit.MouseButton1Up:Connect(function()
 		if pressedRelease == release then pressedRelease = nil end
 		release()
 	end)
 	hit.Activated:Connect(function()
+		if touchOnly and longPressed then return end -- a long press is an inspect, never an equip
 		activatedEv:Fire()
 	end)
 
