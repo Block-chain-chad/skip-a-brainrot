@@ -12,6 +12,7 @@ local S = require(script.Parent.SpecTheme)
 local PC = require(script.Parent.PanelChrome)
 local UI = require(script.Parent.Builders)
 local SoundKit = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("SoundKit"))
+local soundWarned = false
 
 export type Tab = { id: string, text: string, icon: string? }
 export type Props = {
@@ -180,7 +181,11 @@ function TabBar.new(props: Props): Api
 		btn.MouseEnter:Connect(function() if not touchOnly then pop(1.12) end end)
 		btn.MouseLeave:Connect(function() pop(1) end)
 		btn.Activated:Connect(function()
-			pcall(SoundKit.play, S.Sound.Click, nil, { volume = 0.12 })
+			local ok, err = pcall(SoundKit.play, S.Sound.Click, nil, { volume = 0.12 })
+			if not ok and not soundWarned then
+				soundWarned = true
+				warn(("[UIKit] TabBar click sound failed (further failures not logged): %s\n%s"):format(tostring(err), debug.traceback()))
+			end
 			select(tab.id, true)
 		end)
 		btn:SetAttribute("SfxWired", true)

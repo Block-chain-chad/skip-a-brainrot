@@ -41,7 +41,10 @@ function SortButton.new(props: Props): Api
 			local i = index[id]
 			if i then seg.set(i) end
 		end,
-		get = function() return props.modes[seg.get()].id end,
+		get = function()
+			local m = props.modes[seg.get()]
+			return if m then m.id else ""
+		end,
 		destroy = function() seg.root:Destroy() end,
 	}
 end

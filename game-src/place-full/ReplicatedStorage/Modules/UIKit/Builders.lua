@@ -13,6 +13,9 @@ local T = require(script.Parent.Tokens)
 -- built here and restyled elsewhere still gets exactly ONE click connection.
 local RunService = game:GetService("RunService")
 local SoundKit = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("SoundKit"))
+-- Platform is a LEAF too (it requires nothing), so the same no-cycle argument
+-- above covers it. Read only by UI.touchMin.
+local Platform = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Platform"))
 local CLICK_VOLUME = 0.12
 local function wireClick(btn: GuiButton, soundName: string?)
 	if not RunService:IsClient() then return end
@@ -137,10 +140,21 @@ function UI.label(parent: Instance, text: string, styleKey: string, color: Color
 	l.RichText = false
 	l.TextXAlignment = Enum.TextXAlignment.Left
 	l.AutomaticSize = Enum.AutomaticSize.XY
+	-- 2026-08-19: own our own text, the same contract PanelChrome.read and
+	-- PanelChrome.shout already keep. Without it UIPolish force-sets every one of
+	-- these labels to pure white + FredokaOne on the next frame, which white-outs the
+	-- dark ink the PS99 light cards are designed around and throws away the colour the
+	-- caller passed (Booth's blue prices, the Egg Shop's rarity tints). ~144 labels
+	-- across Booth, Trade, Egg Shop, Backpack, Charms, Goals, Daily, Index and Pass.
+	-- Must be set BEFORE .Parent: UIPolish polishes on DescendantAdded.
+	l:SetAttribute("NoPolish", true)
 	l.Parent = parent
-	if spec[2] > 0 and lum(l.TextColor3) > 0.5 then
+	-- Gate widened from `spec[2] > 0` to any LIGHT fill, floor 2px: UIPolish is no
+	-- longer the safety net, so a white label on a dark row must carry its own outline
+	-- even in the strokeless "meta" style (T.text.meta = {14, 0}).
+	if lum(l.TextColor3) > 0.5 then
 		local s = Instance.new("UIStroke")
-		s.Thickness = spec[2]
+		s.Thickness = math.max(spec[2], 2)
 		s.Color = T.color.outline
 		s.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 		s.LineJoinMode = Enum.LineJoinMode.Round
@@ -230,30 +244,73 @@ function UI.button(parent: Instance, text: string, variant: string, size: UDim2,
 	-- detect external repositioning) -- that one tween will animate off the
 	-- stale `rest` instead of the new position. Considered acceptable: no
 	-- caller in this codebase repositions buttons post-hover today.
+	--
+	-- ⚠️ TOUCH FIX (2026-08-18, caught by watching a live phone session). The
+	-- capture above used to live ONLY in MouseEnter, on the assumption that a
+	-- pointer always hovers before it presses. THERE IS NO HOVER ON TOUCH: a
+	-- tap fires MouseButton1Down FIRST, with `rest` still nil, so the tween
+	-- threw "UDim2 expected, got nil" -- and MouseEnter then arrived with
+	-- pressed=true, skipped its own capture, and threw again. Every kit button
+	-- in the game errored on every tap and had NO press feedback on phones;
+	-- desktop never saw it because hover always lands first there.
+	-- restPos() captures on whichever handler fires first. Safe in all orders:
+	-- it only reads b.Position while the button is still at rest (no tween has
+	-- been applied yet on the first event), which is the same instant the old
+	-- MouseEnter capture used.
 	local TweenService = game:GetService("TweenService")
 	local rest = nil
 	local hovered, pressed = false, false
+	local function restPos(): UDim2
+		if not rest then rest = b.Position end
+		return rest
+	end
+	-- PHANTOM HOVER (2026-08-19). Roblox DOES fire MouseEnter on a touch tap --
+	-- just AFTER MouseButton1Down, not before it. So on a phone the untreated
+	-- sequence was: Down sinks the button, MouseEnter immediately cancels that
+	-- into a LIFT (the opposite of press feedback), Up then reads hovered==true
+	-- and targets the lifted position, and the settle below -- gated on
+	-- `not hovered` -- never ran. Every kit button a phone player tapped parked
+	-- 2px above its neighbours for the rest of the session, shadow and all.
+	-- A touch device has no true hover state to preserve, so refuse the signal.
+	local UserInputService = game:GetService("UserInputService")
+	local TOUCH_ONLY = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 	if variant ~= "disabled" then
 		b.MouseEnter:Connect(function()
+			if TOUCH_ONLY then
+				restPos() -- still capture rest; just never enter the hover state
+				return
+			end
 			if not hovered and not pressed then
 				rest = b.Position
 			end
 			hovered = true
-			TweenService:Create(b, T.tween.hover, { Position = rest - UDim2.fromOffset(0, 2) }):Play()
+			TweenService:Create(b, T.tween.hover, { Position = restPos() - UDim2.fromOffset(0, 2) }):Play()
 		end)
 		b.MouseLeave:Connect(function()
 			hovered = false
-			TweenService:Create(b, T.tween.hover, { Position = rest }):Play()
+			TweenService:Create(b, T.tween.hover, { Position = restPos() }):Play()
 		end)
 		b.MouseButton1Down:Connect(function()
 			pressed = true
-			TweenService:Create(b, T.tween.press, { Position = rest + UDim2.fromOffset(0, 2) }):Play()
+			TweenService:Create(b, T.tween.press, { Position = restPos() + UDim2.fromOffset(0, 2) }):Play()
 		end)
 		b.MouseButton1Up:Connect(function()
 			pressed = false
 			TweenService:Create(b, T.tween.press, {
-				Position = if hovered then rest - UDim2.fromOffset(0, 2) else rest,
+				Position = if hovered then restPos() - UDim2.fromOffset(0, 2) else restPos(),
 			}):Play()
+		end)
+		-- On touch the pointer never leaves, so MouseLeave may never fire after a
+		-- tap: without this the button would sit 2px sunk forever. TouchTap does
+		-- not fire on GuiButtons, so settle off the Up edge instead.
+		b.MouseButton1Up:Connect(function()
+			if not hovered then
+				task.delay(T.tween.press.Time, function()
+					if not hovered and not pressed and b.Parent then
+						b.Position = restPos()
+					end
+				end)
+			end
 		end)
 	end
 	-- disabled variants stay silent: a dead control that clicks reads as a bug
@@ -414,6 +471,102 @@ function UI.rainbowRing(card: GuiObject, radius: number?): Frame
 end
 
 -- Red notification pill. `value` is coerced to a string (e.g. "3", "9+").
+-- THE 44px TOUCH FLOOR IS IN SCREEN PIXELS, AND DESIGN PIXELS ARE NOT SCREEN
+-- PIXELS (2026-08-25). Every panel in this game sits under a UIScale, so a
+-- control authored at exactly Roblox's 44px minimum does not render at 44.
+-- Measured on a phone-classed client: the daily CLAIM pill is written 44 tall
+-- and came out 42x33; the bag's sort buttons 71x27; the settings toggles 78x32
+-- and its rarity chips 53x33. All of them read as "already handled" in the
+-- source, and none of them were.
+--
+-- The deficit depends on whatever UIScale chain is in force, which depends on
+-- the viewport, so no constant can express it. This solves for the DESIGN size
+-- that lands on `minPx` from what the control actually rendered, and re-solves
+-- when the viewport changes.
+--
+-- It grows the control ITSELF rather than laying an invisible pad over it. A
+-- pad would sit on top of the button and swallow the very clicks its owner is
+-- connected to, so every caller would have to hand its handler over to be
+-- re-fired -- and callers with drag behaviour could not be served at all.
+-- Growing is also the honest result: these are chips, pills and toggles, and
+-- at the size they are meant to be TAPPED at they also read better.
+--
+-- No-op off touch, so desktop and console keep the authored sizes exactly.
+-- `onSettled` fires after the size is applied, for callers that need to build
+-- on the final size (DailyPanel's pulse tween starts from it).
+function UI.touchMin(gui: GuiObject, minPx: number?, onSettled: ((GuiObject) -> ())?): GuiObject
+	if not Platform.IsTouch then
+		if onSettled then onSettled(gui) end
+		return gui
+	end
+	local floorPx = minPx or 44
+	local base = gui.Size
+	-- Read the scale off the ANCESTRY rather than inferring it from AbsoluteSize:
+	-- a Size with a Scale component cannot be divided back out of what rendered.
+	local function chainScale(): number
+		local s: number, o: Instance? = 1, gui
+		while o and not o:IsA("ScreenGui") do
+			if o:IsA("GuiObject") then
+				local us = o:FindFirstChildOfClass("UIScale")
+				if us then s *= us.Scale end
+			end
+			o = o.Parent
+		end
+		return s
+	end
+	-- CONVERGE, DO NOT CALCULATE (2026-08-25). Solving the growth in one shot from
+	-- chainScale() landed consistently short -- 43.50 on the settings controls,
+	-- 43.85 on the bag pills, 29.73 against a target of 30. The cause is that
+	-- **UDim.Offset is an INTEGER**: the exact design size that would render at 44
+	-- is fractional (40.37, 59.2), and assigning it truncates DOWN, every time, on
+	-- every control. Hence math.ceil on the assignment -- rounding down is the one
+	-- direction a floor may never go.
+	--
+	-- The loop stays regardless: chainScale sizes the STEP, and re-measuring what
+	-- actually rendered is correct whatever the chain turns out to be doing (a
+	-- layout may still be settling when the first measurement is taken). Ceiling
+	-- alone converges on the first pass; the loop is what proves it did.
+	local function solve()
+		if not gui.Parent then return end
+		-- back to the authored size first, or a second solve would compound the
+		-- first one's growth on top of itself
+		gui.Size = base
+		task.wait() -- the reset has to render before it can be measured
+		for _ = 1, 4 do
+			if not gui.Parent then return end
+			local a = gui.AbsoluteSize
+			if a.X < 1 or a.Y < 1 then return end
+			local needX = math.max(floorPx - a.X, 0)
+			local needY = math.max(floorPx - a.Y, 0)
+			if needX < 0.01 and needY < 0.01 then break end
+			local cs = chainScale()
+			if cs < 0.01 then return end
+			local sz = gui.Size
+			gui.Size = UDim2.new(
+				sz.X.Scale, math.ceil(sz.X.Offset + needX / cs),
+				sz.Y.Scale, math.ceil(sz.Y.Offset + needY / cs))
+			task.wait()
+		end
+		if onSettled then onSettled(gui) end
+	end
+	task.spawn(solve)
+	local cam = workspace.CurrentCamera
+	if cam then
+		local conn: RBXScriptConnection
+		conn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			if not gui.Parent then
+				conn:Disconnect()
+				return
+			end
+			task.spawn(solve)
+		end)
+		gui.Destroying:Connect(function()
+			conn:Disconnect()
+		end)
+	end
+	return gui
+end
+
 function UI.badge(parent: Instance, value: string | number): Frame
 	local b = Instance.new("Frame")
 	b.Name = "Badge"
@@ -483,7 +636,14 @@ function UI.ribbon(parent: Instance, text: string, variant: string): Frame
 	local l = Instance.new("TextLabel")
 	l.Name = "Text"
 	l.BackgroundTransparency = 1
-	l.Size = UDim2.fromScale(1, 1)
+	-- 2026-08-19: the pill is AutomaticSize.X, and a Scale-sized child contributes
+	-- NOTHING to a parent's automatic content size -- so the pill measured only its own
+	-- 10+10 padding (20px) while the centred caption kept painting at its true width.
+	-- "LEGENDARY" (75px) therefore spilled out of a 20px pill and got sliced by the
+	-- card's ClipsDescendants. Measure in X, still fill in Y so callers can set the
+	-- pill height. (UI.badge's MinSize(30,30) was an earlier patch for this same bug.)
+	l.Size = UDim2.new(0, 0, 1, 0)
+	l.AutomaticSize = Enum.AutomaticSize.X
 	l.Text = text
 	l.TextColor3 = T.color.white
 	l.TextSize = T.text.chip[1]
