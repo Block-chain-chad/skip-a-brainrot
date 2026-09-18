@@ -217,12 +217,89 @@ end
 -- camera back a little further so the silhouette never grazes the frame edge. It must be
 -- >= 1 -- a value below 1 moves the camera CLOSER and reintroduces the cropping.
 local MARGIN = 1.10
-function M.framing(model, fov)
+function M.framingSphere(model, fov)
 	fov = fov or 30
 	local cf, ext = model:GetBoundingBox()
 	local radius = ext.Magnitude * 0.5
 	local dist = radius / math.sin(math.rad(fov * 0.5)) * MARGIN
 	return cf.Position, dist
+end
+
+-- PROJECTED-CORNER FRAMING (2026-09-18 UI foundation, spec §8.1). The sphere fit above
+-- is right for a SPINNING model, but a card looks from ONE fixed direction, and there
+-- the sphere over-reserves: a tall narwhal, a wide hammerhead and a two-character group
+-- all get different perceived sizes because only their space diagonals match. Framing
+-- the eight bounding-box corners against the viewport's own aspect gives every
+-- silhouette the same perceived fill. For each corner the distance that keeps it inside
+-- `fill` of the frame on its axis is closed-form,
+--     d = |lateral| / (fill * tan(halfAngle)) + along
+-- (along = how far the corner sits toward the camera from the look-at), the camera
+-- takes the max over all corners and both axes, then ONE re-centring pass shifts the
+-- look-at so the projected extents are centred (optical centre, not box centre). The
+-- Gallery's framing set prints the residual per model.
+-- opts = { dir = world view direction (camera sits at centre + dir * dist),
+--          aspect = viewport width / height, fill = 0..1 (0.70 for cards) }
+local MIN_FILL, MAX_FILL = 0.3, 0.95
+function M.framingBox(model, fov, opts)
+	fov = fov or 30
+	opts = opts or {}
+	local cf, ext = model:GetBoundingBox()
+	local dir = opts.dir or DEFAULT_DIR
+	local aspect = math.max(0.2, opts.aspect or 1)
+	local fill = math.clamp(opts.fill or 0.70, MIN_FILL, MAX_FILL)
+	local look = -dir
+	local right = look:Cross(Vector3.yAxis)
+	if right.Magnitude < 1e-4 then right = Vector3.xAxis else right = right.Unit end
+	local up = right:Cross(look).Unit
+	local tanV = math.tan(math.rad(fov * 0.5))
+	local tanH = tanV * aspect
+	local hx, hy, hz = ext.X * 0.5, ext.Y * 0.5, ext.Z * 0.5
+	local corners = {}
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sy in ipairs({ -1, 1 }) do
+			for _, sz in ipairs({ -1, 1 }) do
+				table.insert(corners, cf:PointToWorldSpace(Vector3.new(sx * hx, sy * hy, sz * hz)))
+			end
+		end
+	end
+	local centre = cf.Position
+	local function solve(c0)
+		local dist = 0
+		for _, q in ipairs(corners) do
+			local w = q - c0
+			local along = w:Dot(dir)
+			local x, y = w:Dot(right), w:Dot(up)
+			dist = math.max(dist, math.abs(x) / (fill * tanH) + along, math.abs(y) / (fill * tanV) + along)
+		end
+		return math.max(dist, ext.Magnitude * 0.25)
+	end
+	local dist = solve(centre)
+	-- one re-centring pass on the projected extents
+	local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
+	for _, q in ipairs(corners) do
+		local w = q - centre
+		local depth = dist - w:Dot(dir)
+		if depth > 1e-3 then
+			local px, py = w:Dot(right) / depth, w:Dot(up) / depth
+			minX, maxX = math.min(minX, px), math.max(maxX, px)
+			minY, maxY = math.min(minY, py), math.max(maxY, py)
+		end
+	end
+	if minX < maxX and minY < maxY then
+		local midX, midY = (minX + maxX) * 0.5, (minY + maxY) * 0.5
+		centre = centre + right * (midX * dist) + up * (midY * dist)
+		dist = solve(centre)
+	end
+	return centre, dist
+end
+
+-- Dispatcher. `opts.fill` selects the box fit (cards); no opts (every pre-2026-09-18
+-- caller) or `opts.spin` (an orbiting camera must fit every angle) keeps the sphere.
+function M.framing(model, fov, opts)
+	if type(opts) == "table" and opts.fill and not opts.spin then
+		return M.framingBox(model, fov, opts)
+	end
+	return M.framingSphere(model, fov)
 end
 
 -- Returns the ViewportFrame, or nil when there is no model for that name, so
@@ -286,7 +363,6 @@ function M.addMaster(parent, master, opts)
 	-- models range from under 5 studs to over 30, so one fixed distance would
 	-- crop the big ones and shrink the small ones to a dot.
 	local fov = opts.fov or 30
-	local centre, dist = M.framing(m, fov)
 	-- Aim RELATIVE TO THE MODEL'S PIVOT, not world axes. The pack models share one
 	-- local convention (front = local -Z), but a chunk of them were imported with
 	-- their pivot yawed 180 (Frigo Camelo, Gattatino Nyanino, ... all have a 180 spin
@@ -301,6 +377,19 @@ function M.addMaster(parent, master, opts)
 	if opts.faceYaw and opts.faceYaw ~= 0 then
 		dir = CFrame.fromAxisAngle(Vector3.yAxis, math.rad(opts.faceYaw)) * dir
 	end
+	-- 2026-09-18: the aim is computed BEFORE framing now, because the box fit
+	-- (opts.fill, cards) needs the real view direction and the viewport's aspect.
+	-- Callers without opts.fill get the sphere fit exactly as before.
+	local fitOpts = nil
+	if opts.fill then
+		local aspect = opts.aspect
+		if not aspect then
+			local abs = vp.AbsoluteSize
+			aspect = if abs.Y > 0 then abs.X / abs.Y else 1
+		end
+		fitOpts = { dir = dir, aspect = aspect, fill = opts.fill }
+	end
+	local centre, dist = M.framing(m, fov, fitOpts)
 	local cam = Instance.new("Camera")
 	cam.FieldOfView = fov
 	cam.CFrame = CFrame.lookAt(centre + dir * dist, centre)
