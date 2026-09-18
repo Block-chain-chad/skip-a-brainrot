@@ -78,11 +78,13 @@ function M.AssembleOne(root, name, entry, opts)
 			local okCF = pcall(function() p.CollisionFidelity = Enum.CollisionFidelity.Box end)
 			if not okCF then warn("BrainrotForge: could not set CollisionFidelity on " .. partName .. " (set it by hand in Properties)") end
 		end
-		if tile then
+		local matName = (entry.materials and entry.materials[role]) or (entry.material == "SmoothPlastic" and "SmoothPlastic") or "Plastic"
+		if matName == "Plastic" and tile then
 			p.Material = Enum.Material.Plastic       -- BrainrotTile.BaseMaterial; a variant is ignored on any other Material
 			p.MaterialVariant = M.TILE_VARIANT
 		else
-			p.Material = Enum.Material.SmoothPlastic
+			local okM = pcall(function() p.Material = Enum.Material[matName] end)
+			if not okM then p.Material = Enum.Material.SmoothPlastic end
 			p.MaterialVariant = ""
 		end
 		flags(p)
@@ -99,6 +101,15 @@ function M.AssembleOne(root, name, entry, opts)
 			if p:IsA("BasePart") then p.CFrame = turn * p.CFrame end
 		end
 	end
+	if entry.poseRotation and entry.poseCentre then
+		-- re-apply the rigid rotation unpose() removed for the bake, about the same pivot
+		local r, c = entry.poseRotation, entry.poseCentre
+		local R = CFrame.new(0, 0, 0, r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9])
+		local pose = CFrame.new(c[1], c[2], c[3]) * R * CFrame.new(-c[1], -c[2], -c[3])
+		for _, p in ipairs(model:GetChildren()) do
+			if p:IsA("BasePart") then p.CFrame = pose * p.CFrame end
+		end
+	end
 	local cf, size = model:GetBoundingBox()
 	local rootPart = Instance.new("Part")
 	rootPart.Name = "RootPart"
@@ -108,6 +119,9 @@ function M.AssembleOne(root, name, entry, opts)
 	flags(rootPart)
 	rootPart.Parent = model
 	model.PrimaryPart = rootPart
+	for k, v in pairs(entry.attributes or {}) do
+		if k ~= "FxVersion" then model:SetAttribute(k, v) end -- FxVersion is BrainrotFX.apply's to set
+	end
 	model:SetAttribute("HeightScale", entry.heightScale or 1)
 	model:SetAttribute("WidthScale", entry.widthScale or 1)
 	if entry.fx and opts.fx ~= false then
@@ -133,7 +147,9 @@ function M.Assemble(root, manifestJson, opts)
 	for _, name in ipairs(names) do
 		local entry = manifest.models[name]
 		local existing = folder:FindFirstChild(name)
-		if existing and not opts.replace then
+		if name:sub(1, 12) == "__ForgeProbe" then
+			print("BrainrotForge: probe " .. name .. " left in the import group (not a template)")
+		elseif existing and not opts.replace then
 			errors[name] = "a template named " .. name .. " already exists; pass { replace = true } to back it up and replace"
 		else
 			-- remember the imported parts so a failure can put them back exactly as they were
@@ -147,8 +163,15 @@ function M.Assemble(root, manifestJson, opts)
 					local backups = ServerStorage:FindFirstChild(M.BACKUP_FOLDER) or Instance.new("Folder")
 					backups.Name = M.BACKUP_FOLDER
 					backups.Parent = ServerStorage
-					existing.Name = ("BrainrotForge_%s_%s"):format(name, os.date("%Y-%m-%d"))
-					existing.Parent = backups
+					if given.backupFolder then
+						local sub = backups:FindFirstChild(given.backupFolder) or Instance.new("Folder")
+						sub.Name = given.backupFolder
+						sub.Parent = backups
+						existing.Parent = sub            -- keeps its own name inside the batch folder
+					else
+						existing.Name = ("BrainrotForge_%s_%s"):format(name, os.date("%Y-%m-%d"))
+						existing.Parent = backups
+					end
 				end
 				result.Parent = folder
 				models[name] = result
