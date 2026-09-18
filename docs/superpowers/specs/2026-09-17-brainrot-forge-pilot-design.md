@@ -128,3 +128,21 @@ Three entries appended inside their tier blocks in `ReplicatedStorage.Modules.Br
 
 - Converting the 66 existing voxel models (the forest set can go straight from its `.glb` files; the Tundra/fish sets from Part dumps via an `ingest_parts` step — same bake).
 - World 3 (Gardens) roster; effects at Common–Epic; any change to spawner / idle / mutation / thumbnail code; the stale `game-src/README.md` and lexicon rewrite (flagged in the standard).
+
+---
+
+# Phase 2 — convert the 66 Part-built originals (approved 2026-09-17)
+
+**Goal:** replace every Part-built brainrot template (66 models: 53 Tundra incl. the 23 fish, 13 Valley forest/pond, Secret Pete) with a forge-baked mesh template of identical geometry and colour, then retire the 43 coarse plot-LOD copies. Chim (sphere/cylinder primitives) and Maxwell (already a mesh) are untouched.
+
+**Decisions (user, 2026-09-17):** all 66; the plot-LOD folder is emptied (backed up) once every converted body passes the gate; imports arrive as ~4 batch files, each preceded by a before/after contact sheet the user approves.
+
+**Source of geometry:** the live templates themselves — every BasePart's CFrame, Size, Color, Material — dumped from Studio as JSON (`execute_luau` output chunks ≥ 100 KB, which the harness persists to files; the sandbox has no network, so this is the only exact channel). FX hosts (`BrainrotFx*`) are excluded from the dump and re-applied from `BrainrotFX.RECIPES` after assembly.
+
+**Bake (`bake_boxes.py`):** boxes, not a voxel lattice (the fish are arbitrary axis-aligned boxes). Every box face is emitted unless it is fully covered by coplanar opposite faces of other boxes (coordinate-compressed rectangle union — exact, lossless). One `Mesh` per **role = (colour cluster, material)**; Plastic roles take `BrainrotTile`, Neon roles become Neon MeshParts. Three rigidly tilted fish (Martellone, Narvalino, Focarella) are un-posed into their shared rotation frame for the bake; the manifest records `poseRotation` and the assembler re-applies it.
+
+**Colour fidelity:** bodies with ≤ 12 distinct (colour, material) keep one MeshPart per colour, exact. Bodies with more (23 fish, Secret Pete, Pippo Olivardino, Stellina Formaggina: 15–64 shades, top-12 covers only 50–70 % of surface) are clustered to ≤ 12 roles by nearest colour, each role's `MeshPart.Color` = the per-channel maximum of its members, and **every vertex carries `COLOR_0` = exact / representative**, so the rendered colour is exact where the importer keeps vertex colours, and a flat representative where it does not. A probe cube in the first batch (checked with `CreateEditableMeshAsync`, which we may call on meshes we uploaded) tells which case applies; the contact sheets show the worst case (representative colours) beside the exact original, and the user approves that.
+
+**Assembler additions:** per-role material, `attributes` copied verbatim (HeightScale, WidthScale, Tier, PaletteV3, …), `poseRotation`, `fx = true` → `BrainrotFX.apply(model, rarity)` with the model's existing recipe, and `opts.backupFolder` so all replaced originals land in one `ServerStorage.AuditBackups.BrainrotModels_PreForge_<date>` folder.
+
+**Verification:** `BrainrotBudget.review` PASS on all 66 (neon colours clustered to ≤ 3 per body); triangle sanity on samples; one Play round with six converted bodies (a heavy voxel, a neon body, a tilted fish, a gradient fish, Secret Pete, one with Golden) through the real spawner; `BrainrotModelsPlot` emptied only after every review passes. All Studio changes remain UNSAVED until the owner saves.
