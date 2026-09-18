@@ -27,6 +27,7 @@
 - **Routing (locked, spec §4):** Massive+God → MassiveGod; Massive → Massive; Huge → Huge; God → God; Secret → Secret; Mythic → Mythic; else Pop(rarity). Mutation never influences routing.
 - **Mirror + commit at the end of every task:** for each touched script, `script_read` its Source and write it to the matching path under `game-src/place-full/` (new modules get new files; deleted scripts get their mirror deleted), then `git add` those paths and commit with the task's message. Keep LF line endings in the mirror files.
 - **Owner is token-cost sensitive.** Do not read whole 50KB modules when a `script_grep` will do; do not re-verify what the previous step already proved.
+- **Roster state (2026-09-17 forge conversion, commit 278988d):** `ReplicatedStorage.BrainrotModels` holds 218 models — 148 rigged-mesh pack bodies, 68 forge-baked MeshPart bodies (2–12 MeshParts + RootPart + FX hosts, per-vertex colours), `Chim`, `Maxwell`. `BrainrotModelsPlot` is empty. Consequences: `BrainrotRig:angryEyes()` returns false on every forge body (no part named "eye"), so the aura-rim fallback is the normal path, not the exception; `stageBelow`/`revealColors` still work (MeshPart.Color multiplies the vertex colours); the Harness's default model `Kraken Congelato` is a pack body — confirm it still exists before Task 1 Step 1, else pick another pack name from the folder.
 
 ## File Structure
 
