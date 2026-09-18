@@ -35,6 +35,7 @@ class Mesh:
     normals: list[Vec3] = field(default_factory=list)
     uvs: list[tuple[float, float]] = field(default_factory=list)
     indices: list[int] = field(default_factory=list)
+    colors: list[Vec3] | None = None   # per-vertex multiplier over the part colour (exact / representative); None = all 1
 
     @property
     def triangles(self) -> int:
