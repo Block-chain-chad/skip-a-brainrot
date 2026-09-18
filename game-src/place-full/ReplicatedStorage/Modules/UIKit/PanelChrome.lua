@@ -25,6 +25,11 @@ local S = require(script.Parent.SpecTheme)
 -- so this cannot cycle. Used for UI.touchMin on the tap-only controls below.
 local UI = require(script.Parent.Builders)
 local Platform = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Platform"))
+-- 2026-09-18 UI foundation: click sound on every kit button (handoff §11) and the
+-- shared Heartbeat driver for the busy indicator. SoundKit never requires UIKit.
+local SoundKit = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("SoundKit"))
+local FxDriver = require(script.Parent:WaitForChild("FxDriver"))
+local CLICK_VOLUME = 0.12 -- same level GameHUDClient.wireClick uses on the rail
 
 local PanelChrome = {}
 
@@ -175,7 +180,13 @@ end
 --- Live AbsoluteSize drives the delta, so scale-sized buttons work too.
 function PanelChrome.bindPressFeedback(button: GuiButton)
 	local rest = button.Size
+	-- setEnabled/setBusy read this back to snap a hovered button to rest
+	button:SetAttribute("UIRestSize", rest)
 	local hovering = false
+	-- disabled (UIEnabled == false) and busy (UIBusy == true) buttons give no feedback
+	local function blocked(): boolean
+		return button:GetAttribute("UIEnabled") == false or button:GetAttribute("UIBusy") == true
+	end
 	local function to(mult: number, info: TweenInfo)
 		local abs = button.AbsoluteSize
 		local scaleNow = math.max(button.Parent and 1 or 1, 1)
@@ -197,18 +208,34 @@ function PanelChrome.bindPressFeedback(button: GuiButton)
 	-- the tabs crept sideways with each tap. Touch has no hover to preserve.
 	local touchOnly = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 	button.MouseEnter:Connect(function()
-		if touchOnly then return end
+		if touchOnly or blocked() then return end
 		hovering = true
 		to(S.Scale.Hover, S.Tween.HoverIn)
 	end)
 	button.MouseLeave:Connect(function()
 		hovering = false
+		if blocked() then return end
 		to(1, S.Tween.HoverOut)
 	end)
-	button.MouseButton1Down:Connect(function() to(S.Scale.Press, S.Tween.Press) end)
+	button.MouseButton1Down:Connect(function()
+		if blocked() then return end
+		to(S.Scale.Press, S.Tween.Press)
+	end)
 	button.MouseButton1Up:Connect(function()
+		if blocked() then return end
 		if hovering then to(S.Scale.Hover, S.Tween.HoverIn) else to(1, S.Tween.HoverOut) end
 	end)
+	-- Click sound (handoff §11 "sound behavior" shared by all buttons). Same SfxWired
+	-- attribute convention as GameHUDClient.wireClick, so a button wired there too
+	-- can only ever carry one connection. SfxMuted opts a button out (the shell's
+	-- close button: closePanel already plays panelClose).
+	if not button:GetAttribute("SfxWired") then
+		button:SetAttribute("SfxWired", true)
+		button.MouseButton1Click:Connect(function()
+			if blocked() or button:GetAttribute("SfxMuted") == true then return end
+			pcall(SoundKit.play, S.Sound.Click, nil, { volume = CLICK_VOLUME })
+		end)
+	end
 end
 
 ------------------------------------------------------------------- the shell
@@ -310,6 +337,7 @@ function PanelChrome.shell(props: {
 	gradient(close, S.Action.Danger[1], S.Action.Danger[2])
 	close.Parent = header
 	PanelChrome.shout({ text = "X", size = 40, zIndex = z + 4, parent = close })
+	close:SetAttribute("SfxMuted", true) -- closePanel plays panelClose
 	PanelChrome.bindPressFeedback(close)
 	-- TOUCH FLOOR (2026-08-25). This one is only a HAIR under -- it measured
 	-- 43.50 on a phone-classed client -- but it is the close button on every
@@ -414,9 +442,10 @@ function PanelChrome.shell(props: {
 		local function paint()
 			for i, b in ipairs(btns) do
 				local g = b:FindFirstChildOfClass("UIGradient")
-				-- field study delta 7: active = GREEN (PS99 colour grammar; gold is
-				-- reserved for real-money surfaces)
-				local c = if i == current then S.Action.Go else S.Action.Neutral
+				-- 2026-09-18 UI foundation (handoff §4): blue = navigation, so the ACTIVE
+				-- tab is S.Role.Neutral and the inactive one the grey S.Role.Disabled
+				-- (was field-study delta 7: active = green)
+				local c = if i == current then S.Role.Neutral else S.Role.Disabled
 				-- BackgroundColor3 must move WITH the gradient: UIGradient
 				-- MULTIPLIES the background colour, so gold-over-the-neutral
 				-- base the pill was built with rendered olive (2026-08-11).
@@ -440,7 +469,7 @@ function PanelChrome.shell(props: {
 		for i, tab in ipairs(tabs) do
 			local b = PanelChrome.pill({
 				text = tab.text,
-				colors = S.Action.Neutral,
+				colors = S.Role.Disabled,
 				size = UDim2.fromOffset(tab.width, 72),
 				textSize = 26,
 				zIndex = z + 3,
@@ -472,6 +501,7 @@ function PanelChrome.pill(props: {
 	text: string, colors: { Color3 }, size: UDim2, position: UDim2?,
 	anchor: Vector2?, textSize: number?, parent: Instance?, enabled: boolean?,
 	zIndex: number?, radius: number?, name: string?, layoutOrder: number?,
+	outline: number?, -- 2026-09-18: small controls (36px sort chips) need a thinner edge than CtaOutline
 }): TextButton
 	local C = S.Chrome
 	local z = props.zIndex or (Z + 3)
@@ -487,7 +517,7 @@ function PanelChrome.pill(props: {
 	b.ZIndex = z
 	if props.layoutOrder then b.LayoutOrder = props.layoutOrder end
 	corner(b, props.radius or C.CtaRadius)
-	stroke(b, C.CtaOutline)
+	stroke(b, props.outline or C.CtaOutline)
 	gradient(b, props.colors[1], props.colors[2])
 	gloss(b, props.radius or C.CtaRadius, 0.22)
 	-- PS99 restyle: very light plates (gold chips, white tabs) take dark ink
@@ -503,17 +533,206 @@ function PanelChrome.pill(props: {
 		parent = b,
 		scaled = true,
 	})
+	-- ramp remembered for setEnabled/setBusy repaints (legacy pills included)
+	b:SetAttribute("UIRampTop", props.colors[1])
+	b:SetAttribute("UIRampBottom", props.colors[2])
+	PanelChrome.bindPressFeedback(b)
 	if props.enabled == false then
-		b.Active = false
-		b.BackgroundTransparency = 0.45
-		for _, d in ipairs(b:GetDescendants()) do
-			if d:IsA("TextLabel") then d.TextTransparency = 0.45 end
-		end
-	else
-		PanelChrome.bindPressFeedback(b)
+		-- 2026-09-18: the runtime disabled state (spec §6.2) replaces the old
+		-- build-time-only transparency fade; callers can re-enable later
+		PanelChrome.setEnabled(b, false)
 	end
 	b.Parent = props.parent
 	return b
+end
+
+------------------------------------------------------------- semantic buttons
+-- 2026-09-18 UI foundation (spec §6.2, handoff §11). kind -> S.Role ramp. Built ON
+-- pill so geometry, gloss and the >0.82-luminance ink gate are shared. The ramp is
+-- remembered on the button as attributes so the runtime states repaint without
+-- guessing, and a disabled/busy button is Interactable = false so consumer-wired
+-- Activated handlers cannot fire either.
+-- "secondary" = the quiet grey option (Cancel, Hide Plot): handoff §4 "Gray = secondary"
+local KIND_ROLE = { positive = "Positive", neutral = "Neutral", destructive = "Destructive", gold = "Gold", purple = "Purple", secondary = "Disabled" }
+local BUSY_DOTS = "\u{00B7} \u{00B7} \u{00B7}"
+
+local function inkFor(top: Color3): (Color3, Color3)
+	local lum = top.R * 0.299 + top.G * 0.587 + top.B * 0.114
+	if lum > 0.82 then return S.Surface.ReadInk, Color3.new(1, 1, 1) end
+	return Color3.new(1, 1, 1), S.Outline
+end
+
+local function repaintLabel(btn: GuiButton, top: Color3)
+	local label = btn:FindFirstChild("Label")
+	if label and label:IsA("TextLabel") then
+		local ink, strokeC = inkFor(top)
+		label.TextColor3 = ink
+		local ls = label:FindFirstChildOfClass("UIStroke")
+		if ls then ls.Color = strokeC end
+	end
+end
+
+local function snapToRest(btn: GuiButton)
+	local rest = btn:GetAttribute("UIRestSize")
+	if typeof(rest) == "UDim2" then btn.Size = rest end
+end
+
+function PanelChrome.button(props: {
+	kind: string?, text: string, size: (UDim2 | string)?, icon: string?, enabled: boolean?,
+	sound: boolean?, onActivated: (() -> ())?, parent: Instance?, zIndex: number?,
+	layoutOrder: number?, name: string?, position: UDim2?, anchor: Vector2?,
+	textSize: number?, radius: number?, outline: number?,
+}): TextButton
+	local kindKey = props.kind or "positive"
+	local roleName = KIND_ROLE[kindKey]
+	if not roleName then
+		warn(("[UIKit] button: unknown kind %q, using positive"):format(tostring(props.kind)))
+		roleName = "Positive"
+		kindKey = "positive"
+	end
+	local ramp = S.Role[roleName]
+	local size: UDim2
+	if typeof(props.size) == "UDim2" then
+		size = props.size :: UDim2
+	elseif props.size == "small" then
+		size = UDim2.fromOffset(160, 64)
+	else
+		size = UDim2.fromOffset(S.Chrome.CtaSize.X, S.Chrome.CtaSize.Y)
+	end
+	local b = PanelChrome.pill({
+		text = props.text, colors = ramp, size = size, position = props.position, anchor = props.anchor,
+		textSize = props.textSize, zIndex = props.zIndex, radius = props.radius, outline = props.outline,
+		name = props.name or ("Button_" .. kindKey), layoutOrder = props.layoutOrder,
+	})
+	b:SetAttribute("UIKind", kindKey)
+	if props.sound == false then b:SetAttribute("SfxMuted", true) end
+	if props.icon and props.icon ~= "" then
+		local ic = Instance.new("ImageLabel")
+		ic.Name = "Icon"
+		ic.Image = props.icon
+		ic.BackgroundTransparency = 1
+		ic.ScaleType = Enum.ScaleType.Fit
+		ic.AnchorPoint = Vector2.new(0, 0.5)
+		ic.Position = UDim2.new(0, 14, 0.5, 0)
+		ic.Size = UDim2.fromOffset(40, 40)
+		ic.ZIndex = b.ZIndex + 2
+		ic.Parent = b
+		local label = b:FindFirstChild("Label")
+		if label then
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft = UDim.new(0, 44)
+			pad.Parent = label
+		end
+	end
+	if props.onActivated then
+		b.Activated:Connect(function()
+			if b:GetAttribute("UIEnabled") == false or b:GetAttribute("UIBusy") == true then return end
+			props.onActivated()
+		end)
+	end
+	if props.enabled == false then PanelChrome.setEnabled(b, false) end
+	b.Parent = props.parent
+	return b
+end
+
+--- Runtime enable/disable. Disabled = grey ramp, dimmed label, no input, no feedback.
+function PanelChrome.setEnabled(btn: GuiButton, on: boolean)
+	local g = btn:FindFirstChildOfClass("UIGradient")
+	local label = btn:FindFirstChild("Label")
+	if on then
+		btn:SetAttribute("UIEnabled", nil)
+		if btn:GetAttribute("UIBusy") ~= true then
+			btn.Interactable = true
+			btn.Active = true
+		end
+		local top, bottom = btn:GetAttribute("UIRampTop"), btn:GetAttribute("UIRampBottom")
+		if typeof(top) == "Color3" and typeof(bottom) == "Color3" then
+			btn.BackgroundColor3 = top
+			if g then g.Color = ColorSequence.new(top, bottom) end
+			repaintLabel(btn, top)
+		end
+		btn.BackgroundTransparency = 0
+		if label and label:IsA("TextLabel") then
+			label.TextTransparency = if btn:GetAttribute("UIBusy") == true then 0.35 else 0
+		end
+	else
+		if btn:GetAttribute("UIRampTop") == nil then
+			-- a hand-built button: remember what it wore so re-enabling restores it
+			btn:SetAttribute("UIRampTop", btn.BackgroundColor3)
+			local bottom = btn.BackgroundColor3
+			if g then
+				local kps = g.Color.Keypoints
+				bottom = kps[#kps].Value
+			end
+			btn:SetAttribute("UIRampBottom", bottom)
+		end
+		btn:SetAttribute("UIEnabled", false)
+		btn.Interactable = false
+		btn.Active = false
+		snapToRest(btn)
+		local d = S.Role.DisabledButton
+		btn.BackgroundColor3 = d[1]
+		if g then g.Color = ColorSequence.new(d[1], d[2]) end
+		repaintLabel(btn, d[1])
+		if label and label:IsA("TextLabel") then label.TextTransparency = 0.45 end
+	end
+end
+
+--- Busy = "waiting on the server": keeps size and ramp, blocks input/feedback/sound,
+--- dims the label and pulses three dots. Auto-clears after `timeout` (default 10s)
+--- with a warning so a lost reply can never brick a button. Distinct from disabled.
+function PanelChrome.setBusy(btn: GuiButton, on: boolean, opts: { timeout: number? }?)
+	local label = btn:FindFirstChild("Label")
+	if on then
+		if btn:GetAttribute("UIBusy") == true then return end
+		btn:SetAttribute("UIBusy", true)
+		btn.Interactable = false
+		btn.Active = false
+		snapToRest(btn)
+		if label and label:IsA("TextLabel") then label.TextTransparency = 0.35 end
+		local dots = Instance.new("TextLabel")
+		dots.Name = "BusyDots"
+		dots.BackgroundTransparency = 1
+		dots.Size = UDim2.fromScale(1, 1)
+		dots.Font = S.Font.Shout
+		dots.TextSize = 30
+		dots.Text = BUSY_DOTS
+		dots.TextColor3 = Color3.new(1, 1, 1)
+		dots.TextXAlignment = Enum.TextXAlignment.Center
+		dots.ZIndex = btn.ZIndex + 3
+		dots:SetAttribute("NoPolish", true)
+		local ds = Instance.new("UIStroke")
+		ds.Thickness = 2
+		ds.Color = S.Outline
+		ds.Parent = dots
+		dots.Parent = btn
+		local fxId = FxDriver.register(btn, function(t)
+			dots.TextTransparency = 0.15 + 0.55 * (0.5 + 0.5 * math.sin(t * 5))
+		end)
+		btn:SetAttribute("UIBusyFx", fxId)
+		local gen = (tonumber(btn:GetAttribute("UIBusyGen")) or 0) + 1
+		btn:SetAttribute("UIBusyGen", gen)
+		local timeout = (opts and opts.timeout) or 10
+		task.delay(timeout, function()
+			if btn.Parent and btn:GetAttribute("UIBusy") == true and btn:GetAttribute("UIBusyGen") == gen then
+				warn(("[UIKit] setBusy: %s still busy after %.1fs -- clearing (lost reply?)"):format(btn:GetFullName(), timeout))
+				PanelChrome.setBusy(btn, false)
+			end
+		end)
+	else
+		if btn:GetAttribute("UIBusy") ~= true then return end
+		btn:SetAttribute("UIBusy", nil)
+		FxDriver.unregister(tonumber(btn:GetAttribute("UIBusyFx")))
+		btn:SetAttribute("UIBusyFx", nil)
+		local dots = btn:FindFirstChild("BusyDots")
+		if dots then dots:Destroy() end
+		local disabled = btn:GetAttribute("UIEnabled") == false
+		if not disabled then
+			btn.Interactable = true
+			btn.Active = true
+		end
+		if label and label:IsA("TextLabel") then label.TextTransparency = if disabled then 0.45 else 0 end
+	end
 end
 
 --- Inert state plate (YOU ARE HERE, locked, in-progress): same geometry as a
@@ -961,6 +1180,7 @@ end
 function PanelChrome.segmented(props: {
 	options: { string }, selected: number?, size: UDim2, position: UDim2?,
 	parent: Instance?, zIndex: number?, onChanged: ((number, string) -> ())?,
+	radius: number?, outline: number?, textSize: number?, -- 2026-09-18: SortButton passes small-control geometry
 })
 	local z = props.zIndex or (Z + 2)
 	local selected = props.selected or 1
@@ -983,8 +1203,8 @@ function PanelChrome.segmented(props: {
 	local function paint()
 		for i, b in ipairs(buttons) do
 			local g = b:FindFirstChildOfClass("UIGradient")
-			-- field study delta 7: active = GREEN, same rule as addHeaderTabs
-			local c = if i == selected then S.Action.Go else S.Action.Neutral
+			-- 2026-09-18 UI foundation: active = blue (navigation), inactive = grey
+			local c = if i == selected then S.Role.Neutral else S.Role.Disabled
 			-- same multiply trap as addHeaderTabs: repaint the base too
 			b.BackgroundColor3 = c[1]
 			if g then g.Color = ColorSequence.new(c[1], c[2]) end
@@ -1007,11 +1227,13 @@ function PanelChrome.segmented(props: {
 	for i, opt in ipairs(props.options) do
 		local b = PanelChrome.pill({
 			text = opt,
-			colors = S.Action.Neutral,
+			colors = S.Role.Disabled,
 			size = UDim2.new(1 / #props.options, -math.ceil(12 * (#props.options - 1) / #props.options), 1, 0),
 			zIndex = z + 1,
 			parent = holder,
-			radius = 24,
+			radius = props.radius or 24,
+			outline = props.outline,
+			textSize = props.textSize,
 		})
 		b.LayoutOrder = i
 		b.Activated:Connect(function()
