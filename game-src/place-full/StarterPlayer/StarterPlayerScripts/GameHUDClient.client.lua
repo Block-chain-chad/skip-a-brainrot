@@ -2603,6 +2603,7 @@ function closePanel()
 	currentPanelId = nil
 	player:SetAttribute("HudOpenPanel", nil)
 	state.screen = "none"
+	player:SetAttribute("HudGallery", nil) -- re-arm the Studio-only Gallery trigger
 	currencyCluster.Visible = true
 	if Platform.IsPhone then
 		rail.Visible = true -- the fold driver re-asserts hidden if the HUD is folded
@@ -2702,6 +2703,20 @@ for _, m in ipairs(panelsFolder:GetChildren()) do
 	end
 end
 
+-- 2026-09-18 UI foundation (spec §10): the Studio-only Gallery has no rail button.
+-- Trigger from the client command bar during Play:
+--     game.Players.LocalPlayer:SetAttribute("HudGallery", true)
+-- Player attributes never persist into the place file (unlike PlatformOverride).
+player:GetAttributeChangedSignal("HudGallery"):Connect(function()
+	if player:GetAttribute("HudGallery") ~= true then return end
+	if panelModules["gallery"] then
+		openPanel("gallery")
+	else
+		warn("[UIKit] gallery panel is not registered (Studio only)")
+		player:SetAttribute("HudGallery", nil)
+	end
+end)
+
 ---------------------------------------------------------------- ESC / B
 -- B is the console equivalent of ESC, and without it a controller player could
 -- open a panel and have no way out of it except finding the X button with the
@@ -2746,6 +2761,7 @@ host:GetPropertyChangedSignal("Visible"):Connect(function()
 	currentPanelId = nil
 	player:SetAttribute("HudOpenPanel", nil)
 	state.screen = "none"
+	player:SetAttribute("HudGallery", nil)
 	currencyCluster.Visible = true
 	updateActiveGlow()
 end)

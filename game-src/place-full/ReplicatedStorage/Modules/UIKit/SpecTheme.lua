@@ -252,7 +252,7 @@ S.Card = {
 	BandFrac  = 0.20,
 	BandMin   = 24,
 	ArtInset  = 4,
-	Fill      = 0.70,           -- projected-box fill target (handoff §6: 65-75%)
+	Fill      = 0.88,           -- projected-box fill of the ART HOLDER (~76% of the card), i.e. ~67% of the card: handoff §6's 65-75%. 0.70 read small (Task 8/11, 2026-09-18)
 	Pip       = 7,
 	Badge     = 22,
 	BadgeSmall = 14,
@@ -265,8 +265,10 @@ S.Card = {
 		LightColor = Color3.fromRGB(255, 248, 232),
 		LightDirection = Vector3.new(-0.18, -0.32, 1),
 	},
-	-- PROVISIONAL (spec §8.3): the Gallery stress section replaces these numbers.
-	MaxLive = { Desktop = 48, Tablet = 32, Phone = 20 },
+	-- MEASURED 2026-09-18 in the Gallery stress section (N=500 desktop / N=250 phone
+	-- via PlatformOverride, largest cap under 16.7ms / 22ms avg frame): see the
+	-- round's commit message for the table.
+	MaxLive = { Desktop = 96, Tablet = 72, Phone = 48 },
 	Variants = {
 		grid    = { bandMin = 24, leftBadges = true,  rightCap = 2, title = false },
 		compact = { bandMin = 20, leftBadges = false, rightCap = 1, title = false },
