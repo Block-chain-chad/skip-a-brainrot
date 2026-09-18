@@ -189,6 +189,18 @@ local PetConfigModule = modules:WaitForChild("PetConfig") -- required live, see 
 local BagConfig = require(modules:WaitForChild("BagConfig"))
 -- abbreviates $100,000,000 to $100M for the slot cards' price pills
 local NumberFormat = require(modules:WaitForChild("NumberFormat"))
+-- 2026-09-18 UI foundation round 1 (spec §9): the brainrot INVENTORY grid runs on the
+-- kit's BrainrotCard + ViewportCuller, one card per UID; its controls are the kit's
+-- SearchBar / SortButton; "no free slots" goes through the one Toast stack. Required
+-- at MODULE top on purpose: Build() sits near Luau's 200-local ceiling.
+local BrainrotCard = require(modules:WaitForChild("UIKit"):WaitForChild("BrainrotCard"))
+local ViewportCuller = require(modules:WaitForChild("UIKit"):WaitForChild("ViewportCuller"))
+local SearchBar = require(modules:WaitForChild("UIKit"):WaitForChild("SearchBar"))
+local SortButton = require(modules:WaitForChild("UIKit"):WaitForChild("SortButton"))
+local Toast = require(modules:WaitForChild("UIKit"):WaitForChild("Toast"))
+-- grid state shared by renderBrainrots / fillBag / the hide handler. Not `bagState`
+-- (that is the snapshot table below); a module-level table adds no Build() locals.
+local gridUi = { culler = nil :: any, cards = {} :: { any }, fill = nil :: (() -> ())? }
 
 -- EVERY WORLD (fixed 2026-08-07). Built from BrainrotConfig alone, this left the 30
 -- tundra-exclusive brainrots unknown to the Bag -- $0/s, no rarity tint, sorted last.
@@ -2223,6 +2235,12 @@ function BackpackPanel.Build(ctx)
 		-- KEEP THE PLAYER'S PLACE: carry the inventory scroll over when `grid`
 		-- is still alive (same-tab re-render); destroyed = fresh arrival, top.
 		local keepScroll = (grid and grid.Parent) and grid.CanvasPosition or nil
+		-- 2026-09-18: release the previous grid's viewports, driver entries and culler
+		-- BEFORE contentHost is cleared, so nothing animates or mounts into a dead tree
+		if gridUi.culler then gridUi.culler.detach() gridUi.culler = nil end
+		for _, c in ipairs(gridUi.cards) do c.destroy() end
+		gridUi.cards = {}
+		gridUi.fill = nil
 		clearChildren(contentHost)
 		refreshHeader()
 		hideCardTip()
@@ -3391,23 +3409,24 @@ function BackpackPanel.Build(ctx)
 		sorts.BackgroundTransparency = 1
 		sorts.ZIndex = 14
 		sorts.Parent = invHead
-		for i, mode in ipairs(SORT_MODES) do
-			local slot = Instance.new("Frame")
-			slot.Name = "Sort" .. mode
-			slot.BackgroundTransparency = 1
-			slot.Position = UDim2.fromOffset((i - 1) * (SORT_W + SORT_GAP2), 0)
-			slot.Size = UDim2.fromOffset(SORT_W, 36)
-			slot.ZIndex = 14
-			slot.Parent = sorts
-			local sb = flatButton(slot, SORT_LABEL[mode], SORT_W, 36, mode == sortMode, false)
-			sb.Name = "Button"
-			sb.MouseButton1Click:Connect(function()
-				if sortMode ~= mode then
-					sortMode = mode
+		-- 2026-09-18 UI foundation: the kit's SortButton (blue active / grey rest)
+		-- at the row's 36px height; SORT_MODES/SORT_LABEL still name the modes.
+		-- Inline table on purpose: no new local in this already-crowded scope.
+		SortButton.new({
+			modes = {
+				{ id = SORT_MODES[1], label = SORT_LABEL[SORT_MODES[1]] },
+				{ id = SORT_MODES[2], label = SORT_LABEL[SORT_MODES[2]] },
+				{ id = SORT_MODES[3], label = SORT_LABEL[SORT_MODES[3]] },
+			},
+			selected = sortMode, height = 36,
+			width = 3 * SORT_W + 2 * SORT_GAP2, parent = sorts, zIndex = 15,
+			onChanged = function(id)
+				if sortMode ~= id then
+					sortMode = id
 					renderBrainrots()
 				end
-			end)
-		end
+			end,
+		})
 
 		-- SEARCH LIVES IN THE TOP ROW (user, 2026-08-14: "move the search to the top
 		-- like theirs"). The reference parks it top-right beside the close button,
@@ -3418,71 +3437,17 @@ function BackpackPanel.Build(ctx)
 		-- UNEQUIP ALL -- and it costs ZERO extra height because that row already
 		-- exists. It also survives collapsing the plot, since the header stays.
 		local SEARCH_W = 220   -- 280 crowded TOTAL and UNEQUIP ALL out of the row
-		local searchHost = Instance.new("Frame")
-		searchHost.Name = "SearchBox"
-		searchHost.LayoutOrder = 0
-		searchHost.Size = UDim2.fromOffset(SEARCH_W, 36)
-		searchHost.BackgroundColor3 = C_TILE
-		searchHost.BorderSizePixel = 0
-		searchHost.ZIndex = 15
-		searchHost.Parent = headRight
-		UI.corner(searchHost, 999)
-		do
-			local st = Instance.new("UIStroke")
-			st.Thickness = 2
-			st.Color = C_WELL_STROKE
-			st.Parent = searchHost
-			local mag = Instance.new("Frame")
-			mag.Name = "Mag"
-			mag.BackgroundTransparency = 1
-			mag.AnchorPoint = Vector2.new(0, 0.5)
-			mag.Position = UDim2.new(0, 13, 0.5, 0)
-			mag.Size = UDim2.fromOffset(16, 16)
-			mag.ZIndex = 16
-			mag.Parent = searchHost
-			local lens = Instance.new("Frame")
-			lens.Name = "Lens"
-			lens.Position = UDim2.fromOffset(1, 1)
-			lens.Size = UDim2.fromOffset(11, 11)
-			lens.BackgroundTransparency = 1
-			lens.ZIndex = 16
-			lens.Parent = mag
-			UI.corner(lens, 999)
-			local ls = Instance.new("UIStroke")
-			ls.Thickness = 2.2
-			ls.Color = Color3.fromHex("7C8CA0")   -- the lens sits on a light pill now
-			ls.Transparency = 0.25
-			ls.Parent = lens
-			local handle = Instance.new("Frame")
-			handle.Name = "Handle"
-			handle.AnchorPoint = Vector2.new(1, 1)
-			handle.Position = UDim2.new(1, 0, 1, 0)
-			handle.Size = UDim2.fromOffset(7, 3)
-			handle.Rotation = 45
-			handle.BackgroundColor3 = Color3.fromHex("7C8CA0")
-			handle.BackgroundTransparency = 0.45
-			handle.BorderSizePixel = 0
-			handle.ZIndex = 16
-			handle.Parent = mag
-			UI.corner(handle, 999)
-		end
-		local box = Instance.new("TextBox")
-		box.Name = "Input"
-		box.BackgroundTransparency = 1
-		box.Position = UDim2.fromOffset(36, 0)
-		box.Size = UDim2.new(1, -48, 1, 0)
-		box.Text = searchQuery
-		box.PlaceholderText = "SEARCH..."
-		box.PlaceholderColor3 = C_PLACE
-		box.TextColor3 = Color3.fromHex("1C2029")   -- the search field sits on C_TILE
-		box.Font = S.Font.Read
-		box.TextSize = 14
-		box.ClearTextOnFocus = false
-		box.TextXAlignment = Enum.TextXAlignment.Left
-		box.TextTruncate = Enum.TextTruncate.AtEnd
-		box.ZIndex = 16
-		box:SetAttribute("NoPolish", true)
-		box.Parent = searchHost
+		-- 2026-09-18 UI foundation: the kit's SearchBar (same 36px row, same
+		-- headRight slot, same searchQuery). fillBag is defined below, so the
+		-- handler reaches it through gridUi.fill (assigned once fillBag exists).
+		local search = SearchBar.new({
+			placeholder = "SEARCH...", width = SEARCH_W, height = 36, parent = headRight, zIndex = 15, layoutOrder = 0,
+			onChanged = function(q)
+				searchQuery = q
+				if gridUi.fill then gridUi.fill() end
+			end,
+		})
+		search.set(searchQuery)
 
 		local subY = BAY_H + SECTION_GAP + INV_HEAD_H + SECTION_GAP
 		local sub = buildWell(subY, CONTENT_H - subY)
@@ -3514,8 +3479,16 @@ function BackpackPanel.Build(ctx)
 			gl.Parent = scroll
 		end
 
-		-- fillBag rebuilds only the cells, so search typing keeps its focus
+		-- fillBag rebuilds only the cells, so search typing keeps its focus.
+		-- 2026-09-18 UI foundation (spec §9): ONE BrainrotCard PER UID -- no stacking
+		-- in the grid (mutation, size, lock and serial can all differ; the Sell panel
+		-- keeps its own stacks) -- on a ViewportCuller so only the visible window
+		-- holds live ViewportFrames. The legacy `Fav` save flag is normalised to the
+		-- card's `locked` state here and nowhere else.
 		local function fillBag()
+			if gridUi.culler then gridUi.culler.detach() gridUi.culler = nil end
+			for _, c in ipairs(gridUi.cards) do c.destroy() end
+			gridUi.cards = {}
 			for _, c in ipairs(scroll:GetChildren()) do
 				if c:IsA("GuiObject") then
 					c:Destroy()
@@ -3527,20 +3500,18 @@ function BackpackPanel.Build(ctx)
 			end
 
 			local q = searchQuery:lower():gsub("^%s+", ""):gsub("%s+$", "")
-			local groups = groupBrainrots(ownedBrainrots)
 			local bag = {}
-			for _, g in ipairs(groups) do
+			for _, e in ipairs(ownedBrainrots) do
 				if q == ""
-					or g.Name:lower():find(q, 1, true) ~= nil
-					or (g.Mutation ~= nil and g.Mutation:lower():find(q, 1, true) ~= nil)
-					or (g.Size ~= nil and g.Size:lower():find(q, 1, true) ~= nil)
+					or e.Name:lower():find(q, 1, true) ~= nil
+					or (e.Mutation ~= nil and e.Mutation:lower():find(q, 1, true) ~= nil)
+					or (e.Size ~= nil and e.Size:lower():find(q, 1, true) ~= nil)
 				then
-					bag[#bag + 1] = g
+					bag[#bag + 1] = e
 				end
 			end
 
-			-- sorts: RARITY (tier then income), NEWEST (snapshot append order
-			-- stands in for the missing timestamp), A-Z
+			-- sorts: RARITY (tier then income), NEWEST (snapshot order), A-Z
 			if sortMode == "rarity" then
 				table.sort(bag, function(x, y)
 					local rx = tierRank[infoByName[x.Name] and infoByName[x.Name].Rarity] or 0
@@ -3555,19 +3526,8 @@ function BackpackPanel.Build(ctx)
 				for i, e in ipairs(ownedBrainrots) do
 					pos[e.Uid] = i
 				end
-				local newestOf = {}
-				for _, g in ipairs(bag) do
-					local best = 0
-					for _, uid in ipairs(g.uids) do
-						local p = pos[uid]
-						if p and p > best then
-							best = p
-						end
-					end
-					newestOf[g] = best
-				end
 				table.sort(bag, function(x, y)
-					return (newestOf[x] or 0) > (newestOf[y] or 0)
+					return (pos[x.Uid] or 0) > (pos[y.Uid] or 0)
 				end)
 			else
 				table.sort(bag, function(x, y)
@@ -3578,7 +3538,7 @@ function BackpackPanel.Build(ctx)
 				end)
 			end
 
-			bagCount.Text = #bag .. " / " .. #groups .. " owned"
+			bagCount.Text = #bag .. " shown / " .. #ownedBrainrots .. " owned"
 
 			if #bag == 0 then
 				local none = Instance.new("TextLabel")
@@ -3597,35 +3557,52 @@ function BackpackPanel.Build(ctx)
 				return
 			end
 
-			for i, g in ipairs(bag) do
-				local cell = Instance.new("Frame")
-				cell.Name = "BagCell" .. i
-				cell.BackgroundTransparency = 1
-				cell.LayoutOrder = i
-				cell.ZIndex = 15
-				cell.Parent = scroll
-				-- stable per-item key: the pastel splash hue must not reshuffle
-				-- when search/sort re-render the grid (delta 4 spec)
-				local card = buildCard(cell, g.Name, g.Mutation, g.Size, g.count, nil,
-					g.Name .. "|" .. tostring(g.Mutation) .. "|" .. tostring(g.Size))
-				local xOff = -4
-				local favB = buildFavBadge(card, g.Fav == true, g.uids, xOff)
-				xOff -= 26
-				if g.Mutation then
-					buildStarBadge(card, xOff)
-				end
-				wireCardHit(cell, card, g, favB, function()
-					for _, uid in ipairs(g.uids) do
-						newUids[uid] = nil
-					end
+			local cards = {}
+			for i, e in ipairs(bag) do
+				local info = infoByName[e.Name]
+				local card = BrainrotCard.new({
+					kind = "brainrot",
+					name = e.Name,
+					rarity = (info and info.Rarity) or "Common",
+					income = valueOf(e.Name, e.Mutation, e.Size),
+					mutation = e.Mutation,
+					mutationColor = if e.Mutation then Mutations.Color(e.Mutation) else nil,
+					sizeTag = e.Size,
+					-- bench entries are never placed (ownedBrainrots excludes PadIndex);
+					-- `Fav` IS the plot lock (PlotFav) -> the card's `locked`
+					state = { equipped = false, locked = e.Fav == true, new = newUids[e.Uid] == true, selected = false },
+					lock = { onToggle = function(_nextLocked)
+						-- ToggleLock (capacity-gated, plot-synced) answers through
+						-- DataUpdated, which rebuilds this grid with the new flag
+						local r = remotes:FindFirstChild("ToggleLock")
+						if r then r:FireServer({ e.Uid }) end
+					end },
+					variant = "grid",
+					parent = scroll,
+					zIndex = 15,
+					layoutOrder = i,
+					instanceName = "BagCell" .. i,
+				})
+				card.Activated:Connect(function()
+					newUids[e.Uid] = nil
 					if countPlaced() < plotState.Unlocked then
-						remotes.EquipBrainrot:FireServer(g.uids[1])
+						remotes.EquipBrainrot:FireServer(e.Uid)
 					else
-						flash("NO FREE SLOTS \u{2014} UNLOCK ONE", "error")
+						Toast.show({ text = "NO FREE SLOTS \u{2014} UNLOCK ONE", tone = "error" })
 					end
 				end)
+				card.HoverStart:Connect(function()
+					if showCardTip then showCardTip(e, card.root) end
+				end)
+				card.HoverEnd:Connect(function()
+					if hideCardTip then hideCardTip() end
+				end)
+				cards[#cards + 1] = card
 			end
+			gridUi.cards = cards
+			gridUi.culler = ViewportCuller.attach(scroll, cards)
 		end
+		gridUi.fill = fillBag
 
 		fillBag()
 
@@ -3644,10 +3621,6 @@ function BackpackPanel.Build(ctx)
 			end)
 		end
 
-		box:GetPropertyChangedSignal("Text"):Connect(function()
-			searchQuery = box.Text
-			fillBag()
-		end)
 	end
 
 	----------------------------------------------------------- PETS tab
@@ -5217,6 +5190,12 @@ function BackpackPanel.Build(ctx)
 
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
 		setBlur(wrapper.Visible)
+		if not wrapper.Visible and gridUi.culler then
+			-- 2026-09-18: a hidden Bag holds no live viewports and no culler
+			-- connections; reopening re-renders the tab and re-attaches
+			gridUi.culler.detach()
+			gridUi.culler = nil
+		end
 		if wrapper.Visible then
 			renderActiveTab()
 			local g = contentHost:FindFirstChildWhichIsA("ScrollingFrame")
