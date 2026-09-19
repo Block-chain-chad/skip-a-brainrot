@@ -1,0 +1,57 @@
+--- a/game-src/place-full/StarterPlayer/StarterPlayerScripts/QuestTrackerClient.client.lua
++++ b/game-src/place-full/StarterPlayer/StarterPlayerScripts/QuestTrackerClient.client.lua
+@@ -60,6 +60,7 @@
+ local HudLayout = require(modules:WaitForChild("HudLayout"))
+ local TundraQuestConfig = require(modules:WaitForChild("TundraQuestConfig"))
+ local MichelQuestConfig = require(modules:WaitForChild("MichelQuestConfig"))
++local GardensQuestConfig = require(modules:WaitForChild("GardensQuestConfig"))
+ local okSound, SoundKit = pcall(function() return require(modules:WaitForChild("SoundKit")) end)
+ if not okSound then SoundKit = nil end
+ 
+@@ -119,6 +120,7 @@
+ 	Tung     = { name = "Elder Tung", initial = "T", accent = { Color3.fromRGB(198, 150, 96),  Color3.fromRGB(146, 98, 54) },  icon = "keyCellar" },
+ 	TungIce  = { name = "Elder Tung", initial = "T", accent = { Color3.fromRGB(198, 150, 96),  Color3.fromRGB(146, 98, 54) },  icon = "bolt" },
+ 	Michel   = { name = "Michael",    initial = "M", accent = { Color3.fromRGB(226, 176, 62),  Color3.fromRGB(196, 146, 48) },  icon = "tag" },
++	Keeper   = { name = "The Keeper", initial = "K", accent = { Color3.fromRGB(156, 178, 136), Color3.fromRGB(88, 118, 86) } },
+ }
+ 
+ ---------------------------------------------------------------- quests
+@@ -210,6 +212,38 @@
+ 			[2] = { Title = "Eagles Quest", Objective = "You are holding the rest \u{2014} finish the hand-over", Kind = "return", Step = 0, Of = MichelQuestConfig.Count },
+ 		},
+ 	},
++	{
++		Id = "GardensOrders", Npc = NPC.Keeper, Remote = "GardensState",
++		-- built FROM the config, exactly like TundraCave: talk and flag stages are a
++		-- visit away; count and gather stages carry a bar
++		Steps = (function()
++			local t = {}
++			for i, s in ipairs(GardensQuestConfig.Stages) do
++				local grind = (s.Kind == "count" or s.Kind == "gather")
++				t[i] = {
++					Title = s.Title, Objective = s.Track or s.Title,
++					Kind = grind and "objective" or "return",
++					HasProgress = grind,
++					Step = 0, Of = (s.Kind == "count" and s.Target) or (s.Kind == "gather" and GardensQuestConfig.RelicTotal) or 1,
++				}
++			end
++			return t
++		end)(),
++		Objective = function(payload, step)
++			if type(payload.Parts) == "table" and #payload.Parts > 0 then
++				local bits = {}
++				for _, p in ipairs(payload.Parts) do
++					bits[#bits + 1] = ("%s %d/%d"):format(p.Plural or p.Label or p.Id, p.Have or 0, p.Need or 0)
++				end
++				return table.concat(bits, "  \u{00B7}  ")
++			end
++			return nil
++		end,
++		KindOf = function(payload, step)
++			if step.Kind == "objective" and payload.Met == true then return "return" end
++			return step.Kind
++		end,
++	},
+ }
+ 
+ for _, q in ipairs(QUESTS) do

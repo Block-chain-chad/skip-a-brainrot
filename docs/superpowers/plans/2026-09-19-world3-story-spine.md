@@ -494,7 +494,7 @@ return M
 
 Run:
 ```bash
-cd C:/Users/m/Coding/skip-a-brainrot-world3/game-src/place-full && f=ReplicatedStorage/Modules/GardensNpcConfig.lua && for r in Elder Guard Youth Scavenger Soldier Veteran Deserter Ancient; do n=$(awk "/^\t$r = \{/,/^\t\},/" $f | grep -cE '^\t\t\t(Before|Early|Mid|Late|After|BloodMoon) = \{'); echo "$r buckets=$n"; done && (grep -qiE 'crescent|sigil|warship|forty|listen' $f && echo "HOLD VIOLATION" || echo "holds ok") && file $f | grep -q CRLF && echo "CRLF!" || echo "LF ok"
+cd C:/Users/m/Coding/skip-a-brainrot-world3/game-src/place-full && f=ReplicatedStorage/Modules/GardensNpcConfig.lua && for r in Elder Guard Youth Scavenger Soldier Veteran Deserter Ancient; do n=$(awk -v r="$r" 'index($0, "\t" r " = {")==1{f=1} f{print} f && $0=="\t},"{f=0}' $f | grep -cP '^\t\t\t(Before|Early|Mid|Late|After|BloodMoon)\s+= \{'); echo "$r buckets=$n"; done && (grep -qiE 'crescent|sigil|warship|forty|listen' $f && echo "HOLD VIOLATION" || echo "holds ok") && (grep -q $'\r' $f && echo "CRLF!" || echo "LF ok")
 ```
 Expected: every role `buckets=6`, `holds ok`, `LF ok`. (`listen` is grepped so the P9 hold cannot creep in through a rewrite.)
 
@@ -941,7 +941,7 @@ return GardensQuest
 
 Run:
 ```bash
-cd C:/Users/m/Coding/skip-a-brainrot-world3/game-src/place-full && f=ServerScriptService/Modules/GardensQuest.lua && grep -c "^function GardensQuest\." $f && grep -c 'getRemote("Gardens' $f && grep -n "Config\.[A-Za-z]*" $f | grep -o "Config\.[A-Za-z]*" | sort -u | tr '\n' ' '; echo; grep -o "M\.[A-Za-z]* =" ReplicatedStorage/Modules/GardensQuestConfig.lua | sed 's/M\.//; s/ =//' | sort -u | tr '\n' ' '; echo; file $f | grep -q CRLF && echo "CRLF!" || echo "LF ok"
+cd C:/Users/m/Coding/skip-a-brainrot-world3/game-src/place-full && f=ServerScriptService/Modules/GardensQuest.lua && grep -c "^function GardensQuest\." $f && grep -c 'getRemote("Gardens' $f && echo "Config fields used but not exported (must be empty):" && comm -23 <(grep -o "Config\.[A-Za-z]*" $f | sed 's/Config\.//' | sort -u) <(grep -oP "^M\.[A-Za-z]+(?=\s*=)" ReplicatedStorage/Modules/GardensQuestConfig.lua | sed 's/M\.//' | sort -u) && (grep -q $'\r' $f && echo "CRLF!" || echo "LF ok")
 ```
 Expected: `3` functions (`NotifyCatch`, `AddCache`, `Init`; `SendState`/`Interact` are assignments), `2` remotes, and every `Config.X` used by the module appears in the config's exported names (`ByIndex Count DONE IndexOfId KeyAttribute KeyFlag CachesForKey Locked NONE NpcRole Relics RelicById RelicChance RelicPity RelicTotal RewardFlag Stages WorldName`), `LF ok`.
 
@@ -1545,7 +1545,7 @@ Run:
 ```bash
 cd C:/Users/m/Coding/skip-a-brainrot-world3/game-src/place-full && f=StarterPlayer/StarterPlayerScripts/GardensNpcClient.client.lua && grep -c "MerchantDialog.Show(" $f && grep -c "FireServer(roleId)" $f && grep -c '"deserternag"\|"key"' $f && file $f | grep -q CRLF && echo "CRLF!" || echo "LF ok"
 ```
-Expected: `3`, `1`, `2`, `LF ok`.
+Expected: `3`, `1`, `3` (two branches plus the comment naming them), `LF ok`.
 
 - [ ] **Step 3: Commit**
 
