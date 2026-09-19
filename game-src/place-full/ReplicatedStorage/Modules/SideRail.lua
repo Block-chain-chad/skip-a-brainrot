@@ -73,10 +73,11 @@ local function getRail()
 		list.Parent = railFrame
 		local scale = Instance.new("UIScale")
 		scale.Parent = railFrame
-		local cam = workspace.CurrentCamera
-		local function upd() if cam then scale.Scale = math.clamp(cam.ViewportSize.Y / 900, 0.8, 1.25) end end
-		upd()
-		if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(upd) end
+		-- 2026-08-05: same 900/0.8/1.25 curve, but via Platform so the floor
+		-- lifts on phones and consoles, and so this re-fires on rotation and on
+		-- a controller being picked up -- not only on ViewportSize.
+		local Platform = require(script.Parent:WaitForChild("Platform"))
+		Platform.BindHeight(scale, 900, 0.8, 1.25)
 	end
 	-- OFF-SCREEN MUST NOT ANIMATE, whoever hid it. GameHUDClient hides this
 	-- frame directly rather than going through updateRailVisibility, so hooking
@@ -532,7 +533,10 @@ function SideRail.MakeTile(cfg)
 		local oldText = blabel.Text
 		badge.Visible = true
 		if kind == "dot" then
-			blabel.Text = ""; badge.Size = UDim2.fromOffset(15, 15); badge.BackgroundColor3 = BADGE_RED
+			-- "!", for the same reason as the visible rail's paintBadge: an unmarked
+			-- disc reads as part of the tile art rather than as something waiting.
+			-- 18 rather than 15 so the glyph has room inside the rim.
+			blabel.Text = "!"; badge.Size = UDim2.fromOffset(18, 18); badge.BackgroundColor3 = BADGE_RED
 		elseif kind == "count" then
 			blabel.Text = (n and n > 99) and "99+" or tostring(n or 0); badge.Size = UDim2.fromOffset(22, 22); badge.BackgroundColor3 = BADGE_RED
 		elseif kind == "alert" then
@@ -554,11 +558,39 @@ function SideRail.MakeTile(cfg)
 end
 
 -- ===== single-open coordination =====
--- Rail panels registered here close one another, so only ONE is open at a time.
--- We watch each panel's Visible; when one turns on, the rest turn off. Works no
--- matter how a client toggles it (a raw Visible flag, or UIStyle.popIn which also
--- sets Visible). Hiding the others via Visible=false is enough for every panel.
+-- Registered surfaces close one another, so only ONE is open at a time.
+--
+-- 2026-08-06, two things this could not previously express:
+--
+-- 1. NOT EVERY SURFACE TOGGLES `Visible`. TungOfferUI switches its whole
+--    ScreenGui's `Enabled` and leaves the panel frame Visible=true forever.
+--    Registering that frame the old way would have read as permanently open and
+--    jammed every other panel shut. registerScreenGui watches Enabled instead.
+--
+-- 2. SOME PANELS ARE STEPS OF ONE FLOW. Trade opens its item picker on top of
+--    the trade window; Booth opens its listing picker over the stand. Under a
+--    flat registry those close each other and the flow is unusable. Passing the
+--    same `group` string exempts a set from closing ITS OWN members while still
+--    closing everything outside the group.
+--
+-- Each entry is { group, isOpen(), close() } so the two kinds behave alike
+-- everywhere else in this file.
 local railPanels = {}
+
+local function anyPanelOpen()
+	for inst, e in pairs(railPanels) do
+		if inst.Parent and e.isOpen() then return true end
+	end
+	return false
+end
+
+-- Public: lets a proximity-driven surface stand down while a panel is open
+-- instead of being force-closed and immediately re-opening itself. TradeClient's
+-- nearby-players list is the case -- a 0.3s loop re-asserts it, so closing it
+-- from here would just flip-flop forever.
+function SideRail.AnyPanelOpen()
+	return anyPanelOpen()
+end
 
 
 -- The rail sits at DisplayOrder 6, above every panel, and its cards are wide
@@ -568,10 +600,7 @@ local railPanels = {}
 -- back when the last one closes.
 local function updateRailVisibility()
 	if not (railFrame and railFrame.Parent) then return end
-	local anyOpen = false
-	for panel in pairs(railPanels) do
-		if panel.Parent and panel.Visible then anyOpen = true break end
-	end
+	local anyOpen = anyPanelOpen()
 	railFrame.Visible = not anyOpen
 	-- the quest tracker hugs the right edge and overlaps open panels the same
 	-- way the rail does, so it folds away with the rail and returns with it
@@ -580,21 +609,68 @@ local function updateRailVisibility()
 	if qt then qt.Enabled = not anyOpen end
 end
 
-function SideRail.registerPanel(frame)
-	if not frame or railPanels[frame] then return frame end
-	railPanels[frame] = true
-	frame:GetPropertyChangedSignal("Visible"):Connect(function()
-		if frame.Visible then
-			for other in pairs(railPanels) do
-				if other ~= frame and other.Parent and other.Visible then
-					other.Visible = false
+local function register(inst, group, isOpen, close, signal)
+	if not inst or railPanels[inst] then return inst end
+	railPanels[inst] = { group = group, isOpen = isOpen, close = close }
+	signal:Connect(function()
+		if isOpen() then
+			for other, e in pairs(railPanels) do
+				if other ~= inst and other.Parent and e.isOpen() then
+					-- same group = two steps of one flow (the trade window and the
+					-- picker it opens over itself). Those must not close each other.
+					if not (group and group == e.group) then e.close() end
 				end
 			end
 		end
 		updateRailVisibility()
 	end)
+
+	-- === A PANEL THAT DESTROYS ITSELF NEVER FIRES ITS OWN SIGNAL (2026-08-26) ===
+	-- Destroy() does NOT raise Visible/Enabled changed, so the watcher above never
+	-- runs again and updateRailVisibility is never recomputed. anyPanelOpen()
+	-- already reads a destroyed entry as closed (it guards on inst.Parent) -- the
+	-- bug was purely that NOTHING ASKED IT AGAIN, so whatever the panel folded
+	-- away stayed folded until some other panel happened to open.
+	--
+	-- Caught on the offline-earnings card, which is built fresh per join and ends
+	-- with card:Destroy(): it took the QUEST TRACKER down with it (see
+	-- updateRailVisibility) and the tracker never came back for the rest of the
+	-- session. Fixed here rather than in that one caller because EVERY registered
+	-- surface that tears itself down instead of hiding has the same hole.
+	--
+	-- DEFERRED, because a REPARENT also momentarily reports no parent, and a panel
+	-- being moved between ScreenGuis must keep its registration. By the time the
+	-- defer runs, a reparent has landed and a destroy has not. Reading .Parent on a
+	-- destroyed instance is safe -- only WRITING it throws.
+	inst.AncestryChanged:Connect(function(_, parent)
+		if parent then return end
+		task.defer(function()
+			if inst.Parent == nil then railPanels[inst] = nil end
+			updateRailVisibility()
+		end)
+	end)
+
 	updateRailVisibility()
-	return frame
+	return inst
+end
+
+-- A panel that shows and hides by its own Visible flag. `group` is optional; see
+-- the block comment above.
+function SideRail.registerPanel(frame, group)
+	if not frame then return frame end
+	return register(frame, group,
+		function() return frame.Visible end,
+		function() frame.Visible = false end,
+		frame:GetPropertyChangedSignal("Visible"))
+end
+
+-- A surface that shows and hides by toggling its whole ScreenGui's Enabled.
+function SideRail.registerScreenGui(gui, group)
+	if not gui then return gui end
+	return register(gui, group,
+		function() return gui.Enabled end,
+		function() gui.Enabled = false end,
+		gui:GetPropertyChangedSignal("Enabled"))
 end
 
 return SideRail
