@@ -308,10 +308,15 @@ task.spawn(function()
 	local panelHost = canvas and canvas:WaitForChild("PanelHost", 10)
 	if not panelHost then return end
 	local function sync()
-		panelYield = Platform.IsPhone and panelHost.Visible
+		-- RailPanelOpen is SideRail's "any registered panel is open" (round 2.5): it
+		-- adds the legacy shops (egg, merchant), which never touch PanelHost but sit
+		-- near-fullscreen on a phone exactly like a GameHUD panel does -- this pill
+		-- was drawing across the egg shop's close button.
+		panelYield = Platform.IsPhone and (panelHost.Visible or player:GetAttribute("RailPanelOpen") == true)
 		applyShell()
 	end
 	panelHost:GetPropertyChangedSignal("Visible"):Connect(sync)
+	player:GetAttributeChangedSignal("RailPanelOpen"):Connect(sync)
 	Platform.Watch(sync)
 end)
 

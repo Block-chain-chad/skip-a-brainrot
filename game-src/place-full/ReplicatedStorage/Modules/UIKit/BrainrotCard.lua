@@ -376,9 +376,15 @@ function BrainrotCard.new(props: Props): Card
 	paintRate()
 
 	-- sparkles (Secret, God)
+	-- round 2.5: moved out from under the corner furniture. On the 75x96 grid
+	-- plate the old (0.5, 0.08) sat on the rarity pips and (0.88, 0.42) peeked
+	-- out from under the pad pip at the foot of the right badge stack (round 2
+	-- QA). The stacks end at y 40 (right, two badges) and y 28 (left row), the
+	-- rate pill starts at y 63: 0.36 / 0.50 land all three inside the art well,
+	-- and the compact 75x61 pad plate clears its single pip and pill the same way.
 	local sparkles: { TextLabel } = {}
 	if ladder.sparkles then
-		for i, pos in ipairs({ UDim2.new(0.5, 0, 0.08, 0), UDim2.new(0.12, 0, 0.42, 0), UDim2.new(0.88, 0, 0.42, 0) }) do
+		for i, pos in ipairs({ UDim2.new(0.5, 0, 0.36, 0), UDim2.new(0.12, 0, 0.50, 0), UDim2.new(0.88, 0, 0.50, 0) }) do
 			local sp = PC.shout({ name = "Sparkle" .. i, text = "\u{2726}", size = if isHero then 22 else 13, color = ramp[1], strokeColor = S.Outline, zIndex = z + 5, parent = plate, frameSize = UDim2.fromOffset(18, 18), position = pos, anchor = Vector2.new(0.5, 0.5) })
 			table.insert(sparkles, sp)
 		end

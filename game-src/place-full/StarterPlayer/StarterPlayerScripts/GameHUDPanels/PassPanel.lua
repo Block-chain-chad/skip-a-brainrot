@@ -180,9 +180,11 @@ function PassPanel.Build(ctx, opts)
 	local INNER_H = BODY_H - PAD * 2 -- 528
 
 	local PROGRESS_H = 96 -- sheet: tier plate 200x96
-	local COLHEAD_H = 62  -- tall enough for the violet UNLOCK plate
-	local LADDER_TOP = PROGRESS_H + 10 + COLHEAD_H + 6 -- 104
-	local LADDER_H = INNER_H - LADDER_TOP -- 424
+	-- round 2.5: 62 -> 54. The tallest thing in the row is the 48px UNLOCK button;
+	-- the 8px this gives back goes to the ladder below.
+	local COLHEAD_H = 54
+	local LADDER_TOP = PROGRESS_H + 10 + COLHEAD_H + 6 -- 166
+	local LADDER_H = INNER_H - LADDER_TOP -- 362
 
 	-- The vertical scrollbar sits INSIDE the scroll frame's width, so the row
 	-- content -- and therefore the column headers above it, which must line up --
@@ -195,16 +197,23 @@ function PassPanel.Build(ctx, opts)
 	local FREE_X = 0
 	local TIER_X = CARD_W + COL_GAP -- 415
 	local PASS_X = TIER_X + TIER_COL_W + COL_GAP -- 519
-	local ROW_H = 104 -- sheet: reward row 104
-	local ROW_GAP = 12
+	-- round 2.5: the sheet's 104 + 12 showed three tiers of fifty at once on a
+	-- 1080p desktop (round 2 QA). 82 + 8 shows four, with the row's contents --
+	-- a 60 plate, name over caption, a 54 CLAIM -- still sitting in clear air.
+	local ROW_H = 82
+	local ROW_GAP = 8
 	local MILESTONE_H = 26
 
 	-- Reward-card internals
-	local PLATE = 66 -- sheet: icon 66
+	local PLATE = 60 -- sheet: icon 66; 60 keeps 11px of row above and below it
 	local PLATE_X = 10
 	local TEXT_X = PLATE_X + PLATE + 12 -- 82
 	local ACTION_W = 96
-	local TEXT_W = CARD_W - TEXT_X - ACTION_W - 22 -- 199
+	-- Measured against the WIDEST action the column can carry (the PREMIUM padlock
+	-- chip, ACTION_W + 30), not the bare button width: the old 199 ran 20px under
+	-- that chip, which is where the truncated egg names were disappearing to.
+	local TEXT_W = CARD_W - TEXT_X - (ACTION_W + 30) - 16 -- 175
+	local NAME_Y, SUB_Y = 13, 43
 
 	----------------------------------------------------------- module-local state (server-confirmed only)
 	local state = { XP = 0, Claimed = {}, PassClaimed = {}, PassOwned = false }
@@ -647,22 +656,39 @@ function PassPanel.Build(ctx, opts)
 
 		----------------------------------------------------- name + subtitle
 		local rewardText
+		local eggQty = 0
 		if rw.kind == "Cash" then
 			rewardText = shortCash(rw.amount) .. " Cash"
 		elseif rw.kind == "Egg" then
 			-- An egg tier can hand over more than one; pass tier 50 gives twelve.
-			-- "x" not the multiplication sign: this game has been bitten by
-			-- glyphs the shipped fonts cannot render.
-			rewardText = rw.text .. "  x" .. tostring(rw.qty or 1)
+			-- round 2.5: DescribeReward's text ALREADY carries " x<qty>" for a
+			-- multi-egg tier, so appending it again here printed "Heartwood Egg x2
+			-- x2" and then truncated to "Heartwood Egg..." in both columns (round 2
+			-- QA). The name is now the bare egg name and the count is a pip on the
+			-- art plate -- the bag's own idiom for "how many" -- so it never has to
+			-- fit in the same 175px as the name. "x" not the multiplication sign:
+			-- this game has been bitten by glyphs the shipped fonts cannot render.
+			eggQty = tonumber(rw.qty) or 1
+			rewardText = (rw.text or ""):gsub("%s+x%d+$", "")
 		elseif rw.kind == "Emeralds" then
 			rewardText = "+" .. tostring(rw.amount or 0) .. " Gems"
 		else
 			rewardText = rw.text
 		end
 
+		if eggQty > 1 then
+			local pip = PC.statePlate({
+				name = "QtyPip", text = "x" .. tostring(eggQty), colors = S.Role.Gold,
+				size = UDim2.fromOffset(eggQty >= 10 and 38 or 32, 20),
+				position = UDim2.new(1, 6, 1, 4), anchor = Vector2.new(1, 1),
+				textSize = 13, zIndex = plate.ZIndex + 3, parent = plate,
+			})
+			pip.Name = "QtyPip"
+		end
+
 		local name = PC.read({
 			name = "NameLabel", text = rewardText, size = 24, color = INK,
-			frameSize = UDim2.fromOffset(TEXT_W, 28), position = UDim2.fromOffset(TEXT_X, 22),
+			frameSize = UDim2.fromOffset(TEXT_W, 28), position = UDim2.fromOffset(TEXT_X, NAME_Y),
 			zIndex = card.ZIndex + 2, parent = card,
 		})
 		name.TextTruncate = Enum.TextTruncate.AtEnd
@@ -670,7 +696,7 @@ function PassPanel.Build(ctx, opts)
 		local sub = PC.read({
 			name = "SubLabel", text = subtitleFor(rw, SEASON.Number), size = 17,
 			color = if claimable then Color3.fromHex("1F6E2A") else SUB,
-			frameSize = UDim2.fromOffset(TEXT_W, 22), position = UDim2.fromOffset(TEXT_X, 54),
+			frameSize = UDim2.fromOffset(TEXT_W, 22), position = UDim2.fromOffset(TEXT_X, SUB_Y),
 			zIndex = card.ZIndex + 2, parent = card,
 		})
 		sub.TextTruncate = Enum.TextTruncate.AtEnd
@@ -690,7 +716,8 @@ function PassPanel.Build(ctx, opts)
 			claimBtn.Activated:Connect(function()
 				if claimBtn:GetAttribute("UIBusy") == true then return end
 				PC.setBusy(claimBtn, true, { timeout = 8 })
-				pendingClaim = { tier = tier, track = track, text = rewardText }
+				-- the toast keeps the count the card moved onto its pip
+				pendingClaim = { tier = tier, track = track, text = rewardText .. (if eggQty > 1 then " x" .. tostring(eggQty) else "") }
 				-- track tells the server WHICH column; it re-checks gamepass
 				-- ownership itself, so a spoofed "pass" here still cannot claim
 				-- the paid track.
@@ -734,7 +761,7 @@ function PassPanel.Build(ctx, opts)
 		-- "you are here" in the kit's own grammar (blue = navigation).
 		local badge = PC.plate({
 			name = "TierBadge" .. tier,
-			size = UDim2.fromOffset(TIER_COL_W, 88),
+			size = UDim2.fromOffset(TIER_COL_W, ROW_H - 6), -- round 2.5: rides the row height (was a fixed 88 over a 104 row)
 			position = UDim2.new(0, TIER_X + TIER_COL_W / 2, 0.5, 0),
 			anchor = Vector2.new(0.5, 0.5),
 			colors = S.Role.Gold,

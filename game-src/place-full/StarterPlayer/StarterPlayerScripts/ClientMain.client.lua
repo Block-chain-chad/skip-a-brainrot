@@ -808,7 +808,7 @@ end
 -- building; that is why narrowing it reads as calmer instead of broken. The sample
 -- itself was picked by ear from a six-class audition -- see SoundKit.Ids.throwCharge
 -- before swapping it, because reasoning alone got it wrong twice.
-local CHARGE_PITCH_LO = 0.72    -- power 0
+local CHARGE_PITCH_LO = 0.90    -- power 0
 local CHARGE_PITCH_HI = 1.42    -- power 1
 local CHARGE_VOL      = 0.12    -- a bed: must lose to the release (RELEASE_VOL 0.38)
 local RELEASE_VOL     = 0.38    -- loudest of the four -- this is the commitment
@@ -1874,8 +1874,14 @@ task.spawn(function()
 	local sprintBtn = gui:WaitForChild("SprintButton", 10)
 	local hidden = false   -- edge trigger; see the write rule below
 	local function sync()
-		tabBar.Visible = not host.Visible
-		local hide = host.Visible and Platform.IsPhone
+		-- RailPanelOpen is SideRail's "any registered panel is open" (round 2.5): the
+		-- legacy shops (egg, merchant) never touch PanelHost but sit near-fullscreen
+		-- on a phone too, and Sprint was drawing across the egg shop's right edge;
+		-- the tab bar's three icons poked out above its header. Phone only, like
+		-- the rest of this sweep -- the desktop tab bar keeps its 08-17 behaviour.
+		local shopOnPhone = Platform.IsPhone and player:GetAttribute("RailPanelOpen") == true
+		tabBar.Visible = not (host.Visible or shopOnPhone)
+		local hide = (host.Visible or shopOnPhone) and Platform.IsPhone
 		-- WRITE ONLY ON THE EDGE, never every sync. On desktop `hide` is false from
 		-- the first call and never moves, so this branch is never entered and these
 		-- two surfaces are not written to AT ALL there -- no chance of this quietly
@@ -1899,6 +1905,7 @@ task.spawn(function()
 		end
 	end
 	host:GetPropertyChangedSignal("Visible"):Connect(sync)
+	player:GetAttributeChangedSignal("RailPanelOpen"):Connect(sync)
 	-- Device class can change under us (Studio's device emulator, and a desktop
 	-- window resized narrow). Platform.Watch calls fn immediately and on every
 	-- change; the trailing sync() is kept anyway so the first paint never depends

@@ -599,8 +599,19 @@ end
 -- gets out of the way: it hides while any registered panel is open and comes
 -- back when the last one closes.
 local function updateRailVisibility()
-	if not (railFrame and railFrame.Parent) then return end
 	local anyOpen = anyPanelOpen()
+	-- PUBLISHED (round 2.5, 2026-09-19). The phone chrome that stands down while a
+	-- HUD panel is open -- HIDE UI, the luck chip, Sprint, the ride tab, the quest
+	-- bar -- used to watch GameHUD.Canvas.PanelHost.Visible, which only the GameHUD
+	-- panels ever raise. The legacy shops (egg, merchant) are registered HERE and
+	-- never touch PanelHost, so on a phone they opened near-fullscreen with that
+	-- chrome still drawn across them (the HIDE UI pill sat on the egg shop's close
+	-- button). One attribute, written once per change, read by every yielder:
+	-- "any registered panel is open" -- PanelHost included, since it is registered.
+	if player:GetAttribute("RailPanelOpen") ~= anyOpen then
+		player:SetAttribute("RailPanelOpen", anyOpen)
+	end
+	if not (railFrame and railFrame.Parent) then return end
 	railFrame.Visible = not anyOpen
 	-- the quest tracker hugs the right edge and overlaps open panels the same
 	-- way the rail does, so it folds away with the rail and returns with it

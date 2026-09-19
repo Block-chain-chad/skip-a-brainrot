@@ -78,6 +78,7 @@ local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local T = require(ReplicatedStorage.Modules.UIKit.Tokens)
 local UI = require(ReplicatedStorage.Modules.UIKit.Builders)
 local Platform = require(ReplicatedStorage.Modules:WaitForChild("Platform"))
+local HudLayout = require(ReplicatedStorage.Modules:WaitForChild("HudLayout"))
 -- 2026-09-18 UI ROUND 2: the shop wears the kit's white-shell language (bubble
 -- title, pink close, kit buttons on the cards) so it stops reading as a different
 -- game from the Bag / Shop panels. Window footprint, scroller, data path, prompts
@@ -235,7 +236,12 @@ host.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 host.DisplayOrder = 24
 host.Enabled = true
 host.Parent = player:WaitForChild("PlayerGui")
-Platform.PrepareGui(host)
+-- round 2.5: through HudLayout's registry, on its "Panel" layer (40+). HIDE UI
+-- lives on "Toggle" (30), so at 24 this window opened UNDER the pill on a phone,
+-- the same exposure the egg shop had on its close button (round 2 QA). The 24
+-- above stays as the fallback for a client running with the registry flag off;
+-- HudLayout.PrepareGui does the Platform.PrepareGui call itself.
+HudLayout.PrepareGui(host, "Panel")
 
 frame = Instance.new("Frame") -- assigns the forward-declared upvalue (see the spinner guard above)
 frame.Name = "MerchantFrame"
@@ -392,10 +398,45 @@ local function recentre()
 	end
 end
 
+-- round 2.5: keep the centred desktop window clear of the HUD's currency
+-- cluster. At the canvas fit this 940-wide window's left edge landed 2px onto
+-- the gem "+" button (round 2 QA at 1891x793). The cluster is left-anchored and
+-- the window is centred, so the clearance comes off the SCALE, symmetric --
+-- about a 2% shrink at 1080p, nothing at all where the cluster is narrower.
+-- Same-space compare: every ScreenGui reports AbsolutePosition in one screen
+-- frame whatever its insets. Mirrors EggShopClient's rule, so the two shops
+-- keep landing on the same edge.
+local CLUSTER_GAP = 8
+local function clearCurrencyCluster(scale: number): number
+	if not Platform.IsDesktop then return scale end
+	local playerGui = player:FindFirstChild("PlayerGui")
+	local hud = playerGui and playerGui:FindFirstChild("GameHUD")
+	local chrome = hud and hud:FindFirstChild("Chrome")
+	local cluster = chrome and chrome:FindFirstChild("CurrencyCluster")
+	if not (cluster and cluster:IsA("GuiObject") and cluster.Visible) then return scale end
+	-- PAINTED leaves only: the gem pill's hit box runs 8px past its own "+"
+	-- button, and clearing invisible boxes would shrink the window for nothing.
+	local right = -math.huge
+	for _, d in ipairs(cluster:GetDescendants()) do
+		if d:IsA("GuiObject") and d.Visible and d.AbsoluteSize.X > 0 then
+			local painted = d.BackgroundTransparency < 0.95
+				or ((d:IsA("ImageLabel") or d:IsA("ImageButton")) and d.Image ~= "" and d.ImageTransparency < 0.95)
+				or ((d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text ~= "" and d.TextTransparency < 0.95)
+			if painted then
+				right = math.max(right, d.AbsolutePosition.X + d.AbsoluteSize.X)
+			end
+		end
+	end
+	if right == -math.huge then return scale end
+	local room = host.AbsoluteSize.X - 2 * (right - host.AbsolutePosition.X + CLUSTER_GAP)
+	if room <= 0 then return scale end
+	return math.min(scale, math.max(0.2, room / PANEL_W))
+end
+
 local function relayout()
 	local vh, vw = host.AbsoluteSize.Y, host.AbsoluteSize.X
 	if vh <= 0 or vw <= 0 then return end
-	hudScale.Scale = Platform.FitPanel(PANEL_W, PANEL_H)
+	hudScale.Scale = clearCurrencyCluster(Platform.FitPanel(PANEL_W, PANEL_H))
 	frame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	task.defer(recentre)
 end
@@ -405,7 +446,10 @@ relayout()
 -- Re-centre whenever the panel is actually shown. Startup layout is the unreliable
 -- moment; the instant it becomes visible, the rect is real.
 frame:GetPropertyChangedSignal("Visible"):Connect(function()
-	if frame.Visible then task.defer(recentre) end
+	-- round 2.5: a full refit, not just the recentre -- the desktop fit clears
+	-- the HUD's currency cluster, whose width follows the cash string, and the
+	-- boot-time pass ran before the HUD had painted it.
+	if frame.Visible then relayout() end
 end)
 
 ---------------------------------------------------------------- coming soon plate

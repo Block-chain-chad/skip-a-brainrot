@@ -82,9 +82,14 @@ task.spawn(function()
 	local panelHost = canvas and canvas:WaitForChild("PanelHost", 10)
 	if not panelHost then return end
 	local function sync()
-		gui.Enabled = not panelHost.Visible
+		-- RailPanelOpen is SideRail's "any registered panel is open" (round 2.5): the
+		-- legacy shops (egg, merchant) never touch PanelHost, and this bar was left
+		-- poking out from under the egg shop's header on a phone. Phone only, like
+		-- every other chrome yield -- on desktop the shops simply draw over it.
+		gui.Enabled = not (panelHost.Visible or (Platform.IsPhone and player:GetAttribute("RailPanelOpen") == true))
 	end
 	panelHost:GetPropertyChangedSignal("Visible"):Connect(sync)
+	player:GetAttributeChangedSignal("RailPanelOpen"):Connect(sync)
 	sync()
 end)
 

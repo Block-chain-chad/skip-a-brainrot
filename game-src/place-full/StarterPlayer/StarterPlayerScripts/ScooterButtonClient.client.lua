@@ -208,6 +208,18 @@ Platform.Watch(function()
 	end
 end)
 
+-- STAND DOWN WHILE A PANEL IS OPEN -- PHONE ONLY (round 2.5, 2026-09-19). The
+-- same contract HIDE UI, the luck chip and Sprint keep: on a phone every panel
+-- (GameHUD's and the legacy shops') runs near-fullscreen, and this tab was drawn
+-- across the egg shop's right edge. SideRail publishes RailPanelOpen on the
+-- player for every registered panel. Desktop is untouched -- the tab is the
+-- permanent VIP advertisement there and nothing runs into it.
+local function syncPanelYield()
+	slot.Visible = not (Platform.IsPhone and player:GetAttribute("RailPanelOpen") == true)
+end
+player:GetAttributeChangedSignal("RailPanelOpen"):Connect(syncPanelYield)
+Platform.Watch(syncPanelYield)
+
 -- the rail's four concentric ActiveGlow rings, shown only while riding
 local glowHost = Instance.new("Frame")
 glowHost.Name = "ActiveGlow"

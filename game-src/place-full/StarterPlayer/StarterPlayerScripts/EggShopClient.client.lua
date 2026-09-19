@@ -274,6 +274,7 @@ local relayout
 
 do
 	local Platform = require(ReplicatedStorage.Modules:WaitForChild("Platform"))
+	local HudLayout = require(ReplicatedStorage.Modules:WaitForChild("HudLayout"))
 
 	local PANEL_W   = T.size.panelWidth.eggs   -- 940, reserved for this panel
 	-- PANEL HEIGHT, raised 660 -> 700 by the card rebuild (Task 2). The finished
@@ -311,7 +312,13 @@ do
 	}, playerGui)
 	-- notch / rounded-corner / safe-area handling. This also sets ScreenInsets,
 	-- which supersedes IgnoreGuiInset above; CoreUISafeInsets is the live value.
-	Platform.PrepareGui(gui)
+	-- round 2.5: through HudLayout's registry, on its "Panel" layer (40+), instead
+	-- of T.zindex.panel (25). HIDE UI lives on "Toggle" (30), so at 25 this shop
+	-- opened UNDER the pill on a phone and the pill sat on the close button
+	-- (round 2 QA). HudLayout.PrepareGui does the Platform.PrepareGui call itself;
+	-- T.zindex.panel above stays as the fallback for a client running with the
+	-- registry flag off.
+	HudLayout.PrepareGui(gui, "Panel")
 
 	-- Input-transparent full-screen frame, KEPT for wiring parity but it no longer
 	-- paints (dim-to-blur, 2026-08-17): panel separation is the EggShopBlur
@@ -724,8 +731,40 @@ do
 	-- One relayout, registered through Platform.Watch, which fires NOW and again
 	-- on every viewport / rotation / device change. The bespoke gui.AbsoluteSize
 	-- listener and the recentre() retry loop this replaces are both gone.
+	-- round 2.5: keep the centred desktop window clear of the HUD's currency
+	-- cluster. At the canvas fit this 940-wide window's left edge landed 2px onto
+	-- the gem "+" button (round 2 QA at 1891x793). The cluster is left-anchored
+	-- and the window is centred, so the clearance comes off the SCALE, symmetric --
+	-- about a 2% shrink at 1080p, nothing at all where the cluster is narrower.
+	-- Same-space compare: every ScreenGui reports AbsolutePosition in one screen
+	-- frame whatever its insets.
+	local CLUSTER_GAP = 8
+	local function clearCurrencyCluster(scale: number): number
+		if not Platform.IsDesktop then return scale end
+		local hud = playerGui:FindFirstChild("GameHUD")
+		local chrome = hud and hud:FindFirstChild("Chrome")
+		local cluster = chrome and chrome:FindFirstChild("CurrencyCluster")
+		if not (cluster and cluster:IsA("GuiObject") and cluster.Visible) then return scale end
+		-- PAINTED leaves only: the gem pill's hit box runs 8px past its own "+"
+		-- button, and clearing invisible boxes would shrink the window for nothing.
+		local right = -math.huge
+		for _, d in ipairs(cluster:GetDescendants()) do
+			if d:IsA("GuiObject") and d.Visible and d.AbsoluteSize.X > 0 then
+				local painted = d.BackgroundTransparency < 0.95
+					or ((d:IsA("ImageLabel") or d:IsA("ImageButton")) and d.Image ~= "" and d.ImageTransparency < 0.95)
+					or ((d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text ~= "" and d.TextTransparency < 0.95)
+				if painted then
+					right = math.max(right, d.AbsolutePosition.X + d.AbsoluteSize.X)
+				end
+			end
+		end
+		if right == -math.huge then return scale end
+		local room = gui.AbsoluteSize.X - 2 * (right - gui.AbsolutePosition.X + CLUSTER_GAP)
+		if room <= 0 then return scale end
+		return math.min(scale, math.max(0.2, room / PANEL_W))
+	end
 	relayout = function()
-		hudScale.Scale = Platform.FitPanel(PANEL_W, PANEL_H)
+		hudScale.Scale = clearCurrencyCluster(Platform.FitPanel(PANEL_W, PANEL_H))
 		frame.Position = UDim2.fromScale(0.5, 0.5)
 		-- the hint names the input the player actually has, and a handset or
 		-- controller picked up mid-session re-runs this
@@ -2536,7 +2575,10 @@ do
 		local PRICE_H   = 24
 		local RAREST_H  = 34    -- "a 34-high tappable RAREST ... ODDS row"
 		local BUY_H     = 48    -- "buy buttons full-width beneath, 48 high"
-		local WALLET_W  = 150
+		-- round 2.5: 150 -> 172. The balance label is WALLET_W - 54, and a seven-digit
+		-- gem balance ("1,000,474") at the chip's 22px needs ~110px: at 96 it truncated
+		-- to "1,000,4...". The header has the room -- the title is truncate-guarded.
+		local WALLET_W  = 172
 		local CLOSE_W   = 44
 		local CTRL_GAP  = 10
 
@@ -3048,13 +3090,15 @@ local revealGui
 local function ensureRevealGui()
 	if revealGui and revealGui.Parent then return revealGui end
 	revealGui = new("ScreenGui", {
-		-- DISPLAY ORDER 40 -- unchanged, and load-bearing: EggShopUI sits at
-		-- T.zindex.panel (25) with every other panel, so without this the SHOP
-		-- renders above the hatch it launches. 40 clears the panels, the nav rail
-		-- (6) and ClientMain's perfect-throw overlay (30), and stays under
-		-- ToastClient (60) so a real system toast can still reach the player.
+		-- DISPLAY ORDER 40 is the fallback: EggShopUI used to sit at T.zindex.panel
+		-- (25) with every other panel, so without this the SHOP rendered above the
+		-- hatch it launches. round 2.5 moved the shop onto HudLayout's "Panel"
+		-- layer (40+), so the reveal now registers on "Dialog" (50+) -- a step
+		-- above the shop, still under ToastClient (60) so a real system toast can
+		-- reach the player. Full-bleed: the ceremony wants the whole screen.
 		Name = "EggRevealUI", DisplayOrder = 40, IgnoreGuiInset = true, ResetOnSpawn = false,
 	}, playerGui)
+	require(ReplicatedStorage.Modules:WaitForChild("HudLayout")).PrepareGui(revealGui, "Dialog", true)
 	return revealGui
 end
 
@@ -4907,6 +4951,10 @@ do
 		openToken += 1
 		local token = openToken
 		if open then
+			-- round 2.5: re-fit on every open. The desktop fit now clears the HUD's
+			-- currency cluster, whose width follows the cash string, and the
+			-- Platform.Watch pass ran at boot before the HUD had painted it.
+			if relayout then relayout() end
 			frame.Visible = true
 			scrim.Visible = true
 			openPop.Scale = 0.92

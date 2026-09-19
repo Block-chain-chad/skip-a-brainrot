@@ -2676,6 +2676,27 @@ player:GetAttributeChangedSignal("HudPanelCloseRequest"):Connect(function()
 	end
 end)
 
+-- LEGACY SHOPS STAND THE PHONE CHROME DOWN TOO (round 2.5, 2026-09-19). openPanel
+-- hides the rail and the currency cluster on a phone for ITS panels; the egg shop
+-- and the merchant are SideRail-registered windows that never come through
+-- openPanel, and on a phone they are just as fullscreen -- the rail's icons were
+-- left poking out from under the egg shop's left edge. SideRail publishes
+-- RailPanelOpen for every registered panel (PanelHost included), so this can only
+-- ever agree with the two writes above: while a HUD panel is open currentPanelId
+-- is set and this stays out of it; when the last panel closes the attribute goes
+-- false a beat after closePanel's unconditional restore and re-asserts the same
+-- true. Never touches desktop, where the cluster sits in a gutter by design.
+player:GetAttributeChangedSignal("RailPanelOpen"):Connect(function()
+	if not Platform.IsPhone or currentPanelId ~= nil then return end
+	if player:GetAttribute("RailPanelOpen") == true then
+		rail.Visible = false
+		currencyCluster.Visible = false
+	else
+		currencyCluster.Visible = true
+		rail.Visible = true -- the fold driver re-asserts hidden if the HUD is folded
+	end
+end)
+
 function setBadge(id, n)
 	-- ctx contract unchanged (numeric): panels keep calling this. Kind-aware
 	-- paints from SideRail's reporters reach paintBadge directly via

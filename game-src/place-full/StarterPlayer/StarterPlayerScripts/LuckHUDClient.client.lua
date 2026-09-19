@@ -285,10 +285,13 @@ task.spawn(function()
 	local panelHost = canvas and canvas:WaitForChild("PanelHost", 10)
 	if not panelHost then return end
 	local function onHostChanged()
-		panelHostOpen = panelHost.Visible
+		-- RailPanelOpen is SideRail's "any registered panel is open" (round 2.5): the
+		-- legacy shops never touch PanelHost but are just as fullscreen on a phone.
+		panelHostOpen = panelHost.Visible or player:GetAttribute("RailPanelOpen") == true
 		syncPanelYield()
 	end
 	panelHost:GetPropertyChangedSignal("Visible"):Connect(onHostChanged)
+	player:GetAttributeChangedSignal("RailPanelOpen"):Connect(onHostChanged)
 	onHostChanged()
 end)
 
@@ -404,18 +407,23 @@ end)
 
 ----------------------------------------------------------------- title row
 local TITLE_H = 56
+-- round 2.5: the title row is title | headline plate | close. The close is the
+-- kit's -- pink-red rounded square, white edge, shout X, the control every HUD
+-- panel's header carries -- at flyout size. It used to be an INVISIBLE hit area
+-- laid over the headline plate, so nothing told the player how to dismiss this.
+local CLOSE_S = 40
 PC.shout({
 	name = "Title", text = "\u{1F340} YOUR LUCK", size = 26,
 	color = S.Role.Positive[2], strokeColor = Color3.new(1, 1, 1),
 	align = Enum.TextXAlignment.Left,
-	frameSize = UDim2.new(1, -150, 0, TITLE_H), position = UDim2.fromOffset(16, 0),
+	frameSize = UDim2.new(1, -(150 + CLOSE_S + 8), 0, TITLE_H), position = UDim2.fromOffset(16, 0),
 	zIndex = 7, parent = panel,
 })
 -- the headline: RARITY luck, the number that decides what you catch
 local headPlate = PC.plate({
 	name = "Headline",
 	size = UDim2.fromOffset(112, 38),
-	position = UDim2.new(1, -14, 0, 9), anchor = Vector2.new(1, 0),
+	position = UDim2.new(1, -(12 + CLOSE_S + 8), 0, 9), anchor = Vector2.new(1, 0),
 	colors = S.Role.Positive, radius = 14, outline = 3,
 	zIndex = 7, parent = panel, gloss = false,
 })
@@ -424,11 +432,31 @@ local headline = PC.shout({ name = "Label", text = "\u{00D7}1.00", size = 22, zI
 local closeBtn = Instance.new("TextButton")
 closeBtn.Name = "Close"
 closeBtn.Text = ""
-closeBtn.BackgroundTransparency = 1
-closeBtn.Size = UDim2.fromScale(1, 1)
+closeBtn.AutoButtonColor = false
+closeBtn.BackgroundColor3 = S.Role.Destructive[1]
+closeBtn.BorderSizePixel = 0
+closeBtn.Size = UDim2.fromOffset(CLOSE_S, CLOSE_S)
+closeBtn.AnchorPoint = Vector2.new(1, 0)
+closeBtn.Position = UDim2.new(1, -12, 0, 8)
 closeBtn.ZIndex = 8
-closeBtn.Parent = headPlate
+closeBtn.Parent = panel
 closeBtn:SetAttribute("NoPolish", true)
+do
+	local cc = Instance.new("UICorner")
+	cc.CornerRadius = UDim.new(0, 12)
+	cc.Parent = closeBtn
+	local cs = Instance.new("UIStroke")
+	cs.Thickness = 3
+	cs.Color = Color3.new(1, 1, 1)
+	cs.Parent = closeBtn
+	local cg = Instance.new("UIGradient")
+	cg.Rotation = 90
+	cg.Color = ColorSequence.new(S.Role.Destructive[1], S.Role.Destructive[2])
+	cg.Parent = closeBtn
+end
+PC.shout({ text = "X", size = 22, zIndex = 9, parent = closeBtn })
+closeBtn:SetAttribute("SfxMuted", true)
+PC.bindPressFeedback(closeBtn)
 
 ----------------------------------------------------------------- the list
 local listFrame = Instance.new("ScrollingFrame")
