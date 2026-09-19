@@ -323,14 +323,16 @@ function ShopPanel.Build(ctx)
 	end
 
 	----------------------------------------------------------- emeralds
-	PC.sectionHead({ text = "EMERALDS", parent = shell.body, layoutOrder = nextOrder(), zIndex = shell.z + 2 })
+	-- the currency is GEMS to the player (2026-09-18); EmeraldPackConfig keeps its
+	-- internal name -- Emerald is the NPC who sells them
+	PC.sectionHead({ text = "GEMS", parent = shell.body, layoutOrder = nextOrder(), zIndex = shell.z + 2 })
 	do
 		local row
 		for i, p in ipairs(EmeraldPackConfig.List) do
 			if (i - 1) % 2 == 0 then row = pairRow() end
 			-- nil glyph = Emerald's own face; see buildCard
 			buildCard(row, i, "pack", p.Key, nil, p.Name,
-				("%d Emeralds"):format(p.Amount), p.RobuxPrice,
+				("%d Gems"):format(p.Amount), p.RobuxPrice,
 				EmeraldPackConfig.IsLive(p), p.Best == true, true)
 		end
 	end

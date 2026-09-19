@@ -78,6 +78,12 @@ local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local T = require(ReplicatedStorage.Modules.UIKit.Tokens)
 local UI = require(ReplicatedStorage.Modules.UIKit.Builders)
 local Platform = require(ReplicatedStorage.Modules:WaitForChild("Platform"))
+-- 2026-09-18 UI ROUND 2: the shop wears the kit's white-shell language (bubble
+-- title, pink close, kit buttons on the cards) so it stops reading as a different
+-- game from the Bag / Shop panels. Window footprint, scroller, data path, prompts
+-- and remotes are untouched.
+local PC = require(ReplicatedStorage.Modules.UIKit.PanelChrome)
+local S = require(ReplicatedStorage.Modules.UIKit.SpecTheme)
 
 local BZ = UITheme.Bazaar
 local P = UITheme.Palette
@@ -152,7 +158,7 @@ local function makeRockViewport(med, rock)
 	local reach = math.max(size.X, size.Y, size.Z)
 	local cam = Instance.new("Camera")
 	cam.FieldOfView = 38
-	cam.CFrame = CFrame.lookAt(Vector3.new(0.42, 0.30, 1) * reach * 2.55, Vector3.new(0, 0, 0))
+	cam.CFrame = CFrame.lookAt(Vector3.new(0.42, 0.30, 1) * reach * 1.95, Vector3.new(0, 0, 0)) -- 2.55 left the rock a third of its tile (round 2)
 	cam.Parent = vp
 	vp.CurrentCamera = cam
 
@@ -205,7 +211,7 @@ local PANEL_W, PANEL_H = 940, 700       -- the egg shop's own footprint
 local HEADER_H = T.size.headerHeight    -- 92
 local STRIP_H  = 26                     -- blurb strip under the header
 local BLOCK_GAP = T.pad.gap             -- 12
-local CARD_W, CARD_H = 295, 250
+local CARD_W, CARD_H = 295, 272 -- (was 250; see the card band maths below)
 local GRID_GAP, GRID_COLS = 9, 3
 -- 3 x 295 + 2 x 9 = 903 inside the panel's 908 padded content box: three columns
 -- exactly, the same count the egg shop's top row runs.
@@ -265,23 +271,27 @@ header.ZIndex = panel.ZIndex + 1
 -- not something to rely on. BZ.rockHeader1/2 is the pair the Bazaar palette
 -- already defines for this shop, sibling to the eggHeader pink next door: same
 -- furniture, different colour, which is exactly the family resemblance wanted.
+-- round 2: WHITE header band (the kit's shell plate), title as coloured bubble
+-- letters -- the orange BZ.rockHeader bar was the last coloured header slab
 do
+	header.BackgroundColor3 = Color3.new(1, 1, 1)
 	local hg = header:FindFirstChildOfClass("UIGradient")
 	if hg then
-		hg.Color = ColorSequence.new(BZ.rockHeader1, BZ.rockHeader2)
+		hg.Color = ColorSequence.new(S.Plate.shop[1], S.Plate.shop[2])
 	else
-		UI.gradient(header, ColorSequence.new(BZ.rockHeader1, BZ.rockHeader2))
+		UI.gradient(header, ColorSequence.new(S.Plate.shop[1], S.Plate.shop[2]))
 	end
+	local hs = header:FindFirstChildOfClass("UIStroke")
+	if hs then hs.Color = S.OutlineSoft; hs.Thickness = 2 end
 end
 
-local title = UI.label(header, "SHOPS", "panelTitle", T.color.white)
-title.Name = "Title"
-title.AnchorPoint = Vector2.new(0, 0.5)
-title.Position = UDim2.new(0, 18, 0.5, 0)
-title.Size = UDim2.new(1, -96, 0, 44)
-title.AutomaticSize = Enum.AutomaticSize.None
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.ZIndex = header.ZIndex + 1
+local title = PC.shout({
+	name = "Title", text = "SHOPS", size = 44,
+	color = S.TitleInk.shop, strokeColor = Color3.new(1, 1, 1),
+	align = Enum.TextXAlignment.Left,
+	frameSize = UDim2.new(1, -110, 0, 50), position = UDim2.new(0, 22, 0.5, 0), anchor = Vector2.new(0, 0.5),
+	zIndex = header.ZIndex + 1, parent = header,
+})
 
 -- "X" THE LETTER, never U+2715 -- and "buttonL", not "buttonM". EggShopClient
 -- carries the same line with the same warning ("this file already lost a close
@@ -289,20 +299,37 @@ title.ZIndex = header.ZIndex + 1
 -- FredokaOne has no U+2715, so the multiplication-X renders as nothing and the
 -- button ships as a blank red circle. Verified here the same way -- the glyph
 -- measured 12x27 of bounds and drew nothing.
-local closeBtn = UI.button(header, "X", "red", UDim2.fromOffset(44, 44), "buttonL")
+-- round 2: the kit's close -- pink-red rounded square, white edge, shout X --
+-- the same control PanelChrome.shell draws on every HUD panel
+local closeBtn = Instance.new("TextButton")
 closeBtn.Name = "CloseButton"
+closeBtn.Text = ""
+closeBtn.AutoButtonColor = false
+closeBtn.BackgroundColor3 = S.Role.Destructive[1]
+closeBtn.BorderSizePixel = 0
+closeBtn.Size = UDim2.fromOffset(56, 56)
 closeBtn.AnchorPoint = Vector2.new(1, 0.5)
-closeBtn.Position = UDim2.new(1, -16, 0.5, 0)
+closeBtn.Position = UDim2.new(1, -14, 0.5, 0)
 closeBtn.ZIndex = header.ZIndex + 2
+closeBtn.Parent = header
+UI.corner(closeBtn, 17)
+do
+	local cs = Instance.new("UIStroke")
+	cs.Thickness = 4
+	cs.Color = Color3.new(1, 1, 1)
+	cs.Parent = closeBtn
+	UI.gradient(closeBtn, ColorSequence.new(S.Role.Destructive[1], S.Role.Destructive[2]))
+end
+PC.shout({ text = "X", size = 30, zIndex = closeBtn.ZIndex + 1, parent = closeBtn })
+closeBtn:SetAttribute("SfxMuted", true)
+PC.bindPressFeedback(closeBtn)
 
 ---------------------------------------------------------------- blurb strip
-local blurb = UI.label(panel, "", "meta", T.color.textOnWindow)
-blurb.Name = "Blurb"
-blurb.Position = UDim2.fromOffset(0, HEADER_H + BLOCK_GAP)
-blurb.Size = UDim2.new(1, 0, 0, STRIP_H)
-blurb.AutomaticSize = Enum.AutomaticSize.None
-blurb.TextXAlignment = Enum.TextXAlignment.Center
-blurb.ZIndex = panel.ZIndex + 1
+local blurb = PC.read({
+	name = "Blurb", text = "", size = 18, color = S.Surface.ReadSub, align = Enum.TextXAlignment.Center,
+	frameSize = UDim2.new(1, 0, 0, STRIP_H), position = UDim2.fromOffset(0, HEADER_H + BLOCK_GAP),
+	zIndex = panel.ZIndex + 1, parent = panel,
+})
 
 ---------------------------------------------------------------- the scroller
 -- THE PAGER'S REPLACEMENT. AutomaticCanvasSize grows the canvas to whatever the
@@ -405,10 +432,15 @@ comingSoon.ZIndex = panel.ZIndex + 3
 -- art / name / info / action, four bands and three gaps inside a 13px pad.
 -- 13 + 101 + 9 + 24 + 9 + 32 + 9 + 40 + 13 = 250 = CARD_H, which is why none of
 -- these numbers is free to drift on its own.
-local CARD_PAD, BAND_GAP = 13, 9
-local ART_H, NAME_H, INFO_H, BTN_H = 101, 24, 32, 40
+-- round 2: a taller art well (the rock is the card) and a kit-sized button:
+-- 13 + 118 + 8 + 26 + 6 + 34 + 8 + 46 + 13 = 272 = CARD_H
+local CARD_PAD, BAND_GAP = 13, 8
+local ART_H, NAME_H, INFO_H, BTN_H = 118, 26, 34, 46
 
-local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, textColor, onClick, previewBuilder, statLine, stockText)
+-- round 2: `kind` replaces the (btnTop, btnBot, textColor) gradient triple --
+-- "buy" (green kit button, coin icon), "equip" (blue), "equipped" (green state
+-- plate, not a button), "locked" / "maxed" (disabled kit button)
+local function makeCard(order, name, infoLine, btnText, kind, onClick, previewBuilder, statLine, stockText)
 	-- UI.surface, NOT UI.panel: UI.panel hangs a hard shadow as a SIBLING, and a
 	-- sibling dropped into this UIGridLayout becomes a phantom cell that shoves
 	-- every later card one slot along. Cards are surfaces everywhere in this kit.
@@ -447,42 +479,43 @@ local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, textColo
 		warn.ZIndex = well.ZIndex + 4
 	end
 
-	local n = UI.label(card, name, "cardLabel", T.color.textOnWindow)
-	n.Name = "Name"
-	n.Position = UDim2.fromOffset(0, ART_H + BAND_GAP)
-	n.Size = UDim2.new(1, 0, 0, NAME_H)
-	n.AutomaticSize = Enum.AutomaticSize.None
-	n.TextXAlignment = Enum.TextXAlignment.Center
+	local n = PC.read({
+		name = "Name", text = name, size = 22, color = S.Surface.ReadInk, align = Enum.TextXAlignment.Center,
+		frameSize = UDim2.new(1, 0, 0, NAME_H), position = UDim2.fromOffset(0, ART_H + BAND_GAP),
+		zIndex = card.ZIndex + 1, parent = card,
+	})
 	n.TextTruncate = Enum.TextTruncate.AtEnd
-	n.ZIndex = card.ZIndex + 1
 
-	local info = UI.label(card, statLine and (infoLine .. "  \u{2022}  " .. statLine) or infoLine,
-		"meta", T.color.textOnWindow)
-	info.Name = "Info"
-	info.Position = UDim2.fromOffset(0, ART_H + BAND_GAP + NAME_H + BAND_GAP)
-	info.Size = UDim2.new(1, 0, 0, INFO_H)
-	info.AutomaticSize = Enum.AutomaticSize.None
-	info.TextWrapped = true
-	info.TextXAlignment = Enum.TextXAlignment.Center
-	info.ZIndex = card.ZIndex + 1
+	local info = PC.read({
+		name = "Info", text = statLine and (infoLine .. "  \u{2022}  " .. statLine) or infoLine,
+		size = 15, color = S.Surface.ReadSub, align = Enum.TextXAlignment.Center, wrap = true,
+		frameSize = UDim2.new(1, 0, 0, INFO_H), position = UDim2.fromOffset(0, ART_H + BAND_GAP + NAME_H + 6),
+		zIndex = card.ZIndex + 1, parent = card,
+	})
+	info.TextYAlignment = Enum.TextYAlignment.Top
 
 	-- ACTION PILL. Still a bare TextButton restyled by stylePill rather than a
 	-- UI.button: the caller passes an explicit gradient PAIR per state (cash
 	-- green, header cyan, Palette green, locked grey) and the kit's named variants
 	-- have no slot for that vocabulary. Absolutely positioned, so UI.hardShadow's
 	-- sibling problem cannot bite -- the card itself carries no layout.
-	local b = Instance.new("TextButton")
-	b.Name = "ActionButton"
-	b.AnchorPoint = Vector2.new(0.5, 1)
-	b.Position = UDim2.new(0.5, 0, 1, 0)
-	b.Size = UDim2.new(1, 0, 0, BTN_H)
-	b.Text = btnText
-	b.TextSize = 18
-	b.ZIndex = card.ZIndex + 2
-	b.Parent = card
-	stylePill(b, btnTop, btnBot, textColor)
-	if onClick then
-		b.Activated:Connect(onClick)
+	if kind == "equipped" then
+		-- a STATE, not an action: the kit's inert plate on the green ramp
+		PC.statePlate({
+			name = "ActionState", text = btnText, colors = S.Role.Positive,
+			size = UDim2.new(1, 0, 0, BTN_H), position = UDim2.new(0.5, 0, 1, 0), anchor = Vector2.new(0.5, 1),
+			textSize = 20, zIndex = card.ZIndex + 2, parent = card,
+		})
+	else
+		local b = PC.button({
+			kind = if kind == "buy" then "positive" elseif kind == "equip" then "neutral" else "secondary",
+			text = btnText, name = "ActionButton",
+			icon = if kind == "buy" then T.icons.coin else nil,
+			size = UDim2.new(1, 0, 0, BTN_H), textSize = 20, radius = 14, outline = 3,
+			position = UDim2.new(0.5, 0, 1, 0), anchor = Vector2.new(0.5, 1),
+			zIndex = card.ZIndex + 2, parent = card, onActivated = onClick,
+		})
+		if kind == "locked" or kind == "maxed" then PC.setEnabled(b, false) end
 	end
 	return card
 end
@@ -524,17 +557,17 @@ rebuild = function()
 			local prevRock = rocks[i - 1]
 			local unlocked = (i == 1) or (prevRock ~= nil and state.OwnedRocks[prevRock.Id] == true)
 			items[i] = function(order)
-				local txt, top, bot, textColor, cb
+				local txt, kind, cb
 				if equipped then
-					txt, top, bot, textColor = "EQUIPPED", P.green1, P.green2, BZ.white
+					txt, kind = "EQUIPPED", "equipped"
 				elseif owned then
-					txt, top, bot, textColor = "EQUIP", BZ.header1, BZ.header2, BZ.white
+					txt, kind = "EQUIP", "equip"
 					cb = function() remotes.EquipRock:FireServer(rock.Id) end
 				elseif not unlocked then
-					txt, top, bot, textColor = "LOCKED", LOCK_TOP, LOCK_BOT, BZ.white
+					txt, kind = "LOCKED", "locked"
 					-- no cb -> disabled button
 				else
-					txt, top, bot, textColor = "$" .. short(rock.Price), BZ.cash1, BZ.cash2, BZ.cashText
+					txt, kind = "$" .. short(rock.Price), "buy"
 					cb = function() remotes.BuyRock:FireServer(rock.Id) end
 				end
 				local desc = ("Up to %dm  \u{2022}  %.2fx luck"):format(rock.MaxDistance, rock.Luck)
@@ -543,7 +576,7 @@ rebuild = function()
 				-- WorldProgression.RockName is the single resolver -- see its note there.
 				local stockText = (not owned and not unlocked and prevRock)
 					and ("Buy the %s first"):format(WorldProgression.RockName(prevRock)) or nil
-				makeCard(order, WorldProgression.RockName(rock), desc, txt, top, bot, textColor, cb,
+				makeCard(order, WorldProgression.RockName(rock), desc, txt, kind, cb,
 					function(med) makeRockViewport(med, rock) end, nil, stockText)
 			end
 		end
@@ -557,14 +590,14 @@ rebuild = function()
 				-- multiplier, so the old inline format printed "+2500%" for one level
 				-- of Deep Pockets. UpgradeConfig.EffectText owns the per-unit wording.
 				local effect = UpgradeConfig.EffectText(up, lvl)
-				local txt, top, bot, textColor, cb
+				local txt, kind, cb
 				if not price then
-					txt, top, bot, textColor = "MAXED", LOCK_TOP, LOCK_BOT, BZ.white
+					txt, kind = "MAXED", "maxed"
 				else
-					txt, top, bot, textColor = "$" .. short(price), BZ.cash1, BZ.cash2, BZ.cashText
+					txt, kind = "$" .. short(price), "buy"
 					cb = function() remotes.BuyUpgrade:FireServer(up.Id) end
 				end
-				makeCard(order, up.Name, up.Desc, txt, top, bot, textColor, cb,
+				makeCard(order, up.Name, up.Desc, txt, kind, cb,
 					function(holder)
 						local e = Instance.new("TextLabel")
 						e.Size = UDim2.fromScale(1, 1)

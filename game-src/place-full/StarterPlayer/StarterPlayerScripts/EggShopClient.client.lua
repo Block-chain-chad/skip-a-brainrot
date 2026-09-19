@@ -41,6 +41,12 @@ if not okIconArt then IconArt = nil end
 -- through building the panel.
 local T = require(ReplicatedStorage.Modules.UIKit.Tokens)
 local UI = require(ReplicatedStorage.Modules.UIKit.Builders)
+-- 2026-09-18 UI ROUND 2: the header wears the kit's white-shell language (bubble
+-- title, kit BUY GEMS, the pink kit close) so the egg shop stops being the one
+-- coloured-slab header left in the game. Cards, odds, buy flow and the reveal are
+-- untouched apart from the discount pip, which now sits INSIDE its button.
+local PC = require(ReplicatedStorage.Modules.UIKit.PanelChrome)
+local S = require(ReplicatedStorage.Modules.UIKit.SpecTheme)
 
 local CF = UITheme.Camp
 local BZ = UITheme.Bazaar   -- Bazaar dark stall-shop palette: used by the shop toast below
@@ -410,7 +416,6 @@ do
 	header.Name = "Header"
 	-- LemonPop 2026-08-13: the BZ egg-header gradient below is the red family
 	-- now -- a dark ground, so the title/wallet text keeps stroked white
-	header:SetAttribute("PolishOnDark", true)
 	header.ZIndex = panel.ZIndex + 1
 	-- UI.surface already parented a UIGradient (the window sweep). RETINTED rather
 	-- than adding a second one: two UIGradients on one GuiObject do not blend,
@@ -421,21 +426,30 @@ do
 	-- BZ.eggHeader1/2 is the pink pair the Bazaar palette already defines FOR this
 	-- shop and nothing was using -- sibling to rockHeader1/2 and sellHeader1/2, which
 	-- their own panels do use.
+	-- round 2: the WHITE shell plate; the egg-shop pink lives on in the title ink
+	header.BackgroundColor3 = Color3.new(1, 1, 1)
 	local headerGrad = header:FindFirstChildOfClass("UIGradient")
 	if headerGrad then
-		headerGrad.Color = ColorSequence.new(BZ.eggHeader1, BZ.eggHeader2)
+		headerGrad.Color = ColorSequence.new(S.Plate.shop[1], S.Plate.shop[2])
 	else
-		UI.gradient(header, ColorSequence.new(BZ.eggHeader1, BZ.eggHeader2))
+		UI.gradient(header, ColorSequence.new(S.Plate.shop[1], S.Plate.shop[2]))
+	end
+	do
+		local hs = header:FindFirstChildOfClass("UIStroke")
+		if hs then hs.Color = S.OutlineSoft; hs.Thickness = 2 end
 	end
 
 	-- PLACEHOLDER TEXT ONLY. cards.setWorld rewrites this to "<WORLD> EGGS" as soon
 	-- as the cards are built, and again on every world switch, so this literal is
 	-- what the player sees only if no world is shop-ready at all.
-	local title = UI.label(header, "EGG SHOP", "panelTitle", T.color.white)
-	title.Name = "Title"
-	title.AnchorPoint = Vector2.new(0, 0.5)
-	title.Position = UDim2.new(0, 18, 0.5, 0)
-	title.ZIndex = header.ZIndex + 1
+	local title = PC.shout({
+		name = "Title", text = "EGG SHOP", size = 44,
+		color = Color3.fromHex("FF4FA3"), strokeColor = Color3.new(1, 1, 1), -- the egg shop's pink, as bubble ink
+		align = Enum.TextXAlignment.Left,
+		frameSize = UDim2.new(1, -470, 0, 50), position = UDim2.new(0, 22, 0.5, 0), anchor = Vector2.new(0, 0.5),
+		zIndex = header.ZIndex + 1, parent = header,
+	})
+	title.TextTruncate = Enum.TextTruncate.AtEnd
 
 	local CTRL_H, CLUSTER_GAP = 44, 10
 	local WALLET_W, BUY_W, CLOSE_W = 190, 168, 44
@@ -479,6 +493,13 @@ do
 	local walletChip = UI.surface(walletSlot, UDim2.fromOffset(WALLET_W, CTRL_H), "slot", T.radius.chip, T.stroke.control)
 	walletChip.Name = "WalletChip"
 	walletChip.ZIndex = walletSlot.ZIndex + 1
+	-- round 2: a light kit chip on the white header (was a dark slot on the pink bar)
+	do
+		local wg = walletChip:FindFirstChildOfClass("UIGradient")
+		if wg then wg.Color = ColorSequence.new(S.Surface.RowTop, S.Surface.RowBottom) end
+		local ws = walletChip:FindFirstChildOfClass("UIStroke")
+		if ws then ws.Color = S.OutlineSoft; ws.Thickness = 2 end
+	end
 
 	local WALLET_ICON = 28
 	local walletIcon = new("Frame", {
@@ -516,16 +537,24 @@ do
 	-- UI.label parents the label last and UIPolish whitens it on DescendantAdded --
 	-- hence setting the colour again here, which now survives.
 	balanceLabel:SetAttribute("NoPolish", true)
-	balanceLabel.TextColor3 = T.color.textAccent
+	balanceLabel.TextColor3 = Color3.fromHex("1F8B34") -- round 2: gem green ink on the light chip (was the gold accent on a dark slot)
+	balanceLabel.Font = S.Font.Shout
+	do
+		local bs = balanceLabel:FindFirstChildOfClass("UIStroke")
+		if bs then bs.Color = Color3.new(1, 1, 1) end
+	end
 	emeraldLabel = balanceLabel
 
 	-- BUY EMERALDS -- opens the HUD shop, which is where emeralds are actually sold.
 	local buySlot = controlSlot("BuyEmeraldsSlot", 2, BUY_W)
 	-- GOLD, deliberately: this is the one control in the shop that opens a REAL-MONEY
 -- surface, and gold is now reserved for exactly that (2026-08-19 gold purge).
-local buyEmeralds = UI.button(buySlot, "BUY GEMS", "gold", UDim2.fromOffset(BUY_W, CTRL_H), "buttonM")
-	buyEmeralds.Name = "BuyEmeralds"
-	buyEmeralds.ZIndex = buySlot.ZIndex + 1
+	-- round 2: the kit's gold button (real money) at the header control height
+	local buyEmeralds = PC.button({
+		kind = "gold", text = "BUY GEMS", name = "BuyEmeralds",
+		size = UDim2.fromOffset(BUY_W, CTRL_H), textSize = 20, radius = 14, outline = 3,
+		zIndex = buySlot.ZIndex + 1, parent = buySlot,
+	})
 	-- LIVE as of 2026-08-10. This was inert while no dev product existed (user
 	-- decision 2026-08-06) and answered with a "coming soon" toast; the four packs
 	-- are real developer products now, so that toast would be a lie.
@@ -551,9 +580,27 @@ local buyEmeralds = UI.button(buySlot, "BUY GEMS", "gold", UDim2.fromOffset(BUY_
 	-- once to a font with no glyph for the multiply-cross, and a blank close
 	-- control on a modal is the worst possible place for that to happen again.
 	local closeSlot = controlSlot("CloseSlot", 3, CLOSE_W)
-	closeBtn = UI.button(closeSlot, "X", "red", UDim2.fromOffset(CLOSE_W, CTRL_H), "buttonL")
+	-- round 2: the kit's close -- pink-red rounded square, white edge, shout X
+	closeBtn = Instance.new("TextButton")
 	closeBtn.Name = "Close"
+	closeBtn.Text = ""
+	closeBtn.AutoButtonColor = false
+	closeBtn.BackgroundColor3 = S.Role.Destructive[1]
+	closeBtn.BorderSizePixel = 0
+	closeBtn.Size = UDim2.fromOffset(CLOSE_W, CTRL_H)
 	closeBtn.ZIndex = closeSlot.ZIndex + 1
+	closeBtn.Parent = closeSlot
+	UI.corner(closeBtn, 14)
+	do
+		local cs = Instance.new("UIStroke")
+		cs.Thickness = 3
+		cs.Color = Color3.new(1, 1, 1)
+		cs.Parent = closeBtn
+		UI.gradient(closeBtn, ColorSequence.new(S.Role.Destructive[1], S.Role.Destructive[2]))
+	end
+	PC.shout({ text = "X", size = 26, zIndex = closeBtn.ZIndex + 1, parent = closeBtn })
+	closeBtn:SetAttribute("SfxMuted", true)
+	PC.bindPressFeedback(closeBtn)
 	-- The click itself is wired at the foot of this script (next to setOpen) and
 	-- is untouched, so closing behaves exactly as it does today.
 
@@ -1136,6 +1183,13 @@ do
 				cap.Position = UDim2.new(0, 0, 0, 2)
 				cap.TextYAlignment = Enum.TextYAlignment.Center
 				cap.TextColor3 = T.color.white
+				-- round 2: the discounted buttons carry their pip INSIDE, top-right, so
+				-- the quantity moves to the left half of the top line to make room
+				if (EggConfig.BUNDLE_DISCOUNT[qty] or 1) < 1 then
+					cap.Size = UDim2.new(0.56, 0, 0, 20)
+					cap.Position = UDim2.new(0, 8, 0, 2)
+					cap.TextXAlignment = Enum.TextXAlignment.Left
+				end
 			end
 			local sub = UI.label(btn, comma(cost or (egg.Price * qty)), "chip", T.color.white)
 			sub.Name = "Subtotal"
@@ -1158,21 +1212,25 @@ do
 			-- gap; 18 stops exactly at that row's baseline.
 			local pct = math.floor((1 - (EggConfig.BUNDLE_DISCOUNT[qty] or 1)) * 100 + 0.5)
 			if pct > 0 then
+				-- INSIDE the button's top-right corner (round 2). Centred on the top edge it
+				-- reached 9px up into the 9px gap and sat on the rarest row's "10%" -- a
+				-- collision on every card, on desktop and phone alike.
 				local pip = UI.ribbon(btn, "-" .. pct .. "%", "NEW")
 				pip.Name = "DiscountPip"
-				pip.Size = UDim2.fromOffset(0, 18)
-				pip.AnchorPoint = Vector2.new(1, 0.5)
-				pip.Position = UDim2.new(1, 3, 0, 0)
+				pip.Size = UDim2.fromOffset(0, 15)
+				pip.AnchorPoint = Vector2.new(1, 0)
+				pip.Position = UDim2.new(1, -4, 0, 3)
 				pip.ZIndex = 5
 				local pd = pip:FindFirstChildOfClass("UIPadding")
 				if pd then
-					pd.PaddingLeft = UDim.new(0, 6)
-					pd.PaddingRight = UDim.new(0, 6)
+					pd.PaddingLeft = UDim.new(0, 5)
+					pd.PaddingRight = UDim.new(0, 5)
 				end
 				local pt = pip:FindFirstChild("Text")
 				if pt then
 					pt.ZIndex = 6
 					pt.TextColor3 = T.color.white
+					pt.TextSize = 11
 				end
 			end
 
@@ -2572,6 +2630,13 @@ do
 		-- The title stops auto-sizing and truncates instead, so it can never
 		-- reach the cluster however long a future title gets.
 		if header then
+			-- round 2 (measured on the iPhone 16 emulation, 733x371): the 92px header +
+			-- 26px spec strip + the 112px touch band left a 232px panel with ~65px of
+			-- card list -- less than a third of one phone card. The header drops to 60,
+			-- the strip goes, and the touch band becomes scroll PADDING (below) rather
+			-- than a slice off the panel, so the list gets ~200px and the last card can
+			-- still be scrolled clear of the jump button.
+			P(header, "Size", UDim2.new(1, 0, 0, 60))
 			local title   = header:FindFirstChild("Title")
 			local cluster = header:FindFirstChild("HeaderControls")
 			local wallet  = cluster and cluster:FindFirstChild("WalletSlot")
@@ -2600,16 +2665,14 @@ do
 		-- egg count is the list itself, and the hint is answered by the word
 		-- ODDS sitting on every card) -- and it takes the full width.
 		if strip then
-			local s1 = strip:FindFirstChild("Slot1")
-			local s2 = strip:FindFirstChild("Slot2")
-			local s3 = strip:FindFirstChild("Slot3")
-			local t2 = s2 and s2:FindFirstChild("Text")
-			P(s1, "Visible", false)
-			P(s3, "Visible", false)
-			P(s2, "Position", UDim2.fromScale(0, 0))
-			P(s2, "Size", UDim2.fromScale(1, 1))
-			P(t2, "TextXAlignment", Enum.TextXAlignment.Left)
+			-- round 2: the whole strip goes on a phone (the discovery count is on the
+			-- Index tab of the Bag); the card list takes its 26px + gap
+			P(strip, "Visible", false)
 		end
+		-- T.pad.gap, not the shell block's BLOCK_GAP local: that `do` block's locals
+		-- are not in scope here
+		P(cardArea, "Position", UDim2.fromOffset(0, 60 + T.pad.gap))
+		P(cardArea, "Size", UDim2.new(1, 0, 1, -(60 + T.pad.gap)))
 
 		-- The 3 + 2 grid's two rows go dark; every CardHolder moves out of them
 		-- and into the scroller below, and moves back on the way home.
@@ -2640,7 +2703,9 @@ do
 			ZIndex = cardArea.ZIndex + 1,
 		}, cardArea)
 		new("UIPadding", {
-			PaddingTop = UDim.new(0, BODY_PAD), PaddingBottom = UDim.new(0, BODY_PAD),
+			-- bottom padding = the touch band: the last card scrolls clear of the jump
+			-- button instead of the whole panel losing that height (round 2)
+			PaddingTop = UDim.new(0, BODY_PAD), PaddingBottom = UDim.new(0, BODY_PAD + TOUCH_BAND),
 			PaddingLeft = UDim.new(0, BODY_PAD), PaddingRight = UDim.new(0, BODY_PAD),
 		}, scroller)
 		new("UIListLayout", {
@@ -2865,12 +2930,10 @@ do
 			-- this ScreenGui on CoreUISafeInsets), but that says nothing about the
 			-- touch controls: Platform keeps those in Insets().Bottom. The larger
 			-- of the two, so a device reporting a real bottom inset keeps it.
-			local band = math.max(Platform.Insets().Bottom, TOUCH_BAND)
-			-- SHRINK *AND* LIFT, never shrink alone: the frame is anchored at its
-			-- own centre on the screen's centre, so height taken off the bottom is
-			-- shared equally top and bottom and only HALF the band would end up
-			-- cleared. Raising the centre by half the band puts all of it below
-			-- the panel. Position is restored from DESK_POS on the way back.
+			-- round 2: the touch band is scroll padding now (see the PhoneBody
+			-- UIPadding), so the panel keeps the height and only clears a small
+			-- margin; the frame is centred, so half of it comes off each end
+			local band = 16
 			frame.Size = UDim2.fromOffset(
 				math.max(320, w - EDGE * 2), math.max(240, h - EDGE * 2 - band))
 			frame.Position = UDim2.new(0.5, 0, 0.5, -math.floor(band / 2))
