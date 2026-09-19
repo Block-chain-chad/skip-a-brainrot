@@ -30,15 +30,60 @@ end
 local cc = new("ColorCorrectionEffect", { Name = "WeatherCC", TintColor = Color3.new(1, 1, 1), Saturation = 0, Brightness = 0 }, Lighting)
 
 local gui = new("ScreenGui", { Name = "WeatherUI", ResetOnSpawn = false, DisplayOrder = 8 }, player:WaitForChild("PlayerGui"))
+-- UIPolish forces EVERY unexempted label to white on any ground ("every
+-- unexempted label is white now"), which silently ate the sub-line and clock
+-- colours below -- they measured #FFFFFF at runtime no matter what was authored
+-- here. NoPolish on the root is the documented opt-out and is exactly what
+-- IceFishingClient does for its own banner, so the two event announcements are
+-- now governed the same way.
+gui:SetAttribute("NoPolish", true)
+
+-- 2026-08-14 OLIVE REVERT (owner: colours back to the olive/army palette across
+-- shops, passes and event warnings). The announcement chrome below follows the
+-- olive family instead of the icy blue it wore.
+--
+-- SCOPED TO THE CHROME ONLY. Everything from "ambient visual kits" down --
+-- sky, atmosphere, bloom, sun rays, particles -- is WEATHER IDENTITY, not UI:
+-- a blizzard has to still look like a blizzard, so none of it is touched here.
+local EV_GROUND = Color3.fromRGB(27, 33, 20)    -- #1B2114 olive track (was 20,24,34)
+local EV_EDGE   = Color3.fromRGB(122, 138, 102) -- #7A8A66 olive tab (was icy 120,200,255)
+local EV_SUB    = Color3.fromRGB(201, 214, 180) -- #C9D6B4 olive muted (was 170,220,255)
+local EV_CLOCK  = Color3.fromRGB(255, 216, 77)  -- #FFD84D olive accent gold (was 255,220,120)
+
 local banner = new("Frame", {
 	Name = "WeatherBanner", Visible = false, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 72),
-	Size = UDim2.new(0, 420, 0, 44), BackgroundColor3 = Color3.fromRGB(20, 24, 34), BackgroundTransparency = 0.1,
+	Size = UDim2.new(0, 420, 0, 44), BackgroundColor3 = EV_GROUND, BackgroundTransparency = 0.1,
 }, gui)
 new("UICorner", { CornerRadius = UDim.new(0, 10) }, banner)
-local bStroke = new("UIStroke", { Color = Color3.fromRGB(120, 200, 255), Thickness = 2 }, banner)
+local bStroke = new("UIStroke", { Color = EV_EDGE, Thickness = 2 }, banner)
 local title = new("TextLabel", { Position = UDim2.new(0, 14, 0, 5), Size = UDim2.new(1, -28, 0, 20), BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamBlack, TextSize = 16, TextColor3 = Color3.fromRGB(255, 255, 255), TextXAlignment = Enum.TextXAlignment.Left }, banner)
-local sub = new("TextLabel", { Position = UDim2.new(0, 14, 0, 24), Size = UDim2.new(1, -28, 0, 16), BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamMedium, TextSize = 12.5, TextColor3 = Color3.fromRGB(170, 220, 255), TextXAlignment = Enum.TextXAlignment.Left }, banner)
-local timeLbl = new("TextLabel", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0), Size = UDim2.new(0, 60, 0, 26), BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Color3.fromRGB(255, 220, 120) }, banner)
+local sub = new("TextLabel", { Position = UDim2.new(0, 14, 0, 24), Size = UDim2.new(1, -28, 0, 16), BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamMedium, TextSize = 12.5, TextColor3 = EV_SUB, TextXAlignment = Enum.TextXAlignment.Left }, banner)
+local timeLbl = new("TextLabel", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0), Size = UDim2.new(0, 60, 0, 26), BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = EV_CLOCK }, banner)
+
+-- ===== corner countdown =====
+-- The banner is an ANNOUNCEMENT: it says its piece and gets out of the way. It used
+-- to sit across the top of the screen for the entire event (several minutes), which
+-- is a lot of chrome for information you only need once. After BANNER_SECONDS it
+-- hands off to this pill, which keeps the emoji and the clock in the corner for the
+-- rest of the event.
+local BANNER_SECONDS = 10
+local bannerToken = 0
+local pill = new("Frame", {
+	Name = "WeatherPill", Visible = false, AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -12, 0, 72), Size = UDim2.new(0, 122, 0, 38),
+	BackgroundColor3 = EV_GROUND, BackgroundTransparency = 0.1,
+}, gui)
+new("UICorner", { CornerRadius = UDim.new(0, 10) }, pill)
+local pStroke = new("UIStroke", { Color = EV_EDGE, Thickness = 2 }, pill)
+local pEmoji = new("TextLabel", {
+	Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(0, 26, 1, 0), BackgroundTransparency = 1,
+	Text = "", Font = Enum.Font.GothamBlack, TextSize = 20, TextColor3 = Color3.fromRGB(255, 255, 255),
+}, pill)
+local pClock = new("TextLabel", {
+	AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.new(0, 70, 1, 0),
+	BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamBold, TextSize = 18,
+	TextColor3 = EV_CLOCK, TextXAlignment = Enum.TextXAlignment.Right,
+}, pill)
 
 -- ===== ambient visual kits =====
 local sky   = Lighting:FindFirstChildOfClass("Sky")
@@ -49,7 +94,12 @@ local rays  = Lighting:FindFirstChildOfClass("SunRaysEffect")
 -- snapshot the untouched look so Clear can put everything back exactly
 local BASE = {
 	Light = {
-		ClockTime = Lighting.ClockTime, Brightness = Lighting.Brightness,
+		-- ClockTime deliberately NOT snapshotted. DayNightCycle owns the clock while the
+		-- weather is Clear, and restoring a join-time value here tweened it backwards
+		-- every time an event ended -- the cycle then pushed forward again, which read
+		-- as the sky glitching. Kits still SET ClockTime while they run; the cycle
+		-- pauses for them and picks up from wherever they left it.
+		Brightness = Lighting.Brightness,
 		ExposureCompensation = Lighting.ExposureCompensation,
 		Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
 		FogColor = Lighting.FogColor, FogEnd = Lighting.FogEnd,
@@ -1142,12 +1192,32 @@ remotes.WeatherState.OnClientEvent:Connect(function(s)
 		end
 		bStroke.Color = accent
 		banner.Visible = true
+		-- the pill wears the same accent, and carries this event's emoji
+		pStroke.Color = accent
+		pClock.TextColor3 = accent
+		pEmoji.Text = s.Emoji or ""
+		pill.Visible = false
 		-- pop-in
 		banner.Size = UDim2.new(0, 380, 0, 44)
 		TweenService:Create(banner, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.new(0, 440, 0, 44) }):Play()
 		applyKit(s.Name, accent)
+
+		-- Hand the banner off to the corner pill. Tokened so a second event landing
+		-- inside the window cannot have the first one's timer hide ITS banner.
+		bannerToken += 1
+		local btok = bannerToken
+		task.delay(BANNER_SECONDS, function()
+			if btok ~= bannerToken then return end
+			banner.Visible = false
+			-- only take over if there is still time left to show
+			if active and active.IsEvent and active.EndsAt and (active.EndsAt - os.time()) > 0 then
+				pill.Visible = true
+			end
+		end)
 	else
+		bannerToken += 1        -- cancel any pending hand-off
 		banner.Visible = false
+		pill.Visible = false
 		restoreVisuals()
 	end
 end)
@@ -1159,8 +1229,12 @@ task.spawn(function()
 			local remaining = active.EndsAt - os.time()
 			if remaining <= 0 then
 				banner.Visible = false
+				pill.Visible = false
 			else
-				timeLbl.Text = string.format("%d:%02d", math.floor(remaining / 60), remaining % 60)
+				-- one clock, drawn in whichever of the two is currently on screen
+				local txt = string.format("%d:%02d", math.floor(remaining / 60), remaining % 60)
+				timeLbl.Text = txt
+				pClock.Text = txt
 			end
 		end
 	end
