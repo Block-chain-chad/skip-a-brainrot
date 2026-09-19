@@ -43,6 +43,13 @@ local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local T = require(ReplicatedStorage.Modules.UIKit.Tokens)
 local UI = require(ReplicatedStorage.Modules.UIKit.Builders)
 local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb)
+-- UI ROUND 3 (2026-09-19): the SHELL is the round-2 kit -- white plate, navy
+-- edge, kit buttons, the read face for the line -- so a conversation looks like
+-- the same game as the Bag and the shops. The API, the portrait, the typewriter,
+-- the staging and every caller are unchanged; identity is still the caller's
+-- accent pair on the name ribbon plus the live portrait.
+local PC = require(ReplicatedStorage.Modules.UIKit.PanelChrome)
+local S = require(ReplicatedStorage.Modules.UIKit.SpecTheme)
 local CF = UITheme.Camp
 local FONT = UITheme.Font
 local BODY = Enum.Font.GothamMedium
@@ -330,11 +337,11 @@ local function typeLine(text)
 		lineText.Text = text
 		btnRow.Visible = true
 		contDots.Visible = true
-		-- buttons pop in rather than blink, matching the reference's beat
-		local s = btnRow:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
-		s.Parent = btnRow
-		s.Scale = 0.9
-		TweenService:Create(s, T.tween.pop, { Scale = 1 }):Play()
+		-- the choices rise in rather than blink: a Position tween (round 3 -- the
+		-- old UIScale pop was a silent no-op in this place)
+		btnRow.Position = UDim2.new(0.5, 0, 0, 44 + BOX_H + 18)
+		TweenService:Create(btnRow, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Position = UDim2.new(0.5, 0, 0, 44 + BOX_H + 10) }):Play()
 	end)
 end
 
@@ -356,9 +363,9 @@ end
 
 local function refreshLeaveLabel()
 	if not leaveText then return end
-	leaveText.Text = (opts and opts.DeclineLabel and onLastLine())
+	leaveText.Text = string.upper((opts and opts.DeclineLabel and onLastLine())
 		and opts.DeclineLabel
-		or "Leave"
+		or "Leave")
 end
 
 local function advance()
@@ -491,6 +498,8 @@ local function build()
 	gui.DisplayOrder = 12
 	gui.IgnoreGuiInset = true
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	-- the kit owns its own ink: UIPolish must not re-whiten the dark body copy
+	gui:SetAttribute("NoPolish", true)
 	gui.Parent = player:WaitForChild("PlayerGui")
 
 	-- BLUR-NOT-DIM (2026-08-17): the scrim no longer paints -- separation comes
@@ -549,12 +558,15 @@ local function build()
 		end
 	end)
 
-	box = UI.surface(root, UDim2.fromOffset(BOX_W, BOX_H), "panel", T.radius.panel, T.stroke.panel)
-	box.Name = "DialogBox"
-	box.AnchorPoint = Vector2.new(0.5, 0)
-	box.Position = UDim2.new(0.5, 0, 0, 44)
-	box.ZIndex = 21
-	UI.gloss(box, T.radius.panel)
+	-- round 3: the kit's white shell (was UI.surface "panel" + gloss)
+	box = PC.plate({
+		name = "DialogBox",
+		size = UDim2.fromOffset(BOX_W, BOX_H),
+		position = UDim2.new(0.5, 0, 0, 44), anchor = Vector2.new(0.5, 0),
+		colors = { S.Surface.RowTop, S.Surface.RowBottom },
+		radius = 26, outline = 6, strokeColor = S.Outline,
+		zIndex = 21, parent = root, gloss = false,
+	})
 
 	-- NAME RIBBON, notched into the panel's top-left and overlapping it. Tinted per call
 	-- by the caller's `accent` pair so each NPC keeps their own colour.
@@ -567,16 +579,23 @@ local function build()
 	namePlate.BorderSizePixel = 0
 	namePlate.ZIndex = 26
 	namePlate.Parent = root
-	UI.corner(namePlate, T.radius.chip)
-	UI.stroke(namePlate, T.stroke.control)
-	UI.gloss(namePlate, T.radius.chip, 0.35)
+	-- round 3: kit chip geometry -- rounded, navy-edged, no gloss; the accent
+	-- gradient is still painted per Show
+	UI.corner(namePlate, 14)
+	do
+		local ns = Instance.new("UIStroke")
+		ns.Thickness = 4
+		ns.Color = S.Outline
+		ns.LineJoinMode = Enum.LineJoinMode.Round
+		ns.Parent = namePlate
+	end
 
 	nameText = Instance.new("TextLabel")
 	nameText.Name = "Value"
 	nameText.Size = UDim2.fromScale(1, 1)
 	nameText.BackgroundTransparency = 1
-	nameText.Font = FONT
-	nameText.TextSize = 19
+	nameText.Font = S.Font.Shout          -- round 3: the kit's shout face on the ribbon
+	nameText.TextSize = 22
 	nameText.TextColor3 = T.color.white
 	nameText.TextTruncate = Enum.TextTruncate.AtEnd
 	nameText.ZIndex = 28
@@ -590,15 +609,21 @@ local function build()
 	lineText.Position = UDim2.fromOffset(196, 26)
 	lineText.Size = UDim2.fromOffset(BOX_W - 216, 84)
 	lineText.BackgroundTransparency = 1
-	lineText.Font = BODY
-	lineText.TextSize = 18
-	lineText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	-- round 3: the kit's read face at ReadInk, exactly like PanelChrome.read (was
+	-- white Gotham with a Camp-brown stroke). Note what actually renders: the
+	-- gui is NoPolish, but UIPolish's readability floor still lifts any NEUTRAL
+	-- dark fill to white + a navy outline (owner rule, 2026-08-21) -- so the copy
+	-- paints as white bubble text on the white shell, the same treatment every
+	-- kit read label (Season Pass rows, Bag tiles) wears. Deliberate: one house
+	-- treatment, and the floor is the one place it is decided.
+	lineText.Font = S.Font.Read
+	lineText.TextSize = 20
+	lineText.TextColor3 = S.Surface.ReadInk
 	lineText.TextWrapped = true
 	lineText.TextXAlignment = Enum.TextXAlignment.Left
 	lineText.TextYAlignment = Enum.TextYAlignment.Top
 	lineText.ZIndex = 23
 	lineText.Parent = box
-	UITheme.inkText(lineText, 1.8)
 
 	contDots = Instance.new("TextLabel")
 	contDots.Name = "More"
@@ -606,10 +631,10 @@ local function build()
 	contDots.Position = UDim2.new(0.5, 0, 1, -6)
 	contDots.Size = UDim2.fromOffset(40, 18)
 	contDots.BackgroundTransparency = 1
-	contDots.Font = FONT
+	contDots.Font = S.Font.Read           -- round 3: the kit's read face
 	contDots.TextSize = 20
 	contDots.Text = "\u{2022}\u{2022}\u{2022}"
-	contDots.TextColor3 = T.color.textMuted
+	contDots.TextColor3 = S.Surface.ReadSub
 	contDots.ZIndex = 23
 	contDots.Parent = box
 
@@ -658,11 +683,13 @@ local function build()
 	end
 
 	local leaveSlot = slot("LeaveSlot", 1)
-	leaveBtn = UI.button(leaveSlot, "Leave", "tab", UDim2.fromOffset(BTN_W, BTN_H))
-	leaveBtn.Name = "Leave"
-	leaveBtn.ZIndex = 26
+	-- round 3: kit buttons -- grey secondary to leave, candy-green primary to go on
+	leaveBtn = PC.button({
+		kind = "secondary", text = "LEAVE", name = "Leave",
+		size = UDim2.fromOffset(BTN_W, BTN_H), textSize = 22, radius = 16, outline = 4,
+		zIndex = 26, parent = leaveSlot,
+	})
 	leaveText = leaveBtn:FindFirstChildWhichIsA("TextLabel")
-	if leaveText then leaveText.ZIndex = 27; leaveText.TextSize = 20 end
 	leaveBtn.Activated:Connect(function()
 		-- captured BEFORE Hide(), which clears opts -- same order advance() uses for onDone
 		local decline = (opts and opts.OnDecline and onLastLine()) and opts.OnDecline or nil
@@ -671,11 +698,12 @@ local function build()
 	end)
 
 	local contSlot = slot("PrimarySlot", 2)
-	contBtn = UI.button(contSlot, "OK", "green", UDim2.fromOffset(BTN_W, BTN_H))
-	contBtn.Name = "Primary"
-	contBtn.ZIndex = 26
+	contBtn = PC.button({
+		kind = "positive", text = "OK", name = "Primary",
+		size = UDim2.fromOffset(BTN_W, BTN_H), textSize = 22, radius = 16, outline = 4,
+		zIndex = 26, parent = contSlot,
+	})
 	contText = contBtn:FindFirstChildWhichIsA("TextLabel")
-	if contText then contText.ZIndex = 27; contText.TextSize = 20 end
 	contBtn.Activated:Connect(advance)
 
 	-- walk away from the NPC -> dismiss the dialogue
