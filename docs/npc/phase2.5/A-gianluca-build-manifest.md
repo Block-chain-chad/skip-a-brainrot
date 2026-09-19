@@ -22,7 +22,7 @@ StupidGianluca                       Model   [contract name — unchanged]   Pri
 ├─ HumanoidRootPart   Part      2.00×2.00×1.00   @ (0, 0, 0)     Transparency 1  Anchored ✔   [KIT]
 │    ├─ TalkPrompt     ProximityPrompt  [EXISTING INSTANCE, re-parented from the old HRP — never recreated]   [GIA]
 │    └─ RootAttachment
-├─ Collider           Part      2.20×5.00×1.40   @ (0, −0.50, 0) Transparency 1  Anchored ✔  CanCollide ✔  [KIT, decision D-1]
+├─ Collider           Part      1.60×4.40×1.20   @ (0, −0.30, 0) Transparency 1  Anchored ✔  CanCollide ✔  CollisionGroup NpcBody  [KIT, D-1: tight to the body]
 ├─ LowerTorso         MeshPart  1.90×0.70×1.00   @ (0, −0.25, 0)                                       [KIT]
 │    ├─ Root           Motor6D   Part0 HumanoidRootPart   C0 (0, 0, 0)       C1 (0, +0.25, 0)
 │    ├─ WaistCenterAttachment (0,0,0) · WaistFrontAttachment (0,0,−0.5) · WaistBackAttachment (0,0,+0.5)

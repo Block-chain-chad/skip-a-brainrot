@@ -21,7 +21,7 @@ Previous checkpoints: [Phase 1 report](NPC-01-GLOBAL-CHARACTER-REPORT.md) · [Ph
 
 | # | Decision | Recommendation | Where it lands |
 |---|---|---|---|
-| **D-1** | **Collider**: should talking NPCs (Tier 2/3) block the player with an invisible 2.2×5×1.4 collider, or stay walk-through like today's rigs (`[studio]` whether they collide now)? | collider on Tier 2/3, none on Tier 1 (background NPCs are often behind counters) | A §A2/A9, E `recipe.collider` |
+| **D-1** | **Collider**: should talking NPCs (Tier 2/3) block the player with an invisible collider, or stay walk-through like today's rigs (`[studio]` whether they collide now)? | collider on Tier 2/3, none on Tier 1 — **approved with guardrails: 1.6×4.4×1.2, own `NpcBody` collision group, tight to the body** | A §A2/A9, E `recipe.collider` |
 | **D-2** | **Gianluca's crates/stall**: if E-2 shows they live inside `StupidGianluca`, move them to a sibling `GianlucaCamp` model (portrait/outline then frame the person only) or leave them inside (today's behaviour) | move them | A §A12, E `contracts.moveChildrenTo` |
 | **D-3** | **Story-beat faces**: allow one attribute write (`NpcFace`) in quest clients (e.g. `GianlucaClient` on `Note == "key"` → `excited`) — a quest-client edit, so it is yours to allow | allow in Phase 3, one line, after the swap is stable | A §A5, C §C9 |
 | **D-4** | **Bell sound**: reuse an existing short `SoundKit` cue at ≤ 0.15 volume, or silent (no new audio; audio is account-locked like animations) | silent for the prototype; pick a cue in the window if one is short enough | A §A13 |
@@ -36,4 +36,4 @@ None of D-1…D-10 blocks Step 0 (disk-side authoring) except D-1 and D-6, which
 
 ## What Step 0 would produce next (on your go — still no Studio)
 
-The data modules, `NpcMotion`, `NpcLifeClient`, `NpcForge`, `NpcBudget` as sources on this branch under `game-src/place-full/…`, the forge `npc` profile and the `standard` body lattice with rendered previews — everything Step 7 pushes into Studio, reviewable on disk first (STOP 0).
+The data modules, `NpcMotion`, `NpcLifeClient`, `NpcForge`, `NpcBudget` as sources on this branch under `game-src/npc-kit/` (a staging folder like `game-src/eggs/`, so `game-src/place-full/` stays the byte-exact live mirror), plus the disk-side harness — everything Step 7 pushes into Studio, reviewable on disk first (STOP 0). **Done — see [STEP0-REPORT.md](STEP0-REPORT.md).** The forge `npc` profile and the `standard` body lattice previews are the remaining Step 0 items (Python-side, next).

@@ -1,0 +1,616 @@
+--[[ ServerStorage.NpcForge -- BUILD-TIME assembler: recipe (data) -> NPC model.
+
+Never required by game code. Run from the command bar / MCP in Edit mode, or by
+the disk-side harness (tools/npc_kit) under plain Lua with Roblox stubs.
+
+    local F = require(game.ServerStorage.NpcForge)            -- or loadstring(Source)() from the sandbox
+    local model, report = F.Build("Gianluca", { blockout = true })            -- primitives, no meshes needed
+    local model, report = F.Build("Gianluca", { importRoot = workspace.AuxScene.npc_wave1 })
+
+Everything an NPC is comes from data (NpcCharacters/<Id>, NpcRigSpec, NpcFaceConfig,
+NpcLibrary, NpcFamilies, NpcWorldThemes). Build() has no character-specific code
+paths. The result is parked in ServerStorage.NpcStaging.<World>; placing it in a
+world is a separate, gated step. Build() never touches a live model and never
+modifies a BrainrotModels template (creatures are built on a clone; the source is
+asserted unchanged).
+
+MeshId is never assigned by script (not scriptable). Meshes come from a File >
+Import 3D batch (opts.importRoot) by part name; without one, every entry falls
+back to its 'blockout' primitive recipe -- the Step 7 blockout.
+]]
+
+local NpcForge = {}
+NpcForge.Version = 1
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local CollectionService = game:GetService("CollectionService")
+
+-- The MCP exec sandbox cannot `require` place modules (BrainrotForge documents this);
+-- try require, fall back to loadstring(Source)().
+local function loadModule(moduleScript)
+	local ok, mod = pcall(require, moduleScript)
+	if ok and mod then return mod end
+	local chunk, err = loadstring(moduleScript.Source)
+	assert(chunk, ("NpcForge: cannot load %s: %s"):format(moduleScript:GetFullName(), tostring(err)))
+	return chunk()
+end
+NpcForge.loadModule = loadModule
+
+local KIT
+local function kit()
+	if KIT then return KIT end
+	local folder = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("NpcKit")
+	KIT = {
+		RigSpec = loadModule(folder:WaitForChild("NpcRigSpec")),
+		FaceConfig = loadModule(folder:WaitForChild("NpcFaceConfig")),
+		Library = loadModule(folder:WaitForChild("NpcLibrary")),
+		Families = loadModule(folder:WaitForChild("NpcFamilies")),
+		Themes = loadModule(folder:WaitForChild("NpcWorldThemes")),
+		MotionConfig = loadModule(folder:WaitForChild("NpcMotionConfig")),
+		Motion = loadModule(folder:WaitForChild("NpcMotion")),
+		Characters = folder:WaitForChild("NpcCharacters"),
+	}
+	return KIT
+end
+-- tests inject the modules directly
+function NpcForge._setKit(k) KIT = k end
+
+local function flags(p, opts)
+	p.Anchored = false
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = (opts and opts.shadow) or false
+	p.Massless = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+end
+
+local function materialOf(name)
+	return Enum.Material[name or "Plastic"] or Enum.Material.Plastic
+end
+
+local function newPrimitive(spec, name)
+	local p = Instance.new("Part")
+	p.Name = name or spec.name
+	if spec.shape == "Cylinder" then p.Shape = Enum.PartType.Cylinder
+	elseif spec.shape == "Ball" then p.Shape = Enum.PartType.Ball
+	else p.Shape = Enum.PartType.Block end
+	p.Size = spec.size
+	return p
+end
+
+local function weld(part0, part1, name)
+	local w = Instance.new("WeldConstraint")
+	w.Name = name or "NpcWeld"
+	w.Part0 = part0
+	w.Part1 = part1
+	w.Parent = part1
+	return w
+end
+
+local function serializeOverrides(t)
+	if type(t) ~= "table" then return "" end
+	local keys = {}
+	for k in pairs(t) do keys[#keys + 1] = k end
+	table.sort(keys)
+	local parts = {}
+	for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. tostring(t[k]) end
+	return table.concat(parts, ";")
+end
+
+-- ===== resolving a recipe ======================================================
+local function loadRecipe(idOrTable)
+	if type(idOrTable) == "table" then return idOrTable end
+	local K = kit()
+	local ms = K.Characters:FindFirstChild(idOrTable)
+	assert(ms, "NpcForge: no recipe NpcCharacters." .. tostring(idOrTable))
+	return loadModule(ms)
+end
+
+local function colorSetFor(recipe)
+	local K = kit()
+	local family = K.Families.Get(recipe.family or "village")
+	local theme = K.Themes.Get(recipe.world or "Valley")
+	local set = {}
+	for k, v in pairs(family.colors) do set[k] = v end
+	if theme.familyOverride and theme.familyOverride[family.id] then
+		for k, v in pairs(theme.familyOverride[family.id]) do set[k] = v end
+	end
+	set = K.Themes.ApplyShift(set, theme)
+	for k, v in pairs(recipe.colors or {}) do set[k] = v end
+	return set, family, theme
+end
+
+-- ===== mesh / blockout sourcing ================================================
+-- Returns a fresh BasePart for a library entry (or body segment): a clone of the
+-- imported MeshPart when opts.importRoot has it, otherwise the blockout primitives.
+-- Multi-part blockouts return a list; the first part is the "root" of the piece.
+local function sourceParts(entry, opts, fallbackSize)
+	local out = {}
+	if opts.importRoot and entry.forge then
+		local partName = entry.forge:match("/([^/]+)$") or entry.forge
+		local src = opts.importRoot:FindFirstChild(partName, true)
+		if src and src:IsA("BasePart") then
+			local c = src:Clone()
+			c.Name = entry.id or partName
+			out[1] = { part = c, offset = CFrame.new(), colorRole = entry.colorRole }
+			return out, "forge"
+		end
+	end
+	if entry.blockout then
+		for _, spec in ipairs(entry.blockout) do
+			out[#out + 1] = { part = newPrimitive(spec), offset = spec.offset or CFrame.new(), colorRole = spec.colorRole or entry.colorRole }
+		end
+		return out, "blockout"
+	end
+	if fallbackSize then
+		local p = Instance.new("Part")
+		p.Name = entry.id or "Part"
+		p.Size = fallbackSize
+		out[1] = { part = p, offset = CFrame.new(), colorRole = entry.colorRole }
+		return out, "primitive"
+	end
+	error("NpcForge: library entry " .. tostring(entry.id) .. " has neither a forge mesh in the import root nor a blockout")
+end
+
+-- ===== HUMAN ===================================================================
+local function buildHuman(recipe, opts, report)
+	local K = kit()
+	local RigSpec, FaceConfig, Library, Families = K.RigSpec, K.FaceConfig, K.Library, K.Families
+	local bodyTypeId = recipe.bodyType or "standard"
+	local bt = RigSpec.BodyTypes[bodyTypeId]
+	assert(bt, "NpcForge: unknown body type " .. tostring(bodyTypeId))
+	local colorSet, family, theme = colorSetFor(recipe)
+	local roles = family.bodyRoles
+
+	local root = Instance.new("Model")
+	root.Name = recipe.rootName or "NPC"
+
+	-- HRP at origin, standing on y = 0
+	local hrp = Instance.new("Part")
+	hrp.Name = "HumanoidRootPart"
+	hrp.Size = RigSpec.Root.HrpSize
+	hrp.CFrame = CFrame.new(0, RigSpec.Root.HrpHeight, 0)
+	hrp.Transparency = 1
+	flags(hrp)
+	hrp.Anchored = true
+	hrp.Parent = root
+	root.PrimaryPart = hrp
+
+	-- body parts
+	local parts = { HumanoidRootPart = hrp }
+	for _, spec in ipairs(bt.parts) do
+		local segment = Library.SegmentOf(spec.name)
+		local entry = Library.BodyEntry(bodyTypeId, segment)
+		local list, source = sourceParts(entry, opts, spec.size)
+		local p = list[1].part
+		p.Name = spec.name
+		p.Size = spec.size
+		p.CFrame = hrp.CFrame * CFrame.new(spec.offset)
+		p.Material = Enum.Material.Plastic
+		p.Color = Families.ResolveColor(colorSet, roles[spec.name], "base")
+		flags(p, { shadow = spec.shadow })
+		p.Parent = root
+		parts[spec.name] = p
+		report.sources[source] = (report.sources[source] or 0) + 1
+	end
+
+	-- joints (parent-before-child order), rest pose baked into C0, parts placed by FK
+	local Motion = K.Motion
+	for _, j in ipairs(bt.joints) do
+		local c0, c1 = RigSpec.JointFrames(bodyTypeId, j.name)
+		local restAxes = recipe.restPose and recipe.restPose[j.name]
+		if restAxes then
+			local off = Motion.offsetFor(RigSpec.JointClass[j.name], RigSpec.Side[j.name], restAxes)
+			if off then c0 = c0 * off end
+		end
+		local m = Instance.new("Motor6D")
+		m.Name = j.name
+		m.Part0 = parts[j.part0]
+		m.Part1 = parts[j.part1]
+		m.C0 = c0
+		m.C1 = c1
+		m.Parent = parts[j.part1]
+		parts[j.part1].CFrame = parts[j.part0].CFrame * c0 * c1:Inverse()
+	end
+
+	-- attachments
+	for partName, list in pairs(RigSpec.Attachments) do
+		local p = parts[partName]
+		if p then
+			for attName, offset in pairs(list) do
+				local a = Instance.new("Attachment")
+				a.Name = attName
+				a.Position = offset
+				a.Parent = p
+			end
+		end
+	end
+
+	local ac = Instance.new("AnimationController")
+	ac.Parent = root
+
+	-- face
+	local head = parts.Head
+	local faceFolder = Instance.new("Folder")
+	faceFolder.Name = "Face"
+	faceFolder.Parent = root
+	local resolved = FaceConfig.Resolve(recipe.face or FaceConfig.Default)
+	local function addFacePart(spec, r)
+		local p = Instance.new("Part")
+		p.Name = spec.name
+		p.Size = (r and r.size) or spec.size
+		p.Material = materialOf(spec.material)
+		p.Color = (spec.color == "hair" and colorSet.hair) or (spec.color == "skin" and colorSet.skin) or spec.color
+		flags(p)
+		local c0 = (r and r.c0) or CFrame.new(spec.offset)
+		p.CFrame = head.CFrame * c0
+		p.Parent = faceFolder
+		local m = Instance.new("Motor6D")
+		m.Name = "FaceJoint"
+		m.Part0 = head
+		m.Part1 = p
+		m.C0 = c0
+		m.C1 = CFrame.new()
+		m.Parent = p
+	end
+	for _, spec in ipairs(FaceConfig.Parts) do addFacePart(spec, resolved[spec.name]) end
+	for _, extraName in ipairs(recipe.faceExtras or {}) do
+		local spec = FaceConfig.Extras[extraName]
+		if spec then addFacePart({ name = extraName, size = spec.size, offset = spec.offset, color = spec.color, material = spec.material }, nil) end
+	end
+
+	-- pieces: hair / hat / beard / overlays / props
+	local function placePiece(folder, entry, basePart, baseCFrame, colorRef, sided, extraAttrs)
+		local list, source = sourceParts(entry, opts)
+		report.sources[source] = (report.sources[source] or 0) + 1
+		local first
+		for i, item in ipairs(list) do
+			local p = item.part
+			-- the first part of a piece carries the piece id (Props.Cane), the rest are suffixed (Cane_Shaft)
+			if i == 1 then p.Name = entry.id .. (sided or "") else p.Name = entry.id .. (sided or "") .. "_" .. p.Name end
+			local off = item.offset
+			if sided == "L" then
+				local pos = off.Position
+				off = CFrame.new(-pos.X, pos.Y, pos.Z) * (off - off.Position)
+			end
+			p.CFrame = baseCFrame * off
+			p.Material = materialOf(entry.material)
+			p.Color = Families.ResolveColor(colorSet, colorRef or item.colorRole, entry.colorRole or "accent")
+			flags(p)
+			p.Parent = folder
+			weld(basePart, p)
+			if extraAttrs then for k, v in pairs(extraAttrs) do p:SetAttribute(k, v) end end
+			if i == 1 then first = p end
+		end
+		return first
+	end
+
+	local hairFolder = Instance.new("Folder"); hairFolder.Name = "Hair"; hairFolder.Parent = root
+	local function headPiece(id)
+		if not id then return end
+		local entry = Library.Get(id)
+		local grip = RigSpec.Grips[entry.slot or "Hair"]
+		local att = RigSpec.Attachments[grip.part][grip.attachment]
+		placePiece(hairFolder, entry, parts[grip.part], parts[grip.part].CFrame * CFrame.new(att) * (entry.offset or CFrame.new()), nil, nil)
+	end
+	local hat = recipe.hat
+	if theme.hatDefault and recipe.hatFollowsTheme then hat = theme.hatDefault end
+	headPiece(recipe.hair)
+	headPiece(hat)
+	headPiece(recipe.beard)
+
+	local outfit = Instance.new("Folder"); outfit.Name = "Outfit"; outfit.Parent = root
+	local overlayIds = {}
+	for _, o in ipairs(recipe.overlays or family.defaultOverlays) do overlayIds[#overlayIds + 1] = o end
+	for _, extra in ipairs(theme.addOverlays or {}) do overlayIds[#overlayIds + 1] = extra end
+	for _, o in ipairs(overlayIds) do
+		local id, colorRef, offsetOverride = o, nil, nil
+		if type(o) == "table" then id, colorRef, offsetOverride = o.id, o.color, o.offset end
+		id = (theme.replaceOverlay and theme.replaceOverlay[id]) or id
+		local entry = Library.Get(id)
+		assert(entry.kind == "overlay", "NpcForge: " .. id .. " is not an overlay")
+		local baseOff = offsetOverride or entry.offset or CFrame.new()
+		if entry.sided then
+			for _, side in ipairs({ "R", "L" }) do
+				local boneName = (side == "R" and "Right" or "Left") .. entry.slot
+				local bone = parts[boneName]
+				local off = baseOff
+				if side == "L" then local pos = off.Position; off = CFrame.new(-pos.X, pos.Y, pos.Z) * (off - off.Position) end
+				placePiece(outfit, entry, bone, bone.CFrame * off, colorRef, side, { Bone = boneName })
+			end
+		else
+			local bone = parts[entry.slot]
+			assert(bone, "NpcForge: overlay " .. id .. " wants bone " .. tostring(entry.slot))
+			placePiece(outfit, entry, bone, bone.CFrame * baseOff, colorRef, nil, { Bone = entry.slot })
+		end
+	end
+
+	local propsFolder = Instance.new("Folder"); propsFolder.Name = "Props"; propsFolder.Parent = root
+	local propRoots = {}
+	for _, pr in ipairs(recipe.props or {}) do
+		local id, gripName, colorRef = pr, nil, nil
+		if type(pr) == "table" then id, gripName, colorRef = pr.id, pr.grip, pr.color end
+		local entry = Library.Get(id)
+		assert(entry.kind == "prop", "NpcForge: " .. id .. " is not a prop")
+		gripName = gripName or entry.grip
+		local basePart, baseCFrame
+		if propRoots[gripName] then
+			basePart = propRoots[gripName]
+			baseCFrame = basePart.CFrame
+		else
+			local grip = RigSpec.Grips[gripName]
+			assert(grip, "NpcForge: unknown grip " .. tostring(gripName) .. " for prop " .. id)
+			basePart = parts[grip.part]
+			baseCFrame = basePart.CFrame * CFrame.new(RigSpec.Attachments[grip.part][grip.attachment])
+		end
+		local first = placePiece(propsFolder, entry, basePart, baseCFrame * (entry.offset or CFrame.new()), colorRef, nil,
+			{ Grip = gripName, Planted = entry.planted == true })
+		propRoots[id] = first
+		if entry.light and theme.lightsAllowed then
+			local l = Instance.new("PointLight")
+			l.Range = entry.light.range or 12
+			l.Brightness = entry.light.brightness or 1
+			l.Color = entry.light.color or Color3.fromRGB(255, 214, 160)
+			l.Enabled = false            -- the driver switches it on by band
+			l.Parent = first
+		end
+	end
+
+	-- collider (D-1): tight, own collision group, players only
+	if recipe.collider then
+		local c = Instance.new("Part")
+		c.Name = RigSpec.Root.Collider.Name
+		c.Size = RigSpec.Root.Collider.Size
+		c.CFrame = hrp.CFrame * CFrame.new(RigSpec.Root.Collider.Offset)
+		c.Transparency = 1
+		flags(c)
+		c.Anchored = true
+		c.CanCollide = true
+		c.CollisionGroup = RigSpec.Root.CollisionGroup
+		c.Parent = root
+		NpcForge.EnsureCollisionGroup(RigSpec.Root.CollisionGroup)
+	end
+
+	if recipe.scale and recipe.scale ~= 1 then root:ScaleTo(recipe.scale) end
+	return root, parts
+end
+
+-- Registers the NPC collision group once (an Edit-mode write, only ever called
+-- from a gated build step). Collides with Default (players); nothing else changes.
+function NpcForge.EnsureCollisionGroup(name)
+	local ok, PhysicsService = pcall(game.GetService, game, "PhysicsService")
+	if not ok or not PhysicsService then return false end
+	local registered = false
+	pcall(function() registered = PhysicsService:IsCollisionGroupRegistered(name) end)
+	if not registered then
+		pcall(function() PhysicsService:RegisterCollisionGroup(name) end)
+		pcall(function() PhysicsService:CollisionGroupSetCollidable(name, "Default", true) end)
+	end
+	return true
+end
+
+-- ===== CREATURE ================================================================
+-- Parts referenced by ANY joint/weld in the model (Part0 or Part1), wherever the
+-- joint instance itself lives -- pack templates keep Motor6Ds in either part.
+local function jointedParts(model)
+	local set = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("JointInstance") or d:IsA("WeldConstraint") then
+			if d.Part0 then set[d.Part0] = true end
+			if d.Part1 then set[d.Part1] = true end
+		end
+	end
+	return set
+end
+
+local function buildCreature(recipe, opts, report)
+	local K = kit()
+	local src = opts.speciesSource
+	if not src then
+		local folder = ReplicatedStorage:FindFirstChild("BrainrotModels")
+		src = folder and folder:FindFirstChild(recipe.species)
+	end
+	assert(src, "NpcForge: species template not found: " .. tostring(recipe.species))
+	local srcCount = #src:GetDescendants()
+
+	local model = src:Clone()
+	model.Name = recipe.rootName or ("Npc" .. recipe.species)
+	local root = model.PrimaryPart or model:FindFirstChild("RootPart") or model:FindFirstChildWhichIsA("BasePart")
+	assert(root, "NpcForge: creature clone has no root part")
+	model.PrimaryPart = root
+
+	-- strip runtime cruft on the CLONE only
+	local visible = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("Sound") or d:IsA("LuaSourceContainer") or d:IsA("Highlight") or d:IsA("Beam") or d:IsA("Trail") then
+			d:Destroy()
+		elseif recipe.stripFx ~= false and (d:IsA("ParticleEmitter") or d:IsA("Light")) then
+			d:Destroy()
+		elseif d:IsA("BasePart") then
+			visible[#visible + 1] = d
+		end
+	end
+	local biggest, bigVol = nil, -1
+	for _, p in ipairs(visible) do
+		local s = p.Size
+		local vol = s.X * s.Y * s.Z
+		if p.Transparency < 1 and vol > bigVol then biggest, bigVol = p, vol end
+	end
+	local jointed = jointedParts(model)
+	for _, p in ipairs(visible) do
+		flags(p, { shadow = (p == biggest) })
+		if p ~= root and not jointed[p] then weld(root, p, "NpcRootWeld") end
+	end
+	root.Anchored = true
+
+	-- wear (recolour only; identity geometry untouched)
+	if recipe.wear then
+		for _, p in ipairs(visible) do
+			if p.Transparency < 1 then
+				local h, s, v = p.Color:ToHSV()
+				s = math.max(0, math.min(1, s + (recipe.wear.sat or 0)))
+				v = math.max(0, math.min(1, v + (recipe.wear.val or 0)))
+				p.Color = Color3.fromHSV(h, s, v)
+			end
+		end
+	end
+	for name, col in pairs(recipe.recolorRoles or {}) do
+		local p = model:FindFirstChild(name, true)
+		if p and p:IsA("BasePart") then p.Color = col end
+	end
+
+	-- story layer (additive; ≤ 8 parts enforced by the budget)
+	local layerFolder = Instance.new("Folder"); layerFolder.Name = "StoryLayer"; layerFolder.Parent = model
+	local made = {}
+	for _, row in ipairs(recipe.storyLayer or {}) do
+		local bone = made[row.bone] or (row.bone and model:FindFirstChild(row.bone, true))
+		if not (bone and bone:IsA("BasePart")) and row.boneFallback then bone = made[row.boneFallback] or model:FindFirstChild(row.boneFallback, true) end
+		if not (bone and bone:IsA("BasePart")) then bone = root end
+		local p = newPrimitive({ shape = row.shape, size = row.size }, row.part)
+		p.Color = row.color
+		p.Material = row.material or Enum.Material.Plastic
+		p.CFrame = root.CFrame * (row.offset or CFrame.new())
+		flags(p)
+		p:SetAttribute("NpcStoryLayer", true)
+		p:SetAttribute("Bone", bone.Name)
+		p.Parent = layerFolder
+		weld(bone, p)
+		made[row.part] = p
+		report.storyParts = (report.storyParts or 0) + 1
+	end
+
+	-- plot fit (the spawner's math), then stance
+	local hs = math.max(0.7, math.min(1.5, tonumber(model:GetAttribute("HeightScale")) or 1))
+	local ext = model:GetExtentsSize()
+	local width = math.max(ext.X, ext.Z, 0.01)
+	local fit = math.min((6.0 * hs) / math.max(ext.Y, 0.01), 9.5 / width)
+	if opts.plotFit ~= false then model:ScaleTo(model:GetScale() * fit) end
+
+	local anchor = Instance.new("Attachment")
+	anchor.Name = "PoseAnchor"
+	anchor.Parent = root
+	local st = recipe.stance
+	if st then
+		local pivot = model:GetPivot()
+		model:PivotTo(pivot * CFrame.Angles(math.rad(st.pitch or 0), math.rad(st.yaw or 0), math.rad(st.roll or 0)) * CFrame.new(0, st.sink or 0, 0))
+	end
+
+	assert(#src:GetDescendants() == srcCount, "NpcForge: the source template changed during the build -- aborting")
+	report.sources.clone = 1
+	return model
+end
+
+-- ===== Build =================================================================
+function NpcForge.Build(recipeOrId, opts)
+	opts = opts or {}
+	local recipe = loadRecipe(recipeOrId)
+	local K = kit()
+	local report = { id = recipe.id, kind = recipe.kind, sources = {}, warnings = {} }
+
+	local model
+	if recipe.kind == "creature" then
+		model = buildCreature(recipe, opts, report)
+	else
+		model = buildHuman(recipe, opts, report)
+	end
+
+	-- attributes the runtime reads (attributes only; never the recipe)
+	model:SetAttribute("NpcId", recipe.id)
+	model:SetAttribute("NpcRig", recipe.kind == "creature" and "Creature" or "SR1")
+	model:SetAttribute("NpcTier", recipe.tier or 2)
+	model:SetAttribute("NpcPack", recipe.pack or "Background")
+	if recipe.profile then model:SetAttribute("NpcProfile", recipe.profile) end
+	model:SetAttribute("NpcPackOverrides", serializeOverrides(recipe.packOverrides))
+	model:SetAttribute("NpcWorld", recipe.world or "Valley")
+	model:SetAttribute("NpcBodyType", recipe.bodyType or "")
+	model:SetAttribute("NpcScale", recipe.scale or 1)
+	model:SetAttribute("NpcFace", recipe.face or K.FaceConfig.Default)
+	model:SetAttribute("NpcFamily", recipe.family or "")
+	model:SetAttribute("NpcKitVersion", NpcForge.Version)
+	if (report.sources.blockout or 0) > 0 then model:SetAttribute("NpcBlockout", true) end
+	pcall(function() model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic end)
+	CollectionService:AddTag(model, "NpcBody")
+
+	-- budget gate
+	local budget = opts.budget
+	if budget == nil then
+		local bm = ServerStorage:FindFirstChild("NpcBudget")
+		if bm then budget = loadModule(bm) end
+	end
+	if budget then
+		local review = budget.review(model, recipe.tier or 2, recipe.kind == "creature" and "creature" or "human")
+		report.budget = review
+		if not review.pass then
+			model:Destroy()
+			return nil, report
+		end
+	end
+
+	-- park in staging (never a world folder)
+	local parent = opts.parentTo
+	if parent == nil and opts.stage ~= false then
+		local staging = ServerStorage:FindFirstChild("NpcStaging")
+		if not staging then staging = Instance.new("Folder"); staging.Name = "NpcStaging"; staging.Parent = ServerStorage end
+		local worldName = recipe.world or "Valley"
+		parent = staging:FindFirstChild(worldName)
+		if not parent then parent = Instance.new("Folder"); parent.Name = worldName; parent.Parent = staging end
+	end
+	if parent then model.Parent = parent end
+	return model, report
+end
+
+-- ===== SwapLive (Phase 3 step 13 ONLY; hard-gated) =============================
+-- Not called by Build. Refuses to run without the explicit gate + confirm tokens
+-- the owner grants at STOP 5. Backs the live model up first; the prompt and any
+-- listed children are MOVED (same instances), never recreated.
+function NpcForge.SwapLive(staged, live, opts)
+	opts = opts or {}
+	assert(opts.gate == "STOP5" and opts.confirm == "SWAP-LIVE", "NpcForge.SwapLive: refused -- requires opts.gate='STOP5' and opts.confirm='SWAP-LIVE' (owner approval)")
+	assert(staged and live and staged ~= live, "NpcForge.SwapLive: staged and live models required")
+	local recipe = loadRecipe(opts.recipe or staged:GetAttribute("NpcId"))
+	local contracts = recipe.contracts or {}
+	local liveRoot = live:FindFirstChild(contracts.promptPart or "HumanoidRootPart") or live.PrimaryPart
+	assert(liveRoot, "NpcForge.SwapLive: live model has no root to take the CFrame from")
+	local liveCF = liveRoot.CFrame
+	local liveParent = live.Parent
+
+	-- 1. backup (a clone; the original is only removed after the new one is verified bound)
+	local backups = ServerStorage:FindFirstChild("AuditBackups") or Instance.new("Folder")
+	backups.Name = "AuditBackups"; backups.Parent = ServerStorage
+	local backup = live:Clone()
+	backup.Name = ("NPC01_%s_%s"):format(live.Name, opts.stamp or os.date("%Y_%m_%d"))
+	backup.Parent = backups
+
+	-- 2. move scenery out (D-2), keep contract children (the prompt)
+	if contracts.moveChildrenTo then
+		local camp = liveParent:FindFirstChild(contracts.moveChildrenTo) or Instance.new("Model")
+		camp.Name = contracts.moveChildrenTo
+		camp.Parent = liveParent
+		for _, child in ipairs(live:GetChildren()) do
+			local keep = false
+			for _, k in ipairs(contracts.keepChildren or {}) do if child.Name == k or child:FindFirstChild(k, true) then keep = true end end
+			if not keep and child:IsA("BasePart") and not (child.Name == "HumanoidRootPart") and not child:FindFirstChildOfClass("Motor6D") then
+				-- only loose scenery parts move; rig parts stay with the old body
+				child.Parent = camp
+			end
+		end
+	end
+	local newRoot = staged:FindFirstChild(contracts.promptPart or "HumanoidRootPart")
+	for _, k in ipairs(contracts.keepChildren or {}) do
+		local inst = live:FindFirstChild(k, true)
+		if inst and newRoot then inst.Parent = newRoot end
+	end
+
+	-- 3. place and swap (PrimaryPart is the HRP, so the pivot IS the root frame)
+	staged:PivotTo(liveCF)
+	staged.Name = live.Name
+	staged.Parent = liveParent
+	live.Parent = backups
+	live.Name = backup.Name .. "_orig"
+	return { backup = backup, original = live, placed = staged }
+end
+
+return NpcForge
