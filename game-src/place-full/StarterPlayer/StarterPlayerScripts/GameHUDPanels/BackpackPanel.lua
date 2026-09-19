@@ -204,6 +204,38 @@ local Toast = require(modules:WaitForChild("UIKit"):WaitForChild("Toast"))
 -- at most 16); gen = fillBag's build generation, so a re-render or close cancels the
 -- chunked construction of a big bag mid-way instead of finishing into a dead grid.
 local gridUi = { culler = nil :: any, cards = {} :: { any }, bayCards = {} :: { any }, fill = nil :: (() -> ())?, gen = 0 }
+-- UI ROUND 4 (2026-09-19, Bag performance): the Brainrots tab is PERSISTENT.
+--   shell    the tab's built chrome (its root frame, bay strip, inventory header, well,
+--            scroll, count label, the geometry it was built for). Built once, detached
+--            (never destroyed) while another tab shows, rebuilt only when the geometry
+--            class changes (phone <-> desktop columns).
+--   byUid    [uid] = { card, entry, applied } -- one kit card per owned brainrot, kept
+--            across snapshots, sorts, searches, tab switches and close/open. A card is
+--            destroyed only when its UID leaves the save (or its identity changes).
+--   petCuller / petSelect  the Pets tab's culler handle and in-place selection hook.
+-- Before this, every open / snapshot / sort / search keystroke destroyed the whole grid
+-- and its chrome and rebuilt it (~4 ms + ~66 instances per card, 32 viewport clones):
+-- measured as 260-600 ms frames on the owner's 52-item bag and 400-500 ms frames on a
+-- 250-item one. See docs/qa/round4/AUDIT.md.
+gridUi.shell = nil :: any
+gridUi.byUid = {} :: { [any]: any }
+gridUi.petCuller = nil :: any
+gridUi.petSelect = nil :: ((uid: any) -> ())?
+local function teardownGrid()
+	gridUi.gen += 1
+	if gridUi.culler then gridUi.culler.detach() gridUi.culler = nil end
+	for _, rec in pairs(gridUi.byUid) do rec.card.destroy() end
+	gridUi.byUid = {}
+	gridUi.cards = {}
+	for _, c in ipairs(gridUi.bayCards) do c.destroy() end
+	gridUi.bayCards = {}
+	if gridUi.shell then
+		local f = gridUi.shell.frame
+		gridUi.shell = nil
+		if f then f:Destroy() end
+	end
+	gridUi.fill = nil
+end
 
 -- EVERY WORLD (fixed 2026-08-07). Built from BrainrotConfig alone, this left the 30
 -- tundra-exclusive brainrots unknown to the Bag -- $0/s, no rarity tint, sorted last.
@@ -466,8 +498,79 @@ local function applySnapshot(snap)
 	}
 end
 
+-- ROUND 4: warm the models the bag will draw. A 250-item bag showed most art
+-- wells EMPTY for the better part of a minute after opening -- the viewports
+-- were built and framed correctly, the mesh assets were still streaming in.
+-- Preload the owned brainrot / pet masters once, in the background, so the
+-- cards do not pop in. Names already warmed are skipped; batches of eight with a
+-- frame between them, because the mesh decode lands on the main thread as each
+-- batch arrives (a 250-distinct-model fill measured 100-270 ms frames for ~4 s
+-- with batches of 16 back to back). Fire-and-forget: nothing waits on this.
+local preloadedNames: { [string]: boolean } = {}
+local preloadBusy = false
+local function preloadOwnedModels()
+	if preloadBusy then return end
+	preloadBusy = true
+	task.spawn(function()
+		task.wait(3) -- let the join-time HUD and streaming settle first
+		local ContentProvider = game:GetService("ContentProvider")
+		local batch = {}
+		local seenId = {}
+		local function flush()
+			if #batch == 0 then return end
+			local list = batch
+			batch = {}
+			pcall(function() ContentProvider:PreloadAsync(list) end)
+			RunService.Heartbeat:Wait() -- one frame between batches: the decode is per frame
+		end
+		-- content ids, not instances: the masters are unparented stripped clones,
+		-- and PreloadAsync is documented for ids and in-tree instances
+		local function queue(master)
+			if not master then return end
+			for _, d in ipairs(master:GetDescendants()) do
+				if d:IsA("MeshPart") then
+					for _, id in ipairs({ d.MeshId, d.TextureID }) do
+						if id ~= "" and not seenId[id] then
+							seenId[id] = true
+							table.insert(batch, id)
+						end
+					end
+				elseif d:IsA("SpecialMesh") then
+					for _, id in ipairs({ d.MeshId, d.TextureId }) do
+						if id ~= "" and not seenId[id] then
+							seenId[id] = true
+							table.insert(batch, id)
+						end
+					end
+				end
+			end
+			if #batch >= 8 then flush() end
+		end
+		for _, e in ipairs(allBrainrots) do
+			if not preloadedNames[e.Name] then
+				preloadedNames[e.Name] = true
+				queue(BrainrotThumb.master(e.Name))
+			end
+		end
+		local okPet, PetConfig = pcall(function() return require(PetConfigModule) end)
+		if okPet and typeof(PetConfig) == "table" and PetConfig.Pets then
+			for _, pet in ipairs(ownedPets) do
+				local def = PetConfig.Pets[pet.Id]
+				local key = "pet:" .. tostring(def and (def.Model or def.Name) or pet.Id)
+				if not preloadedNames[key] then
+					preloadedNames[key] = true
+					queue(def and BrainrotThumb.petMaster(def.Model, def.Name))
+				end
+			end
+		end
+		flush()
+		preloadBusy = false
+	end)
+end
+
 remotes.DataUpdated.OnClientEvent:Connect(function(payload)
 	applySnapshot(payload)
+	preloadOwnedModels()
 	if onSnapshotChanged then
 		onSnapshotChanged()
 	end
@@ -478,6 +581,7 @@ task.spawn(function()
 	end)
 	if ok then
 		applySnapshot(snap)
+		preloadOwnedModels()
 		if onSnapshotChanged then
 			onSnapshotChanged()
 		end
@@ -953,6 +1057,10 @@ function BackpackPanel.Build(ctx)
 	----------------------------------------------------------- shared build blocks
 	local function clearChildren(parent: Instance)
 		for _, c in ipairs(parent:GetChildren()) do
+			-- round 4: the Brainrots tab's shell stays parented (hidden) under
+			-- contentHost while another tab draws -- it is never cleared, only torn
+			-- down by teardownGrid when its geometry class changes
+			if gridUi.shell and c == gridUi.shell.frame then continue end
 			if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then
 				c:Destroy()
 			end
@@ -2238,19 +2346,18 @@ function BackpackPanel.Build(ctx)
 	end
 
 	renderBrainrots = function()
-		-- KEEP THE PLAYER'S PLACE: carry the inventory scroll over when `grid`
-		-- is still alive (same-tab re-render); destroyed = fresh arrival, top.
-		local keepScroll = (grid and grid.Parent) and grid.CanvasPosition or nil
-		-- 2026-09-18: release the previous grid's viewports, driver entries and culler
-		-- BEFORE contentHost is cleared, so nothing animates or mounts into a dead tree
+		-- ROUND 4: NOTHING IS TORN DOWN HERE ANY MORE. The tab's chrome lives in
+		-- gridUi.shell and the cards in gridUi.byUid; this render re-attaches the
+		-- shell if another tab had it detached, rebuilds only the bay strip (its pads
+		-- and counts ARE the snapshot, and there are at most 16), re-places the two
+		-- sections under it for the current fold, and hands the grid to fillBag,
+		-- which diffs by UID. The scroll position carries over by itself because the
+		-- ScrollingFrame is the same instance. (Before: clearChildren + every card
+		-- destroyed + rebuilt on every open, snapshot, sort and search keystroke.)
 		gridUi.gen += 1 -- cancels any in-flight chunked fillBag
-		if gridUi.culler then gridUi.culler.detach() gridUi.culler = nil end
-		for _, c in ipairs(gridUi.cards) do c.destroy() end
-		gridUi.cards = {}
 		for _, c in ipairs(gridUi.bayCards) do c.destroy() end
 		gridUi.bayCards = {}
 		gridUi.fill = nil
-		clearChildren(contentHost)
 		refreshHeader()
 		hideCardTip()
 
@@ -2367,14 +2474,14 @@ function BackpackPanel.Build(ctx)
 		-- and wireCardHit were retired here -- every card in this tab is the kit's
 		-- BrainrotCard now, and every notice goes through UIKit.Toast.)
 
-		local function buildWell(y: number, h: number): Frame
+		local function buildWell(parent: Instance, y: number, h: number): Frame
 			local w = Instance.new("Frame")
 			w.BackgroundColor3 = C_WELL
 			w.BorderSizePixel = 0
 			w.Position = UDim2.fromOffset(0, y)
 			w.Size = UDim2.fromOffset(BR_W, h)
 			w.ZIndex = 13
-			w.Parent = contentHost
+			w.Parent = parent
 			UI.corner(w, 16)
 			local st = Instance.new("UIStroke")
 			st.Thickness = 2
@@ -2680,12 +2787,50 @@ function BackpackPanel.Build(ctx)
 			end
 		end
 
+		-------------------------------------------------- THE PERSISTENT SHELL (round 4)
+		-- One transparent frame holds the whole tab. While another tab draws, the
+		-- shell stays PARENTED and HIDDEN (Visible = false; clearChildren spares it)
+		-- -- not detached like the Index / Charms caches: re-parenting a 17,000-
+		-- instance subtree cost a 900 ms frame on a 250-card bag (every descendant
+		-- re-registers with the engine and UIPolish's DescendantAdded pass re-runs),
+		-- a Visible flip costs nothing. It is rebuilt only when the geometry class
+		-- changed under it (phone <-> desktop columns), in which case every card goes
+		-- with it.
+		local shell = gridUi.shell
+		if shell and (shell.cols ~= COLS or shell.cardW ~= CARD_W or shell.phone ~= PHONE) then
+			teardownGrid()
+			shell = nil
+		end
+		local fresh = shell == nil
+		if fresh then
+			clearChildren(contentHost)
+			local frame = Instance.new("Frame")
+			frame.Name = "BrainrotsTab"
+			frame.BackgroundTransparency = 1
+			frame.Size = UDim2.fromScale(1, 1)
+			frame.ZIndex = 13
+			frame.Parent = contentHost
+			shell = { frame = frame, cols = COLS, cardW = CARD_W, phone = PHONE }
+			gridUi.shell = shell
+		elseif shell.frame.Parent ~= contentHost or not shell.frame.Visible then
+			-- back from another tab: its content goes (clearChildren spares the
+			-- shell), the shell shows again, the cards' FX come back with it
+			clearChildren(contentHost)
+			shell.frame.Parent = contentHost
+			shell.frame.Visible = true
+			for _, rec in pairs(gridUi.byUid) do rec.card.resumeFx() end
+		end
+		local tabRoot: Frame = shell.frame
+
 		-------------------------------------------------- EQUIPPED STRIP + fold-out PLOT (round 2)
 		-- One 40px strip: EQUIPPED n/m chip, plot income, locked-pad count on the
 		-- left; SHOW/HIDE PLOT and UNEQUIP ALL on the right. Every control sits in a
 		-- FIXED slot so the kit buttons' hover growth never reflows its neighbours.
-		local bay = buildWell(0, BAY_H)
+		-- Rebuilt on every render: its pads, counts and prices are the snapshot.
+		if shell.bay then shell.bay:Destroy() shell.bay = nil end
+		local bay = buildWell(tabRoot, 0, BAY_H)
 		bay.Name = "EquippedBay"
+		shell.bay = bay
 
 		local bayHead = Instance.new("Frame")
 		bayHead.Name = "BayHeader"
@@ -2857,13 +3002,23 @@ function BackpackPanel.Build(ctx)
 		-------------------------------------------------- INVENTORY header (round 2)
 		-- YOUR BRAINROTS + "shown / owned" on the left; SEARCH and the three sorts on
 		-- the right -- the handoff's inventory controls, on one row above the grid.
-		local invHead = Instance.new("Frame")
+		-- Round 4: built ONCE per shell (search text and sort choice live on in
+		-- their own controls); a re-render only moves it under the current bay.
+		local subY = BAY_H + SECTION_GAP + INV_HEAD_H + SECTION_GAP
+		local invHead: Frame, sub: Frame, scroll: ScrollingFrame, bagCount: TextLabel
+		if not fresh then
+			invHead, sub, scroll, bagCount = shell.invHead, shell.sub, shell.scroll, shell.bagCount
+			invHead.Position = UDim2.fromOffset(0, BAY_H + SECTION_GAP)
+			sub.Position = UDim2.fromOffset(0, subY)
+			sub.Size = UDim2.fromOffset(BR_W, CONTENT_H - subY)
+		else
+		invHead = Instance.new("Frame")
 		invHead.Name = "InventoryHeader"
 		invHead.Position = UDim2.fromOffset(0, BAY_H + SECTION_GAP)
 		invHead.Size = UDim2.fromOffset(BR_W, INV_HEAD_H)
 		invHead.BackgroundTransparency = 1
 		invHead.ZIndex = 14
-		invHead.Parent = contentHost
+		invHead.Parent = tabRoot
 
 		local invLeft = Instance.new("Frame")
 		invLeft.Name = "Left"
@@ -2887,7 +3042,7 @@ function BackpackPanel.Build(ctx)
 			title.LayoutOrder = 1
 			title.AutomaticSize = Enum.AutomaticSize.X
 		end
-		local bagCount = Instance.new("TextLabel")
+		bagCount = Instance.new("TextLabel")
 		bagCount.Name = "OwnedCount"
 		bagCount.BackgroundTransparency = 1
 		bagCount.Font = S.Font.Read
@@ -2966,11 +3121,10 @@ function BackpackPanel.Build(ctx)
 			end,
 		})
 
-		local subY = BAY_H + SECTION_GAP + INV_HEAD_H + SECTION_GAP
-		local sub = buildWell(subY, CONTENT_H - subY)
+		sub = buildWell(tabRoot, subY, CONTENT_H - subY)
 		sub.Name = "InventoryWell"
 
-		local scroll = Instance.new("ScrollingFrame")
+		scroll = Instance.new("ScrollingFrame")
 		scroll.Name = "Grid"
 		scroll.Position = UDim2.fromOffset(10, 10)
 		scroll.Size = UDim2.new(1, -20, 1, -20)
@@ -2984,7 +3138,6 @@ function BackpackPanel.Build(ctx)
 		scroll.ElasticBehavior = Enum.ElasticBehavior.Never
 		scroll.ZIndex = 14
 		scroll.Parent = sub
-		grid = scroll
 		do
 			local pad = Instance.new("UIPadding")
 			pad.PaddingLeft = UDim.new(0, math.max(0, math.floor((BR_W - 20 - GRIDW) / 2)))
@@ -2995,6 +3148,9 @@ function BackpackPanel.Build(ctx)
 			gl.SortOrder = Enum.SortOrder.LayoutOrder
 			gl.Parent = scroll
 		end
+		shell.invHead, shell.sub, shell.scroll, shell.bagCount = invHead, sub, scroll, bagCount
+		end -- fresh shell
+		grid = scroll
 
 		-- Empty state (round 2): the bag sticker, a headline and one line of help,
 		-- instead of a lone 14px sentence lost in the well.
@@ -3053,29 +3209,104 @@ function BackpackPanel.Build(ctx)
 			l.AutomaticSize = Enum.AutomaticSize.X
 		end
 
-		-- fillBag rebuilds only the cells, so search typing keeps its focus.
-		-- ONE BrainrotCard PER UID -- no stacking in the grid (mutation, size, lock and
-		-- serial can all differ; the Sell panel keeps its own stacks) -- on a
-		-- ViewportCuller so only the visible window holds live ViewportFrames. The
-		-- legacy `Fav` save flag is normalised to the card's `locked` state here and
-		-- nowhere else. Round 2: the grid is the WHOLE collection (allBrainrots) --
-		-- placed entries wear the equipped badge and click to STORE; bench entries
-		-- click to EQUIP, or open the replace picker when the plot is full.
+		-- ROUND 4: fillBag DIFFS the grid instead of rebuilding it. One kit card per
+		-- UID lives in gridUi.byUid for as long as the save owns that brainrot; a
+		-- render updates each card in place (and only the fields that changed),
+		-- re-orders with LayoutOrder for the sorts, hides search misses (kept for
+		-- the next keystroke), destroys only UIDs that left the save, and builds
+		-- cards only for UIDs it has never seen -- the visible window synchronously,
+		-- the rest a few per Heartbeat. The culler works on a dense, ordered list of
+		-- the cards that exist. The legacy `Fav` save flag is normalised to the
+		-- card's `locked` state here and nowhere else; placed entries wear the
+		-- equipped badge and click to STORE, bench entries click to EQUIP (or open
+		-- the replace picker when the plot is full).
+		local function tipGroupFor(e)
+			return { Name = e.Name, Mutation = e.Mutation, Size = e.Size,
+				Fav = e.Fav, count = 1, uids = { e.Uid }, PadIndex = e.PadIndex }
+		end
+		local function appliedOf(e)
+			return { income = valueOf(e.Name, e.Mutation, e.Size), mutation = e.Mutation, size = e.Size,
+				equipped = e.PadIndex or false, locked = e.Fav == true, new = newUids[e.Uid] == true }
+		end
+		-- a new card; the click / tooltip read rec.entry, which every later render
+		-- updates, so a card built while benched still STORES once it is placed
+		local function buildOne(i: number, e)
+			local info = infoByName[e.Name]
+			local rec = { entry = e, applied = appliedOf(e), card = nil :: any }
+			local card = BrainrotCard.new({
+				kind = "brainrot",
+				name = e.Name,
+				rarity = (info and info.Rarity) or "Common",
+				income = rec.applied.income,
+				mutation = e.Mutation,
+				mutationColor = if e.Mutation then Mutations.Color(e.Mutation) else nil,
+				sizeTag = e.Size,
+				state = { equipped = rec.applied.equipped, locked = rec.applied.locked, new = rec.applied.new, selected = false },
+				lock = { onToggle = function(_nextLocked)
+					-- ToggleLock (capacity-gated, plot-synced) answers through
+					-- DataUpdated, which repaints this card with the new flag
+					local r = remotes:FindFirstChild("ToggleLock")
+					if r then r:FireServer({ rec.entry.Uid }) end
+				end },
+				variant = "grid",
+				parent = scroll,
+				zIndex = 15,
+				layoutOrder = i,
+				instanceName = "BagCell_" .. tostring(e.Uid),
+			})
+			rec.card = card
+			if info == nil then markRetired(card) end
+			card.Activated:Connect(function()
+				local cur = rec.entry
+				if hideCardTip then hideCardTip() end -- a tap (touch) must not leave another card's tooltip up
+				newUids[cur.Uid] = nil
+				rec.applied.new = false
+				card.setState({ new = false }) -- clear the NEW badge locally, plot-full branch included
+				if cur.PadIndex then
+					-- on the plot -> take it off (server validates the uid is really out)
+					remotes.StoreBrainrot:FireServer(cur.Uid)
+				elseif countPlaced() < plotState.Unlocked then
+					remotes.EquipBrainrot:FireServer(cur.Uid)
+				elseif openReplacePicker then
+					-- bench + plot full -> pick who comes off (SwapBrainrot)
+					openReplacePicker(tipGroupFor(cur))
+				else
+					Toast.show({ text = "NO FREE SLOTS \u{2014} UNLOCK ONE", tone = "error" })
+				end
+			end)
+			card.HoverStart:Connect(function()
+				if showCardTip then showCardTip(tipGroupFor(rec.entry), card.root) end
+			end)
+			card.HoverEnd:Connect(function()
+				if hideCardTip then hideCardTip() end
+			end)
+			return rec
+		end
+		-- an existing card: repaint only what moved (income follows name+mutation+size,
+		-- so it never changes on its own; a mutation or size change is an identity
+		-- change and rebuilds the card -- the kit card cannot clear those)
+		local function updateOne(rec, i: number, e)
+			rec.entry = e
+			local a = rec.applied
+			local equipped = e.PadIndex or false
+			local locked = e.Fav == true
+			local isNew = newUids[e.Uid] == true
+			if a.equipped ~= equipped or a.locked ~= locked or a.new ~= isNew then
+				rec.card.setState({ equipped = equipped, locked = locked, new = isNew })
+				a.equipped, a.locked, a.new = equipped, locked, isNew
+			end
+			local root = rec.card.root
+			if root.LayoutOrder ~= i then root.LayoutOrder = i end
+			if not root.Visible then root.Visible = true end
+		end
 		local function fillBag()
 			gridUi.gen += 1
 			local myGen = gridUi.gen
-			if gridUi.culler then gridUi.culler.detach() gridUi.culler = nil end
-			for _, c in ipairs(gridUi.cards) do c.destroy() end
-			gridUi.cards = {}
-			for _, c in ipairs(scroll:GetChildren()) do
-				if c:IsA("GuiObject") then
-					c:Destroy()
-				end
-			end
 			local oldMsg = sub:FindFirstChild("EmptyState")
 			if oldMsg then
 				oldMsg:Destroy()
 			end
+			local byUid = gridUi.byUid
 
 			local q = searchQuery:lower():gsub("^%s+", ""):gsub("%s+$", "")
 			local bag = {}
@@ -3124,7 +3355,46 @@ function BackpackPanel.Build(ctx)
 
 			bagCount.Text = if q == "" then (#allBrainrots .. " owned") else (#bag .. " of " .. #allBrainrots)
 
+			-- 1. UIDs that left the save (sold, fused, migrated): their cards go
+			local owned = {}
+			for _, e in ipairs(allBrainrots) do owned[e.Uid] = true end
+			for uid, rec in pairs(byUid) do
+				if not owned[uid] then
+					rec.card.destroy()
+					byUid[uid] = nil
+				end
+			end
+			-- 2. search misses stay built but hidden; the culler treats a hidden root as
+			--    off screen, and a UIGridLayout skips it
+			local wanted = {}
+			for _, e in ipairs(bag) do wanted[e.Uid] = true end
+			for uid, rec in pairs(byUid) do
+				if not wanted[uid] and rec.card.root.Visible then
+					rec.card.root.Visible = false
+				end
+			end
+			-- the culler's working set: every card that exists, in grid order
+			local function denseCards()
+				local list = {}
+				for _, e in ipairs(bag) do
+					local rec = byUid[e.Uid]
+					if rec then list[#list + 1] = rec.card end
+				end
+				return list
+			end
+			local function syncCuller()
+				local list = denseCards()
+				gridUi.cards = list
+				if gridUi.culler and not gridUi.culler.isDetached() then
+					gridUi.culler.resume() -- a no-op unless the close handler suspended it
+					gridUi.culler.setCards(list)
+				else
+					gridUi.culler = ViewportCuller.attach(scroll, list)
+				end
+			end
+
 			if #bag == 0 then
+				syncCuller()
 				if #allBrainrots == 0 then
 					buildInventoryEmpty("YOUR BAG IS EMPTY", "Skip some rocks to catch Brainrots!")
 				else
@@ -3133,107 +3403,78 @@ function BackpackPanel.Build(ctx)
 				return
 			end
 
-			local cards = {}
-			local function buildOne(i: number, e)
-				local info = infoByName[e.Name]
-				local card = BrainrotCard.new({
-					kind = "brainrot",
-					name = e.Name,
-					rarity = (info and info.Rarity) or "Common",
-					income = valueOf(e.Name, e.Mutation, e.Size),
-					mutation = e.Mutation,
-					mutationColor = if e.Mutation then Mutations.Color(e.Mutation) else nil,
-					sizeTag = e.Size,
-					-- `Fav` IS the plot lock (PlotFav) -> the card's `locked`; PadIndex -> equipped badge
-					state = { equipped = e.PadIndex or false, locked = e.Fav == true, new = newUids[e.Uid] == true, selected = false },
-					lock = { onToggle = function(_nextLocked)
-						-- ToggleLock (capacity-gated, plot-synced) answers through
-						-- DataUpdated, which rebuilds this grid with the new flag
-						local r = remotes:FindFirstChild("ToggleLock")
-						if r then r:FireServer({ e.Uid }) end
-					end },
-					variant = "grid",
-					parent = scroll,
-					zIndex = 15,
-					layoutOrder = i,
-					instanceName = "BagCell" .. i,
-				})
-				if info == nil then markRetired(card) end
-				local tipGroup = { Name = e.Name, Mutation = e.Mutation, Size = e.Size,
-					Fav = e.Fav, count = 1, uids = { e.Uid }, PadIndex = e.PadIndex }
-				card.Activated:Connect(function()
-					if hideCardTip then hideCardTip() end -- a tap (touch) must not leave another card's tooltip up
-					newUids[e.Uid] = nil
-					card.setState({ new = false }) -- clear the NEW badge locally, plot-full branch included
-					if e.PadIndex then
-						-- on the plot -> take it off (server validates the uid is really out)
-						remotes.StoreBrainrot:FireServer(e.Uid)
-					elseif countPlaced() < plotState.Unlocked then
-						remotes.EquipBrainrot:FireServer(e.Uid)
-					elseif openReplacePicker then
-						-- bench + plot full -> pick who comes off (SwapBrainrot)
-						openReplacePicker(tipGroup)
-					else
-						Toast.show({ text = "NO FREE SLOTS \u{2014} UNLOCK ONE", tone = "error" })
+			-- 3. update every card that exists (cheap: a LayoutOrder and, rarely, a
+			--    badge), and note the ones that still have to be built
+			local pendingBuild = {}
+			for i, e in ipairs(bag) do
+				local rec = byUid[e.Uid]
+				if rec then
+					local info = infoByName[e.Name]
+					local rarity = (info and info.Rarity) or "Common"
+					local a = rec.applied
+					if rec.card.data.name ~= e.Name or rec.card.data.rarity ~= rarity
+						or a.mutation ~= e.Mutation or a.size ~= e.Size then
+						rec.card.destroy()
+						byUid[e.Uid] = nil
+						rec = nil
 					end
-				end)
-				card.HoverStart:Connect(function()
-					if showCardTip then showCardTip(tipGroup, card.root) end
-				end)
-				card.HoverEnd:Connect(function()
-					if hideCardTip then hideCardTip() end
-				end)
-				return card
+				end
+				if rec then
+					updateOne(rec, i, e)
+				else
+					pendingBuild[#pendingBuild + 1] = i
+				end
 			end
 
-			-- CHUNKED CONSTRUCTION (round 2). A 400-card bag cost 277-332ms to build in
-			-- one frame (round 1's measurement). The first screenful is built now so the
-			-- panel opens on finished cards; the rest lands a chunk per Heartbeat, and
-			-- the culler -- which iterates this same `cards` table -- picks each chunk up
-			-- on the canvas-size change (refresh() is belt and braces). A re-render or a
-			-- close bumps gridUi.gen and the loop stops.
-			local FIRST, CHUNK = 32, 24
-			local built = math.min(#bag, FIRST)
-			for i = 1, built do
-				cards[i] = buildOne(i, bag[i])
+			-- 4. new cards. One row (FIRST) lands now, the rest of the first window at
+			--    CHUNK_NEAR per Heartbeat -- the panel's own open glide hides those two
+			--    or three frames -- then CHUNK_FAR per Heartbeat for everything below the
+			--    fold. Small chunks, because each new card costs the engine ~3-4 ms of
+			--    layout and text work in the frame it appears (round 2.5 measurement): a
+			--    24-card frame is ~130 ms on a 60 fps client, a 4-card frame ~30. A
+			--    re-render or a close bumps gridUi.gen and the loop stops.
+			local FIRST, CHUNK_NEAR, CHUNK_FAR, NEAR = 8, 8, 4, 32
+			local built = 0
+			local function buildAt(k: number)
+				local i = pendingBuild[k]
+				local e = bag[i]
+				byUid[e.Uid] = buildOne(i, e)
 			end
-			gridUi.cards = cards
-			gridUi.culler = ViewportCuller.attach(scroll, cards)
-			if built < #bag then
+			while built < #pendingBuild and built < FIRST do
+				built += 1
+				buildAt(built)
+			end
+			syncCuller()
+			if built < #pendingBuild then
+				-- the build frames are ours, not the device's: the culler's adaptive cap
+				-- must not read 30 chunk frames as "cut the live window" (it did: 64 ->
+				-- 48 -> 36 -> 27 over three 250-card fills, for the rest of the session)
+				local function setBusy(b: boolean)
+					if gridUi.culler and not gridUi.culler.isDetached() then gridUi.culler.setBusy(b) end
+				end
 				task.spawn(function()
-					local i = built
-					while i < #bag do
+					setBusy(true)
+					while built < #pendingBuild do
 						RunService.Heartbeat:Wait()
-						if gridUi.gen ~= myGen or not scroll.Parent then return end
-						local stop = math.min(#bag, i + CHUNK)
-						for j = i + 1, stop do
-							cards[j] = buildOne(j, bag[j])
+						if gridUi.gen ~= myGen or not scroll.Parent then
+							setBusy(false)
+							return
 						end
-						i = stop
-						if gridUi.culler then gridUi.culler.refresh() end
+						local stop = math.min(#pendingBuild, built + (if built < NEAR then CHUNK_NEAR else CHUNK_FAR))
+						for k = built + 1, stop do
+							buildAt(k)
+						end
+						built = stop
+						syncCuller()
+						setBusy(true) -- syncCuller may have attached a fresh handle
 					end
+					setBusy(false)
 				end)
 			end
 		end
 		gridUi.fill = fillBag
 
 		fillBag()
-
-		if keepScroll then
-			-- restore after AutomaticCanvasSize settles (defer + a beat later)
-			local s = scroll
-			task.defer(function()
-				if s.Parent then
-					s.CanvasPosition = keepScroll
-				end
-			end)
-			task.delay(0.06, function()
-				if s.Parent then
-					s.CanvasPosition = keepScroll
-				end
-			end)
-		end
-
 	end
 
 	----------------------------------------------------------- PETS tab
@@ -3488,7 +3729,36 @@ function BackpackPanel.Build(ctx)
 		artHolder.BackgroundTransparency = 1
 		artHolder.ZIndex = 17
 		artHolder.Parent = card
-		build3DPetOrSwatch(artHolder, def, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), artHolder.ZIndex + 1, rarityTint(T, def.Rarity))
+		-- ROUND 4: the 3D art is LAZY. Every pet tile used to build its ViewportFrame
+		-- on the spot -- 83 live viewports (5,500 parts) for an 80-pet bag, ~15 of
+		-- them anywhere near the screen. The tile now hands renderPets a cullable
+		-- (root / mount / unmount) and the grid's ViewportCuller mounts only the
+		-- window in view, exactly like the brainrot cards. Everything else on the
+		-- tile is unchanged.
+		local artSlot: Frame? = nil
+		local artShown = false
+		local cullable = {
+			root = cell,
+			mount = function()
+				if artShown then return end
+				artShown = true
+				if artSlot then artSlot.Visible = true return end   -- built once, then a Visible flip (same as the kit card)
+				local slot = Instance.new("Frame")
+				slot.Name = "ArtSlot"
+				slot.BackgroundTransparency = 1
+				slot.Size = UDim2.fromScale(1, 1)
+				slot.ZIndex = artHolder.ZIndex
+				slot.Parent = artHolder
+				artSlot = slot
+				build3DPetOrSwatch(slot, def, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), artHolder.ZIndex + 1, rarityTint(T, def.Rarity))
+			end,
+			unmount = function()
+				if not artShown then return end
+				artShown = false
+				if artSlot then artSlot.Visible = false end
+			end,
+			isMounted = function() return artShown end,
+		}
 		if level.holo then
 			UI.rainbowRing(artHolder, 12)
 		end
@@ -3672,16 +3942,25 @@ function BackpackPanel.Build(ctx)
 				{ Size = petHovered and UDim2.new(1, 8, 1, 8) or UDim2.fromScale(1, 1) }):Play()
 		end)
 		hit.MouseButton1Click:Connect(function()
-			selectedPetUid = pet.Uid
-			renderPets()
+			-- round 4: selection repaints the two tiles involved, not the whole tab
+			if gridUi.petSelect then
+				gridUi.petSelect(pet.Uid)
+			else
+				selectedPetUid = pet.Uid
+				renderPets()
+			end
 		end)
 
 		if level.aura or level.foil or level.holo or isEquipped then
 			ensureFx()
 		end
+		return cullable
 	end
 
 	renderPets = function()
+		-- round 4: the previous grid's culler goes before its scroll does
+		if gridUi.petCuller then gridUi.petCuller.detach() gridUi.petCuller = nil end
+		gridUi.petSelect = nil
 		clearChildren(contentHost)
 		refreshHeader()
 
@@ -4140,11 +4419,43 @@ function BackpackPanel.Build(ctx)
 			-- state into one cell (same trap the brainrot grid documents)
 			buildEmptyState(petWell, "No pets yet \u{2014} hatch an egg at the Egg Stall.")
 		else
+			-- round 4: tiles hand back a cullable; only the window in view mounts art
+			local tiles = {}   -- [uid] = { cull, order, pet, def }
+			local function cullList()
+				local list = {}
+				for _, p in ipairs(order) do
+					local t = tiles[p.Uid]
+					if t then list[#list + 1] = t.cull end
+				end
+				return list
+			end
 			for i, p in ipairs(order) do
 				local def = PetConfig.Pets[p.Id]
 				if def then
-					buildPetTile(scroll, i, p, def, p.Uid == selectedPetUid)
+					tiles[p.Uid] = { cull = buildPetTile(scroll, i, p, def, p.Uid == selectedPetUid), order = i, pet = p, def = def }
 				end
+			end
+			gridUi.petCuller = ViewportCuller.attach(scroll, cullList())
+			-- SELECTION IN PLACE: repaint the tile that lost the ring and the one that
+			-- gained it, and the detail column -- not eighty tiles (each pet click used
+			-- to be a full renderPets, ~110 ms)
+			gridUi.petSelect = function(uid)
+				local prev = selectedPetUid
+				if prev == uid then return end
+				selectedPetUid = uid
+				local function repaint(u)
+					local t = u and tiles[u]
+					if t and t.cull.root.Parent then
+						t.cull.unmount()
+						t.cull.root:Destroy()
+						t.cull = buildPetTile(scroll, t.order, t.pet, t.def, u == uid)
+					end
+				end
+				repaint(prev) -- (not an ipairs over { prev, uid }: prev is nil on the first pick)
+				repaint(uid)
+				if gridUi.petCuller then gridUi.petCuller.setCards(cullList()) end
+				local sel = findPet(selectedPetUid)
+				renderPetDetail(sel, sel and PetConfig.Pets[sel.Id])
 			end
 		end
 
@@ -4693,6 +5004,15 @@ function BackpackPanel.Build(ctx)
 		if charmsFrame and activeTab ~= "Charms" then
 			charmsFrame.Parent = nil
 		end
+		-- round 4: the Brainrots tab is cached too, but HIDDEN in place rather than
+		-- detached (see THE PERSISTENT SHELL in renderBrainrots): its culler is
+		-- suspended and its cards' FX paused exactly as on a close, and the mounted
+		-- window stays mounted for the return.
+		if gridUi.shell and activeTab ~= "Brainrots" and gridUi.shell.frame.Visible then
+			gridUi.shell.frame.Visible = false
+			if gridUi.culler then gridUi.culler.suspend() end
+			for _, rec in pairs(gridUi.byUid) do rec.card.pauseFx() end
+		end
 
 		-- A pinned detail footer belongs to the PETS tab alone; drop it before any
 		-- other tab paints into this column, or it would hang over their content.
@@ -4783,6 +5103,19 @@ function BackpackPanel.Build(ctx)
 	closeBtn.MouseButton1Click:Connect(function()
 		ctx.closePanel()
 	end)
+	-- probe seam (non-contractual, like _applySnapshot below): drives the Pets
+	-- tab's in-place selection from another Lua VM, where a GuiButton click
+	-- cannot be synthesised. Inert unless something writes the attribute.
+	player:GetAttributeChangedSignal("HudBagPetSelect"):Connect(function()
+		local uid = player:GetAttribute("HudBagPetSelect")
+		if uid ~= nil and uid ~= "" and gridUi.petSelect then gridUi.petSelect(uid) end
+	end)
+	-- same class of seam for the tab switch (a GuiButton click cannot be synthesised
+	-- from the exec VM either; user_mouse_input wedges after a few clicks)
+	player:GetAttributeChangedSignal("HudBagTab"):Connect(function()
+		local id = player:GetAttribute("HudBagTab")
+		if type(id) == "string" and RENDERERS[id] and id ~= activeTab then switchTab(id) end
+	end)
 
 	----------------------------------------------------------- backdrop blur (mirrors SettingsPanel's recipe)
 	local BLUR_NAME = "BackpackPanelBlur"
@@ -4804,19 +5137,31 @@ function BackpackPanel.Build(ctx)
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
 		setBlur(wrapper.Visible)
 		if not wrapper.Visible then
-			-- 2026-09-18: a hidden Bag holds no live viewports and no culler
-			-- connections; reopening re-renders the tab and re-attaches. A search
+			-- 2026-09-18: a hidden Bag runs no culler connections; a search
 			-- debounce landing after close must not rebuild a hidden grid either.
+			-- ROUND 4: the culler is SUSPENDED, not detached -- the mounted window
+			-- stays mounted (a hidden ViewportFrame renders nothing and FxDriver
+			-- skips it), so reopening is a scheduling pass, not 32 model clones.
 			gridUi.fill = nil
 			gridUi.gen += 1
 			if gridUi.culler then
-				gridUi.culler.detach()
-				gridUi.culler = nil
+				gridUi.culler.suspend()
+			end
+			for _, rec in pairs(gridUi.byUid) do rec.card.pauseFx() end
+			-- round 4: the Pets tab's viewports go the same way
+			if gridUi.petCuller then
+				gridUi.petCuller.detach()
+				gridUi.petCuller = nil
 			end
 			-- the fold-out plot's cards are mounted by hand, so they are released by hand
 			for _, c in ipairs(gridUi.bayCards) do c.unmount() end
 		end
 		if wrapper.Visible then
+			-- (another tab showing: the shell stays hidden and its FX paused until
+			-- renderBrainrots brings it back)
+			if activeTab == "Brainrots" then
+				for _, rec in pairs(gridUi.byUid) do rec.card.resumeFx() end
+			end
 			renderActiveTab()
 			local g = contentHost:FindFirstChildWhichIsA("ScrollingFrame")
 			if g then

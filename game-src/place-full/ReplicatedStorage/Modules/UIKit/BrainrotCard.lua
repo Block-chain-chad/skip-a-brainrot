@@ -45,6 +45,7 @@ export type Card = {
 	root: Frame, visual: Frame, plate: Frame, art: Frame, data: Props,
 	set: (patch: { [string]: any }) -> (), setState: (patch: State) -> (),
 	mount: () -> (), unmount: () -> (), isMounted: () -> boolean, destroy: () -> (),
+	pauseFx: () -> (), resumeFx: () -> (),
 	Activated: RBXScriptSignal, HoverStart: RBXScriptSignal, HoverEnd: RBXScriptSignal,
 }
 
@@ -701,9 +702,24 @@ function BrainrotCard.new(props: Props): Card
 		placeholder = q
 	end
 
+	-- ROUND 4 (2026-09-19): a card KEEPS its viewport once it has one. unmount()
+	-- hides it (a hidden ViewportFrame draws nothing and costs no frame time)
+	-- instead of destroying the clone, so scrolling back over a card is a Visible
+	-- flip, not another model clone + camera fit -- the churn that held a fast
+	-- scroll of 250 cards at ~30 fps. destroy() still frees everything.
 	local function mount()
 		if mounted then return end
 		mounted = true
+		if vp then
+			vp.Visible = true
+			registerFx()
+			return
+		end
+		if placeholder then
+			placeholder.Visible = true
+			registerFx()
+			return
+		end
 		local ok, res = pcall(function()
 			local master = if data.kind == "pet"
 				then BrainrotThumb.petMaster(data.model, data.name)
@@ -732,6 +748,11 @@ function BrainrotCard.new(props: Props): Card
 		if not mounted then return end
 		mounted = false
 		clearFx()
+		if vp then vp.Visible = false end
+		if placeholder then placeholder.Visible = false end
+	end
+	local function freeArt()
+		unmount()
 		if vp then vp:Destroy() vp = nil end
 		if placeholder then placeholder:Destroy() placeholder = nil end
 	end
@@ -765,9 +786,14 @@ function BrainrotCard.new(props: Props): Card
 		end,
 		mount = mount,
 		unmount = unmount,
+		-- round 4: a hidden panel keeps its cards mounted (a hidden ViewportFrame
+		-- draws nothing) but must not keep FxDriver ticking over them -- pause on
+		-- close, resume on open. Both idempotent; resume is a no-op unmounted.
+		pauseFx = function() clearFx() end,
+		resumeFx = function() if mounted then registerFx() end end,
 		isMounted = function() return mounted end,
 		destroy = function()
-			unmount()
+			freeArt()
 			if pressedRelease == release then pressedRelease = nil end
 			if endInspect == endThisInspect then endInspect = nil end
 			cell:Destroy()
