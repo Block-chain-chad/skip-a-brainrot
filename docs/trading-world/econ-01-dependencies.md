@@ -80,3 +80,21 @@ Tests T1–T20 (§8.3 of the report) are the acceptance suite for E1–E11.
 | D13 old chests / IndexGate | nothing | drop |
 | NPC-01: does the dialogue shell support an action button (Gem Broker)? | role 2's interaction only | dialogue-only fallback |
 | Streaming radii (Properties panel read) | Track W step 8 tuning | assume defaults |
+
+## 6. Owner decisions logged 2026-09-19 (later the same day) — final for v1
+
+**D4 = option (c), split ownership.** The SERVER owns authoritative listing data and exposes, where applicable, `ItemName`, `Rarity`, `Mutation`, `Size`, `Serial`, `Price`, `Currency`, `SellerName`, `SellerUserId` (ECON-01 item E13). The CLIENT (`BoothDressingClient`, TW-01) owns presentation only: booth plate, Brainrot preview, rarity treatment, mutation treatment, size label, price display, visual styling, local display effects. The client never decides price, ownership, purchase validity, item identity, seller payout or buyer debit.
+
+**Currency.** Marketplace = GEMS ONLY. Direct P2P trade sweetener = GEMS ONLY. Cash is not a parallel player-to-player currency at launch (E1, E2).
+
+**Listing bounds v1 (E8).** `MIN_GEM_PRICE = 1`, `MAX_GEM_PRICE = 1,000,000`, server-side integer validation rejecting zero, negatives, decimals, NaN/±inf, values over the maximum and malformed strings. Browsing UI may abbreviate (`1.2K`, `15K`, `2.4M`); purchase confirmation and every transaction message show the exact grouped integer (`12,500 Gems`), never abbreviated.
+
+**Launch blocker (E9/E11, confirmed by the owner).** The `EmeraldService.TrySpend` finding (debit, then an unguarded `%d` print) is a launch blocker; it is NOT fixed in TW-01. Requirement: a gem debit must never be permanently lost when the transaction fails. The final sale architecture must, in order: (1) validate the listing, (2) validate buyer funds, (3) reserve/secure the transaction, (4) transfer Brainrot ownership, (5) commit the gem debit/credit safely, (6) finalise listing removal, (7) recover safely from DataStore/server failure. Exact implementation belongs to ECON-01. **No purchase flow ships until failure handling has been proven.**
+
+**Transfer identity (E4–E7, confirmed).** Preserve base identity/Name, Mutation, Size, Serial, MintedAt and all persistent modifiers; Huge/Massive must survive booth sale, direct trade, gifting and any future transfer. ECON-01 owns it; TW-01 does not implement.
+
+**World decisions.** Keep `TRADE_POS`; the Eternal Skip is represented in the rebuilt map; static boards for v1. Remove and do not preserve: the old chests and the IndexGate (unless a later gameplay dependency proves one required).
+
+**ComingSoon / teleport.** The Trading World stays closed while rebuilding; `TeleportService` is not modified while Beast's World 2 work is in flight; the server-authoritative destination gate (E12) is fixed during integration, before launch.
+
+**Phase 2 status.** Build order approved in principle. Live greybox does not start until the integration gate (Duck finishes World 1 + Pete finishes UI → delta sync → combined QA), after which TW-01 gets a dedicated quiet Edit-mode window. Until then: generator/build plan and rollback tooling kept ready, `.rbxl` snapshot requirement stands, no Studio geometry, no economy files, no NPC-01 assets, no publish. **TW-01: READY FOR IMPLEMENTATION WINDOW.**

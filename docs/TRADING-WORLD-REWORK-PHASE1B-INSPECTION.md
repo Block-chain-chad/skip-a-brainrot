@@ -4,6 +4,8 @@
 **Studio session:** read-only, Edit mode, PlaceId `78783087742939`, one instance. Every call was a read (`GetChildren`, properties, attributes, `ReadVoxels`, raycasts, `#Source` hashes) or a screen capture with a temporary camera. **Nothing was moved, deleted, created, edited, saved or published. No greybox was started.**
 **Economy canon received:** Gems are the marketplace currency (earned from daily quests and Robux). Booth loop: list → choose gem price → buyer pays that exact amount → seller receives it → ownership transfers safely. Gem acquisition rates, Robux gem pricing, quest rewards, rarity odds, Golden/Diamond and Huge/Massive values are **not** touched by anything below.
 
+> **Status 2026-09-19 (later):** decisions taken on this report — D4 = (c) split ownership; gems only for booths and trade sweeteners; listing bounds 1 … 1,000,000 with server-side integer validation and exact grouped confirmations; the `TrySpend` finding is an ECON-01 launch blocker; keep `TRADE_POS` and the Eternal Skip, static boards, remove chests and IndexGate; `TeleportService` untouched until Beast's work lands; Phase 2 order approved in principle, greybox waits for the integration gate. Full wording: `docs/trading-world/econ-01-dependencies.md` §6.
+
 Compass: **N = +Z, S = −Z, E = −X, W = +X.** Island centre C = (8000, 2002.4, 8000). P = the plaza datum y 2002.4. All coordinates absolute.
 
 ---
