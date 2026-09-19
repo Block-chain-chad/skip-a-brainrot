@@ -1,7 +1,7 @@
 # World 2 — Frozen Tundra Masterplan
 
 **For:** Balkan (approval) · **By:** BEAST · **Branch:** `world2-overhaul` · **Date:** 2026-09-19
-**Status:** PLAN ONLY. Nothing has been built, moved, saved or published. The rebuild starts after Balkan approves.
+**Status:** APPROVED by Balkan 2026-09-19 (decisions below). A **greybox blockout** is built in Studio, in the shared Team Create place, **not published**, stopping before art/polish. The as-built record, the fixes and the open issues are in [`docs/WORLD2-BLOCKOUT-LOG.md`](WORLD2-BLOCKOUT-LOG.md); where this plan and the log disagree on a number, the log is what is in the world.
 **Built on:** a read-only audit of live Studio (place `78783087742939`). Exact quest findings: `docs/WORLD2-QUEST-AUDIT.md`. Map: [`docs/world2-topdown.svg`](world2-topdown.svg).
 
 ![World 2 top-down plan](world2-topdown.svg)
@@ -9,6 +9,15 @@
 **Orientation used everywhere in this plan.** The map is drawn the way a player sees it standing on the dock looking up the lake.
 **North = +Z** (up-lake, the skip direction) · **South = −Z** · **East = −X** (right-hand side, toward x −8600) · **West = +X** (left-hand side, toward x −7400).
 Heights are studs above the lake/town datum **y 2002** unless written as absolute Y.
+(Naming clash to watch: the existing scripts' comments call **+X "east"**. The blockout's code comments say "+X side / −X side" to stay neutral.)
+
+## Balkan's decisions (2026-09-19)
+
+- **Approved:** the audit, the layout (the Avenue camps), the market hall (the Warmhouse), the terrain conversion, Nico's lodge and the hidden basin, and the **permanent hidden fishing hole unlocked after Nico's Quest 3**.
+- **The hidden basin stays entirely inside World 2.** World 3 stays tied to Elder Tung's shaft and progression.
+- **Michael the Eagle's live quest logic and reward are preserved** as they are.
+- **The missing World 2 respawn/checkpoint is a blocking technical issue**, solved separately **before the vertical cliffs and drops are finalized**. The world is **not** flattened around the bug. This overrides the "no drop-offs" rule written in §15 and §20 below.
+- Next step: a **greybox/blockout only**, stopping before final art and polish.
 
 ---
 
@@ -30,7 +39,7 @@ Heights are studs above the lake/town datum **y 2002** unless written as absolut
 | Item | Where |
 |---|---|
 | A. Top-down diagram | the map above, §2 |
-| B. Arrival location | §3 — Cellar Pass / Frostgate, (−8250, 2032, −8300) |
+| B. Arrival location | §3 — Cellar Pass / Frostgate, (−8243, 2034, −8283) as built |
 | C. Six plot positions | §4 table |
 | D. Merchant hub | §5 — the Warmhouse |
 | E. Frozen lake | §6 |
@@ -100,7 +109,7 @@ Deliberately **not** used: crystal forests (crystal appears only in the Blue Hol
 | Camp terraces | 2007 | plots 7–12 |
 | Elder's shelf | 2022 | Elder's Station, drill, shaft |
 | Frostgate | 2030 | arrival tunnel + overlook |
-| Eagle's Crag summit | 2048 (tower top ≈ 2074) | Michael's perch, best panorama |
+| Eagle's Crag summit | 2048 (tower top 2080.6 as built; lookout gallery 2074) | Michael's perch, best panorama |
 | Near cliffs (not walkable) | 2080 – 2150 | caldera walls |
 | Mid ridges / far peaks (outside bounds) | 2200 – 2900 | rim, Sundered Peak |
 | **Hard limits** | 1850 floor · 2250 ceiling | BoundsGuard: below 1850 or above 2250 the player is sent back to the **valley** spawn |
@@ -114,6 +123,7 @@ Deliberately **not** used: crystal forests (crystal appears only in the Blue Hol
 **Plan:**
 
 1. **The Cellar Pass.** You arrive *inside* a short timber-braced ice tunnel in the south-east cliff, at **(−8250, 2032, −8300)**, facing north-north-west (look ≈ (0.42, 0, 0.91)). It is the far end of Elder Tung's cellar — the way you came is literally behind you.
+   *As built:* the tunnel runs **diagonally** (a straight one opened onto the High Ledge's flat plateau, with no view), and the arrival is **(−8243, 2034, −8283)**, look **(0.386, 0, 0.922)**, a few steps inside the mouth. The return portal is 91 studs behind it: the travel curtain does not re-aim the camera, so an arrival right in front of the portal let players walk straight back home.
 2. **The way home is behind you.** `TundraReturnPortal` moves into the back of the tunnel (turn around and it is there). "The way home is the way you came" needs no signage.
 3. **The Frostgate.** Twelve steps forward you walk out onto a ledge **28 studs above the basin**, framed by a timber lantern gate. The view (≈ 70° field) contains, in one frame:
    - the camps and the Avenue below (left),
@@ -123,7 +133,7 @@ Deliberately **not** used: crystal forests (crystal appears only in the Blue Hol
    - smoke from **Nico's Point** on the far west shore (left),
    - the **Eagle's Crag** tower on the west wall (far left).
    The Warmhouse is just out of frame to the left and comes into view as you descend.
-4. **The Switchback.** A wide, gentle ramp (≈ 7°, two landings) runs down along the south cliff to the Warming Circle's east gate. You walk *toward* the Warmhouse's warm windows — the sequence is **reveal (cold, vast) → descend toward warmth**.
+4. **The Switchback.** A wide, gentle ramp (≈ 7°, two landings) runs down along the south cliff to the Warming Circle's east gate. *(As built: two 16-wide legs at ≈ 14° and ≈ 12°; ease them in the art pass if they feel steep.)* You walk *toward* the Warmhouse's warm windows — the sequence is **reveal (cold, vast) → descend toward warmth**.
 
 **Why the south-east corner:** it is the one spot where the town, the lake axis, both shores and the peak all fall inside one view, and the descent leads straight to the hub.
 
@@ -265,6 +275,7 @@ Full questline, personality and implementation shape: **`WORLD2-QUEST-AUDIT.md` 
 - **Elder's Station:** his lodge rebuilt bigger and older than the valley hut — stone base, timber upper, a big chimney, warm windows, a porch facing the lake where he sits (prompt `TungCavePrompt`). It should read as the most important building outside the town.
 - **The Listening Horn:** a huge brass ear-trumpet angled down into a faint blue crack in the ice shelf — "I have listened to it for forty years." Behind the lodge, a slab of **ancient carved stone** shows through the glacier: the one hint of the cave "older than the ice".
 - **The drill pad:** `DrillSite` on the shelf between the lodge and the shelf edge, 26 studs from the lodge, looking at the lodge. The client-drawn rig appears there in stages (salvage → built → running), and the **Depths shaft** opens 12 studs toward the lake. The ≈ 30 studs over the shelf edge on the lake side stay open for the two cutscene cameras.
+  *As built:* the shaft's invisible trigger is live before the drill runs, and on the lake side it sat on the path to Elder Tung, so walking past bounced players back with "That way is sealed". The rigid unit now faces **north** out of a nook cut into the glacier behind the High Ledge. The shaft (12 studs "seaward" in `CaveDrillClient`'s terms) and every cutscene camera sit inside that dead-end nook, and Elder Tung stands on his porch facing the arrivals.
 - **Seen from everywhere:** from the dock (≈ 330 studs across the water) you see warm windows, chimney smoke and — once built — the derrick silhouette. The main story is visible for the whole grind.
 
 **Kept exactly:** the quest logic and its co-location contract — `ElderTungTundra` (+ prompt), `DrillSite` (a direct child of `FrozenTundra`) and `Portals.DepthsPortal` move **together** as one rigid transform, and `DepthsPortal`'s `RefuseX/Y/Z` move with them.
@@ -281,6 +292,7 @@ Full questline, personality and implementation shape: **`WORLD2-QUEST-AUDIT.md` 
 - The existing **Broken Watchtower** (115 parts) is moved up to the summit; Michael perches on its broken top among a messy nest of "borrowed" things (scarves, a lantern, a golden spoon) and a telescope aimed at the camps. Shady bird, shady roost.
 - The summit is **the best panorama in World 2**: town, lake, both shores, the Hollow's ice wall glimpsed over the ridge, and the peak.
 - Tower top ≈ 2074 stays below `TundraBirds`' flight band (2080–2120).
+  *As built:* the ruin is taller than estimated. Its top is at **2080.6** and Michael perches at 2082.5, out of his prompt's 18-stud reach from the summit. A **timber lookout ramp** climbs the tower's east side from the rope bridge to a **gallery at 2074** along its north face; his prompt is 12.4 studs from it (walked in Play). The birds do not collide with anything. The real clash is that the new caldera walls (2090–2150) cut through their band, so the band should be raised in the ambience pass.
 
 **Kept exactly:** `FrozenTundra.Michel` stays at that path (`NpcIdle` finds him by path), prompt name `MichelPrompt`, all quest logic. Only the model's pivot moves.
 
@@ -326,9 +338,10 @@ A colossal mountain **split in two**, standing beyond the north end of the lake 
 
 **Rules:**
 
-- Every walkable surface stays inside the BoundsGuard box with ≥ 30 studs of margin. **Edges are sealed by terrain cliffs** — no drop-offs, because a fall below y 1850 sends a player back to World 1 (there is no Tundra spawn).
+- Every walkable surface stays inside the BoundsGuard box with ≥ 30 studs of margin, and the outer edges are sealed by terrain cliffs. **Inner cliffs and drops stay (Balkan, 2026-09-19).** The missing Tundra respawn/checkpoint is fixed separately, before the cliffs and drops are finalized, instead of flattening the world around it.
 - Terrain around the lake keeps the existing water outline; after sculpting, a forced freeze (`ReplicatedStorage.IceFishingForce`) re-checks that the ice sheet still meets the shore.
-- Build in a **staging copy** first (see §20 #11); the old part-ground stays until the swap, so the live world never has a hole in it.
+- Planned: build in a **staging copy** first (see §20 #11). **As built:** in place, because the regression checks need the real plots, stalls, NPCs and portals at their new positions. Everything was backed up first, the replaced geometry is stashed rather than deleted, and one command rolls it all back (see the log).
+- Lake protection as built: every terrain write stays **16 studs** outside the `LAKE_PROFILE` bands (8 was too thin, because the water overshoots the stepped bands by up to 7 studs at their corners), and a voxel fingerprint of the lake is compared after every write.
 
 ---
 
@@ -443,8 +456,8 @@ Cellar Pass + Frostgate + Switchback · Warming Circle + Avenue + camp terraces 
 
 | # | Risk | Mitigation |
 |---|---|---|
-| 1 | **BoundsGuard** region (x −8600…−7400, y 1850…2250, z −8600…−6700) defines `PlayerWorld()` for plots, throws, quests and fishing; outside it, or below y 1850, the player is sent to the **valley** spawn. | Design inside it with ≥ 30 studs margin; seal edges with terrain; no drops. `BoundsGuard` itself is not changed. |
-| 2 | Only one `SpawnLocation` exists (valley): dying or resetting in World 2 sends you to World 1. | Out of scope (the separate-place era needs a Tundra spawn). The design has no lethal hazards. |
+| 1 | **BoundsGuard** region (x −8600…−7400, y 1850…2250, z −8600…−6700) defines `PlayerWorld()` for plots, throws, quests and fishing; outside it, or below y 1850, the player is sent to the **valley** spawn. | Design inside it with ≥ 30 studs margin; seal the outer edges with terrain. Inner drops stay (Balkan); the respawn/checkpoint fix is a separate, blocking task. `BoundsGuard` itself is not changed. |
+| 2 | Only one `SpawnLocation` exists (valley): dying or resetting in World 2 sends you to World 1. | **Blocking (Balkan, 2026-09-19):** solved as its own task before the cliffs and drops are finalized. The design has no lethal hazards. |
 | 3 | `IceFishingConfig.LAKE_PROFILE` (24 bands), dock-flank strips, `LAKE_CENTER`, `HOLES`, and `IceFishingEvent`'s hard-coded dock lane (z −7745 / −7787 / −7765) are tied to the water outline and dock faces. | Water outline and dock footprint are **not** changed. Re-verify with a forced freeze after terrain work. |
 | 4 | Skip lane / catch reveals need clear water. | Nothing within x −8040…−7960 from z −7788 to −6869. |
 | 5 | **Name/path contracts:** `FrozenTundra.Michel` (NpcIdle), `MichelPrompt`, `TungCavePrompt` (must be under `FrozenTundra`), `FrozenTundra.DrillSite` (direct child), `SkipArea`/`LakeBarrier`/`IceFishing` folder names, `Tundra*Stall` + `PromptPart` + prompt names, `Hub.Stalls` model names (NpcBodyLife/PropLife), `Portals.*.PortalTouch` attributes. | Move objects, never rename them. New prompts live under `GameWorld.FrozenTundra`. |
@@ -453,7 +466,7 @@ Cellar Pass + Frostgate + Switchback · Warming Circle + Avenue + camp terraces 
 | 8 | `PlotEquipPad` derives the Equip-Best pad from each PlotBoard. | Verify all six after moving. |
 | 9 | Plot `World` is stamped at server start from the pivot. | All camps inside the Tundra region. |
 | 10 | StreamingEnabled: prompts are bound via `DescendantAdded`; parts 8,000 studs away do not exist on the client. | Keep the pattern; NPC and stall models atomic. |
-| 11 | **Team Create:** Duck edits World 1 in the same place, and any publish ships whatever World 2 state exists at that moment. | Build the blockout in a **staging folder** beside the live Tundra, swap in one operation, agree a publish freeze for the swap window. BEAST never saves or publishes — that is Balkan's call. |
+| 11 | **Team Create:** Duck edits World 1 in the same place, and any publish ships whatever World 2 state exists at that moment. | Planned: a staging folder and a one-step swap. **As built:** in place, with full backups and a one-command rollback. That means **any publish, by anyone, now ships the greybox**. Hold publishes (coordinate with Duck) until Balkan signs off, or run the rollback first. BEAST never publishes; that is Balkan's call. |
 | 12 | Blizzard rig (+ ≈ 1,900 parts) on top of the new world. | Measure in the full-server test; thinning the rig is a later option. |
 | 13 | Bloom is on: Neon blows out. | Lamps are SmoothPlastic + PointLight. |
 | 14 | The repo mirror is partial and stale for World 2. | Mirror every touched script byte-exact in the same commit. |
@@ -506,10 +519,10 @@ The arrival pays ≈ 200 studs for the reveal. If a route feels boring in the bl
 | Separate-place compatibility | nothing new depends on the valley being present; `WORLD_PLACE_IDS` untouched | code review of every changed line |
 | Performance | part/light/shadow counts vs §18; full-server FPS with six camps of 16 | scripted counts + 6-player local server |
 
-## Appendix D — Blockout plan (brief §42), after approval
+## Appendix D — Blockout plan (brief §42) — steps 1–3 done 2026-09-19 (see the log)
 
 1. **Backups.** `ServerStorage.World2Backups_<date>`: a clone of `FrozenTundra`, the `Tundra*` models, the two Tundra portals and plots 7–12; scripts into `ServerStorage.AuditBackups` before any edit.
-2. **Staging.** Terrain massing and grey-box districts built beside the live Tundra (a staging folder + a terrain region copy), so the live world is never half-built.
+2. **Staging.** Terrain massing and grey-box districts built beside the live Tundra (a staging folder + a terrain region copy), so the live world is never half-built. *(Built in place instead: backups plus a one-command rollback.)*
 3. **Move systems' objects** into the grey-box and update the listed constants.
 4. **Balkan walks it**: scale, travel times, sightlines (the Frostgate frame, the lane-to-peak axis), district separation, camp fairness, quest routes, lake size, verticality, the Blue Hollow reveal.
 5. Iterate, then **swap in one operation** in an agreed publish-freeze window.
@@ -517,6 +530,8 @@ The arrival pays ≈ 200 studs for the reveal. If a route feels boring in the bl
 7. Nico and the Blue Hollow hole: separate, after their own approval.
 
 ## Appendix E — Decisions needed from Balkan
+
+*Status 2026-09-19: 1–5 and 7 approved (1–5 are built in the greybox; 7, the Warm Eye hole, is a marker only so far). 6 and 8 are still open. 9: built in place, so a publish freeze is needed now (see §20 #11).*
 
 1. Approve the district layout (Avenue camps; Option B = horseshoe).
 2. Approve the south-east Cellar Pass arrival (moves `TUNDRA_POS`).

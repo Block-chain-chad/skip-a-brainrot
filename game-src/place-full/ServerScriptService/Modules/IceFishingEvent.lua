@@ -43,7 +43,7 @@ if not okCin or type(CinematicConfig) ~= "table" or type(CinematicConfig.CUT_FOR
 end
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local TUNDRA_ARRIVAL = Vector3.new(-8000, 2006, -7975)   -- TeleportService.TUNDRA_POS, the fallback drop
+local TUNDRA_ARRIVAL = Vector3.new(-8243, 2034, -8283)   -- TeleportService.TUNDRA_POS, the fallback drop
 
 -- rarity name -> its ladder color, for the RareCatch banner (mirrors tier.Color in
 -- ThrowHandler.revealCatch). Built once from World 2's own ladder, not World 1's.

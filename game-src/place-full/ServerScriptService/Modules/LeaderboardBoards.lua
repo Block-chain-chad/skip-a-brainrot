@@ -235,10 +235,14 @@ local function buildBoard(parent, board, x)
 end
 
 --================================= painting ===============================--
-local built = {}   -- [boardId] = the table returned by buildBoard
+local built = {}   -- [boardId] = the table returned by buildBoard (the valley set)
+-- Every SET of boards in the place: { [1] = {[boardId] = handle}, ... }. World 2
+-- has its own copy of the three boards, and a refresh has to reach both -- the
+-- standings are global, so a board showing stale rows because it is in the other
+-- world would just look broken.
+local sites = {}
 
-function M.Paint(boardId, data)
-	local b = built[boardId]
+local function paintOne(b, data)
 	if not b then return end
 	local n = #data
 	b.Empty.Visible = (n == 0)
@@ -260,6 +264,12 @@ function M.Paint(boardId, data)
 	end
 	b.Count = n
 	M.TickFooter(b)
+end
+
+function M.Paint(boardId, data)
+	for _, set in ipairs(sites) do
+		paintOne(set[boardId], data)
+	end
 end
 
 -- Footer carries the live countdown, so it is redrawn every second rather than only on a
@@ -307,6 +317,112 @@ local function bindExisting(folder)
 	return found
 end
 
+--============================== world 2 copy ==============================--
+-- The tundra set is a CLONE of the valley set rather than a second call to
+-- buildBoard: the three boards sit in a hand-placed arc that someone dragged into
+-- position in Studio, and cloning keeps that arrangement exactly. Only the whole
+-- group's position and facing change.
+-- World 2 blockout (2026-09-19): the -X side of the Avenue's mouth, just north of the
+-- Warming Circle. The daily wheel sits opposite at -7955 (see WheelBoard.SITES), so the
+-- two flank the walk up to the camps.
+--
+-- Aiming note: the three boards are authored as an ARC, which converges on a point
+-- a little in front of the set. Pointing the GROUP at the path leaves the two outer
+-- boards ~33 degrees off it. placeTundraSet therefore turns each board
+-- INDIVIDUALLY to face the walkway, so all three read straight on from the path.
+local TUNDRA_AT     = Vector3.new(-8045, 2001.8, -8128)
+local TUNDRA_LOOKAT = Vector3.new(-8000, 2001.8, -8128)
+
+local function groupCentre(folder)
+	local sum, n = Vector3.zero, 0
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") then sum += m:GetPivot().Position; n += 1 end
+	end
+	return (n > 0) and (sum / n) or nil, n
+end
+
+-- A Folder is not a PVInstance, so the group is moved by transforming each board
+-- model through the same world-space CFrame.
+local function transformFolder(folder, transform)
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") then m:PivotTo(transform * m:GetPivot()) end
+	end
+end
+
+local function placeTundraSet(folder)
+	local centre = groupCentre(folder)
+	if not centre then return end
+	transformFolder(folder, CFrame.new(TUNDRA_AT - centre))
+
+	-- now yaw the whole group about its new centre so the boards face the walk
+	local first
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") then first = m; break end
+	end
+	local panel = first and (first.PrimaryPart or first:FindFirstChild("Panel"))
+	if not panel then return end
+	local cur = panel.CFrame.LookVector
+	cur = Vector3.new(cur.X, 0, cur.Z)
+	local want = TUNDRA_LOOKAT - TUNDRA_AT
+	want = Vector3.new(want.X, 0, want.Z)
+	if cur.Magnitude < 1e-3 or want.Magnitude < 1e-3 then return end
+	cur, want = cur.Unit, want.Unit
+	local yaw = math.atan2(want.X, want.Z) - math.atan2(cur.X, cur.Z)
+	transformFolder(folder, CFrame.new(TUNDRA_AT) * CFrame.Angles(0, yaw, 0) * CFrame.new(-TUNDRA_AT))
+
+	-- Then square each board up individually against the walkway. Without this the
+	-- arc's outer two boards sit ~33 degrees off and read edge-on as you walk past.
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") then
+			local p = m.PrimaryPart or m:FindFirstChild("Panel")
+			if p then
+				local pivot = m:GetPivot()
+				local c = p.CFrame.LookVector; c = Vector3.new(c.X, 0, c.Z)
+				local t = Vector3.new(TUNDRA_LOOKAT.X - pivot.X, 0, 0)
+				if c.Magnitude > 1e-4 and t.Magnitude > 1e-4 then
+					c, t = c.Unit, t.Unit
+					m:PivotTo(pivot * CFrame.Angles(0, math.atan2(t.X, t.Z) - math.atan2(c.X, c.Z), 0))
+				end
+			end
+		end
+	end
+
+	-- SEAT THE GROUP. The move above lines up the group's CENTRE with TUNDRA_AT, which
+	-- buries the boards by however far their bases sit below that centre (4.1 studs,
+	-- since the valley set is built on a floor at Y 5.2 with its centre at 9.3). Drop
+	-- the whole group onto whatever floor is actually underneath instead of trusting a
+	-- hardcoded Y.
+	local lowest = math.huge
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") then
+			local cf, size = m:GetBoundingBox()
+			lowest = math.min(lowest, cf.Y - size.Y / 2)
+		end
+	end
+	if lowest == math.huge then return end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { folder }
+	local hit = Workspace:Raycast(Vector3.new(TUNDRA_AT.X, lowest + 12, TUNDRA_AT.Z), Vector3.new(0, -120, 0), params)
+	if not hit then return end
+	transformFolder(folder, CFrame.new(0, hit.Position.Y - lowest, 0))
+end
+
+local function buildTundraSet(gw, valleyFolder)
+	local existing = gw:FindFirstChild("LeaderboardsTundra")
+	if existing and existing:GetAttribute("LayoutVersion") == LAYOUT_VERSION then
+		local bound = bindExisting(existing)
+		if bound then return bound end     -- adopt whatever position it was left in
+	end
+	if existing then existing:Destroy() end
+	local clone = valleyFolder:Clone()
+	clone.Name = "LeaderboardsTundra"
+	clone:SetAttribute("LayoutVersion", LAYOUT_VERSION)
+	clone.Parent = gw
+	placeTundraSet(clone)
+	return bindExisting(clone)
+end
+
 -- force: rebuild at the coded coordinates even if a current-version folder exists
 function M.Build(force)
 	local gw = Workspace:FindFirstChild("GameWorld") or Workspace
@@ -316,6 +432,9 @@ function M.Build(force)
 		local bound = bindExisting(existing)
 		if bound then
 			built = bound
+			sites = { bound }
+			local tundra = buildTundraSet(gw, existing)
+			if tundra then table.insert(sites, tundra) end
 			return existing, "reused"
 		end
 	end
@@ -331,6 +450,9 @@ function M.Build(force)
 	for i, board in ipairs(Leaderboard.BOARDS) do
 		built[board.Id] = buildBoard(folder, board, SLOTS[i] or (i - 2) * (BOARD_W + 4))
 	end
+	sites = { built }
+	local tundra = buildTundraSet(gw, folder)
+	if tundra then table.insert(sites, tundra) end
 	return folder, "built"
 end
 
@@ -343,14 +465,17 @@ function M.Init()
 	-- one-second countdown on every board, so players can see the refresh coming
 	task.spawn(function()
 		while true do
-			for _, b in pairs(built) do
-				M.TickFooter(b)
+			for _, set in ipairs(sites) do
+				for _, b in pairs(set) do
+					M.TickFooter(b)
+				end
 			end
 			task.wait(1)
 		end
 	end)
 
-	print(("LeaderboardBoards online (refresh every %ds)"):format(Leaderboard.RefreshInterval()))
+	print(("LeaderboardBoards online (%d set(s) of boards, refresh every %ds)")
+		:format(#sites, Leaderboard.RefreshInterval()))
 end
 
 return M
