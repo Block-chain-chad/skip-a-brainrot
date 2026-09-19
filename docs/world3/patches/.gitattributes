@@ -1,0 +1,2 @@
+# Unified diffs against byte-exact mirror files must stay byte-exact themselves.
+*.patch -text
