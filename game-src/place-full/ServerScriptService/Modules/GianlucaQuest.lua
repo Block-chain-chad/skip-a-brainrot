@@ -9,11 +9,21 @@
 --   0 = not started   1 = active (searching)
 --   2 = holding the Chim   3 = handed it over, Key claimed
 --
--- Chim is unobtainable outside this module by construction: its BrainrotConfig entry
--- carries Weight = 0 and no FixedChance, so no throw can roll it at any distance or
--- luck. grantChim is the single source, and it refuses unless the quest is ACTIVE --
--- so "unavailable until the player accepts the quest" is enforced in two places at
--- once, and neither one alone can leak it.
+-- >>> STATE 3 IS ALSO A PERMANENT RETIREMENT. <<<
+-- Chim's BrainrotConfig entry carries RetiredBy = "ChimQuest", RetiredAt = 3, and
+-- ThrowHandler refuses to roll a name whose retirement field has reached its value.
+-- So the handover on line ~122 does two things at once: it pays the Key, and it
+-- takes Chim off the table for that player forever. Anything that ever rewinds this
+-- number below 3 makes Chim catchable again -- which is exactly what the test hook
+-- at the bottom is for, and is the reason it is a hook rather than something a
+-- player action can reach.
+--
+-- THIS MODULE IS NO LONGER THE ONLY SOURCE. It used to be: the entry carried
+-- Weight = 0 and no FixedChance, so no throw could produce one at any distance or
+-- luck, and grantChim below was the single door in. Since 2026-08-19 Chim is
+-- AnyTier + FixedChance, caught at flat odds on any throw anywhere -- so the
+-- quest pickup and a lucky skip are two independent routes to the same one-off
+-- item, and Unique = true is what keeps them from stacking.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -109,7 +119,7 @@ local function handOver(player)
 	if not idx then
 		if result then
 			result:FireClient(player, { Success = false, Message = placedOnly
-				and ("Your " .. REWARD_NAME .. " is on your base \u{2014} pick it up first (hold E on it).")
+				and ("Your " .. REWARD_NAME .. " is on your base \u{2014} unequip it in your Bag first.")
 				or ("You don't have the " .. REWARD_NAME .. " to give him.") })
 		end
 		return

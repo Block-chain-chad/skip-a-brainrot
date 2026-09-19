@@ -1,320 +1,1258 @@
 --[[ ==========================================================================
-QuestTrackerClient -- the NPC quest tracker down the right-hand side.
+QuestTrackerClient -- the QUEST LOG: a docked panel of active NPC quests that
+collapses to a thin vertical rail.
 ---------------------------------------------------------------------------
-Shows what an NPC has actually asked you to do, so the objective survives
-closing the dialogue box.
+Rebuilt 2026-08-12 to the "Quest Log HUD" design handoff. The old presentation
+(flat 286x72 log rows, GAP = 0, no collapse) is in
+ServerStorage.AuditBackups.QuestTrackerClient_pre_questlog.
 
-LAYOUT: flat log rows, not cards. Each entry is
+WHAT CAME FROM THE HANDOFF, and what could not:
 
-	[icon] Quest Title
-	------------------------------
-	Italic blurb from the NPC
-	[ ] Objective (0/10)
+  * The card's left-edge bar is GREEN when a quest is tracked and RED when it is not
+    (owner call). The handoff specified accent/dead-brown there; see the trackOn note
+    in the colour table for why it became a status light instead.
+  * Hard corners everywhere (radius 0), the amber accent, the serif-display /
+    mono-label contrast, and every colour token are reproduced exactly.
+  * FONTS ARE SUBSTITUTED. Cinzel / IBM Plex Sans / IBM Plex Mono are Google
+    fonts and Roblox cannot load them, so this uses the nearest built-ins:
+    Merriweather (serif display), Gotham (body), RobotoMono (meta labels). The
+    handoff explicitly allows this as long as the serif/mono contrast survives.
+  * LETTER-SPACING DOES NOT EXIST on a Roblox TextLabel. The tracked caps
+    labels are spaced by inserting real spaces between characters (`spaced`),
+    which is the only mechanism available.
+  * NO backdrop blur and NO drop shadow: Roblox has neither for Frames. (The
+    fill itself is history too: the 2026-08-16 PS99 pass removed every plate,
+    so the panel no longer paints at all -- see the note above the tokens.)
+  * VERTICAL TEXT for the rail label is one TextLabel per character stacked by
+    a UIListLayout -- there is no writing-mode.
 
-Square-edged, dark and translucent, with GAP = 0 so stacked entries butt
-together and read as ONE continuous panel rather than a column of separate
-cards. Rounded corners are deliberately absent for the same reason -- at
-zero gap they would show as notches between entries.
+THE COLLAPSE IS THE ONE THE GAME ALREADY HAD. `questsHidden` is a real
+persisted setting (SettingsService whitelists it; HudToggleClient writes it via
+SettingsSave), and it used to mean "slide the tracker off the right edge". It
+now means "show the rail instead of the panel", which is the handoff's
+behaviour -- the state, the save and HudToggleClient's button are unchanged, so
+a saved preference carries straight over and the HUD button still works.
 
-NOTE the description line is back. It was removed earlier as "a retelling of
-the dialogue", but the reference layout this was matched to has one, so the
-blurb per quest is authored in QUESTS below. Drop `Blurb` from an entry and
-that row closes up on its own.
+TRACKING WITHOUT A JOURNAL. The handoff pairs the tracker with a quest-journal
+modal whose TRACK QUEST button owns the `tracked` flag. That modal is not built
+(the game has no per-quest description, rewards or location to fill it with), so
+CLICKING A CARD TOGGLES TRACKED here instead. That keeps the three tabs, the
+accent bar and the rail badge all meaning what the handoff says they mean.
 
-TYPOGRAPHY OPT-OUT: this tracker sets NoPolish on its ScreenGui. UIPolish
-forces every label under PlayerGui to white FredokaOne AND re-asserts it on
-any FontFace/TextColor3 change, so without that attribute the italic greys
-here would be silently overwritten a frame after they were set.
+DONE is inferred, not configured: a quest's Steps table is keyed by stage, so a
+state ABOVE the highest key is finished and a state below the lowest is one not
+started yet. That needs no extra data per quest and cannot drift.
 
-Three entries are visible at once; a fourth turns the list into a scroller
-rather than growing down the screen. The holder resizes to the number of
-visible entries, so a single quest is a single row, not a tall empty box.
+TYPOGRAPHY OPT-OUT: this tracker sets NoPolish on its ScreenGui. UIPolish forces
+every label under PlayerGui to white FredokaOne AND re-asserts it on any
+FontFace/TextColor3 change.
 
-A completed quest is REMOVED, with no congratulation hold -- once the state
-leaves the Steps table the row goes.
-
-Adding a new NPC quest means adding an entry to QUESTS below and nothing else:
-give it the state RemoteEvent it already fires, and a Steps table keyed by the
-numeric stage that remote sends. A stage with no Steps entry (not started, or
-finished) simply shows no card.
-
-The right edge is deliberate: the top-centre belongs to the teleport tabs, the
-top-right to the cash pill, the left to the feature rail, and the bottom-right
-to Sprint / Luck. The middle-right band is the only free real estate.
+Adding a new NPC quest is still one entry in QUESTS below and nothing else.
 ========================================================================== ]]
 
+local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
-local UIStyle = require(ReplicatedStorage.Modules.UIStyle)
+local TundraQuestConfig = require(ReplicatedStorage.Modules:WaitForChild("TundraQuestConfig"))
+local MichelQuestConfig = require(ReplicatedStorage.Modules:WaitForChild("MichelQuestConfig"))
+local Platform = require(ReplicatedStorage.Modules:WaitForChild("Platform"))
+-- BAZAAR RESTYLE 2026-08-14 (owner: "the quest tab does not match the game style").
+-- The handoff this panel was built to is a flat dark spec-sheet: hard corners, 1px
+-- hairlines, 9-11px letter-spaced caps. Every shop in the game is the Bazaar pack --
+-- olive panel, gold header bar, thick ink outline, chunky rounded rows. Rather than
+-- invent a third style this now draws from the SAME tokens the shops do.
+-- Pre-restyle script: ServerStorage.AuditBackups.QuestTrackerClient_pre_bazaar
+--
+-- PS99 NAKED-TEXT PASS 2026-08-16 (from the 120-frame live PS99 study): passive info
+-- gets ZERO plate. The panel, gold header bar, quest cards, rail plate and footer
+-- rule are all invisible now -- the log is white outlined text floating straight on
+-- the world, exactly like PS99's right-side quest column. Chrome survives only on
+-- interactive things: the tab chips, the collapse button's hit box, and the rail
+-- count badge (light cyan-blue since the 2026-08-18 gold split; ink text).
+local UITheme = require(ReplicatedStorage.Modules:WaitForChild("UITheme"))
+local BZ = UITheme.Bazaar
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local saveRemote = remotes:WaitForChild("SettingsSave")
 
-local P = UIStyle.Palette
+---------------------------------------------------------------- design tokens
+local C = {
+	-- every value now comes from UITheme.Bazaar, so the quest log follows the shops
+	-- automatically the next time that palette moves (it already moved twice today)
+	panelBg    = BZ.panelTop,
+	borderSub  = BZ.cardEdge,
+	borderPan  = BZ.panelEdge,
+	-- hover/edge-light strokes: SKY, the game-wide selection ring (2026-08-18;
+	-- these were BZ.header1 gold, and gold is real-money only now). borderCard
+	-- and borderRail are latent -- their strokes are disabled and transparent --
+	-- but a future re-plate must not resurrect them gold. borderBtnH is LIVE:
+	-- it paints the collapse button's box on hover.
+	borderCard = Color3.fromRGB(41, 197, 255),
+	borderRail = Color3.fromRGB(41, 197, 255),
+	borderBtn  = BZ.ink,
+	borderBtnH = Color3.fromRGB(41, 197, 255),
+	hoverFill  = BZ.rowAltTop,
+	-- WHITE, ALL OF IT (owner call). The handoff's cream/tan ink was replaced with the
+	-- game's white so the panel matches every other label in the experience. The
+	-- hierarchy the tan tones used to carry is now carried by TextTransparency instead
+	-- (see DIM below) -- still white, just quieter, rather than a different colour.
+	-- LIGHT RESTYLE EXCEPTION (2026-08-16): the tab captions are BZ.desc ink -- their
+	-- chips are light, so white captions there would vanish. Everything that LOST its
+	-- plate in the naked-text pass is white with its own navy glyph stroke instead.
+	textPri    = BZ.white,
+	textCard   = BZ.white,      -- card titles: outlined white, no plate behind them
+	textSec    = BZ.white,
+	textRail   = BZ.white,      -- rail glyphs: outlined white, the rail plate is gone
+	textMuted  = BZ.desc,
+	textMut2   = BZ.desc,
+	textFaint  = BZ.muted,
+	textFain2  = BZ.muted,
+	glyphInk   = BZ.white,
+	trackBg    = Color3.fromRGB(46, 58, 76), -- #2E3A4C: the empty track stays DARK or it vanishes on the light card
+	barIdle    = BZ.muted,
+	-- THE TRACKED BAR IS A STATUS LIGHT, NOT AN ACCENT (owner call, 2026-08-12).
+	-- The handoff used the amber accent for a tracked quest and a dead brown for an
+	-- untracked one, which reads as "emphasised / not emphasised". Green and red read as
+	-- ON and OFF, which is what the bar actually means -- and it is the one control on
+	-- the card, so it should say plainly which state a click just put you in. Values are
+	-- UITheme.Palette's own green1/red2, so it matches every other yes/no in the game.
+	trackOn    = Color3.fromRGB(96, 222, 128),
+	trackOff   = Color3.fromRGB(220, 60, 54),
+	-- PS99 gold purge (2026-08-17): gold is reserved for real-money surfaces
+	-- game-wide (see SpecTheme S.Action.Robux). 2026-08-18 split: the one
+	-- ex-gold accent became two tokens, because a FILL and a CHIP read
+	-- differently. `accent` is the progress cyan #39D7F5 (kept equal to
+	-- PROG_CYAN below; the accent bar's pre-render default is its only
+	-- remaining reader -- render repaints that bar green/red). `chipBlue` is
+	-- the light cyan-blue #7FD4FF filling the MAIN kind chip and the rail
+	-- count badge, which both keep their dark ink text.
+	accent     = Color3.fromRGB(57, 215, 245),
+	chipBlue   = Color3.fromRGB(127, 212, 255),
+	railBadge  = BZ.ink,
+}
+-- PS99: passive info gets no plate at all. Both alphas are 1 -- the frames still
+-- exist for layout and click targets, they just never paint.
+local PANEL_ALPHA = 1
+local RAIL_ALPHA  = 1
 
--- GAP = 0 on purpose: see the layout note in the header.
-local ENTRY_W, ENTRY_H, GAP, MAX_VISIBLE = 286, 72, 0, 3
+-- THE HOUSE FONT, NOT THE HANDOFF'S (owner call, 2026-08-12: "change the font to the
+-- font we use on everything else"). The handoff asked for Cinzel + IBM Plex Mono and
+-- explicitly allowed substituting the game's own faces; the game's own face is the one
+-- UIPolish force-sets on every label in the experience, so all three roles collapse onto
+-- it. Text is WHITE for the same reason -- see the WHITE note in the colour table.
+local FONT_DISPLAY = Enum.Font.FredokaOne
+local FONT_BODY    = Enum.Font.FredokaOne
+local FONT_MONO    = Enum.Font.FredokaOne
 
--- Reference palette: near-black translucent plate, hairline rule, grey italic
--- blurb, near-white objective. Kept here rather than in UIStyle because nothing
--- else in the game uses this log-row language.
-local PLATE      = Color3.fromRGB(14, 18, 26)
-local PLATE_ALPHA = 0.22
-local RULE       = Color3.fromRGB(255, 255, 255)
-local RULE_ALPHA = 0.80
-local TITLE_INK  = Color3.fromRGB(228, 232, 240)
-local BLURB_INK  = Color3.fromRGB(150, 158, 174)
-local OBJ_INK    = Color3.fromRGB(240, 244, 250)
-local BOX_FILL   = Color3.fromRGB(30, 36, 48)
+-- How far the secondary text is knocked back. (tabIdle eased 0.42 -> 0.3: the captions
+-- are dark ink on light chips now, and ink fades out faster than white did. meta eased
+-- 0.42 -> 0.3 and count sits at 0.25: outlined white floating on the open world needs
+-- less knock-back than ink on a plate did.)
+local DIM = { meta = 0.3, count = 0.25, step = 0.22, tabIdle = 0.3, chevron = 0.3 }
 
+-- YOU MAY TRACK THREE. The tracked set is the thing the rail badge counts and the thing
+-- TRACKED filters to, so leaving it unbounded made both of them meaningless once a few
+-- questlines were live -- "tracked" ended up meaning "exists".
+local MAX_TRACKED = 3
+
+-- MAX_LIST IS DELIBERATELY SHORTER THAN THE PANEL COULD BE (320, was 460). The list is a
+-- ScrollingFrame, and a cap taller than the content means it never scrolls -- the panel
+-- just grew and ALL was a wall of cards. At 320 the list holds about three cards and
+-- anything beyond that scrolls under the mouse wheel, which is what ALL is for.
+local PANEL_W, RAIL_W, MAX_LIST, RIGHT_PAD = 348, 52, 320, 18
+
+-- HOW FAR IN FROM THE RIGHT EDGE THIS TRACKER HANGS.
+--
+-- 18px is right on a monitor and unusable on a handset, because on a phone the
+-- right edge is not free: BottomRight holds Sprint / RIDE / HIDE UI down to
+-- y 213, and below that is the square Roblox draws its jump button into. Pinned
+-- at 18 the rail landed at x 756..782 on an 800x360 screen -- clipping the sprint
+-- button and then sitting squarely under the jump control for its lower 80px.
+--
+-- On touch it is inset past the jump corner instead, which puts it in the free
+-- centre strip (x 137..663 at that size) with the controls to its right. Reads
+-- from Platform.TouchCorner() rather than a fourth private copy of that number --
+-- the band, the corner and this all have to agree or the rail creeps back under
+-- the button.
+--
+-- EVERY TOUCH DEVICE, not just phones. A tablet has the same jump button and the
+-- same bottom-right control column, just further apart, and gating this on
+-- IsPhone left the tracker overlapping that column at 1180x820 by 26-54% (Luck,
+-- HIDE UI and the RIDE card in turn). That was a live tablet defect the whole
+-- time; it only became visible once this file stopped sizing itself against the
+-- Studio window (see viewH below), which is a fair summary of this entire round.
+-- Desktop keeps 18 exactly -- no touch controls, nothing to clear.
+local function rightPad(): number
+	if Platform.IsTouch then return Platform.TouchCorner() + 12 end
+	return RIGHT_PAD
+end
+-- "a tad bit smaller" (owner, 2026-08-12). Applied as one factor on the existing device
+-- UIScale rather than by re-tuning thirty offsets, so the whole panel keeps its authored
+-- proportions and this is a single number to dial if it wants another nudge.
+local SIZE_TRIM = 0.85
+-- The panel hangs from TOP_Y and grows DOWNWARD, so a long quest list walked straight
+-- into the bottom-right cluster (Sprint, bag, and the daily/luck chips). TOP_Y itself
+-- cannot simply be raised -- 264 already sits directly under the goals bar (190..252).
+-- So the LIST gets clamped instead: whatever is left between the panel's header and the
+-- reserved strip at the bottom of the screen, and it scrolls past that.
+-- Measured live rather than guessed: the bottom-right cluster is HudToggle, the Luck
+-- chip and Sprint, stacked from the bottom in FIXED pixels (they occupied y 364..502 on
+-- a 518-tall window). So the reserve is in RENDERED pixels, not authored units -- an
+-- authored reserve would shrink with the device scale exactly when space is tightest.
+-- 165 -> 274 (2026-09-17). The measurement above was taken before the scooter
+-- tab joined that column, and the reserve was never re-measured when it did.
+-- Swept every right-anchored top-level frame, and the column is (distance of
+-- each TOP edge above the bottom of the screen, identical at 1920x1080 and
+-- 1366x768 because these are all fixed pixels):
+--
+--   MainUI/SprintButton       66      LuckHUD/LuckChip         108
+--   ScooterUI/ScooterTab     220      HudToggleUI/UiToggle     262  <- topmost
+--
+-- So the cluster is 262px tall and 165 reserved 97px too little. On a 1366x768
+-- laptop that put the tracker 28% on top of the HIDE UI pill; at 1920x1080 it
+-- was latent, and would bite any player whose quest list got long enough to
+-- reach 857px down the column.
+--
+-- 274 = 262 + the same 12px gap rightPad() uses. Desktop's *position* does not
+-- move (topY stays 264 there); what changes is that a long list now scrolls at
+-- 439 authored units instead of running under the cluster, which is exactly
+-- what the clamp below was written to do.
+--
+-- IF THAT COLUMN GAINS OR LOSES A WIDGET, THIS NUMBER IS STALE AGAIN. It is a
+-- rendered-pixel reserve for frames this file cannot see; re-sweep rather than
+-- nudge it.
+local BOTTOM_RESERVE_PX = 274
+-- One compact card. Measured against a 1530x518 window, which is the tightest case the
+-- panel has to survive: at 110 the panel could not shrink enough to clear the HUD toggle
+-- and it sat 18px into it.
+local MIN_LIST = 78
+-- On a short window even the header cannot fit below TOP_Y, so the panel is allowed to
+-- slide UP toward the goals bar. It stops at 200: above that it would cover the weather
+-- pill (72..110) and the cash pill.
+local TOP_Y_FLOOR = 150
+-- Below the cash pill (12..58), the weather pill (72..110) and the goals bar
+-- (QuestBarClient, 190..252). The handoff's top:88 assumes an empty screen.
+local TOP_Y = 264
+
+---------------------------------------------------------------- quests
+-- Kind drives the tag colour: MAIN = light cyan-blue chip (dark ink text), SIDE/ERRAND = grey inks.
 local QUESTS = {
 	{
-		Id = "Gianluca",
-		Npc = "Stupid Gianluca",
-		Remote = "GianlucaState",
-		Accent = P.Gold,
-		Glyph = "\u{1F50D}",
-		Blurb = "Stupid Gianluca wants the Secret Chim found.",
-		-- keyed by the State value GianlucaState sends (data.ChimQuest)
+		Id = "Gianluca", Npc = "Stupid Gianluca", Remote = "GianlucaState", Kind = "MAIN",
 		Steps = {
-			[1] = { Title = "Find the Secret Chim", Step = 1, Of = 2 },
-			[2] = { Title = "Take the Chim back",   Step = 2, Of = 2 },
+			[1] = { Title = "Catch the Secret Chim", Step = 1, Of = 2 },
+			[2] = { Title = "Take the Chim back",    Step = 2, Of = 2 },
 		},
 	},
 	{
-		Id = "Maxwell",
-		Npc = "Maxwell",
-		Remote = "MaxwellState",
-		Accent = P.Season,
-		Glyph = "\u{1F3C6}",
-		Blurb = "Maxwell is keeping score. Bring him everything.",
-		-- keyed by data.MaxwellQuest. Progress comes LIVE from the payload
-		-- (Step/Of), so "3/5" then "12/15" count up without rebuilding the row.
+		Id = "Maxwell", Npc = "Maxwell", Remote = "MaxwellState", Kind = "MAIN",
 		Steps = {
 			[1] = { Title = "Collect every Secret", Step = 0, Of = 11 },
 			[2] = { Title = "Reach Rebirth 25",     Step = 0, Of = 25 },
 			[3] = { Title = "Claim your prize from Maxwell", Step = 1, Of = 1 },
 		},
 	},
+	{
+		Id = "Tung", Npc = "Elder Tung", Remote = "TungState", Kind = "SIDE",
+		Steps = {
+			[1] = { Title = "Deliver brainrots to Tung", Step = 0, Of = 12 },
+			[2] = { Title = "Finish the list with Tung", Step = 0, Of = 12 },
+		},
+		-- Tung's quota is three per-rarity counts, which one n/m cannot describe.
+		-- Have is the DELIVERED count, capped server-side; math.min is belt-and-braces.
+		Objective = function(payload)
+			local t = payload and payload.Tiers
+			if not t then return nil end
+			local bits = {}
+			for _, tier in ipairs({ "Epic", "Legendary", "Mythic" }) do
+				local e = t[tier]
+				if e then
+					local need = e.Need or 0
+					bits[#bits + 1] = ("%s %d/%d"):format(tier, math.min(e.Have or 0, need), need)
+				end
+			end
+			if #bits == 0 then return nil end
+			return table.concat(bits, ", ")
+		end,
+	},
+	{
+		Id = "TundraCave", Npc = "Elder Tung", Remote = "TundraState", Kind = "MAIN",
+		-- Built FROM the config, not retyped: stages carry their own titles.
+		Steps = (function()
+			local t = {}
+			for i, s in ipairs(TundraQuestConfig.Stages) do
+				t[i] = { Title = s.Title, Step = 0, Of = (s.Kind == "count" and s.Target) or 1 }
+			end
+			return t
+		end)(),
+		-- three shapes of objective in one arc, composed from what the payload carries
+		Objective = function(payload)
+			if type(payload.Parts) == "table" and #payload.Parts > 0 then
+				local bits = {}
+				for _, p in ipairs(payload.Parts) do
+					bits[#bits + 1] = ("%s %d/%d"):format(p.Plural or p.Label or p.Id, p.Have or 0, p.Need or 0)
+				end
+				return table.concat(bits, ", ")
+			end
+			local track = payload.Track
+			if type(track) ~= "string" then return nil end
+			if track:find("%%d") then
+				local ok, line = pcall(string.format, track, tonumber(payload.Step) or 0, tonumber(payload.Of) or 0)
+				if ok then return line end
+				return nil
+			end
+			return track
+		end,
+	},
+	{
+		-- Id is an internal key; he is "Michael" everywhere the player reads him.
+		Id = "Michel", Npc = "Michael", Remote = "MichelState", Kind = "ERRAND",
+		Steps = {
+			[1] = { Title = "Bring Michael mutated Sahurs", Step = 0, Of = MichelQuestConfig.Count },
+			[2] = { Title = "Finish the " .. MichelQuestConfig.QuestLabel, Step = 0, Of = MichelQuestConfig.Count },
+		},
+	},
 }
 
--- Italic is not reachable through Enum.Font, so the family asset is pulled off
--- the enum and rebuilt with an explicit weight + style. pcall'd because a future
--- engine change to Font.new must degrade to a plain font, not break the tracker.
-local FAMILY = Font.fromEnum(Enum.Font.GothamMedium).Family
-local function face(label, weight, italic, size, colour)
-	local ok = pcall(function()
-		label.FontFace = Font.new(FAMILY, weight,
-			italic and Enum.FontStyle.Italic or Enum.FontStyle.Normal)
-	end)
-	if not ok then label.Font = Enum.Font.GothamMedium end
-	label.TextSize = size
-	label.TextColor3 = colour
+-- highest stage each quest defines, so "state above this" == finished
+for _, q in ipairs(QUESTS) do
+	local top = 0
+	for stage in pairs(q.Steps) do
+		if stage > top then top = stage end
+	end
+	q.TopStage = top
+end
+
+local KIND_INK = { MAIN = C.chipBlue, SIDE = C.textMut2, ERRAND = C.textFain2 }
+
+---------------------------------------------------------------- helpers
+-- The only letter-spacing Roblox offers. Short uppercase labels ONLY.
+local function spaced(s)
+	local out = {}
+	for _, ch in utf8.codes(s) do table.insert(out, utf8.char(ch)) end
+	return table.concat(out, " ")
+end
+
+local function px(n) return UDim2.fromOffset(n, n) end
+
+-- Bazaar strokes are thick and round-joined; the handoff's 1px square hairline is
+-- the single biggest reason this panel read as a different toolkit.
+local function stroke(obj, colour, thickness)
+	local s = Instance.new("UIStroke")
+	s.Color = colour
+	s.Thickness = thickness or 3
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.LineJoinMode = Enum.LineJoinMode.Round
+	s.Parent = obj
+	return s
+end
+
+-- PS99 NAKED TEXT: labels with no plate behind them float straight on the world, so
+-- each one carries its own dark navy Contextual outline or it vanishes over bright
+-- scenes. (This ScreenGui sets NoPolish, so these colours are final.)
+local INK_NAVY  = Color3.fromRGB(49, 61, 79)
+local PROG_CYAN = Color3.fromRGB(57, 215, 245)
+local function glyphStroke(label, thickness)
+	local s = Instance.new("UIStroke")
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+	s.Color = INK_NAVY
+	s.Thickness = thickness or 2.5
+	s.LineJoinMode = Enum.LineJoinMode.Round
+	s.Parent = label
+	return s
+end
+
+local function pad(obj, t, r, b, l)
+	local p = Instance.new("UIPadding")
+	p.PaddingTop = UDim.new(0, t)
+	p.PaddingRight = UDim.new(0, r)
+	p.PaddingBottom = UDim.new(0, b)
+	p.PaddingLeft = UDim.new(0, l)
+	p.Parent = obj
+	return p
+end
+
+local function text(parent, str, font, size, colour, xAlign)
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.BorderSizePixel = 0
+	l.Text = str
+	l.Font = font
+	l.TextSize = size
+	l.TextColor3 = colour
+	l.TextXAlignment = xAlign or Enum.TextXAlignment.Left
+	l.TextYAlignment = Enum.TextYAlignment.Center
+	l.Parent = parent
+	return l
+end
+
+local function tweenColour(obj, prop, colour, seconds)
+	TweenService:Create(obj, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ [prop] = colour }):Play()
+end
+
+-- 140ms on small controls, 150ms on cards, 160ms on the rail border
+local function hoverTint(button, apply, restore, seconds)
+	local t = seconds or 0.14
+	button.MouseEnter:Connect(function() apply(t) end)
+	button.MouseLeave:Connect(function() restore(t) end)
+end
+
+---------------------------------------------------------------- state
+local limitFlashUntil = 0      -- while > os.clock(), the header shows the cap warning
+-- Mirrors the persisted `questsHidden` setting. PHONE boots COLLAPSED
+-- (2026-08-17 device-sim audit): in ~317 usable px the open panel cannot
+-- coexist with the corner cluster -- its bottom reserve is unenforceable
+-- (TOP_Y_FLOOR + MIN_LIST need ~124 rendered px where ~2 exist) and it
+-- draws UNDER the corner buttons at DisplayOrder 4. The rail is the
+-- phone-native state, same as the PS99 reference; the chevron, the rail
+-- and the J key all reopen it for the session.
+-- SUPERSEDED (2026-08-18): a saved preference no longer overrides this on
+-- phone. Only the BOOT state is forced -- a desktop-saved "expanded" was
+-- carrying over and the open panel collided with the corner stack (Sprint
+-- sat on the DONE tab). See the saved-preference sync below.
+local collapsed = Platform.IsPhone
+local tab = "TRACKED"          -- TRACKED | ALL | DONE
+local userTouched = false
+local live = {}                -- [questId] = { title, objective, step, of, done }
+-- An EXPLICIT set, not "everything except these". With a cap of three, defaulting to
+-- tracked would have every quest in breach the moment a fourth questline went live, and
+-- there is no sensible way to choose which three to drop after the fact. Quests are
+-- auto-tracked as they arrive instead, while there is still room (see the wiring below).
+local trackedOn = {}           -- [questId] = true
+
+local function isTracked(id) return trackedOn[id] == true end
+
+local function visibleList()
+	local out = {}
+	for _, q in ipairs(QUESTS) do
+		local e = live[q.Id]
+		if e then
+			local ok
+			if tab == "TRACKED" then ok = isTracked(q.Id) and not e.done
+			elseif tab == "ALL" then ok = not e.done
+			else ok = e.done end
+			if ok then table.insert(out, { quest = q, entry = e }) end
+		end
+	end
+	return out
+end
+
+local function trackedCount()
+	local n = 0
+	for _, q in ipairs(QUESTS) do
+		local e = live[q.Id]
+		if e and not e.done and isTracked(q.Id) then n += 1 end
+	end
+	return n
+end
+
+local function completedCount()
+	local n = 0
+	for _, q in ipairs(QUESTS) do
+		local e = live[q.Id]
+		if e and e.done then n += 1 end
+	end
+	return n
 end
 
 ---------------------------------------------------------------- shell
 local gui = Instance.new("ScreenGui")
 gui.Name = "QuestTrackerUI"
 gui.ResetOnSpawn = false
-gui.DisplayOrder = 4           -- under the rail (6), over MainUI (0)
+gui.DisplayOrder = 4           -- under the rail (6) and UNDER MainUI (5)
+-- 2026-08-19: MainUI moved 0 -> 5, i.e. ABOVE this log. Found by watching a
+-- live phone session: the collapsed rail hugs the right edge at x 617..648 and
+-- the Sprint button spans x 532..650, so they overlap by design -- the right
+-- edge is simply crowded on a landscape phone (log rail, HIDE UI, Luck, Sprint,
+-- and Roblox's own jump button all want it). While this log outranked MainUI,
+-- that overlap meant TAPPING SPRINT EXPANDED THE QUEST LOG. Gameplay controls
+-- must win their own pixels, so MainUI now draws over the log; the rail is
+-- still tappable everywhere Sprint is not (~96px of its 149px height).
+-- Moving the rail instead was tried and rejected: below Sprint it lands on the
+-- jump button, above it collides with Luck.
 pcall(function() gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets end)
--- see the TYPOGRAPHY OPT-OUT note in the header: without this every label below
--- is rewritten to white FredokaOne by UIPolish, italics and greys included.
 gui:SetAttribute("NoPolish", true)
 gui.Parent = playerGui
 
-local holder = Instance.new("ScrollingFrame")
-holder.Name = "Tracker"
--- ui(3-fix1): reverted to the original right-edge anchor, restored from
--- ServerStorage.AuditBackups.QuestTrackerClient_pre_ui3. Task 3 moved this
--- left to dodge the (then right-side) GameHUD nav rail; the v2 rail now
--- lives on the LEFT per the 2026-07-30 user decision, so that reason no
--- longer applies and the tracker returns to its original right-edge home.
-holder.AnchorPoint = Vector2.new(1, 0.5)
-holder.Position = UDim2.new(1, -14, 0.40, 0)
-holder.Size = UDim2.fromOffset(ENTRY_W + 10, 0)
-holder.BackgroundTransparency = 1
-holder.BorderSizePixel = 0
-holder.ScrollBarThickness = 4
-holder.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
-holder.ScrollBarImageTransparency = 0.35
-holder.CanvasSize = UDim2.new()
-holder.AutomaticCanvasSize = Enum.AutomaticSize.Y
-holder.ScrollingDirection = Enum.ScrollingDirection.Y
-holder.Parent = gui
+-- Anchored top-right so the panel grows DOWN and leftwards; the gap to the
+-- screen edge stays constant whatever it is scaled to. HudToggleClient reads
+-- this frame by name ("Tracker") to anchor its quest button.
+local root = Instance.new("Frame")
+root.Name = "Tracker"
+root.AnchorPoint = Vector2.new(1, 0)
+root.Position = UDim2.new(1, -rightPad(), 0, TOP_Y)
+root.Size = UDim2.fromOffset(PANEL_W, 0)
+root.AutomaticSize = Enum.AutomaticSize.Y
+root.BackgroundTransparency = 1
+root.Parent = gui
 
-local list = Instance.new("UIListLayout")
-list.FillDirection = Enum.FillDirection.Vertical
-list.HorizontalAlignment = Enum.HorizontalAlignment.Left
-list.SortOrder = Enum.SortOrder.LayoutOrder
-list.Padding = UDim.new(0, GAP)
-list.Parent = holder
+local scale = Instance.new("UIScale")
+scale.Name = "DeviceScale"
+scale.Parent = root
+Platform.Watch(function() scale.Scale = Platform.Widget() * SIZE_TRIM end)
 
-local cards = {}
+---------------------------------------------------------------- panel
+local panel = Instance.new("Frame")
+panel.Name = "Panel"
+panel.Size = UDim2.fromOffset(PANEL_W, 0)
+panel.AutomaticSize = Enum.AutomaticSize.Y
+panel.BackgroundColor3 = C.panelBg
+panel.BackgroundTransparency = PANEL_ALPHA
+panel.BorderSizePixel = 0
+panel.Parent = root
+UITheme.corner(panel, 18)
+-- no gradient, no edge stroke: the panel is an invisible layout frame (PANEL_ALPHA = 1)
 
--- Last visible count, so refreshHolder can tell "a quest appeared/finished" apart
--- from "a counter ticked". Only the former should move the view.
-local lastShown = -1
+local panelList = Instance.new("UIListLayout")
+panelList.FillDirection = Enum.FillDirection.Vertical
+panelList.SortOrder = Enum.SortOrder.LayoutOrder
+panelList.Parent = panel
 
--- Height follows the number of VISIBLE cards, capped at MAX_VISIBLE. UIListLayout
--- skips Visible=false children, so the canvas already measures only live cards --
--- this just stops the holder itself being a tall invisible box that eats clicks.
-local function refreshHolder()
-	local n = 0
-	for _, ui in ipairs(cards) do
-		if ui.root.Visible then n += 1 end
+-- ===== header =====
+local header = Instance.new("Frame")
+header.Name = "Header"
+header.LayoutOrder = 1
+header.Size = UDim2.new(1, 0, 0, 46)
+header.BackgroundTransparency = 1
+header.BorderSizePixel = 0
+header.Parent = panel
+
+-- the bar is gone too (PS99: no plate on passive info); this rule frame stays
+-- declared and invisible so the header's layout maths is untouched
+local headerRule = Instance.new("Frame")
+headerRule.AnchorPoint = Vector2.new(0, 1)
+headerRule.Position = UDim2.new(0, 0, 1, 0)
+headerRule.Size = UDim2.new(1, 0, 0, 1)
+headerRule.BackgroundTransparency = 1
+headerRule.BorderSizePixel = 0
+headerRule.Parent = header
+
+-- the gold header bar is retired: the title floats, outlined, straight on the world
+local headerPad = Instance.new("UIPadding")
+headerPad.PaddingLeft = UDim.new(0, 6); headerPad.PaddingRight = UDim.new(0, 6)
+headerPad.PaddingTop = UDim.new(0, 6)
+headerPad.Parent = panel
+
+-- unspaced and bigger: letter-spaced 14px caps is spec-sheet typography; this is a
+-- plain chunky title, white with a navy outline, floating where the bar used to be
+local hTitle = text(header, "QUEST LOG", FONT_DISPLAY, 21, BZ.white)
+hTitle.Position = UDim2.fromOffset(14, 0)
+hTitle.Size = UDim2.fromOffset(170, 46)
+glyphStroke(hTitle, 3)
+
+local hCount = text(header, "", FONT_MONO, 10, C.textPri)
+hCount.Position = UDim2.fromOffset(168, 0)
+hCount.Size = UDim2.fromOffset(118, 46)
+hCount.TextTransparency = DIM.count
+glyphStroke(hCount, 2.5)
+
+local collapseBtn = Instance.new("TextButton")
+collapseBtn.Name = "Collapse"
+collapseBtn.AnchorPoint = Vector2.new(1, 0.5)
+collapseBtn.Position = UDim2.new(1, -16, 0.5, 0)
+collapseBtn.Size = px(26)
+collapseBtn.BackgroundTransparency = 1
+collapseBtn.BorderSizePixel = 0
+collapseBtn.Text = "\u{203A}"
+collapseBtn.Font = FONT_MONO
+collapseBtn.TextSize = 12
+collapseBtn.TextColor3 = C.glyphInk
+collapseBtn.AutoButtonColor = false
+collapseBtn.Parent = header
+glyphStroke(collapseBtn, 2.5)          -- the chevron glyph itself is outlined white
+local collapseStroke = stroke(collapseBtn, C.borderBtn, 1)   -- button box: interactive, keeps its chrome
+
+-- TOUCH TARGET for the chevron (2026-08-19). Authored 26px, it renders ~15px
+-- once the device scale is applied -- a third of Roblox's 44px minimum, and it
+-- is the only control that closes the log on a phone. Same invisible-pad trick
+-- the rail uses: the visible chevron keeps its size, an unpainted button behind
+-- it takes the tap. Parented to the HEADER (not the button) so it cannot be
+-- clipped by the chevron's own bounds, and kept BELOW it in ZIndex so the glyph
+-- still draws on top.
+local collapseHit = Instance.new("TextButton")
+collapseHit.Name = "CollapseHit"
+collapseHit.AnchorPoint = collapseBtn.AnchorPoint
+collapseHit.Position = collapseBtn.Position
+collapseHit.BackgroundTransparency = 1
+collapseHit.BorderSizePixel = 0
+collapseHit.Text = ""
+collapseHit.AutoButtonColor = false
+collapseHit.ZIndex = collapseBtn.ZIndex - 1
+collapseHit.Parent = header
+local function sizeCollapseHit()
+	local s = (scale.Scale > 0) and scale.Scale or 1
+	local want = math.max(26, math.ceil(46 / s))   -- >= 46 rendered px
+	collapseHit.Size = UDim2.fromOffset(want, want)
+end
+scale:GetPropertyChangedSignal("Scale"):Connect(sizeCollapseHit)
+sizeCollapseHit()
+
+-- ===== tabs =====
+local tabsRow = Instance.new("Frame")
+tabsRow.Name = "Tabs"
+tabsRow.LayoutOrder = 2
+tabsRow.Size = UDim2.new(1, 0, 0, 37)
+tabsRow.BackgroundTransparency = 1
+tabsRow.BorderSizePixel = 0
+tabsRow.Parent = panel
+pad(tabsRow, 10, 12, 0, 12)
+
+local tabsLayout = Instance.new("UIListLayout")
+tabsLayout.FillDirection = Enum.FillDirection.Horizontal
+tabsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tabsLayout.Padding = UDim.new(0, 2)
+tabsLayout.Parent = tabsRow
+
+local tabButtons = {}
+for i, name in ipairs({ "TRACKED", "ALL", "DONE" }) do
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.LayoutOrder = i
+	b.Size = UDim2.new(1 / 3, -4, 1, -6)
+	-- chunky chips, not underlined caps: the shops have no hairline-underline idiom
+	b.BackgroundColor3 = BZ.cardTop
+	b.BackgroundTransparency = 0
+	b.BorderSizePixel = 0
+	b.Text = name
+	b.Font = UITheme.BazaarFont
+	b.TextSize = 14
+	b.TextColor3 = BZ.desc -- dark ink: the chips are light now, white captions would vanish
+	b.AutoButtonColor = false
+	b.Parent = tabsRow
+	UITheme.corner(b, 9)
+	stroke(b, BZ.ink, 2.5)
+	do
+		local ts = Instance.new("UIStroke")
+		ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+		ts.Color = BZ.ink; ts.Thickness = 1.6; ts.Transparency = 0.1; ts.Parent = b
 	end
-	local shown = math.min(n, MAX_VISIBLE)
-	local h = (shown > 0) and (shown * ENTRY_H + (shown - 1) * GAP) or 0
-	holder.Size = UDim2.fromOffset(ENTRY_W + 10, h)
-	holder.ScrollingEnabled = n > MAX_VISIBLE
-	holder.ScrollBarThickness = (n > MAX_VISIBLE) and 4 or 0
-	holder.Visible = n > 0
 
-	local contentH = (n > 0) and (n * ENTRY_H + (n - 1) * GAP) or 0
-	local maxScroll = math.max(0, contentH - h)
+	-- the hairline baseline/underline pair is retired; the active tab is now the
+	-- GREEN chip (the shops' selection idiom -- gold is money-only). Both frames stay
+	-- declared and invisible so renderTabs and any future revert keep working unchanged.
+	local base = Instance.new("Frame")
+	base.Name = "Baseline"
+	base.BackgroundTransparency = 1
+	base.Size = UDim2.new(1, 0, 0, 1)
+	base.BorderSizePixel = 0
+	base.Parent = b
 
-	if n ~= lastShown then
-		-- The VISIBLE SET changed, so present from the top. This is not just tidiness:
-		-- with AutomaticCanvasSize = Y the engine pins the view to the BOTTOM as the
-		-- canvas grows, so the fourth quest appearing scrolled the first one off the
-		-- top of the list -- measured CanvasPosition.Y = 72 on a fresh tracker.
-		-- It also covers the shrink direction: a finished quest removes a row and
-		-- would otherwise strand the view below the remaining content.
-		lastShown = n
-		holder.CanvasPosition = Vector2.new(0, 0)
-	elseif holder.CanvasPosition.Y > maxScroll then
-		-- Count unchanged -- this is a progress tick, and the player may have scrolled
-		-- deliberately. Leave their position alone beyond keeping it in range.
-		holder.CanvasPosition = Vector2.new(0, maxScroll)
+	local underline = Instance.new("Frame")
+	underline.Name = "Underline"
+	underline.BackgroundTransparency = 1
+	underline.Size = UDim2.new(1, 0, 0, 1)
+	underline.BorderSizePixel = 0
+	underline.Visible = false
+	underline.Parent = b
+
+	tabButtons[name] = { button = b, underline = underline }
+end
+
+-- ===== list =====
+local listWrap = Instance.new("ScrollingFrame")
+listWrap.Name = "List"
+listWrap.LayoutOrder = 3
+listWrap.Size = UDim2.new(1, 0, 0, 0)
+listWrap.BackgroundTransparency = 1
+listWrap.BorderSizePixel = 0
+listWrap.ScrollBarThickness = 3
+listWrap.ScrollBarImageColor3 = C.textFain2
+listWrap.ScrollBarImageTransparency = 0.2
+listWrap.CanvasSize = UDim2.new()
+listWrap.AutomaticCanvasSize = Enum.AutomaticSize.Y
+listWrap.ScrollingDirection = Enum.ScrollingDirection.Y
+listWrap.Parent = panel
+pad(listWrap, 12, 12, 12, 12)
+
+local cardsLayout = Instance.new("UIListLayout")
+cardsLayout.FillDirection = Enum.FillDirection.Vertical
+cardsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+cardsLayout.Padding = UDim.new(0, 8)
+cardsLayout.Parent = listWrap
+
+local emptyLabel = text(listWrap, spaced("NOTHING HERE YET"), FONT_MONO, 11, C.textPri,
+	Enum.TextXAlignment.Center)
+emptyLabel.Name = "Empty"
+emptyLabel.Size = UDim2.new(1, 0, 0, 56)
+emptyLabel.TextTransparency = DIM.meta
+glyphStroke(emptyLabel, 2)
+emptyLabel.Visible = false
+emptyLabel.LayoutOrder = 999
+
+-- ===== footer =====
+local footer = Instance.new("Frame")
+footer.Name = "Footer"
+footer.LayoutOrder = 4
+footer.Size = UDim2.new(1, 0, 0, 34)
+footer.BackgroundTransparency = 1
+footer.BorderSizePixel = 0
+footer.Parent = panel
+
+-- PS99: no divider -- the footer is just its two outlined captions
+local footerRule = Instance.new("Frame")
+footerRule.Size = UDim2.new(1, 0, 0, 1)
+footerRule.BackgroundTransparency = 1
+footerRule.BorderSizePixel = 0
+footerRule.Parent = footer
+
+local fLeft = text(footer, spaced("J \u{00B7} TOGGLE"), FONT_MONO, 10, C.textPri)
+fLeft.Position = UDim2.fromOffset(16, 0)
+fLeft.Size = UDim2.fromOffset(160, 34)
+fLeft.TextTransparency = DIM.meta
+glyphStroke(fLeft, 2)
+
+local fRight = text(footer, "", FONT_MONO, 10, C.textPri, Enum.TextXAlignment.Right)
+fRight.AnchorPoint = Vector2.new(1, 0)
+fRight.Position = UDim2.new(1, -16, 0, 0)
+fRight.Size = UDim2.fromOffset(160, 34)
+fRight.TextTransparency = DIM.meta
+glyphStroke(fRight, 2)
+
+---------------------------------------------------------------- rail
+local rail = Instance.new("TextButton")
+rail.Name = "Rail"
+rail.AnchorPoint = Vector2.new(1, 0)
+rail.Position = UDim2.new(1, 0, 0, 0)
+rail.Size = UDim2.fromOffset(RAIL_W, 0)
+rail.AutomaticSize = Enum.AutomaticSize.Y
+rail.BackgroundColor3 = BZ.panelTop
+rail.BackgroundTransparency = RAIL_ALPHA
+rail.BorderSizePixel = 0
+rail.Text = ""
+rail.AutoButtonColor = false
+rail.Visible = false
+rail.Parent = root
+UITheme.corner(rail, 12)
+-- PS99: the rail plate is gone (RAIL_ALPHA = 1). The stroke object survives because
+-- the hover tint below tweens its Colour, but it is disabled AND fully transparent
+-- so hover can never resurrect it.
+local railStroke = stroke(rail, BZ.panelEdge, 3)
+railStroke.Transparency = 1
+railStroke.Enabled = false
+pad(rail, 16, 0, 20, 0)
+
+local railList = Instance.new("UIListLayout")
+railList.FillDirection = Enum.FillDirection.Vertical
+railList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+railList.SortOrder = Enum.SortOrder.LayoutOrder
+railList.Padding = UDim.new(0, 18)
+railList.Parent = rail
+
+local railBadge = Instance.new("TextLabel")
+railBadge.Name = "Badge"
+railBadge.LayoutOrder = 1
+railBadge.Size = px(24)
+railBadge.BackgroundColor3 = C.chipBlue
+railBadge.BorderSizePixel = 0
+railBadge.Text = "0"
+railBadge.Font = FONT_MONO
+railBadge.TextSize = 11
+railBadge.TextColor3 = C.railBadge
+railBadge.Parent = rail
+
+-- writing-mode: vertical-rl has no equivalent, so this is one label per glyph
+local railLabel = Instance.new("Frame")
+railLabel.Name = "Label"
+railLabel.LayoutOrder = 2
+railLabel.Size = UDim2.new(0, RAIL_W, 0, 0)
+railLabel.AutomaticSize = Enum.AutomaticSize.Y
+railLabel.BackgroundTransparency = 1
+railLabel.Parent = rail
+
+local railLabelList = Instance.new("UIListLayout")
+railLabelList.FillDirection = Enum.FillDirection.Vertical
+railLabelList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+railLabelList.SortOrder = Enum.SortOrder.LayoutOrder
+railLabelList.Padding = UDim.new(0, 4)   -- stands in for the 0.34em tracking
+railLabelList.Parent = railLabel
+
+-- THE WORD SHORTENS ON A PHONE (2026-08-27).
+--
+-- "QUEST LOG" is nine glyphs stacked vertically at 13px plus 4px tracking --
+-- about 150 design px of word before the badge and chevron are added. Measured
+-- on a real 867x399 handset the collapsed rail ran 137px tall: 40% of the usable
+-- height, for a strip 3% of the width wide, pinned to the right edge beside the
+-- quest bar. A tall thin ladder of letters is the worst possible shape on a
+-- screen whose scarce axis is height, and shrinking the scale to fix it would
+-- have taken the glyphs below legibility.
+--
+-- Five glyphs instead of nine, phones only. Rebuilt on device change rather than
+-- picked once at require time, because the device class settles after join and
+-- can change mid-session.
+local railGlyphs: { Instance } = {}
+
+local function setRailWord(word: string)
+	for _, l in ipairs(railGlyphs) do l:Destroy() end
+	table.clear(railGlyphs)
+	local i = 0
+	for _, ch in utf8.codes(word) do
+		i += 1
+		local glyph = utf8.char(ch)
+		local l = text(railLabel, glyph == " " and "" or glyph, FONT_DISPLAY, 12, C.textRail,
+			Enum.TextXAlignment.Center)
+		l.LayoutOrder = i
+		l.Size = UDim2.new(1, 0, 0, glyph == " " and 6 or 13)
+		glyphStroke(l, 2.5)
+		table.insert(railGlyphs, l)
 	end
 end
 
----------------------------------------------------------------- entry
--- One flat log row. No corners and no keyline: at GAP = 0 the rows have to meet
--- flush or the seams show, which is what makes the stack read as one panel.
-local function buildEntry(quest, order)
-	local row = Instance.new("Frame")
-	row.Name = quest.Id .. "Entry"
-	row.Size = UDim2.fromOffset(ENTRY_W, ENTRY_H)
-	row.LayoutOrder = order
-	row.BackgroundColor3 = PLATE
-	row.BackgroundTransparency = PLATE_ALPHA
-	row.BorderSizePixel = 0
-	row.Visible = false
-	row.Parent = holder
+Platform.Watch(function()
+	setRailWord(Platform.IsPhone and "QUEST" or "QUEST LOG")
+end)
 
-	local scale = Instance.new("UIScale")
-	scale.Parent = row
+local railChevron = text(rail, "\u{2039}", FONT_MONO, 11, C.textPri, Enum.TextXAlignment.Center)
+railChevron.Name = "Chevron"
+railChevron.LayoutOrder = 3
+railChevron.Size = UDim2.new(1, 0, 0, 14)
+railChevron.TextTransparency = DIM.chevron
+glyphStroke(railChevron, 2.5)
 
-	-- icon: small dark tile tinted with the quest accent, holding a glyph
-	local box = Instance.new("Frame")
-	box.Name = "IconTile"
-	box.Size = UDim2.fromOffset(15, 15)
-	box.Position = UDim2.fromOffset(10, 7)
-	box.BackgroundColor3 = quest.Accent and quest.Accent.dark or BOX_FILL
-	box.BorderSizePixel = 0
-	box.Parent = row
-	UIStyle.corner(box, 3)
+-- PHONE HIT AREA (2026-08-18): collapsed, the rail renders ~44px wide at 1x
+-- (52 authored x the 0.85 trim) and narrower still once the device scale
+-- shrinks -- under the ~44px touch floor, hugging the screen edge. This
+-- invisible button widens the rail's TOUCH surface to at least RAIL_HIT_PX
+-- rendered pixels, extending inward past the slim visuals. It lives on root
+-- (NOT inside the rail: the rail's UIListLayout lays out the rail's children)
+-- and mirrors rail.Activated exactly, so the expand behaviour is unchanged;
+-- applyCollapsed shows and hides it with the rail so it can never sit over
+-- the open panel.
+local RAIL_HIT_PX = 56
+local railHit = Instance.new("TextButton")
+railHit.Name = "RailHit"
+railHit.AnchorPoint = Vector2.new(1, 0)
+railHit.Position = UDim2.new(1, 0, 0, 0)
+railHit.Size = UDim2.new(0, RAIL_W, 1, 0)
+railHit.BackgroundTransparency = 1
+railHit.BorderSizePixel = 0
+railHit.Text = ""
+railHit.AutoButtonColor = false
+railHit.Visible = false
+railHit.Parent = root
 
-	local glyph = Instance.new("TextLabel")
-	glyph.Name = "Glyph"
-	glyph.Size = UDim2.fromScale(1, 1)
-	glyph.BackgroundTransparency = 1
-	glyph.Text = quest.Glyph or "\u{2605}"
-	glyph.TextScaled = true
-	glyph.TextColor3 = Color3.fromRGB(255, 255, 255)
-	glyph.Parent = box
+-- authored width that yields >= RAIL_HIT_PX rendered px at the current scale
+-- (the hit pad sits inside DeviceScale, so authored units shrink with it)
+local function sizeRailHit()
+	local s = (scale.Scale > 0) and scale.Scale or 1
+	railHit.Size = UDim2.new(0, math.max(RAIL_W, math.ceil(RAIL_HIT_PX / s)), 1, 0)
+end
+scale:GetPropertyChangedSignal("Scale"):Connect(sizeRailHit)
+sizeRailHit()
 
-	-- title: bold italic, the reference's "Angler Quest" line
-	local title = Instance.new("TextLabel")
+---------------------------------------------------------------- cards
+local cardUi = {}
+
+local function buildCard(quest, order)
+	local card = Instance.new("TextButton")
+	card.Name = quest.Id .. "Card"
+	card.LayoutOrder = order
+	card.Size = UDim2.new(1, 0, 0, 0)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	-- PS99: no card plate. The card is an invisible hit target; only its text paints.
+	card.BackgroundTransparency = 1
+	card.BorderSizePixel = 0
+	card.Text = ""
+	card.AutoButtonColor = false
+	card.Visible = false
+	card.Parent = listWrap
+	UITheme.corner(card, 12)
+	-- the stroke object survives because the hover tint below tweens its Colour, but
+	-- it is disabled AND fully transparent so hover can never resurrect it
+	local cardStroke = stroke(card, BZ.cardEdge, 3)
+	cardStroke.Transparency = 1
+	cardStroke.Enabled = false
+	pad(card, 12, 12, 13, 15)
+
+	-- 2px accent bar on the left edge, backed out through the padding
+	local accentBar = Instance.new("Frame")
+	accentBar.Name = "Accent"
+	accentBar.Position = UDim2.new(0, -15, 0, -12)
+	accentBar.Size = UDim2.new(0, 2, 1, 25)
+	accentBar.BackgroundColor3 = C.accent
+	accentBar.BorderSizePixel = 0
+	accentBar.ZIndex = 2
+	accentBar.Parent = card
+
+	local body = Instance.new("Frame")
+	body.Name = "Body"
+	body.Size = UDim2.new(1, 0, 0, 0)
+	body.AutomaticSize = Enum.AutomaticSize.Y
+	body.BackgroundTransparency = 1
+	body.Parent = card
+
+	local bodyList = Instance.new("UIListLayout")
+	bodyList.FillDirection = Enum.FillDirection.Vertical
+	bodyList.SortOrder = Enum.SortOrder.LayoutOrder
+	bodyList.Parent = body
+
+	local titleRow = Instance.new("Frame")
+	titleRow.Name = "TitleRow"
+	titleRow.LayoutOrder = 1
+	titleRow.Size = UDim2.new(1, 0, 0, 0)
+	titleRow.AutomaticSize = Enum.AutomaticSize.Y
+	titleRow.BackgroundTransparency = 1
+	titleRow.Parent = body
+
+	local kindTag = Instance.new("TextLabel")
+	kindTag.Name = "Kind"
+	kindTag.AnchorPoint = Vector2.new(1, 0)
+	kindTag.Position = UDim2.new(1, 0, 0, 0)
+	kindTag.AutomaticSize = Enum.AutomaticSize.X
+	kindTag.Size = UDim2.fromOffset(0, 17)
+	-- a solid chip with an ink edge, matching the shops' pills
+	kindTag.BackgroundColor3 = KIND_INK[quest.Kind] or BZ.rivetTop
+	kindTag.BackgroundTransparency = 0
+	kindTag.BorderSizePixel = 0
+	kindTag.Text = quest.Kind
+	kindTag.Font = UITheme.BazaarFont
+	kindTag.TextSize = 11
+	kindTag.TextColor3 = BZ.ink
+	kindTag.Parent = titleRow
+	pad(kindTag, 3, 8, 3, 8)
+	UITheme.corner(kindTag, 7)
+	local kindStroke = stroke(kindTag, BZ.ink, 2)
+
+	local title = text(titleRow, "", FONT_DISPLAY, 14, C.textCard)
 	title.Name = "Title"
-	title.Size = UDim2.new(1, -42, 0, 16)
-	title.Position = UDim2.fromOffset(32, 6)
-	title.BackgroundTransparency = 1
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.TextTruncate = Enum.TextTruncate.AtEnd
-	title.Text = quest.Label or ((quest.Npc or "") .. " Quest")
-	title.Parent = row
-	face(title, Enum.FontWeight.Bold, true, 14, TITLE_INK)
+	title.Size = UDim2.new(1, -84, 0, 0)
+	title.AutomaticSize = Enum.AutomaticSize.Y
+	title.TextWrapped = true
+	title.TextYAlignment = Enum.TextYAlignment.Top
+	title.LineHeight = 1.35
+	glyphStroke(title, 2.5)
 
-	-- hairline rule under the title
-	local rule = Instance.new("Frame")
-	rule.Name = "Rule"
-	rule.Size = UDim2.new(1, -20, 0, 1)
-	rule.Position = UDim2.fromOffset(10, 26)
-	rule.BackgroundColor3 = RULE
-	rule.BackgroundTransparency = RULE_ALPHA
-	rule.BorderSizePixel = 0
-	rule.Parent = row
+	local stepLine = text(body, "", FONT_BODY, 12, C.textPri)
+	stepLine.Name = "Step"
+	stepLine.LayoutOrder = 2
+	stepLine.Size = UDim2.new(1, 0, 0, 0)
+	stepLine.AutomaticSize = Enum.AutomaticSize.Y
+	stepLine.TextWrapped = true
+	stepLine.TextYAlignment = Enum.TextYAlignment.Top
+	stepLine.LineHeight = 1.5
+	local stepPad = Instance.new("UIPadding")
+	stepPad.PaddingTop = UDim.new(0, 8)
+	stepPad.Parent = stepLine
+	stepLine.TextTransparency = DIM.step
+	glyphStroke(stepLine, 2)
 
-	-- blurb: grey italic flavour line
-	local blurb = Instance.new("TextLabel")
-	blurb.Name = "Blurb"
-	blurb.Size = UDim2.new(1, -20, 0, 15)
-	blurb.Position = UDim2.fromOffset(10, 31)
-	blurb.BackgroundTransparency = 1
-	blurb.TextXAlignment = Enum.TextXAlignment.Left
-	blurb.TextTruncate = Enum.TextTruncate.AtEnd
-	blurb.Text = quest.Blurb or ""
-	blurb.Visible = (quest.Blurb ~= nil)
-	blurb.Parent = row
-	face(blurb, Enum.FontWeight.Medium, true, 12, BLURB_INK)
+	local progRow = Instance.new("Frame")
+	progRow.Name = "Progress"
+	progRow.LayoutOrder = 3
+	progRow.Size = UDim2.new(1, 0, 0, 13)
+	progRow.BackgroundTransparency = 1
+	progRow.Parent = body
+	local progPad = Instance.new("UIPadding")
+	progPad.PaddingTop = UDim.new(0, 10)
+	progPad.Parent = progRow
 
-	-- objective: checkbox + "<text> (n/m)", progress inline as in the reference
-	local tick = Instance.new("Frame")
-	tick.Name = "Tick"
-	tick.Size = UDim2.fromOffset(11, 11)
-	tick.Position = UDim2.fromOffset(12, 51)
-	tick.BackgroundColor3 = BOX_FILL
-	tick.BorderSizePixel = 0
-	tick.Parent = row
-	UIStyle.corner(tick, 2)
-	UIStyle.stroke(tick, Color3.fromRGB(255, 255, 255), 1)
-	local ts = tick:FindFirstChildOfClass("UIStroke")
-	if ts then ts.Transparency = 0.55 end
+	local trackBar = Instance.new("Frame")
+	trackBar.Name = "Track"
+	trackBar.AnchorPoint = Vector2.new(0, 0.5)
+	trackBar.Position = UDim2.new(0, 0, 0.5, 0)
+	trackBar.Size = UDim2.new(1, -46, 0, 3)
+	trackBar.BackgroundColor3 = C.trackBg
+	trackBar.BorderSizePixel = 0
+	trackBar.Parent = progRow
 
-	local obj = Instance.new("TextLabel")
-	obj.Name = "Objective"
-	obj.Size = UDim2.new(1, -44, 0, 16)
-	obj.Position = UDim2.fromOffset(31, 49)
-	obj.BackgroundTransparency = 1
-	obj.TextXAlignment = Enum.TextXAlignment.Left
-	obj.TextTruncate = Enum.TextTruncate.AtEnd
-	obj.Parent = row
-	face(obj, Enum.FontWeight.Medium, false, 13, OBJ_INK)
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.new(0, 0, 1, 0)
+	-- progress fills are CYAN (house grammar: cyan = progress, gold = real money
+	-- only) -- the same PROG_CYAN as the n/m caption; the empty track stays dark
+	fill.BackgroundColor3 = PROG_CYAN
+	fill.BorderSizePixel = 0
+	fill.Parent = trackBar
 
-	return { root = row, scale = scale, title = title, blurb = blurb, obj = obj }
+	local progLabel = text(progRow, "", FONT_MONO, 10, PROG_CYAN, Enum.TextXAlignment.Right)
+	progLabel.Name = "Label"
+	progLabel.AnchorPoint = Vector2.new(1, 0.5)
+	progLabel.Position = UDim2.new(1, 0, 0.5, 0)
+	progLabel.Size = UDim2.fromOffset(40, 13)
+	progLabel.TextTransparency = 0
+	glyphStroke(progLabel, 2)
+
+	-- the card plate is gone, so this edge-light hover is a no-op by design: the
+	-- stroke it tweens is disabled and transparent. Kept so a future re-plate works.
+	hoverTint(card, function(t)
+		tweenColour(cardStroke, "Color", C.borderCard, t)
+	end, function(t)
+		tweenColour(cardStroke, "Color", BZ.cardEdge, t)
+	end, 0.15)
+
+	return { root = card, accent = accentBar, title = title, step = stepLine,
+		fill = fill, progress = progLabel }
 end
 
----------------------------------------------------------------- show / hide
--- A gentle settle rather than the old Back-ease pop: a flat log row springing in
--- looked like a card, which is the language this layout moved away from.
-local function show(ui)
-	if not ui.root.Visible then
-		ui.root.Visible = true
-		ui.scale.Scale = 0.94
-		TweenService:Create(ui.scale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ Scale = 1 }):Play()
+---------------------------------------------------------------- render
+local function renderTabs()
+	for name, t in pairs(tabButtons) do
+		local active = (name == tab)
+		-- active = the shops' GREEN chip (field study delta 7; gold is money-only).
+		-- Idle is ONE treatment for every inactive chip, ALL and DONE alike: light
+		-- card fill + dark ink at DIM.tabIdle (the same dim hover restores, so a
+		-- hovered-then-left chip no longer idles at a different dim than its
+		-- neighbours). The WHOLE chip state is re-asserted every pass -- the
+		-- rendered fill is BackgroundColor3 MULTIPLIED by the chip's UIGradient,
+		-- so one stray dark base colour repaints a "white" idle chip navy while
+		-- the chip beside it stays white.
+		t.button.BackgroundColor3 = BZ.cardTop
+		UITheme.setColors(t.button, active and BZ.cash1 or BZ.cardTop,
+			active and BZ.cash2 or BZ.cardBot)
+		t.button.TextColor3 = BZ.desc
+		t.button.TextTransparency = active and 0 or DIM.tabIdle
 	end
-	refreshHolder()
 end
 
--- Immediate, by request: a finished quest is simply gone. There is no completion
--- banner and no hold -- the row disappears the moment the state leaves Steps.
-local function hide(ui)
-	if not ui.root.Visible then return end
-	ui.scale.Scale = 1
-	ui.root.Visible = false
-	refreshHolder()
+local function relayout()
+	-- MIND THE UNITS. AbsoluteContentSize is in RENDERED pixels (the device scale and the
+	-- size trim have already been applied to it), while MAX_LIST and the Size we write are
+	-- authored offsets that get scaled afterwards. Comparing the two directly made the
+	-- effective cap MAX_LIST / scale -- about 376 instead of 320 at the current trim -- so
+	-- the list ran taller than intended and ALL still did not scroll.
+	local s = (scale.Scale > 0) and scale.Scale or 1
+	local content = (cardsLayout.AbsoluteContentSize.Y / s) + 24   -- + 12px padding each side
+
+	-- Room left below the header, in AUTHORED units (same units as MAX_LIST). The chrome
+	-- above the list -- header, tabs, paddings -- is measured rather than guessed:
+	-- panel height minus list height is invariant no matter what we set the list to, so
+	-- reading last frame's values here is stable, and on the very first pass the list is
+	-- still 0 tall which makes the subtraction exactly the chrome.
+	-- Platform, NOT gui.AbsoluteSize (2026-08-26).
+	--
+	-- Every clamp below hangs off this one number, and reading the ScreenGui meant
+	-- reading the real Studio window -- so under a device preview floorPx came out
+	-- around 890 instead of 172 and the clamp on topY never bound. The tracker then
+	-- measured 138px BELOW the bottom of a 360px screen, which read as a live bug
+	-- and is really this blindness: on an actual handset gui.AbsoluteSize.Y IS the
+	-- handset, the clamp does bind, and the rail lands on screen.
+	--
+	-- Identical live (this gui is inset-respecting, so its height is exactly the
+	-- viewport less the topbar) and honest under a preview, which is the only way to
+	-- tell those two cases apart from a desk.
+	local viewH = Platform.Viewport.Y - Platform.Insets().Top
+	local chrome = (panel.AbsoluteSize.Y - listWrap.AbsoluteSize.Y) / s
+	if chrome <= 0 or chrome ~= chrome then chrome = 130 end
+
+	-- UNITS. root.Position is an offset on the ROOT, which sits OUTSIDE the DeviceScale,
+	-- so topY is in real pixels. chrome/content/MAX_LIST are authored units INSIDE that
+	-- scale, so they only become pixels after multiplying by s. Mixing the two left the
+	-- panel 3px into the cluster, so every comparison below is done in PIXELS.
+	local floorPx = viewH - BOTTOM_RESERVE_PX          -- panel bottom must not pass this
+	-- PHONE: start the expanded panel BELOW the corner stack (HIDE UI / Luck /
+	-- Sprint end ~abs y225 at the 375-tall reference viewport) so an expanded
+	-- log never collides with it (2026-08-18 fresh-boot check).
+	local topY = TOP_Y + (Platform.IsPhone and 82 or 0)
+	local needPx = (chrome + MIN_LIST) * s
+	-- WHEN COLLAPSED, THE THING ON SCREEN IS THE RAIL -- AND IT IS TALLER THAN THIS.
+	--
+	-- needPx describes the EXPANDED panel's minimum (header + one card). The
+	-- collapsed rail is a different frame, its height driven by AutomaticSize over
+	-- the glyph stack, and nothing here had ever looked at it: measured 214px
+	-- against a needPx of 171 at 1920x1080.
+	--
+	-- So on a 1366x768 laptop this clamp computed 264 + 171 = 435 against a floor
+	-- of 436, concluded it had a pixel to spare, and left the rail running 30px
+	-- into the HIDE UI pill -- a 28% overlap that no amount of tuning
+	-- BOTTOM_RESERVE_PX could reach, because the height being reserved against was
+	-- simply the wrong height. The rail is also the DEFAULT state, so this is what
+	-- most players were looking at.
+	--
+	-- Only while the rail is actually showing. The expanded panel's height is an
+	-- OUTPUT of this function -- topY sets room, room caps the list, the list sets
+	-- the height -- so feeding it back in here would run away: every pass would
+	-- raise topY, grow the list, and raise topY again until TOP_Y_FLOOR. The rail's
+	-- height is an INPUT, which is what makes it safe to read.
+	if rail.Visible then
+		needPx = math.max(needPx, rail.AbsoluteSize.Y)
+	end
+	if topY + needPx > floorPx then
+		topY = math.max(TOP_Y_FLOOR, floorPx - needPx)
+	end
+	root.Position = UDim2.new(1, -rightPad(), 0, topY)
+
+	-- room left for the list, converted back into authored units for listWrap.Size
+	local room = ((floorPx - topY) / s) - chrome
+	local capped = math.min(content, MAX_LIST, math.max(MIN_LIST, room))
+
+	listWrap.Size = UDim2.new(1, 0, 0, capped)
+	listWrap.ScrollingEnabled = content > capped
+	listWrap.ScrollBarThickness = (content > capped) and 3 or 0
+end
+
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+	-- the clamp above is viewport-dependent, so it has to be recomputed on resize
+	pcall(relayout)
+end)
+
+-- ...AND ON ANY DEVICE CHANGE, not only on a resize (2026-09-17).
+--
+-- relayout reads Platform.Viewport and Platform.Insets().Top, and NEITHER of
+-- those is a property of this ScreenGui -- so the trigger above misses every
+-- change that moves them without moving the gui's own AbsoluteSize: the class
+-- flipping, the topbar inset changing, and (the one that made this visible) a
+-- ViewportOverride device preview, under which the real window never resizes.
+--
+-- That is why raising BOTTOM_RESERVE_PX appeared to do nothing when it was
+-- checked at 1366x768: the constant was right and relayout had simply never
+-- re-run. The file was fixed once already for reading the Studio window instead
+-- of Platform (see viewH); this is the same blindness in the trigger rather than
+-- in the reading, and it makes the clamp testable from a desk.
+--
+-- Platform.Watch fires immediately as well as on every later change, and
+-- relayout is idempotent, so this costs one extra pass at startup.
+Platform.Watch(function()
+	pcall(relayout)
+end)
+
+local function render()
+	local shown = visibleList()
+	local seen = {}
+	for i, item in ipairs(shown) do
+		seen[item.quest.Id] = true
+		local ui, e = cardUi[item.quest.Id], item.entry
+		ui.root.Visible = true
+		ui.root.LayoutOrder = i
+		ui.title.Text = e.title
+		ui.step.Text = e.objective
+		ui.accent.BackgroundColor3 = isTracked(item.quest.Id) and C.trackOn or C.trackOff
+		local pct = (e.of > 0) and math.clamp(e.step / e.of, 0, 1) or 0
+		ui.fill.Size = UDim2.new(pct, 0, 1, 0)
+		ui.progress.Text = ("%d/%d"):format(e.step, e.of)
+	end
+	for id, ui in pairs(cardUi) do
+		if not seen[id] then ui.root.Visible = false end
+	end
+
+	emptyLabel.Visible = (#shown == 0)
+	if os.clock() < limitFlashUntil then
+		-- a refusal has to read as a refusal, so this one transient line is red rather
+		-- than the panel's white. It reverts on the next render after 1.8s.
+		hCount.Text = spaced(("TRACK %d MAX"):format(MAX_TRACKED))
+		hCount.TextColor3 = C.trackOff
+		hCount.TextTransparency = 0
+	else
+		hCount.Text = ("%d %s"):format(#shown, #shown == 1 and "ENTRY" or "ENTRIES")
+		hCount.TextColor3 = C.textPri
+		hCount.TextTransparency = DIM.count
+	end
+	fRight.Text = spaced(("%d COMPLETED"):format(completedCount()))
+	railBadge.Text = tostring(trackedCount())
+	renderTabs()
+	relayout()
+end
+
+---------------------------------------------------------------- collapse
+local function applyCollapsed()
+	-- NO RAIL ON A SHORT PHONE (2026-08-26, owner capture).
+	--
+	-- The collapsed rail is a 26x94 VERTICAL strip -- the word QUEST set one letter
+	-- per line. On the owner's 700x310 handset it had no edge left to live on: the
+	-- right edge from the topbar down to the jump button is the control column, the
+	-- left edge is the nav rail, and the bottom-centre band is already carrying HIDE
+	-- UI, the luck chip and the quest bar at 139px of 140. It ended up floating in
+	-- the middle of the right-hand play area, which is what the owner marked.
+	--
+	-- There is no spare 94px anywhere on that screen, so rather than put it
+	-- somewhere marginally less wrong it stands down: the quest BAR (BottomCentre)
+	-- already shows the active quest and its progress, and the full log opens from
+	-- the GOALS tile on the nav rail. Nothing becomes unreachable.
+	--
+	-- Taller phones keep the rail -- they have the band for it.
+	local showRail = collapsed and not Platform.IsShortPhone()
+	panel.Visible = not collapsed
+	rail.Visible = showRail
+	railHit.Visible = showRail
+	root.Size = UDim2.fromOffset(collapsed and RAIL_W or PANEL_W, 0)
+	-- PHONE: the EXPANDED log is a modal, so it out-ranks the corner cluster
+	-- (2026-08-19, measured on a 666x374 handset). The right edge is shared by
+	-- HIDE UI (11), Luck (7), Sprint (MainUI 5) and this log (4) -- expanded, the
+	-- log is 208px wide and every one of those drew ON TOP of it, including over
+	-- the collapse chevron, which is the ONLY way back on a device with no J key.
+	-- There is no free lane to move to either: the panel needs 208px and the gap
+	-- between the nav rail and the cluster is 172px. So while it is open it goes
+	-- above everything; COLLAPSED it drops back under MainUI(5) so the rail can
+	-- never steal Sprint's taps again (that was the bug this pass started with).
+	if Platform.IsPhone then
+		gui.DisplayOrder = collapsed and 4 or 12
+	else
+		gui.DisplayOrder = 4
+	end
+	if not collapsed then
+		-- the handoff's mount animation: fade + 6px rise, 180ms ease-out
+		panel.Position = UDim2.fromOffset(0, 6)
+		TweenService:Create(panel, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ Position = UDim2.fromOffset(0, 0) }):Play()
+	end
+end
+
+local function setCollapsed(v, save)
+	collapsed = v and true or false
+	applyCollapsed()
+	if save then
+		userTouched = true
+		saveRemote:FireServer({ questsHidden = collapsed })
+	end
+end
+
+collapseBtn.Activated:Connect(function() setCollapsed(true, true) end)
+collapseHit.Activated:Connect(function() setCollapsed(true, true) end)
+rail.Activated:Connect(function() setCollapsed(false, true) end)
+-- the widened phone hit pad expands exactly like tapping the rail itself
+railHit.Activated:Connect(function() setCollapsed(false, true) end)
+
+hoverTint(collapseBtn, function(t)
+	tweenColour(collapseStroke, "Color", C.borderBtnH, t)
+	collapseBtn.TextColor3 = C.textPri
+end, function(t)
+	tweenColour(collapseStroke, "Color", C.borderBtn, t)
+	collapseBtn.TextColor3 = C.glyphInk
+end)
+
+hoverTint(rail, function(t) tweenColour(railStroke, "Color", C.borderRail, t) end,
+	function(t) tweenColour(railStroke, "Color", C.borderPan, t) end, 0.16)
+
+ContextActionService:BindAction("QuestLogToggle", function(_, state)
+	if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+	setCollapsed(not collapsed, true)
+	return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.J)
+
+---------------------------------------------------------------- tabs
+for name, t in pairs(tabButtons) do
+	t.button.Activated:Connect(function()
+		tab = name
+		render()
+	end)
+	hoverTint(t.button, function()
+		if tab ~= name then t.button.TextTransparency = 0.15 end
+	end, function()
+		if tab ~= name then t.button.TextTransparency = DIM.tabIdle end
+	end)
 end
 
 ---------------------------------------------------------------- wiring
 for order, quest in ipairs(QUESTS) do
-	local ui = buildEntry(quest, order)
-	cards[#cards + 1] = ui
+	cardUi[quest.Id] = buildCard(quest, order)
+	-- stands in for the journal's TRACK QUEST button (see the header note)
+	cardUi[quest.Id].root.Activated:Connect(function()
+		if isTracked(quest.Id) then
+			trackedOn[quest.Id] = nil
+		elseif trackedCount() >= MAX_TRACKED then
+			-- REFUSE rather than silently dropping someone else's quest. Which one to
+			-- evict is a decision only the player can make, so say no and let them.
+			limitFlashUntil = os.clock() + 1.8
+			task.delay(1.85, render)
+		else
+			trackedOn[quest.Id] = true
+		end
+		render()
+	end)
+
 	local remote = remotes:WaitForChild(quest.Remote, 30)
 	if remote then
 		remote.OnClientEvent:Connect(function(payload)
@@ -322,26 +1260,107 @@ for order, quest in ipairs(QUESTS) do
 			local state = tonumber(payload.State) or 0
 			local step = quest.Steps[state]
 
-			-- No completion branch by design. Any state without a Steps entry -- not
-			-- started, finished, or anything added later -- hides the row, so a quest
-			-- vanishes the instant it is done.
 			if not step then
-				hide(ui)
+				-- above the highest authored stage = finished, and it stays in the log
+				-- for the DONE tab; below the lowest = never started, so not an entry
+				if state > quest.TopStage then
+					local prev = live[quest.Id]
+					live[quest.Id] = {
+						title = (prev and prev.title) or quest.Npc,
+						objective = "All objectives complete",
+						step = (prev and prev.of) or 1,
+						of = (prev and prev.of) or 1,
+						done = true,
+					}
+				else
+					live[quest.Id] = nil
+				end
+				render()
 				return
 			end
 
-			-- payload may carry live progress (Step/Of); fall back to the static config
 			local sNum = tonumber(payload.Step) or step.Step
 			local sOf  = tonumber(payload.Of) or step.Of
-			ui.obj.Text = ("%s (%d/%d)"):format(step.Title, sNum, sOf)
-			show(ui)
+			local custom
+			if type(quest.Objective) == "function" then
+				local ok, res = pcall(quest.Objective, payload, step)
+				if ok and type(res) == "string" then custom = res end
+			end
+
+			local isNew = (live[quest.Id] == nil)
+			live[quest.Id] = {
+				title = step.Title,
+				objective = custom or ("%s  %d/%d"):format(step.Title, sNum, sOf),
+				step = sNum, of = sOf, done = false,
+			}
+			-- auto-track it while there is room, so a player who never touches a card
+			-- still has their first three quests tracked rather than an empty TRACKED tab
+			if isNew and trackedCount() < MAX_TRACKED then trackedOn[quest.Id] = true end
+			render()
 		end)
 	end
 end
 
-refreshHolder()
+---------------------------------------------------------------- saved preference
+-- FOLLOW THE SERVER UNTIL THE PLAYER TAKES OVER -- the same latch HudToggleClient
+-- uses, and for the same reason: the first DataUpdated of a session can arrive
+-- before the profile has finished loading, carrying a default Settings table, so
+-- latching onto the first snapshot brings a saved collapse up expanded.
+local dataRemote = remotes:WaitForChild("DataUpdated")
+dataRemote.OnClientEvent:Connect(function(snap)
+	if userTouched then return end
+	if typeof(snap) ~= "table" then return end
+	local st = snap.Settings
+	if typeof(st) ~= "table" then return end
+	-- PHONE (2026-08-18 fresh-boot check): the panel ALWAYS boots collapsed on
+	-- phone -- a desktop-saved "expanded" preference used to carry over and the
+	-- open panel collided with the corner stack (Sprint sat on the DONE tab).
+	-- Tapping the rail still expands it for the session; only the BOOT state
+	-- is forced.
+	local want = (st.questsHidden == true) or Platform.IsPhone
+	if want ~= collapsed then setCollapsed(want, false) end
+end)
 
--- Real NPC questlines are added to the QUESTS table above -- each one driven by
--- its own state RemoteEvent. The temporary local test quests that used to live
--- here (Marco / Rocco / Enzo / Gino / Test Five) were placeholders and have been
--- removed; the tracker scroller stays and will populate once real quests exist.
+cardsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(relayout)
+
+-- BOOT SAFETY NET. SideRail owns this ScreenGui's `Enabled` -- it hides the tracker while
+-- any rail panel is open and restores it on close (SideRail.updateRailVisibility). That is
+-- correct and this does not fight it. What it DOES catch is a STALE disable: on a fresh
+-- session the tracker came up Enabled = false with no panel open and the nav rail plainly
+-- visible, and because SideRail only re-runs that function on an open/close signal,
+-- nothing ever turned it back on -- the whole quest log stayed invisible until some
+-- unrelated panel happened to be opened and closed again.
+--
+-- One shot, a few seconds after boot, and only while the nav rail is showing -- which is
+-- SideRail's own "nothing is open" tell -- so a genuinely open panel is left alone.
+task.delay(4, function()
+	if gui.Enabled then return end
+	local hud = playerGui:FindFirstChild("GameHUD")
+	local canvas = hud and hud:FindFirstChild("Canvas")
+	local chrome = (canvas and canvas:FindFirstChild("Chrome")) or (hud and hud:FindFirstChild("Chrome"))
+	local railFrame = chrome and chrome:FindFirstChild("NavRail")
+	if railFrame and railFrame.Visible then gui.Enabled = true end
+end)
+
+applyCollapsed()
+-- ...and re-apply on every DEVICE-CLASS change, not just on state change.
+-- applyCollapsed now decides DisplayOrder from Platform.IsPhone, but it only
+-- ran when the collapsed state moved -- so a class that resolves AFTER boot
+-- (exactly what Studio's device simulator does, and what a real rotation or a
+-- PlatformOverride flip does) left the order frozen at whatever the first pass
+-- computed. Measured 2026-08-19: expanded on a phone and still sitting at 4,
+-- underneath the Luck chip that covers its collapse chevron.
+Platform.Watch(function()
+	-- The phone default has the SAME race as the DisplayOrder did: `collapsed` is
+	-- seeded from Platform.IsPhone at require time, and the class is often still
+	-- unresolved then (the device sim latches; a real device can rotate later),
+	-- so the log booted EXPANDED on a handset -- straight into the corner cluster.
+	-- Re-decide here, but only while the player has not expressed a preference:
+	-- userTouched is set by any deliberate toggle, so a player who opens the log
+	-- keeps it open.
+	if Platform.IsPhone and not userTouched and not collapsed then
+		collapsed = true
+	end
+	applyCollapsed()
+end)
+render()

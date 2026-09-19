@@ -82,7 +82,11 @@ stateRemote.OnClientEvent:Connect(function(payload)
 			for _, d in ipairs(chim:GetDescendants()) do
 				if d:IsA("ProximityPrompt") then d.Enabled = false
 				elseif d:IsA("ParticleEmitter") then d.Enabled = false
-				elseif d:IsA("PointLight") then d.Enabled = false end
+				elseif d:IsA("PointLight") then d.Enabled = false
+				-- The chim is a 31-part creature parented UNDER the SecretChim root part,
+				-- so hiding the root alone would leave its ears, whiskers and tail floating
+				-- on the shore after it was taken.
+				elseif d:IsA("BasePart") then d.Transparency = 1 end
 			end
 		end
 	elseif payload.Note == "hint" then
@@ -92,14 +96,31 @@ stateRemote.OnClientEvent:Connect(function(payload)
 	end
 end)
 
--- gentle bob + spin so the chim reads as a collectible
+-- Gentle bob + spin so the chim reads as a collectible.
+--
+-- SecretChim is the creature's BODY part with the other 31 parts (ears, whiskers,
+-- tail, eyes) parented under it. They are all ANCHORED and carried explicitly here
+-- rather than welded: welding would hand a 32-part assembly to the physics engine
+-- purely for a cosmetic bob, and this way the animation is local, exact, and cannot
+-- drift or fall over. Offsets are captured once, relative to the root's rest CFrame.
 task.spawn(function()
 	local chim = Workspace.GameWorld:WaitForChild("SecretChim", 30)
 	if not chim then return end
-	local base = chim.Position
+	local base = chim.CFrame
+	local riders = {}
+	for _, d in ipairs(chim:GetDescendants()) do
+		if d:IsA("BasePart") then
+			riders[#riders + 1] = { part = d, offset = base:ToObjectSpace(d.CFrame) }
+		end
+	end
 	RunService.Heartbeat:Connect(function()
 		if not chim.Parent or chim.Transparency >= 1 then return end
 		local t = os.clock()
-		chim.CFrame = CFrame.new(base.X, base.Y + math.sin(t * 2) * 0.35, base.Z) * CFrame.Angles(math.rad(20), t * 0.8, 0)
+		local cf = CFrame.new(base.X, base.Y + math.sin(t * 2) * 0.35, base.Z)
+			* CFrame.Angles(math.rad(20), t * 0.8, 0)
+		chim.CFrame = cf
+		for _, r in ipairs(riders) do
+			r.part.CFrame = cf * r.offset
+		end
 	end)
 end)
