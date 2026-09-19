@@ -1,6 +1,16 @@
 # NPC-01 — Studio Inspection Runbook
 
-**Status: PREPARED, NOT RUN.** Executes only inside an explicitly granted NPC-01 Studio window. Everything is read-only against the saved place; the three sandbox tests (§5) run in Play mode, where nothing persists.
+**Status: APPROVED 2026-09-19, NOT RUN — PAUSED until the NPC-01 Studio window is explicitly granted.**
+
+**Approved scope for that window (owner, 2026-09-19):**
+- All genuinely read-only Edit-mode checks (Batches 1–3).
+- **E-11** in Play mode only, provided it creates no persistent change.
+- **E-18 visual proxy** only as a Play-mode-only, guaranteed-nonpersistent test (the E-18 *measurement* is read-only and runs in Batch 1 regardless).
+- **NOT approved: E-15** (GLB import/delete). **No Edit-mode write, delete or import of any kind** during the window unless separately approved.
+- Priority order: **1 E-2 · 2 E-13 · 3 E-17 · 4 E-18 · 5 remaining read-only checks · 6 Play-mode nonpersistent checks.**
+- No Phase 3 implementation during the window. After inspection: report findings, then **stop for approval**.
+
+Everything else below is read-only against the saved place; the Play-mode tests in §5 persist nothing (E-15 is retained in the table for the record but is out of scope).
 **Tools:** the Studio MCP (`get_studio_state`, `search_game_tree`, `inspect_instance`, `execute_luau` print-only, `screen_capture`, `start_stop_play`). No `multi_edit`, no `insert_asset`, no property writes.
 **Output:** results go to `docs/npc/studio/INSPECTION-<date>.md` + `captures/` on this branch.
 
