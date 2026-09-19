@@ -59,7 +59,7 @@
 -- displayable. Every reward string on this panel comes from it.
 --
 -- WHAT IS DELIBERATELY INERT, and why. All three follow the precedent set by the
--- egg shop's BUY DARRELS and the Charm Codex's EQUIP: draw the control in full,
+-- egg shop's BUY EMERALDS and the Charm Codex's EQUIP: draw the control in full,
 -- wire nothing, let it come alive on its own when the missing id appears.
 --   * UNLOCK PREMIUM -- GamepassConfig's SeasonPass entry is still GamepassId = 0,
 --     so GamepassService.Owns is false for everyone and SeasonPassHandler refuses
@@ -81,7 +81,7 @@ local SeasonConfig = require(modules:WaitForChild("SeasonConfig"))
 -- Egg tiers show the REAL egg model in a ViewportFrame rather than a flat icon.
 -- Same helper the Index and Backpack grids use for brainrots/pets.
 local BrainrotThumb = require(modules:WaitForChild("BrainrotThumb"))
--- Darrel tiers draw the DARREL icon, which is a vector drawing rather than an
+-- Emerald tiers draw the EMERALD icon, which is a vector drawing rather than an
 -- image id. pcall'd like ClientMain does: a missing icon module must cost the
 -- icon, not the whole panel.
 local okIconArt, IconArt = pcall(function()
@@ -127,7 +127,7 @@ end
 local function subtitleFor(rw, seasonNumber: number): string
 	if rw.kind == "Cash" then
 		return "INSTANT PAYOUT"
-	elseif rw.kind == "Darrels" then
+	elseif rw.kind == "Emeralds" then
 		return "PREMIUM CURRENCY"
 	elseif rw.kind == "Egg" then
 		return "HATCHERY"
@@ -145,6 +145,10 @@ end
 -- the count on the track, violet UNLOCK plate instead of a caption, free
 -- track green / locked premium inert with greyed art, CLAIMED as a word.
 -- All state machine / claim wiring untouched.
+-- 2026-08-16 FIELD STUDY DELTA 8 (PS99 f072/f073, the only boxed cards in
+-- their game are these state tiles) supersedes the claimed/locked treatments
+-- above -- see buildRewardCard: claimed = green tile + darker-green edge +
+-- "Claimed!" strip, locked = silver tile + strip, art never desaturated.
 local UIKitFolder = game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("UIKit")
 local PC = require(UIKitFolder:WaitForChild("PanelChrome"))
 local S = require(UIKitFolder:WaitForChild("SpecTheme"))
@@ -314,15 +318,77 @@ function PassPanel.Build(ctx, opts)
 	-- LADDER_W under it) is taken against T.pad.panel specifically -- so the
 	-- padding stays hand-built to keep that relationship visible at the top of
 	-- the geometry block rather than buried in a builder.
+	--[[ PS99 COOL-NAVY DARK RAMP (was the 2026-08-14 olive revert). The pass
+	panel keeps a DARK ground, retinted to the cool navy family so every light
+	ink on it stays light. Its window comes from UI.surface("window") and its
+	type from T.color.*, and BOTH are shared with Goals / Bag / Settings /
+	Worlds -- retinting those tokens would drag every other panel along, which
+	the owner ruled out ("dont mess with the gui"). So the navy lives HERE, as
+	a local override on this panel only. Anything not listed stays on the
+	shared tokens.
+
+	The reward cards keep their GREEN (free) and GOLD (premium) ramps: those are
+	track identity, and they are light grounds that still want the dark ink they
+	already carry. Since field study delta 8 the tiles themselves encode STATE
+	(claimed green / locked silver -- see buildRewardCard), so the locked ramp
+	is the shared S.Action.Inert silver and no dark-card ink lives here. ]]
+	local OLIVE = {
+		window    = { Color3.fromHex("3A4656"), Color3.fromHex("2A3543") }, -- cool navy body
+		onWindow  = Color3.fromHex("DCE6F2"), -- near-white ice: type on the navy body (textMutedOnDark)
+		muted     = Color3.fromHex("A9BACE"), -- navy textMuted
+	}
+
 	local body = UI.surface(group, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
+	--[[ Repaint rather than rebuild, and note the TRANSPARENCY line -- it is the
+	whole reason this works.
+
+	This panel's own body ships FULLY TRANSPARENT: the cream a player actually
+	sees behind the ladder belongs to the SHARED ProgressPanel shell, which also
+	hosts GoalsPanel. Recolouring that shell would drag Goals along, so instead
+	this body is made OPAQUE and painted navy -- it covers the shared cream for
+	exactly as long as the Season Pass tab is up, and Goals is untouched.
+
+	Measured before the fix: the headings below had already flipped to pale sage
+	and were sitting on the shell's #FFF6CF at ~1.3:1, i.e. invisible. Set the
+	body opaque and the type light TOGETHER or not at all. ]]
+	do
+		body.BackgroundColor3 = Color3.new(1, 1, 1) -- gradient multiplies, so start white
+		body.BackgroundTransparency = 0             -- <- covers the shared cream shell
+		local g = body:FindFirstChildOfClass("UIGradient")
+		if not g then
+			g = Instance.new("UIGradient")
+			g.Rotation = 90
+			g.Parent = body
+		end
+		g.Color = ColorSequence.new(OLIVE.window[1], OLIVE.window[2])
+	end
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
 	if EMBEDDED then
-		-- the spec shell's light ground is the visible surface
-		body.BackgroundTransparency = 1
+		--[[ 2026-08-14 OLIVE REVERT. This branch used to go TRANSPARENT and let the
+		shared spec shell's light ground be the visible surface -- and it DESTROYED
+		the body's gradient to do it. That is precisely why the first olive attempt
+		looked like it had done nothing: the repaint above ran, and this block threw
+		it away six lines later, leaving pale sage headings on the shell's #FFF6CF
+		at 1.4:1 (measured, unreadable).
+
+		The shell is SHARED with GoalsPanel, so it cannot be recoloured without
+		dragging Goals along. So this body becomes the opaque navy surface instead:
+		it covers the shell for exactly as long as the Season Pass tab is up, and
+		Goals still gets the cream shell it has always had.
+
+		The STROKE is still dropped -- the shell already draws the window's edge, and
+		a second one here would double the outline. ]]
+		body.BackgroundTransparency = 0
+		body.BackgroundColor3 = Color3.new(1, 1, 1) -- gradient multiplies; start white
 		local bg = body:FindFirstChildOfClass("UIGradient")
-		if bg then bg:Destroy() end
+		if not bg then
+			bg = Instance.new("UIGradient")
+			bg.Rotation = 90
+			bg.Parent = body
+		end
+		bg.Color = ColorSequence.new(OLIVE.window[1], OLIVE.window[2])
 		local bs = body:FindFirstChildOfClass("UIStroke")
 		if bs then bs:Destroy() end
 	else
@@ -371,7 +437,7 @@ function PassPanel.Build(ctx, opts)
 	local XP_X = TIER_PILL_W + 16
 	local XP_W = INNER_W - XP_X - 16 - STATUS_W -- 450
 
-	local xpCaption = UI.label(progressRow, "", "meta", T.color.textOnWindow)
+	local xpCaption = UI.label(progressRow, "", "meta", OLIVE.onWindow) -- navy body = light type
 	xpCaption.Name = "XPCaption"
 	xpCaption.Position = UDim2.fromOffset(XP_X, 2)
 	xpCaption.ZIndex = 14
@@ -421,14 +487,14 @@ function PassPanel.Build(ctx, opts)
 		daysLabel.TextSize = 20 -- see the wash note at xpCaption
 	end
 
-	local claimStatus = UI.label(statusCol, "0 CLAIMED  0 READY", "chip", T.color.textOnWindow)
+	local claimStatus = UI.label(statusCol, "0 CLAIMED  0 READY", "chip", OLIVE.onWindow)
 	claimStatus.Name = "ClaimStatus"
 	claimStatus.LayoutOrder = 2
 	claimStatus.TextXAlignment = Enum.TextXAlignment.Right
 	claimStatus.ZIndex = 14
 	claimStatus.TextSize = 20 -- see the wash note at xpCaption
 
-	local xpSources = UI.label(statusCol, "XP FROM QUESTS  REBIRTHS  DAILY LOGIN", "meta", T.color.textMuted)
+	local xpSources = UI.label(statusCol, "XP FROM QUESTS  REBIRTHS  DAILY LOGIN", "meta", OLIVE.muted)
 	xpSources.Name = "XPSources"
 	xpSources.LayoutOrder = 3
 	xpSources.TextXAlignment = Enum.TextXAlignment.Right
@@ -455,7 +521,7 @@ function PassPanel.Build(ctx, opts)
 		return l
 	end
 
-	local freeHead = columnHeading("FreeHeading", "FREE TRACK \u{00B7} EVERYONE", FREE_X, CARD_W, S.Surface.ReadSub)
+	local freeHead = columnHeading("FreeHeading", "FREE TRACK \u{00B7} EVERYONE", FREE_X, CARD_W, OLIVE.muted)
 	freeHead.Font = S.Font.Read
 	freeHead.TextSize = 20
 	freeHead:SetAttribute("NoPolish", true)
@@ -524,11 +590,17 @@ function PassPanel.Build(ctx, opts)
 		local locked = (not trackOpen) or (not reached)
 		local claimable = trackOpen and reached and not claimed
 
-		-- sheet ramps: free track green, open premium gold, locked inert.
-		-- CLAIMED keeps its track's ramp -- the state is a WORD, not a colour.
+		-- Field study delta 8 (PS99 f072/f073): the tile IS the state box.
+		-- CLAIMED = green tile + darker-green edge + "Claimed!" strip; LOCKED =
+		-- silver-grey Inert tile; open cards keep track identity (free green,
+		-- premium gold -- the pass is REAL MONEY, so gold is right here).
 		local ramp
-		if locked then
-			ramp = S.Action.Inert
+		local edge: Color3? = nil -- nil -> the plate's default dark outline
+		if claimed then
+			ramp = S.Action.GreenFill
+			edge = Color3.fromHex("1F7A1A") -- darker green: claimed reads as settled
+		elseif locked then
+			ramp = S.Action.Inert -- PS99 silver 93A1B4 -> 6E7E94
 		elseif isPass then
 			ramp = S.Action.Gold
 		else
@@ -540,19 +612,17 @@ function PassPanel.Build(ctx, opts)
 			size = UDim2.fromOffset(CARD_W, ROW_H),
 			position = UDim2.fromOffset(isPass and PASS_X or FREE_X, 0),
 			colors = ramp,
+			strokeColor = edge,
 			radius = 24,
 			outline = 6,
 			zIndex = 15,
 			parent = row,
 			gloss = false,
 		})
-		if locked then
-			-- sheet: the row drops to 90% opacity; do NOT desaturate the whole
-			-- row (that loses the reward) -- the ART alone goes grey below
-			card.BackgroundTransparency = 0.1
-		end
 
-		local ink = locked and Color3.fromHex("B7C6D8") or S.Surface.ReadInk
+		-- Delta 8: every tile is a light-to-mid surface (green / gold / silver),
+		-- so they all carry the shared dark ReadInk (light surface, dark ink).
+		local ink = S.Surface.ReadInk
 
 		if claimable then
 			UI.claimRing(card)
@@ -567,7 +637,7 @@ function PassPanel.Build(ctx, opts)
 			size = UDim2.fromOffset(PLATE, PLATE),
 			position = UDim2.new(0, PLATE_X, 0.5, 0),
 			anchor = Vector2.new(0, 0.5),
-			colors = locked and S.Action.Inert or { Color3.new(1, 1, 1), Color3.fromHex("FFF4D9") }, -- LemonPop light card (was #E4EDF7)
+			colors = { Color3.new(1, 1, 1), Color3.fromHex("E4EDF7") }, -- always the light plate: locked art must stay FULL-COLOUR (delta 8)
 			radius = 18,
 			outline = 5,
 			zIndex = card.ZIndex + 1,
@@ -583,20 +653,20 @@ function PassPanel.Build(ctx, opts)
 				zIndex = plate.ZIndex + 1,
 			})
 		end
-		if not art and rw.kind == "Darrels" and IconArt and IconArt.has("darrel") then
-			-- The darrel has its OWN drawn icon -- the one on the HUD currency pill.
+		if not art and rw.kind == "Emeralds" and IconArt and IconArt.has("emerald") then
+			-- The emerald has its OWN drawn icon -- the one on the HUD currency pill.
 			-- T.icons.gem is a generic purple gem and is not the same thing, so
 			-- these tiers would otherwise advertise the wrong currency.
 			local box = PLATE - 12
 			local host = Instance.new("Frame")
-			host.Name = "DarrelIcon"
+			host.Name = "EmeraldIcon"
 			host.AnchorPoint = Vector2.new(0.5, 0.5)
 			host.Position = UDim2.fromScale(0.5, 0.5)
 			host.Size = UDim2.fromOffset(box, box)
 			host.BackgroundTransparency = 1
 			host.ZIndex = plate.ZIndex + 1
 			host.Parent = plate
-			IconArt.draw(host, "darrel", box, host.ZIndex + 1)
+			IconArt.draw(host, "emerald", box, host.ZIndex + 1)
 			art = host
 		end
 		if not art and rw.glyph then
@@ -623,15 +693,8 @@ function PassPanel.Build(ctx, opts)
 			art.ZIndex = plate.ZIndex + 1
 		end
 		art.Name = "ArtSlot"
-		if locked then
-			-- sheet: locked premium art at 40% grayscale (approximated with a
-			-- grey tint -- ImageColor3 is the only lever an ImageLabel has)
-			if art:IsA("ImageLabel") then
-				art.ImageColor3 = Color3.fromRGB(150, 150, 150)
-			elseif art:IsA("TextLabel") then
-				art.TextTransparency = 0.4
-			end
-		end
+		-- Delta 8: locked art stays FULL-COLOUR -- the silver tile alone says
+		-- "locked"; the reward itself is always worth seeing.
 
 		----------------------------------------------------- name + subtitle
 		local rewardText
@@ -655,7 +718,7 @@ function PassPanel.Build(ctx, opts)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		name.ZIndex = card.ZIndex + 2
 
-		local sub = UI.label(card, subtitleFor(rw, SEASON.Number), "meta", locked and T.color.textDisabled or Color3.fromHex("2E5A38")) -- LemonPop: warm disabled taupe (was slate #8FA2B6)
+		local sub = UI.label(card, subtitleFor(rw, SEASON.Number), "meta", locked and S.Surface.ReadInk or Color3.fromHex("2E5A38")) -- dark ink on the silver tile; track green on open/claimed cards
 		sub.Name = "SubLabel"
 		sub.Position = UDim2.fromOffset(TEXT_X, 43)
 		sub.Size = UDim2.fromOffset(TEXT_W, 18)
@@ -670,7 +733,7 @@ function PassPanel.Build(ctx, opts)
 			local pill = PC.pill({
 				name = "ClaimPill",
 				text = "CLAIM",
-				colors = { Color3.new(1, 1, 1), Color3.fromHex("FFF4D9") }, -- LemonPop light card (was #DCE6F0)
+				colors = { Color3.new(1, 1, 1), Color3.fromHex("DCE6F0") }, -- cool light pill, pre-LemonPop value restored (was #FFF4D9)
 				size = UDim2.fromOffset(ACTION_W + 20, 54),
 				position = UDim2.new(1, -10, 0.5, 0),
 				anchor = Vector2.new(1, 0.5),
@@ -690,19 +753,20 @@ function PassPanel.Build(ctx, opts)
 				ctx.remotes.SeasonClaim:FireServer(tier, track)
 			end)
 		elseif claimed then
-			-- sheet: claimed is the WORD
-			local done = PC.shout({
-				name = "ClaimedMark", text = "CLAIMED", size = 22,
+			-- Delta 8: white "Claimed!" strip at full strength on the green tile
+			-- (shout = white bubble fill + dark contextual stroke already).
+			PC.shout({
+				name = "ClaimedMark", text = "Claimed!", size = 22,
 				anchor = Vector2.new(1, 0.5),
 				position = UDim2.new(1, -16, 0.5, 0),
 				frameSize = UDim2.fromOffset(130, 26),
 				zIndex = card.ZIndex + 2, parent = card,
 			})
-			done.TextTransparency = 0.1
 		else
-			-- The design's greyed "TIER 46" marker: what you must reach, said
-			-- plainly, instead of a dead button.
-			local marker = PC.shout({
+			-- Delta 8 'Locked' strip: white bubble text w/ dark stroke, full
+			-- strength on the silver tile. An open-but-unreached rung keeps its
+			-- "TIER 46" wording -- same strip, but it names the requirement.
+			PC.shout({
 				name = "LockMarker",
 				text = (not trackOpen) and "LOCKED" or ("TIER " .. tier),
 				size = 20,
@@ -711,7 +775,6 @@ function PassPanel.Build(ctx, opts)
 				frameSize = UDim2.fromOffset(120, 24),
 				zIndex = card.ZIndex + 2, parent = card,
 			})
-			marker.TextTransparency = 0.25
 		end
 	end
 
@@ -745,7 +808,7 @@ function PassPanel.Build(ctx, opts)
 		strip.ZIndex = 15
 		strip.Parent = scroll
 
-		local label = UI.label(strip, "MILESTONE \u{00B7} TIER " .. tier, "chip", Color3.fromHex("B8860B"))
+		local label = UI.label(strip, "MILESTONE \u{00B7} TIER " .. tier, "chip", Color3.fromHex("FFD84D")) -- textAccentOnDark: gold on the dark body
 		label.Name = "MilestoneLabel"
 		label.AnchorPoint = Vector2.new(0.5, 0.5)
 		label.Position = UDim2.fromScale(0.5, 0.5)
@@ -857,7 +920,11 @@ function PassPanel.Build(ctx, opts)
 	footer.ZIndex = 12
 	footer.Parent = group
 
-	local footerNote = UI.label(footer, "Buying premium unlocks every tier you have already passed -- nothing is missed.", "meta", T.color.white)
+	-- 2026-08-17 round-12 catch (probed live): both footer labels were
+	-- strokeless WHITE sitting directly on the f5f8fc shell Body -- invisible.
+	-- Dark ink per the light-surface rule; the existing TextTransparency
+	-- knock-backs carry the hierarchy exactly as they did for white-on-dark.
+	local footerNote = UI.label(footer, "Buying premium unlocks every tier you have already passed -- nothing is missed.", "meta", T.color.textOnLight)
 	footerNote.Name = "FooterNote"
 	footerNote.AnchorPoint = Vector2.new(0, 0.5)
 	footerNote.Position = UDim2.new(0, 4, 0.5, 0)
@@ -868,7 +935,7 @@ function PassPanel.Build(ctx, opts)
 	if type(SEASON.Ends) == "number" then
 		footerId = footerId .. "   ENDS " .. string.upper(os.date("!%d %b", SEASON.Ends :: number))
 	end
-	local footerTag = UI.label(footer, footerId, "meta", T.color.white)
+	local footerTag = UI.label(footer, footerId, "meta", T.color.textOnLight)
 	footerTag.Name = "FooterTag"
 	footerTag.AnchorPoint = Vector2.new(1, 0.5)
 	footerTag.Position = UDim2.new(1, -4, 0.5, 0)
@@ -883,6 +950,9 @@ function PassPanel.Build(ctx, opts)
 	-- not on the proven tween whitelist in this place.
 	local BLUR_NAME = "PassPanelBlur"
 	local function setBlur(on: boolean)
+		-- centralised 2026-08-17: GameHUDClient owns the one shared HUDPanelBlur
+		-- (blur-never-dim); a second per-panel BlurEffect only stacked on top
+		do return end
 		local existing = Lighting:FindFirstChild(BLUR_NAME)
 		if on and not existing then
 			local blur = Instance.new("BlurEffect")
