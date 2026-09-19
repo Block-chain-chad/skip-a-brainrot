@@ -1,638 +1,366 @@
---!strict
--- ShopPanel: Robux purchase panel -- a GameHUDPanels consumer module
--- (StarterPlayer.StarterPlayerScripts.GameHUDPanels.ShopPanel).
+-- ShopPanel: the Robux shop -- a GameHUDPanels consumer module.
 --
--- Contract (identical to PassPanel/DailyPanel/GoalsPanel -- the family
--- template, read those headers first):
---   return { Id = "shop", Build = function(ctx) -> Frame }
--- Build is called ONCE lazily on first open; the shell (GameHUDClient) parents
--- the returned Frame into ctx.host and owns Visible toggling on every
--- open/close after that -- this module never sets its own Parent or drives
--- its own open/close animation. GameHUDClient's startup loop auto-registers
--- any ModuleScript in this folder (GameHUDClient.client.lua ~:1415), so this
--- file needs NO registration edit -- only a rail button to be reachable (see
--- docs/monetization/shop-panel-remotes.md for that proposed one-liner).
+-- Two sections, both read from the SHARED catalogs so a price shown here is the
+-- same row the server registers: GamepassConfig (7 passes) and EmeraldPackConfig
+-- (4 emerald packs).
 --
--- ============================================================================
--- DATA CONTRACT (read ReplicatedStorage.Modules.GamepassConfig,
--- ServerScriptService.Modules.GamepassService and
--- ServerScriptService.Modules.ProductRegistry FULLY before touching this):
+-- AN ITEM WHOSE ID IS STILL 0 IS NOT FOR SALE. Both catalogs ship with every id at
+-- 0 -- the "not created yet" sentinel -- and such a row renders as COMING SOON with
+-- no button rather than a BUY that takes a click and does nothing. Filling a real
+-- id into the config is the single act that puts an item on sale; nothing here
+-- needs editing for that.
 --
---   Pass catalog -- GamepassConfig.List (SHARED on purpose: its own header
---     says "SHARED so a future shop UI can read names / icons / prices
---     straight from here"). Key/GamepassId/Name/Icon/Desc/RobuxPrice consumed
---     verbatim. GamepassId == 0 means "not created yet" (GamepassService
---     convention) -> the card renders COMING SOON and NEVER carries a click
---     connection. Double-guarded: the disabled-variant button is Active=false
---     AND no handler is ever connected to it; live buy handlers ALSO re-check
---     id > 0 and not-owned at click time.
---
---   Darrel packs -- ProductRegistry.Init's PACK_AMOUNTS { 80, 180, 400, 1000 }
---     with PACK_IDS all 0. Those tables are LOCALS inside a server module the
---     client cannot require, so this panel carries a mirror (PACK_FALLBACK
---     below) that MUST be kept in sync by hand until the optional ShopState
---     remote exists. ProductId == 0 -> COMING SOON, same no-connection rule.
---
---   remotes.ShopState -- OPTIONAL RemoteFunction, does not exist in this
---     build (documented + proposed server patch in
---     docs/monetization/shop-panel-remotes.md):
---       client -> server: ShopState:InvokeServer()   (no args)
---       returns: { Owned = { [PassKey: string]: true },
---                  Packs = { { Amount: number, ProductId: number }, ... } }
---     Resolved with a BOUNDED WaitForChild (5s, ToastClient/SettingsPanel
---     convention) inside a spawned thread so the lazy Build never stalls
---     openPanel. Absent (today) -> permanent client-only fallback:
---       - ownership: MarketplaceService:UserOwnsGamePassAsync per pass with a
---         REAL id (zero calls while everything is 0), pcall'd like
---         GamepassService.refresh does server-side;
---       - packs: the PACK_FALLBACK mirror.
---
---   Purchases -- client-side MarketplaceService prompts, per task spec:
---     PromptGamePassPurchase(player, GamepassId) for passes,
---     PromptProductPurchase(player, ProductId) for Darrel packs. No new
---     purchase remotes: grants already land server-side via GamepassService's
---     PromptGamePassPurchaseFinished cache listener (passes) and
---     ProductRegistry.ProcessReceipt (products -- the game's single
---     ProcessReceipt assignment; see that file's header).
---
---   Ownership state -- server-confirmed only, with ONE deliberate exception
---     mirroring the server's own convention: the client's
---     PromptGamePassPurchaseFinished(wasPurchased=true) flips owned[Key]
---     locally, exactly like GamepassService.Init's listener flips its cache.
---     No other click handler ever writes into `owned`.
---
--- Pack prices are NOT in ProductRegistry (dev-product prices live on the
--- dashboard), so live packs fetch theirs via GetProductInfo(id, Product) --
--- pcall'd, cached, async; the button says "BUY" until the price lands. Pass
--- prices come straight from GamepassConfig.RobuxPrice (display only; Roblox
--- charges the dashboard price at prompt time regardless).
---
--- Emoji note: pass Icon glyphs render on the default face (FredokaOne has no
--- emoji -- GameHUDClient's glyphFallback comment), with NoPolish set so the
--- UIPolish sweep leaves them alone. GamepassConfig's 1F9F2 (magnet) is not
--- yet render-proven in this build's emoji font -- flagged in the companion
--- doc, swap the Icon string in GamepassConfig if it shows tofu.
--- ============================================================================
-
-local Players = game:GetService("Players")
+-- >>> BEFORE FILLING IN ANY PASS ID <<<
+-- The pass EFFECTS are not wired into gameplay yet: GamepassService exposes
+-- CashMult / LuckMult / PowerMult / ChargeMult / HasFlag and, as of writing,
+-- nothing calls them. Six of the seven passes would therefore take Robux and do
+-- nothing. Wire the effects first, then create the passes.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local MarketplaceService = game:GetService("MarketplaceService")
 
-local player = Players.LocalPlayer
-local modules = ReplicatedStorage:WaitForChild("Modules")
-local GamepassConfig = require(modules:WaitForChild("GamepassConfig"))
+local Mods = ReplicatedStorage:WaitForChild("Modules")
+local GamepassConfig = require(Mods:WaitForChild("GamepassConfig"))
+local EmeraldPackConfig = require(Mods:WaitForChild("EmeraldPackConfig"))
+-- Emerald's drawn face, for the pack cards. He is not part of the UI kit, so there is no
+-- Tokens.icons entry and an artSlot would render an empty box -- same reason GoalsPanel
+-- reaches for this module. pcall'd so a missing module costs an icon, not the panel.
+local okIconArt, IconArt = pcall(function() return require(Mods.UIKit.IconArt) end)
+if not okIconArt then IconArt = nil end
 
 local ShopPanel = { Id = "shop" }
 
-function ShopPanel.Build(ctx)
-	local T = ctx.Tokens
-	local UI = ctx.Builders
-
-	-- Darrel's drawn face + the kit's shop art, pcall'd (GoalsPanel
-	-- convention): a missing or broken IconArt must not take the panel down.
-	local okIconArt, IconArt = pcall(function()
-		return require(game:GetService("ReplicatedStorage").Modules.UIKit.IconArt)
-	end)
-	if not okIconArt then IconArt = nil end
-
-	----------------------------------------------------------- geometry
-	-- No `shop` key exists in T.size.panelWidth yet (Tokens is not edited by
-	-- this task); 900 matches Daily's slot in the width family and clears the
-	-- 2-column left rail with room to spare. Forward-compatible read: paste a
-	-- shop key into Tokens later and this line starts honouring it.
-	local PANEL_W = T.size.panelWidth.shop or 900
-	local HEADER_H = T.size.headerHeight -- 92
-	local BODY_TOP = HEADER_H + 12
-	local TAB_H = 56 -- GoalsPanel's tab bar height, verbatim
-	local TAB_GAP = T.pad.gap -- 12 (same token GoalsPanel's tabs reuse)
-	local CONTENT_GAP = 12
-	local CONTENT_H = 480 -- GoalsPanel's rows viewport, verbatim (5x88 + 4x10)
-	local BODY_CONTENT_H = TAB_H + CONTENT_GAP + CONTENT_H -- 548
-	local BODY_H = T.pad.panel * 2 + BODY_CONTENT_H -- 580
-	local GROUP_H = BODY_TOP + BODY_H -- 684, fits the 775 canvas
-	local BODY_INNER_W = PANEL_W - T.pad.panel * 2 -- 868
-	local TAB_W = (BODY_INNER_W - TAB_GAP) / 2 -- two tabs, not Goals' three
-
-	-- pass rows (GoalsPanel quest-row family)
-	local ROW_H = T.size.questRow -- 88
-	local ROW_GAP = T.pad.rowGap -- 10
-	local ROW_PAD_X = 12
-	local ICON_W = 60
-	local TEXT_X = ROW_PAD_X + ICON_W + 10
-	local ACTION_W, ACTION_H = 190, 60 -- 190: "COMING SOON" at buttonM needs it
-
-	-- darrel pack cards (PassPanel reward-card family, taller for a buy button)
-	local CARD_W, CARD_H = 196, 300
-	local CARD_GAP = T.pad.gridGap -- 11
-	local CARDS_Y = 66
-
-	----------------------------------------------------------- module-local state
-	-- `owned` is server-confirmed only (plus the PromptGamePassPurchaseFinished
-	-- exception documented in the header). `packs` starts as the hand-kept
-	-- mirror of ProductRegistry.Init's locals and is REPLACED wholesale by a
-	-- ShopState payload if that remote ever appears.
-	local owned: { [string]: boolean } = {}
-	local PACK_FALLBACK = {
-		{ Amount = 80, ProductId = 0 },
-		{ Amount = 180, ProductId = 0 },
-		{ Amount = 400, ProductId = 0 },
-		{ Amount = 1000, ProductId = 0 },
-	}
-	local packs: { { Amount: number, ProductId: number } } = PACK_FALLBACK
-	local productPrice: { [number]: number } = {} -- GetProductInfo cache
-	local shopStateRemote: RemoteFunction? = nil
-
-	-- remember the open tab across close/reopen, mirroring goals.tab; the key
-	-- is created here because the shell's state table predates this panel.
-	ctx.state.shop = ctx.state.shop or { tab = "Passes" }
-	local activeTab: string = (ctx.state.shop.tab == "Darrels") and "Darrels" or "Passes"
-
-	----------------------------------------------------------- root
-	local wrapper = Instance.new("Frame")
-	wrapper.Name = "ShopPanel"
-	wrapper.Size = UDim2.fromScale(1, 1)
-	wrapper.BackgroundTransparency = 1
-	wrapper.ZIndex = 10
-
-	local panelCol = Instance.new("Frame")
-	panelCol.Name = "PanelColumn"
-	panelCol.AnchorPoint = Vector2.new(0.5, 0.5)
-	panelCol.Position = UDim2.fromScale(0.5, 0.5)
-	panelCol.Size = UDim2.fromOffset(PANEL_W, GROUP_H)
-	panelCol.BackgroundTransparency = 1
-	panelCol.ZIndex = 10
-	panelCol.Parent = wrapper
-
-	----------------------------------------------------------- header (common shell, README §3) -- gold, money surface
-	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "gold", T.radius.panel, T.stroke.panel)
-	header.Name = "Header"
-	header.Position = UDim2.fromOffset(0, 0)
-	header.ZIndex = 12
-	UI.gloss(header, T.radius.panel)
-	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
-
-	local iconPlate = UI.surface(header, UDim2.fromOffset(62, 62), "goldSmall", T.radius.small, T.stroke.control)
-	iconPlate.Name = "SectionIconPlate"
-	iconPlate.AnchorPoint = Vector2.new(0, 0.5)
-	iconPlate.Position = UDim2.new(0, 12, 0.5, 0)
-	iconPlate.ZIndex = header.ZIndex + 1
-	UI.gloss(iconPlate, T.radius.small)
-
-	-- the kit's own "shops" vector art; money-bag glyph (render-proven, see
-	-- GameHUDClient's GLYPH table) only if IconArt is missing entirely
-	local headerArt = IconArt and IconArt.has("shops")
-		and IconArt.draw(iconPlate, "shops", 48, iconPlate.ZIndex + 2)
-		or nil
-	if headerArt then
-		headerArt.AnchorPoint = Vector2.new(0.5, 0.5)
-		headerArt.Position = UDim2.fromScale(0.5, 0.5)
-	else
-		local glyph = Instance.new("TextLabel")
-		glyph.Name = "SectionGlyph"
-		glyph.BackgroundTransparency = 1
-		glyph.Size = UDim2.fromScale(1, 1)
-		glyph.Text = "\u{1F4B0}"
-		glyph.TextSize = 34
-		glyph.TextXAlignment = Enum.TextXAlignment.Center
-		glyph.TextYAlignment = Enum.TextYAlignment.Center
-		-- default face on purpose: FredokaOne has no emoji glyphs
-		glyph.ZIndex = iconPlate.ZIndex + 2
-		glyph:SetAttribute("NoPolish", true)
-		glyph.Parent = iconPlate
-	end
-
-	local headerTitle = UI.label(header, "Shop", "panelTitle", T.color.white)
-	headerTitle.Name = "Title"
-	headerTitle.AnchorPoint = Vector2.new(0, 0.5)
-	headerTitle.Position = UDim2.new(0, 12 + 62 + 14, 0.5, 0)
-	headerTitle.ZIndex = header.ZIndex + 2
-
-	local closeBtn = UI.button(header, "X", "red", UDim2.fromOffset(T.size.closeButton.X, T.size.closeButton.Y), "buttonL")
-	closeBtn.Name = "CloseButton"
-	closeBtn.AnchorPoint = Vector2.new(1, 0.5)
-	closeBtn.Position = UDim2.new(1, -12, 0.5, 0)
-	closeBtn.ZIndex = header.ZIndex + 2
-
-	----------------------------------------------------------- body (common shell, README §3)
-	local body = UI.panel(panelCol, UDim2.fromOffset(PANEL_W, BODY_H)) -- UI.panel adds the 16px UIPadding all layout below is measured against
-	body.Name = "Body"
-	body.Position = UDim2.fromOffset(0, BODY_TOP)
-	body.ZIndex = 12
-
-	----------------------------------------------------------- tabs (GoalsPanel pattern, two-wide)
-	local TAB_DEFS = { "Passes", "Darrels" }
-	local tabsRow = Instance.new("Frame")
-	tabsRow.Name = "Tabs"
-	tabsRow.Position = UDim2.fromOffset(0, 0)
-	tabsRow.Size = UDim2.new(1, 0, 0, TAB_H)
-	tabsRow.BackgroundTransparency = 1
-	tabsRow.ZIndex = 14
-	tabsRow.Parent = body
-
-	local tabButtons: { [string]: TextButton } = {}
-	local tabRings: { [string]: Frame } = {}
-
-	for i, id in ipairs(TAB_DEFS) do
-		local btn = UI.button(tabsRow, id, "tab", UDim2.fromOffset(TAB_W, TAB_H), "buttonM")
-		btn.Name = "Tab" .. id
-		btn.Position = UDim2.fromOffset((i - 1) * (TAB_W + TAB_GAP), 0)
-		btn.ZIndex = 14
-		tabButtons[id] = btn
-
-		-- static active-state gold ring (GoalsPanel convention: claimRing's
-		-- inset/radius, NO pulse -- selection indicator, not an affordance)
-		local ring = Instance.new("Frame")
-		ring.Name = "ActiveRing"
-		ring.Size = UDim2.new(1, 8, 1, 8)
-		ring.Position = UDim2.fromOffset(-4, -4)
-		ring.BackgroundTransparency = 1
-		ring.Visible = false
-		ring.ZIndex = btn.ZIndex + 3
-		ring.Parent = btn
-		UI.corner(ring, T.radius.control + 3)
-		local ringStroke = Instance.new("UIStroke")
-		ringStroke.Thickness = 4
-		ringStroke.Color = T.color.activeRing
-		ringStroke.Parent = ring
-		tabRings[id] = ring
-	end
-
-	----------------------------------------------------------- tab content hosts
-	-- Two persistent frames toggled by tab, rebuilt in place on data refresh.
-	local passScroll = Instance.new("ScrollingFrame")
-	passScroll.Name = "PassRows"
-	passScroll.Position = UDim2.fromOffset(0, TAB_H + CONTENT_GAP)
-	passScroll.Size = UDim2.new(1, 0, 0, CONTENT_H)
-	passScroll.BackgroundTransparency = 1
-	passScroll.BorderSizePixel = 0
-	passScroll.ScrollingDirection = Enum.ScrollingDirection.Y
-	passScroll.ScrollBarThickness = 10
-	passScroll.ScrollBarImageColor3 = T.color.scrollThumb
-	passScroll.CanvasSize = UDim2.new()
-	passScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	passScroll.ElasticBehavior = Enum.ElasticBehavior.Never
-	passScroll.ZIndex = 14
-	passScroll.Parent = body
-
-	local passList = Instance.new("UIListLayout")
-	passList.FillDirection = Enum.FillDirection.Vertical
-	passList.SortOrder = Enum.SortOrder.LayoutOrder
-	passList.Padding = UDim.new(0, ROW_GAP)
-	passList.Parent = passScroll
-
-	local darrelContent = Instance.new("Frame")
-	darrelContent.Name = "DarrelCards"
-	darrelContent.Position = UDim2.fromOffset(0, TAB_H + CONTENT_GAP)
-	darrelContent.Size = UDim2.new(1, 0, 0, CONTENT_H)
-	darrelContent.BackgroundTransparency = 1
-	darrelContent.ZIndex = 14
-	darrelContent.Parent = body
-
-	----------------------------------------------------------- shared bits
-	local function clearGui(container: Instance)
-		-- rows/cards (and their hardShadow siblings) are all GuiObjects; the
-		-- UIListLayout survives, PassPanel's clearRow convention
-		for _, c in ipairs(container:GetChildren()) do
-			if c:IsA("GuiObject") then
-				c:Destroy()
-			end
-		end
-	end
-
-	local function centreLabel(l: TextLabel, parentZ: number)
-		l.AnchorPoint = Vector2.new(0.5, 0.5)
-		l.Position = UDim2.fromScale(0.5, 0.5)
-		l.Size = UDim2.fromScale(1, 1)
-		l.AutomaticSize = Enum.AutomaticSize.None
-		l.TextXAlignment = Enum.TextXAlignment.Center
-		l.ZIndex = parentZ + 2
-	end
-
-	----------------------------------------------------------- Passes tab
-	local function renderPasses()
-		clearGui(passScroll)
-		for i, g in ipairs(GamepassConfig.List) do
-			local row = UI.surface(passScroll, UDim2.new(1, -12, 0, ROW_H), "row", T.radius.control, T.stroke.control)
-			row.Name = "PassRow" .. g.Key
-			row.LayoutOrder = i
-			row.ZIndex = 15
-
-			local plate = UI.surface(row, UDim2.fromOffset(ICON_W, ICON_W), "slot", T.radius.small, T.stroke.control)
-			plate.Name = "IconPlate"
-			plate.AnchorPoint = Vector2.new(0, 0.5)
-			plate.Position = UDim2.new(0, ROW_PAD_X, 0.5, 0)
-			plate.ZIndex = row.ZIndex + 1
-
-			local glyph = Instance.new("TextLabel")
-			glyph.Name = "IconGlyph"
-			glyph.BackgroundTransparency = 1
-			glyph.Size = UDim2.fromScale(1, 1)
-			glyph.Text = g.Icon or "?"
-			glyph.TextSize = 32
-			glyph.TextXAlignment = Enum.TextXAlignment.Center
-			glyph.TextYAlignment = Enum.TextYAlignment.Center
-			-- default face on purpose (emoji); NoPolish per rail convention
-			glyph.ZIndex = plate.ZIndex + 2
-			glyph:SetAttribute("NoPolish", true)
-			glyph.Parent = plate
-
-			local name = UI.label(row, g.Name, "value", T.color.white)
-			name.Name = "NameLabel"
-			name.Position = UDim2.fromOffset(TEXT_X, 12)
-			name.ZIndex = row.ZIndex + 2
-
-			local desc = UI.label(row, g.Desc, "meta", T.color.textMuted)
-			desc.Name = "DescLabel"
-			desc.Position = UDim2.fromOffset(TEXT_X, 52)
-			desc.Size = UDim2.new(1, -(TEXT_X + ACTION_W + ROW_PAD_X + 12), 0, 18)
-			desc.AutomaticSize = Enum.AutomaticSize.None
-			desc.TextTruncate = Enum.TextTruncate.AtEnd
-			desc.ZIndex = row.ZIndex + 2
-
-			if owned[g.Key] then
-				-- OWNED: a dead surface, not a button -- inherently unclickable
-				-- (T.gradient.ownedCta is the kit's own owned-CTA treatment)
-				local chip = UI.surface(row, UDim2.fromOffset(ACTION_W, ACTION_H), "ownedCta", T.radius.control, T.stroke.control)
-				chip.Name = "OwnedChip"
-				chip.AnchorPoint = Vector2.new(1, 0.5)
-				chip.Position = UDim2.new(1, -ROW_PAD_X, 0.5, 0)
-				chip.ZIndex = row.ZIndex + 1
-				UI.gloss(chip, T.radius.control)
-				local lbl = UI.label(chip, "\u{2713} OWNED", "buttonM", T.color.white)
-				lbl.Name = "OwnedLabel"
-				centreLabel(lbl, chip.ZIndex)
-			elseif g.GamepassId > 0 then
-				local btn = UI.button(row, "R$ " .. tostring(g.RobuxPrice), "green", UDim2.fromOffset(ACTION_W, ACTION_H), "buttonM")
-				btn.Name = "BuyButton"
-				btn.AnchorPoint = Vector2.new(1, 0.5)
-				btn.Position = UDim2.new(1, -ROW_PAD_X, 0.5, 0)
-				btn.ZIndex = row.ZIndex + 1
-				-- The ONE PromptGamePassPurchase call site in this module.
-				-- Click-time re-check: the row may be stale (bought in another
-				-- window, id zeroed by a hot-edit) -- never trust the render.
-				btn.MouseButton1Click:Connect(function()
-					if g.GamepassId > 0 and not owned[g.Key] then
-						MarketplaceService:PromptGamePassPurchase(player, g.GamepassId)
-					end
-				end)
-			else
-				-- GamepassId == 0: COMING SOON, and NEVER a purchase prompt.
-				-- "disabled" variant is Active=false with no click sfx, and no
-				-- handler is connected here -- there is nothing to fire.
-				local btn = UI.button(row, "COMING SOON", "disabled", UDim2.fromOffset(ACTION_W, ACTION_H), "buttonM")
-				btn.Name = "ComingSoonButton"
-				btn.AnchorPoint = Vector2.new(1, 0.5)
-				btn.Position = UDim2.new(1, -ROW_PAD_X, 0.5, 0)
-				btn.ZIndex = row.ZIndex + 1
-			end
-		end
-	end
-
-	----------------------------------------------------------- Darrels tab
-	local function renderPacks()
-		clearGui(darrelContent)
-		local totalW = #packs * CARD_W + math.max(#packs - 1, 0) * CARD_GAP
-		local x0 = math.max(math.floor((BODY_INNER_W - totalW) / 2), 0)
-		for i, pack in ipairs(packs) do
-			-- hand-positioned (no UIListLayout) so UI.hardShadow's sibling
-			-- shadow can't corrupt a layout -- see PassPanel's slot-wrapper
-			-- comment for the failure mode this sidesteps
-			local card = UI.surface(darrelContent, UDim2.fromOffset(CARD_W, CARD_H), "freeCard", T.radius.control, T.stroke.control)
-			card.Name = "PackCard" .. tostring(pack.Amount)
-			card.Position = UDim2.fromOffset(x0 + (i - 1) * (CARD_W + CARD_GAP), CARDS_Y)
-			card.ZIndex = 15
-			UI.hardShadow(card, T.shadowOffset.control, T.radius.control)
-
-			local amount = UI.label(card, tostring(pack.Amount), "buttonL", T.color.textOnLight)
-			amount.Name = "AmountLabel"
-			amount.AnchorPoint = Vector2.new(0.5, 0)
-			amount.Position = UDim2.new(0.5, 0, 0, 12)
-			amount.Size = UDim2.new(1, -16, 0, 34)
-			amount.AutomaticSize = Enum.AutomaticSize.None
-			amount.TextXAlignment = Enum.TextXAlignment.Center
-			amount.ZIndex = card.ZIndex + 2
-
-			local unit = UI.label(card, "DARRELS", "cardLabel", T.color.textOnLight)
-			unit.Name = "UnitLabel"
-			unit.AnchorPoint = Vector2.new(0.5, 0)
-			unit.Position = UDim2.new(0.5, 0, 0, 48)
-			unit.Size = UDim2.new(1, -16, 0, 22)
-			unit.AutomaticSize = Enum.AutomaticSize.None
-			unit.TextXAlignment = Enum.TextXAlignment.Center
-			unit.ZIndex = card.ZIndex + 2
-
-			local artHost = Instance.new("Frame")
-			artHost.Name = "ArtHost"
-			artHost.AnchorPoint = Vector2.new(0.5, 0)
-			artHost.Position = UDim2.new(0.5, 0, 0, 82)
-			artHost.Size = UDim2.fromOffset(116, 116)
-			artHost.BackgroundTransparency = 1
-			artHost.ZIndex = card.ZIndex + 1
-			artHost.Parent = card
-			local face = IconArt and IconArt.has("darrel")
-				and IconArt.draw(artHost, "darrel", 116, artHost.ZIndex)
-				or nil
-			if not face then
-				local glyph = Instance.new("TextLabel")
-				glyph.Name = "Glyph"
-				glyph.BackgroundTransparency = 1
-				glyph.Size = UDim2.fromScale(1, 1)
-				glyph.Text = "\u{1F48E}" -- Darrel's pre-face diamond stand-in
-				glyph.TextSize = 64
-				glyph.TextXAlignment = Enum.TextXAlignment.Center
-				glyph.TextYAlignment = Enum.TextYAlignment.Center
-				glyph.ZIndex = artHost.ZIndex + 1
-				glyph:SetAttribute("NoPolish", true)
-				glyph.Parent = artHost
-			end
-
-			if pack.ProductId > 0 then
-				local cached = productPrice[pack.ProductId]
-				local btn = UI.button(card, cached and ("R$ " .. tostring(cached)) or "BUY", "green",
-					UDim2.fromOffset(CARD_W - 26, 54), "buttonM")
-				btn.Name = "BuyButton"
-				btn.AnchorPoint = Vector2.new(0.5, 1)
-				btn.Position = UDim2.new(0.5, 0, 1, -12)
-				btn.ZIndex = card.ZIndex + 1
-				-- The ONE PromptProductPurchase call site in this module.
-				btn.MouseButton1Click:Connect(function()
-					if pack.ProductId > 0 then
-						MarketplaceService:PromptProductPurchase(player, pack.ProductId)
-					end
-				end)
-				if not cached then
-					-- dev-product price lives on the dashboard, not in any
-					-- config -- fetch once, cache, retarget the live label
-					task.spawn(function()
-						local ok, info = pcall(function()
-							return MarketplaceService:GetProductInfo(pack.ProductId, Enum.InfoType.Product)
-						end)
-						if ok and typeof(info) == "table" and typeof(info.PriceInRobux) == "number" then
-							productPrice[pack.ProductId] = info.PriceInRobux
-							if btn.Parent then
-								local lbl = btn:FindFirstChildOfClass("TextLabel")
-								if lbl then
-									lbl.Text = "R$ " .. tostring(info.PriceInRobux)
-								end
-							end
-						end
-					end)
-				end
-			else
-				-- ProductId == 0: COMING SOON, no connection, no prompt -- ever
-				local btn = UI.button(card, "COMING SOON", "disabled", UDim2.fromOffset(CARD_W - 26, 54), "buttonM")
-				btn.Name = "ComingSoonButton"
-				btn.AnchorPoint = Vector2.new(0.5, 1)
-				btn.Position = UDim2.new(0.5, 0, 1, -12)
-				btn.ZIndex = card.ZIndex + 1
-			end
-
-			if i == #packs and #packs > 1 then
-				local ribbon = UI.ribbon(card, "BEST VALUE", "GRAND")
-				ribbon.AnchorPoint = Vector2.new(0.5, 0.5)
-				ribbon.Position = UDim2.new(0.5, 0, 0, 0)
-				ribbon.ZIndex = card.ZIndex + 6
-			end
-		end
-
-		local caption = UI.label(darrelContent, "Darrels are spent on eggs at the Forest Egg Shop", "meta", T.color.textMuted)
-		caption.Name = "Caption"
-		caption.AnchorPoint = Vector2.new(0.5, 0)
-		caption.Position = UDim2.new(0.5, 0, 0, CARDS_Y + CARD_H + 24)
-		caption.Size = UDim2.new(1, 0, 0, 18)
-		caption.AutomaticSize = Enum.AutomaticSize.None
-		caption.TextXAlignment = Enum.TextXAlignment.Center
-		caption.ZIndex = 14
-	end
-
-	----------------------------------------------------------- tab switching
-	local function applyTab()
-		passScroll.Visible = (activeTab == "Passes")
-		darrelContent.Visible = (activeTab == "Darrels")
-		for id, ring in pairs(tabRings) do
-			ring.Visible = (id == activeTab)
-		end
-	end
-
-	local function setTab(id: string)
-		if activeTab == id then
-			return
-		end
-		activeTab = id
-		ctx.state.shop.tab = id
-		applyTab()
-	end
-
-	----------------------------------------------------------- data refresh
-	-- ShopState if it exists (server truth for ownership + real pack ids);
-	-- otherwise the documented client-only fallback. Yields -- always called
-	-- from a spawned thread, single-flighted so an open-spam can't stack
-	-- invokes.
-	local refreshing = false
-	local function refresh()
-		if refreshing then
-			return
-		end
-		refreshing = true
-		local remote = shopStateRemote
-		if remote then
-			local ok, res = pcall(function()
-				return remote:InvokeServer()
-			end)
-			if ok and typeof(res) == "table" then
-				if typeof(res.Owned) == "table" then
-					local set: { [string]: boolean } = {}
-					for k, v in pairs(res.Owned) do
-						if typeof(k) == "string" and v == true then
-							set[k] = true
-						end
-					end
-					owned = set
-				end
-				if typeof(res.Packs) == "table" then
-					local list = {}
-					for _, p in ipairs(res.Packs) do
-						if typeof(p) == "table" and typeof(p.Amount) == "number" and typeof(p.ProductId) == "number" then
-							table.insert(list, { Amount = p.Amount, ProductId = p.ProductId })
-						end
-					end
-					if #list > 0 then
-						packs = list
-					end
-				end
-			end
-		else
-			-- fallback: ask Roblox directly, but only about passes that exist
-			-- (GamepassId > 0 -- zero calls in today's all-zero build), pcall'd
-			-- exactly like GamepassService.refresh server-side
-			for _, g in ipairs(GamepassConfig.List) do
-				if g.GamepassId > 0 and not owned[g.Key] then
-					local ok, has = pcall(function()
-						return MarketplaceService:UserOwnsGamePassAsync(player.UserId, g.GamepassId)
-					end)
-					if ok and has == true then
-						owned[g.Key] = true
-					end
-				end
-			end
-		end
-		refreshing = false
-		renderPasses()
-		renderPacks()
-	end
-
-	----------------------------------------------------------- wiring
-	closeBtn.MouseButton1Click:Connect(function()
-		ctx.closePanel()
-	end)
-	for id, btn in pairs(tabButtons) do
-		btn.MouseButton1Click:Connect(function()
-			setTab(id)
+-- module-top-level capture, same race every other panel has: Build is lazy, the
+-- server's ownership push is not
+local remotesTop = ReplicatedStorage:WaitForChild("Remotes")
+local capturedState = nil
+local liveCallbacks: { (any) -> () } = {}
+do
+	local r = remotesTop:WaitForChild("ShopState", 30)
+	if r then
+		r.OnClientEvent:Connect(function(s)
+			if typeof(s) ~= "table" then return end
+			capturedState = s
+			for _, cb in ipairs(liveCallbacks) do cb(s) end
 		end)
 	end
+end
 
-	-- Mid-session purchase: flip owned locally on the client's own
-	-- wasPurchased signal -- the one sanctioned non-server write, mirroring
-	-- GamepassService.Init's identical cache update. (ByGamepassId can only
-	-- match a REAL id here: the event never fires with 0, and 0-id configs
-	-- are additionally excluded by the > 0 guard.)
-	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(plr, gamepassId, wasPurchased)
-		if plr ~= player or not wasPurchased then
-			return
-		end
-		local g = GamepassConfig.ByGamepassId(gamepassId)
-		if g and g.GamepassId > 0 then
-			owned[g.Key] = true
-			renderPasses()
-		end
+local ROBUX = "\u{E002}"   -- Roblox's own R$ glyph; renders in the default font
+
+-- 2026-08-09 HUD upgrade (design_handoff_hud_upgrade): the shop wears the
+-- sheet's PanelChrome shell -- 1180x830, yellow header, TWO columns (gap 14),
+-- 128-tall product rows, 84 icon tiles. The price plate stacks the number
+-- over the state INSIDE one plate ("SOON must not float loose beside the
+-- number as it does now"), and BEST VALUE is a rotated corner ribbon.
+-- Two families, two fills: gamepasses on white, emerald packs on violet tint
+-- -- sorted by eye, not by reading. Catalogs, live/owned rules and the
+-- ShopPrompt wiring are untouched.
+local UIKit = Mods:WaitForChild("UIKit")
+local PC = require(UIKit:WaitForChild("PanelChrome"))
+local S = require(UIKit:WaitForChild("SpecTheme"))
+
+function ShopPanel.Build(ctx)
+	local ROW_H, ROW_RADIUS, GAP = 128, 24, 14
+	local ICON = 84
+	local PRICE_W, PRICE_H = 150, 78
+	local STATE_INK = Color3.new(1, 1, 1) -- SOON reads white on the grey-blue Inert plate, same as OWNED
+
+	local state = { Owned = {} }
+
+	local shell = PC.shell({
+		name = "ShopPanel",
+		title = "SHOP",
+		key = "shop",
+		icon = S.Art.shop, -- PS99 restyle: rail sticker in the header
+		size = S.ShellFor.shop,
+		scroll = true,
+	})
+	shell.list.Padding = UDim.new(0, GAP)
+	shell.close.Activated:Connect(function()
+		if ctx.closePanel then ctx.closePanel() end
 	end)
 
-	-- Bounded remote resolution (SettingsPanel/ToastClient convention), in its
-	-- own thread so the lazy Build -- which runs inside openPanel -- never
-	-- stalls the first open. ShopState does not exist in this build; when the
-	-- proposed server patch lands, this picks it up with no client edit.
-	task.spawn(function()
-		local inst = ctx.remotes:WaitForChild("ShopState", 5)
-		if inst and inst:IsA("RemoteFunction") then
-			shopStateRemote = inst
-			refresh()
+	local order = 0
+	local function nextOrder() order += 1 return order end
+
+	-- two per row: eleven items must not become an eleven-screen scroll
+	local function pairRow()
+		local r = Instance.new("Frame")
+		r.Name = "PairRow" .. nextOrder()
+		r.LayoutOrder = order
+		r.Size = UDim2.new(1, 0, 0, ROW_H)
+		r.BackgroundTransparency = 1
+		r.ZIndex = shell.z + 2
+		r.Parent = shell.body
+		local l = Instance.new("UIListLayout")
+		l.FillDirection = Enum.FillDirection.Horizontal
+		l.SortOrder = Enum.SortOrder.LayoutOrder
+		l.Padding = UDim.new(0, GAP)
+		l.Parent = r
+		return r
+	end
+
+	local cards = {}   -- ("pass"|"pack") .. Key -> paint handles
+
+	-- `live` is the ONLY thing that decides whether an item is buyable, and it
+	-- is the id being real -- never the price, the name, or anything a client
+	-- sends. The plate carries number over state in ONE plate; only the plate
+	-- colour and the word change between live / SOON / OWNED.
+	local function buildCard(parent, slotOrder, kind, key, glyph, name, desc, price, live, best, violet)
+		local z = shell.z + 3
+		-- PS99 sticker treatment: interior icons run big and tilted like the rail's.
+		-- Alternating per slot so a row of cards doesn't lean in formation.
+		local tilt = (slotOrder % 2 == 0) and -6 or 5
+		local card = PC.plate({
+			name = kind .. key,
+			size = UDim2.new(0.5, -math.ceil(GAP / 2), 1, 0),
+			colors = violet and S.Action.VioletRow or { S.Surface.RowTop, S.Surface.RowBottom },
+			radius = ROW_RADIUS,
+			outline = 6,
+			strokeColor = S.OutlineSoft, -- PS99: interior cards wear the soft edge
+			zIndex = z,
+			parent = parent,
+			gloss = false,
+		})
+		card.LayoutOrder = slotOrder
+		card.ClipsDescendants = false
+
+		local tile = PC.plate({
+			name = "IconTile",
+			size = UDim2.fromOffset(ICON, ICON),
+			position = UDim2.new(0, 16, 0.5, 0),
+			anchor = Vector2.new(0, 0.5),
+			colors = violet and { Color3.fromHex("E9D5FF"), Color3.fromHex("C9A6EE") }
+				or { Color3.fromHex("BFD6EC"), Color3.fromHex("8FB2D4") },
+			radius = 22,
+			outline = 5,
+			strokeColor = S.OutlineSoft, -- PS99: soft edge on the icon tile too
+			zIndex = z + 1,
+			parent = card,
+		})
+		tile.ClipsDescendants = false -- the sticker overhang must show past the tile edge
+		-- SCROLL-MASK FIX (2026-08-18): the engine NEVER clips a rotated
+		-- GuiObject, so the tilted glyphs sailed over the white title band when
+		-- the list scrolled, while their unrotated cards clipped fine. The tilt
+		-- now lives inside this NON-rotated CanvasGroup: the rotation is
+		-- rasterized into the group's own rect, which the body ScrollingFrame
+		-- clips like any plain frame. Sized past the tile (an 88px square at
+		-- ~6 degrees needs ~97px) so the sticker overhang still shows -- but
+		-- only INSIDE the scroll area.
+		local sticker = Instance.new("CanvasGroup")
+		sticker.Name = "Sticker"
+		sticker.BackgroundTransparency = 1
+		sticker.BorderSizePixel = 0
+		sticker.Size = UDim2.fromOffset(ICON + 16, ICON + 16)
+		sticker.Position = UDim2.fromScale(0.5, 0.5)
+		sticker.AnchorPoint = Vector2.new(0.5, 0.5)
+		sticker.ZIndex = z + 2
+		sticker.Parent = tile
+		-- THE CURRENCY WEARS ITS OWN FACE. Emerald packs draw Emerald himself
+		-- (UIKit.IconArt), the same face the HUD counter keeps; passes keep
+		-- their config emoji.
+		if glyph == nil and IconArt and IconArt.has("emerald") then
+			local slot = Instance.new("Frame")
+			slot.Name = "Face"
+			slot.BackgroundTransparency = 1
+			slot.Size = UDim2.fromOffset(ICON + 4, ICON + 4) -- sticker: face runs a touch past the tile
+			slot.Rotation = tilt -- drawn primitives rotate with their slot, inside the sticker canvas
+			slot.Position = UDim2.fromScale(0.5, 0.5)
+			slot.AnchorPoint = Vector2.new(0.5, 0.5)
+			slot.ZIndex = z + 2
+			slot.Parent = sticker
+			IconArt.draw(slot, "emerald", ICON + 4, z + 2)
+		else
+			local g = PC.shout({
+				name = "Glyph", text = glyph or "\u{1F48E}", size = 48,
+				zIndex = z + 2, parent = sticker,
+			})
+			g.TextScaled = true
+			-- offset, not scale: the sticker canvas is wider than the tile, so
+			-- 1.05x of IT would balloon; 88px keeps the old 84*1.05 footprint
+			g.Size = UDim2.fromOffset(ICON + 4, ICON + 4) -- sticker: run just past the tile edge
+			g.Position = UDim2.fromScale(0.5, 0.5)
+			g.AnchorPoint = Vector2.new(0.5, 0.5)
+			g.Rotation = tilt
 		end
-	end)
 
-	-- Re-check ownership/packs every time the panel becomes visible (mirrors
-	-- PassPanel's open-time SeasonState refresh) -- covers the very first open
-	-- and every reopen after a purchase elsewhere.
-	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
-		if wrapper.Visible then
-			task.spawn(refresh)
+		local textX = 16 + ICON + 14
+		local textW = -(textX + PRICE_W + 34)
+		PC.read({
+			name = "Name",
+			text = name,
+			size = 26,
+			frameSize = UDim2.new(1, textW, 0, 30),
+			position = UDim2.new(0, textX, 0.5, -22),
+			anchor = Vector2.new(0, 0.5),
+			zIndex = z + 1,
+			parent = card,
+		})
+		PC.read({
+			name = "Desc",
+			text = desc,
+			size = 18,
+			color = violet and Color3.fromHex("6B4E8C") or S.Surface.ReadSub,
+			frameSize = UDim2.new(1, textW, 0, 44),
+			position = UDim2.new(0, textX, 0.5, 14),
+			anchor = Vector2.new(0, 0.5),
+			zIndex = z + 1,
+			parent = card,
+			wrap = true,
+		})
+
+		-- price plate: number stacked over state, one plate
+		local function platePaint(plate, numberLabel, stateLabel, mode)
+			local grad = plate:FindFirstChildOfClass("UIGradient")
+			-- PS99 gold inversion fix (2026-08-17): Robux prices are GOLD -- gold
+			-- means real money and nothing else. Green was backwards (green = free
+			-- in-game act) and inverted the whole game's money grammar.
+			local c = mode == "live" and S.Action.Robux or S.Action.Inert
+			-- BackgroundColor3 must move WITH the gradient: UIGradient MULTIPLIES the
+			-- background colour (mirrors PanelChrome.addHeaderTabs' repaint), so an
+			-- Inert gradient over the Go-green base rendered OWNED plates green-grey
+			plate.BackgroundColor3 = c[1]
+			if grad then grad.Color = ColorSequence.new(c[1], c[2]) end
+			if mode == "live" then
+				numberLabel.Position = UDim2.fromOffset(0, 0)
+				numberLabel.Size = UDim2.fromScale(1, 1)
+				stateLabel.Visible = false
+			else
+				numberLabel.Position = UDim2.fromOffset(0, -12)
+				numberLabel.Size = UDim2.new(1, 0, 1, 0)
+				stateLabel.Visible = true
+				stateLabel.Text = mode == "owned" and "OWNED" or "SOON"
+				stateLabel.TextColor3 = mode == "owned" and Color3.new(1, 1, 1) or STATE_INK
+			end
 		end
-	end)
 
-	applyTab()
-	renderPasses() -- initial paint from GamepassConfig + the pack mirror:
-	renderPacks() -- correct TODAY (everything id-0 -> COMING SOON) with no server round trip
+		local plate
+		if live then
+			plate = PC.pill({
+				name = "PricePlate",
+				text = "",
+				colors = S.Action.Robux, -- gold = real money (see platePaint)
+				size = UDim2.fromOffset(PRICE_W, PRICE_H),
+				position = UDim2.new(1, -16, 0.5, 0),
+				anchor = Vector2.new(1, 0.5),
+				zIndex = z + 1,
+				parent = card,
+			})
+			plate.Activated:Connect(function()
+				local r = ctx.remotes:FindFirstChild("ShopPrompt")
+				if r then r:FireServer(kind, key) end
+			end)
+			plate:FindFirstChild("Label"):Destroy() -- number/state pair below instead
+		else
+			plate = PC.plate({
+				name = "PricePlate",
+				size = UDim2.fromOffset(PRICE_W, PRICE_H),
+				position = UDim2.new(1, -16, 0.5, 0),
+				anchor = Vector2.new(1, 0.5),
+				colors = S.Action.Inert,
+				radius = 22,
+				outline = 6,
+				zIndex = z + 1,
+				parent = card,
+			})
+		end
+		local number = PC.shout({
+			name = "PriceNumber",
+			text = ROBUX .. tostring(price),
+			size = 30,
+			zIndex = z + 3,
+			parent = plate,
+			scaled = true,
+		})
+		number.Size = UDim2.new(0.9, 0, 0, 34)
+		number.Position = UDim2.new(0.05, 0, 0, 6)
+		local stateWord = PC.shout({
+			name = "PriceState",
+			text = "SOON",
+			size = 17,
+			color = STATE_INK,
+			zIndex = z + 3,
+			parent = plate,
+		})
+		stateWord.Size = UDim2.new(1, 0, 0, 20)
+		stateWord.Position = UDim2.new(0, 0, 1, -26)
+		platePaint(plate, number, stateWord, live and "live" or "soon")
 
-	return wrapper
+		-- BEST VALUE: a rotated corner ribbon, not a caption above the row.
+		-- Same rotation-escapes-clipping leak as the glyphs (PC.ribbon rotates
+		-- its whole frame 12 degrees), so it too rides inside a non-rotated
+		-- CanvasGroup the scroll mask can clip. The holder covers the ribbon's
+		-- rotated bounds (190x40 at 12 degrees ~ 195x79) and its centre sits
+		-- where the ribbon's used to: straddling the card's top-right corner.
+		if best then
+			local rHold = Instance.new("CanvasGroup")
+			rHold.Name = "RibbonHold"
+			rHold.BackgroundTransparency = 1
+			rHold.BorderSizePixel = 0
+			rHold.Size = UDim2.fromOffset(200, 84)
+			rHold.Position = UDim2.new(1, 8, 0, 12) -- the ribbon's old centre
+			rHold.AnchorPoint = Vector2.new(0.5, 0.5)
+			rHold.ZIndex = z + 5
+			rHold.Parent = card
+			local rb = PC.ribbon({ text = "BEST VALUE", parent = rHold, zIndex = z + 5 })
+			rb.Position = UDim2.fromScale(0.5, 0.5) -- centred; the holder carries the old offset
+		end
+
+		cards[kind .. key] = {
+			plate = plate, number = number, stateWord = stateWord,
+			platePaint = platePaint, live = live,
+		}
+	end
+
+	----------------------------------------------------------- passes
+	PC.sectionHead({ text = "PASSES", parent = shell.body, layoutOrder = nextOrder(), zIndex = shell.z + 2 })
+	do
+		local row
+		for i, g in ipairs(GamepassConfig.List) do
+			if (i - 1) % 2 == 0 then row = pairRow() end
+			buildCard(row, i, "pass", g.Key, g.Icon, g.Name, g.Desc, g.RobuxPrice,
+				(g.GamepassId or 0) > 0, false, false)
+		end
+	end
+
+	----------------------------------------------------------- emeralds
+	PC.sectionHead({ text = "EMERALDS", parent = shell.body, layoutOrder = nextOrder(), zIndex = shell.z + 2 })
+	do
+		local row
+		for i, p in ipairs(EmeraldPackConfig.List) do
+			if (i - 1) % 2 == 0 then row = pairRow() end
+			-- nil glyph = Emerald's own face; see buildCard
+			buildCard(row, i, "pack", p.Key, nil, p.Name,
+				("%d Emeralds"):format(p.Amount), p.RobuxPrice,
+				EmeraldPackConfig.IsLive(p), p.Best == true, true)
+		end
+	end
+
+	----------------------------------------------------------- paint
+	local function render()
+		for _, g in ipairs(GamepassConfig.List) do
+			local c = cards["pass" .. g.Key]
+			if c then
+				if state.Owned[g.Key] then
+					c.platePaint(c.plate, c.number, c.stateWord, "owned")
+				elseif c.live then
+					c.platePaint(c.plate, c.number, c.stateWord, "live")
+				end
+				-- a not-live card is left exactly as built: price over SOON
+			end
+		end
+	end
+
+	local function applyServerState(s2)
+		if typeof(s2) ~= "table" then return end
+		if typeof(s2.Owned) == "table" then state.Owned = s2.Owned end
+		render()
+	end
+
+	if capturedState then applyServerState(capturedState) end
+	table.insert(liveCallbacks, applyServerState)
+
+	render()
+	return shell.root
 end
 
 return ShopPanel

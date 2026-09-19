@@ -1,5 +1,5 @@
 -- EggShopClient -- Forest Egg Shop panel: 5-egg buy list with data-driven odds,
--- a darrel chip, and the daily-quest mini list. Opens via the EggStall's
+-- a emerald chip, and the daily-quest mini list. Opens via the EggStall's
 -- ProximityPrompt on the client (server never gates the OPEN, only the BUY).
 --
 -- ODDS ARE ALWAYS VISIBLE AND NEVER HARD-CODED: every percentage rendered here
@@ -28,7 +28,7 @@ local SideRail = require(ReplicatedStorage.Modules.SideRail)
 local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb)
 local RarityFX = require(ReplicatedStorage.Modules.RarityFX)
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
--- Darrel's face, drawn from primitives (UIKit.IconArt). pcall'd so a missing
+-- Emerald's face, drawn from primitives (UIKit.IconArt). pcall'd so a missing
 -- module leaves the shop working with the old emoji rather than failing to open.
 local okIconArt, IconArt = pcall(function()
 	return require(ReplicatedStorage.Modules.UIKit.IconArt)
@@ -112,17 +112,21 @@ local function comma(n)
 end
 
 ---------------------------------------------------------------- egg viewport
--- Eggs live in ReplicatedStorage.EggModels.Forest, a DIFFERENT folder from the
--- BrainrotModels folder BrainrotThumb.add() is hardwired to -- so eggs can't
+-- Eggs live under ReplicatedStorage.EggModels (one folder per world), a DIFFERENT
+-- tree from the BrainrotModels folder BrainrotThumb.add() is hardwired to -- so eggs can't
 -- go through .add() directly by name. Instead this reuses BrainrotThumb's own
 -- public camera-framing maths (M.framing / M.DEFAULT_DIR) against a hand-cloned
 -- egg model, so every 3D viewport in the game still shares one framing formula.
 -- Eggs are static props (no spin), matching the brief's "no spin needed" note.
-local eggFolder = ReplicatedStorage:WaitForChild("EggModels"):WaitForChild(WORLD_ID)
+-- The EggModels ROOT, not one world's folder. Egg model names are globally
+-- unique (ForestEgg1..5 / TundraEgg1..5), so a recursive lookup resolves any
+-- world's egg without the shop having to know which folder it came from --
+-- which is what lets ONE shell hold cards for several worlds at once.
+local eggFolder = ReplicatedStorage:WaitForChild("EggModels")
 local eggMasterCache = {}
 local function eggMaster(modelName)
 	if eggMasterCache[modelName] == nil then
-		local real = eggFolder:FindFirstChild(modelName)
+		local real = eggFolder:FindFirstChild(modelName, true)
 		eggMasterCache[modelName] = real and real:Clone() or false
 	end
 	return eggMasterCache[modelName] or nil
@@ -214,7 +218,7 @@ end
 
 ---------------------------------------------------------------- ScreenGui + panel
 -- EGG SHOP UI REBUILD -- TASK 1: the panel SHELL. ScreenGui, window, ONE red
--- header (title left, wallet + BUY DARRELS + close right), the spec strip, and
+-- header (title left, wallet + BUY EMERALDS + close right), the spec strip, and
 -- an empty CardArea that Task 3 fills with the five egg cards.
 --
 -- The egg-row builder and the hatch-odds strip further down still belong to the
@@ -250,7 +254,7 @@ end
 --   gui / frame / scrim / openPop  setOpen (~line 2281) and both hatch reveals
 --   SCRIM_ALPHA                    setOpen's scrim tween target
 --   closeBtn                       wired to setOpen at the foot of this script
---   darrelLabel                    applyDarrel writes it (balanceLabel is the
+--   emeraldLabel                    applyEmerald writes it (balanceLabel is the
 --                                  same instance under the rebuild plan's name)
 --   discoveryLabel                 the spec strip's middle slot
 --   cardArea / body                Task 3 fills it; the old egg list parents in
@@ -258,7 +262,7 @@ end
 local showToast
 local gui, frame, scrim, openPop
 local SCRIM_ALPHA = T.scrimAlpha
-local closeBtn, balanceLabel, darrelLabel, discoveryLabel
+local closeBtn, balanceLabel, emeraldLabel, discoveryLabel
 local cardArea
 local relayout
 
@@ -303,8 +307,9 @@ do
 	-- which supersedes IgnoreGuiInset above; CoreUISafeInsets is the live value.
 	Platform.PrepareGui(gui)
 
-	-- Full-screen dim behind the panel while the shop is open. A plain Frame: it
-	-- darkens the world without eating input. setOpen tweens and toggles it.
+	-- Input-transparent full-screen frame, KEPT for wiring parity but it no longer
+	-- paints (dim-to-blur, 2026-08-17): panel separation is the EggShopBlur
+	-- BlurEffect, toggled by the Visible mirror below. setOpen only toggles Visible.
 	scrim = new("Frame", {
 		Name = "Scrim",
 		Size = UDim2.fromScale(1, 1),
@@ -347,8 +352,28 @@ do
 	-- scrim over a hidden panel is wrong whoever is drawing on top.) Done from
 	-- here rather than by editing setOpen so the change stayed inside Task 1;
 	-- setOpen's own scrim writes agree with it every time.
+	-- DIM-TO-BLUR (2026-08-17 polish grammar): the scrim keeps its mirror wiring
+	-- but never paints again -- panel separation is an instant backdrop blur, the
+	-- HUDPanelBlur recipe under this shop's own effect name. Property writes only:
+	-- NEVER tween a BlurEffect (TweenService silently no-ops on non-GuiObjects in
+	-- this place).
+	local function setEggShopBlur(on)
+		local L = game:GetService("Lighting")
+		local fx = L:FindFirstChild("EggShopBlur")
+		if on then
+			if not fx then
+				fx = Instance.new("BlurEffect")
+				fx.Name = "EggShopBlur"
+				fx.Size = 10
+				fx.Parent = L
+			end
+		elseif fx then
+			fx:Destroy()
+		end
+	end
 	frame:GetPropertyChangedSignal("Visible"):Connect(function()
 		scrim.Visible = frame.Visible
+		setEggShopBlur(frame.Visible)
 	end)
 
 	-- RESPONSIVE FIT. Platform.FitPanel, NOT Platform.Fit: fitting the 1350x775
@@ -380,7 +405,7 @@ do
 
 	------------------------------------------------------------------ header
 	-- ONE red header bar, not two stacked slabs: title left, wallet chip +
-	-- BUY DARRELS + close right.
+	-- BUY EMERALDS + close right.
 	local header = UI.surface(panel, UDim2.new(1, 0, 0, HEADER_H), "panel", T.radius.panel, T.stroke.panel)
 	header.Name = "Header"
 	-- LemonPop 2026-08-13: the BZ egg-header gradient below is the red family
@@ -403,6 +428,9 @@ do
 		UI.gradient(header, ColorSequence.new(BZ.eggHeader1, BZ.eggHeader2))
 	end
 
+	-- PLACEHOLDER TEXT ONLY. cards.setWorld rewrites this to "<WORLD> EGGS" as soon
+	-- as the cards are built, and again on every world switch, so this literal is
+	-- what the player sees only if no world is shop-ready at all.
 	local title = UI.label(header, "EGG SHOP", "panelTitle", T.color.white)
 	title.Name = "Title"
 	title.AnchorPoint = Vector2.new(0, 0.5)
@@ -445,7 +473,7 @@ do
 		}, cluster)
 	end
 
-	-- WALLET CHIP -- Darrel's face and the live balance, on a dark slot so it
+	-- WALLET CHIP -- Emerald's face and the live balance, on a dark slot so it
 	-- reads against the red header.
 	local walletSlot = controlSlot("WalletSlot", 1, WALLET_W)
 	local walletChip = UI.surface(walletSlot, UDim2.fromOffset(WALLET_W, CTRL_H), "slot", T.radius.chip, T.stroke.control)
@@ -454,19 +482,19 @@ do
 
 	local WALLET_ICON = 28
 	local walletIcon = new("Frame", {
-		Name = "DarrelIcon",
+		Name = "EmeraldIcon",
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 8, 0.5, 0),
 		Size = UDim2.fromOffset(WALLET_ICON, WALLET_ICON),
 		BackgroundTransparency = 1,
 		ZIndex = walletChip.ZIndex + 1,
 	}, walletChip)
-	if IconArt and IconArt.has("darrel") then
-		IconArt.draw(walletIcon, "darrel", WALLET_ICON, walletChip.ZIndex + 1)
+	if IconArt and IconArt.has("emerald") then
+		IconArt.draw(walletIcon, "emerald", WALLET_ICON, walletChip.ZIndex + 1)
 	end
 
-	-- LIVE BALANCE. applyDarrel (~line 2258, out of this task's scope) writes
-	-- darrelLabel.Text on every DarrelUpdate / DarrelState payload, so darrelLabel
+	-- LIVE BALANCE. applyEmerald (~line 2258, out of this task's scope) writes
+	-- emeraldLabel.Text on every EmeraldUpdate / EmeraldState payload, so emeraldLabel
 	-- stays as an alias of this same instance while later tasks get balanceLabel,
 	-- the name the rebuild plan uses. comma() supplies thousands separators.
 	balanceLabel = UI.label(walletChip, comma(0), "value", T.color.textAccent)
@@ -489,13 +517,15 @@ do
 	-- hence setting the colour again here, which now survives.
 	balanceLabel:SetAttribute("NoPolish", true)
 	balanceLabel.TextColor3 = T.color.textAccent
-	darrelLabel = balanceLabel
+	emeraldLabel = balanceLabel
 
-	-- BUY DARRELS -- opens the HUD shop, which is where darrels are actually sold.
-	local buySlot = controlSlot("BuyDarrelsSlot", 2, BUY_W)
-	local buyDarrels = UI.button(buySlot, "BUY DARRELS", "green", UDim2.fromOffset(BUY_W, CTRL_H), "buttonM")
-	buyDarrels.Name = "BuyDarrels"
-	buyDarrels.ZIndex = buySlot.ZIndex + 1
+	-- BUY EMERALDS -- opens the HUD shop, which is where emeralds are actually sold.
+	local buySlot = controlSlot("BuyEmeraldsSlot", 2, BUY_W)
+	-- GOLD, deliberately: this is the one control in the shop that opens a REAL-MONEY
+-- surface, and gold is now reserved for exactly that (2026-08-19 gold purge).
+local buyEmeralds = UI.button(buySlot, "BUY GEMS", "gold", UDim2.fromOffset(BUY_W, CTRL_H), "buttonM")
+	buyEmeralds.Name = "BuyEmeralds"
+	buyEmeralds.ZIndex = buySlot.ZIndex + 1
 	-- LIVE as of 2026-08-10. This was inert while no dev product existed (user
 	-- decision 2026-08-06) and answered with a "coming soon" toast; the four packs
 	-- are real developer products now, so that toast would be a lie.
@@ -513,7 +543,7 @@ do
 	-- `host` visible, and SideRail's single-open registry closes the legacy egg shop
 	-- off that same transition -- see openPanel's "SideRail's legacy-closing
 	-- behaviour" note. Closing it here as well would be a second, racing closer.
-	buyDarrels.Activated:Connect(function()
+	buyEmeralds.Activated:Connect(function()
 		player:SetAttribute("OpenShopRequest", os.clock())
 	end)
 
@@ -879,10 +909,14 @@ do
 		-- The fade is a UIGradient's TRANSPARENCY sequence, not a second Frame
 		-- stack: one instance, and the black stays black while only its alpha
 		-- ramps. Parented to the figure so it clips with it.
+		-- PS99 RESTYLE (2026-08-16): the cards are LIGHT now, so the black band
+		-- read as a grey smudge -- BackgroundTransparency = 1 neutralizes it while
+		-- keeping the instance (and anything that looks it up by name) intact.
 		local scrim = new("Frame", {
 			Name = "MetaScrim",
 			Size = UDim2.new(1, 0, 0, META_H + 20),
 			BackgroundColor3 = Color3.new(0, 0, 0),
+			BackgroundTransparency = 1, -- neutralized: light cards need no legibility band
 			BorderSizePixel = 0,
 			ZIndex = figure.ZIndex + 2,
 		}, figure)
@@ -917,9 +951,9 @@ do
 		local rtext = ribbon:FindFirstChild("Text")
 		if rtext then rtext.ZIndex = figure.ZIndex + 4 end
 
-		-- MUTED WHITE, not the card's ink: this label moved from the light gray
-		-- card onto the dark slot, where #2A2A2A would be invisible. "meta"
-		-- carries no stroke, which is exactly why the scrim above has to exist.
+		-- MUTED INK (#7C8CA0) at FULL opacity: the card figure is light again
+		-- under the PS99 restyle, so the muted ink reads directly on it and the
+		-- neutralized scrim above no longer supplies (or needs to supply) a floor.
 		local code = UI.label(figure,
 			string.format("EGG-%02d \u{00B7} %02d/%02d", index, index, #world.Eggs),
 			"meta", T.color.textMuted)
@@ -927,7 +961,7 @@ do
 		code.AnchorPoint = Vector2.new(1, 0.5)
 		code.Position = UDim2.new(1, -META_INSET, 0, META_INSET + META_H / 2)
 		code.TextXAlignment = Enum.TextXAlignment.Right
-		code.TextTransparency = 0.1
+		code.TextTransparency = 0
 		code.ZIndex = figure.ZIndex + 3
 		code.TextColor3 = T.color.textMuted
 
@@ -950,10 +984,19 @@ do
 		eggName.Name = "EggName"
 		eggName.AnchorPoint = Vector2.new(0, 0.5)
 		eggName.Position = UDim2.new(0, 0, 0.5, 0)
+		-- CAPPED AND TRUNCATED. UI.label ships AutomaticSize.XY with no truncate, and
+		-- the price group below is anchored to this row's RIGHT edge with
+		-- AutomaticSize.X -- so the two grow toward each other across 269px with
+		-- nothing between them. "Heartwood Egg" (111px) + the price group (63px)
+		-- clears by 95px today and collides at a ~24-character name. 120 reserves the
+		-- widest plausible price group; the name keeps 149, 38 more than it uses.
+		eggName.AutomaticSize = Enum.AutomaticSize.None
+		eggName.Size = UDim2.new(1, -120, 0, NAME_H)
+		eggName.TextTruncate = Enum.TextTruncate.AtEnd
 		eggName.ZIndex = nameRow.ZIndex + 1
 		eggName.TextColor3 = T.color.white
 
-		-- Darrel's face leads the number, the same order the header wallet uses,
+		-- Emerald's face leads the number, the same order the header wallet uses,
 		-- so a player comparing price against balance sees one mark in both
 		-- places. AutomaticSize.X off an AnchorPoint of 1 grows the group
 		-- LEFTWARD from the row's right edge, so the price stays pinned however
@@ -975,11 +1018,11 @@ do
 		-- it needs this holder: handed `priceHolder` directly it would become a
 		-- third item in that UIListLayout instead of the icon.
 		local iconSlot = new("Frame", {
-			Name = "DarrelIcon", Size = UDim2.fromOffset(PRICE_ICON, PRICE_ICON),
+			Name = "EmeraldIcon", Size = UDim2.fromOffset(PRICE_ICON, PRICE_ICON),
 			BackgroundTransparency = 1, LayoutOrder = 1, ZIndex = priceHolder.ZIndex,
 		}, priceHolder)
-		if IconArt and IconArt.has("darrel") then
-			IconArt.draw(iconSlot, "darrel", PRICE_ICON, priceHolder.ZIndex)
+		if IconArt and IconArt.has("emerald") then
+			IconArt.draw(iconSlot, "emerald", PRICE_ICON, priceHolder.ZIndex)
 		end
 		local priceValue = UI.label(priceHolder, comma(egg.Price), "value", T.color.textAccent)
 		priceValue.Name = "Value"
@@ -994,10 +1037,16 @@ do
 		}, content)
 		-- tag + name ride one auto-sizing group so the name always starts right
 		-- after "RAREST" without anybody hard-coding that string's width
+		-- SIZED IN SCALE, NOT AUTO. This group and the chance label at the row's right
+		-- edge were both auto-width with nothing between them. On the PHONE card the
+		-- row is only screenWidth-188 wide and the chance label reads "ODDS", so
+		-- "RAREST Heartwood Guardian" (178px) + "ODDS" (34px) overlapped by 25px on a
+		-- 375-wide handset -- this pair collides TODAY, not hypothetically. -46
+		-- reserves the widest right label (34) plus a 12px gutter, at both card sizes.
 		local rarestLeft = new("Frame", {
 			Name = "Left",
 			AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
-			Size = UDim2.fromOffset(0, RAREST_H), AutomaticSize = Enum.AutomaticSize.X,
+			Size = UDim2.new(1, -46, 0, RAREST_H), AutomaticSize = Enum.AutomaticSize.None,
 			BackgroundTransparency = 1, ZIndex = rarestRow.ZIndex + 1,
 		}, rarestRow)
 		new("UIListLayout", {
@@ -1016,6 +1065,11 @@ do
 
 		local rarestName = UI.label(rarestLeft, bestName, "meta", onLight(tint))
 		rarestName.Name = "PetName"
+		-- takes whatever the RAREST tag leaves (49px of tag + the list's 6px pad) and
+		-- truncates, rather than pushing the whole group into the chance label
+		rarestName.AutomaticSize = Enum.AutomaticSize.None
+		rarestName.Size = UDim2.new(1, -55, 0, RAREST_H)
+		rarestName.TextTruncate = Enum.TextTruncate.AtEnd
 		rarestName.LayoutOrder = 2
 		rarestName.ZIndex = rarestLeft.ZIndex + 1
 		rarestName.TextColor3 = onLight(tint)
@@ -1059,7 +1113,11 @@ do
 			-- this is the same call EggHandler debits with, so a card can never
 			-- advertise a price the server does not charge.
 			local cost = EggConfig.BundleCost(egg, qty)
-			local btn = UI.button(slot, "", (qty == 10) and "gold" or "tab",
+			-- 2026-08-19 gold purge: x10 buys with EMERALDS, and gold now means real money
+			-- only. Emeralds are violet everywhere else, so the premium multi-buy takes
+			-- purple. (The one button here that DOES lead to Robux -- BUY GEMS in the
+			-- header -- took gold in the same pass.)
+			local btn = UI.button(slot, "", (qty == 10) and "purple" or "tab",
 				UDim2.fromOffset(BUY_W, BUY_H), "buttonM")
 			btn.Name = "Buy" .. qty
 			btn.ZIndex = slot.ZIndex + 1
@@ -1214,17 +1272,87 @@ do
 		}, row)
 	end
 
-	local nextEgg = 1
-	for i = 1, 3 do
-		local egg = world.Eggs[nextEgg]
-		if egg then buildCard(egg, nextEgg, holderFor(row1, i, egg)) end
-		nextEgg += 1
+	------------------------------------------------------------ world switching
+	-- EVERY shop-ready world's cards are built HERE, at load, into the same rows.
+	-- Switching worlds then only toggles which five holders are VISIBLE.
+	--
+	-- VISIBILITY, NOT PARENTING, and that distinction is load-bearing. The phone
+	-- branch of applyLayout OWNS every holder's Parent: it re-parents all of them
+	-- into its one-column scroller and restores them from a P() snapshot on the way
+	-- back to desktop. A world switch that also wrote Parent would fight it, and
+	-- the symptom is nasty -- the restore replays the snapshot taken BEFORE the
+	-- switch, so the panel ends up showing one world's TITLE over the other world's
+	-- CARDS. Visible is a property no layout claims, so the two never race.
+	-- Both layouts here skip an invisible child outright (measured; the phone
+	-- branch's own comment already relies on it for UIListLayout), so a hidden card
+	-- takes no cell and leaves no gap -- and an invisible button takes no input, so
+	-- the off-world buy buttons are unreachable rather than merely unseen.
+	--
+	-- WHY NOT REBUILD PER WORLD: this chunk already sits at 193 of Luau's 200
+	-- local registers and buildCard closes over most of them, so a rebuild path
+	-- would have had to be a SECOND copy of the card code. Building once adds no
+	-- top-level locals at all. The property that makes it legal is that egg ids are
+	-- globally unique across worlds (ForestShard, TundraFrostcap), so one `cards`
+	-- registry holds every world with no key collision -- the same reason the note
+	-- above the registry gives.
+	--
+	-- `world` is retargeted around each pass so that everything buildCard reads
+	-- off the world -- the "EGG-01 / 01/05" counter especially -- describes the
+	-- world that card belongs to, not whichever one happened to load first.
+	for _, wid in ipairs(EggConfig.ShopWorldIds()) do
+		WORLD_ID, world = wid, EggConfig.GetWorld(wid)
+		local nextEgg = 1
+		for i = 1, 3 do
+			local egg = world.Eggs[nextEgg]
+			if egg then buildCard(egg, nextEgg, holderFor(row1, i, egg)) end
+			nextEgg += 1
+		end
+		for i = 1, 2 do
+			local egg = world.Eggs[nextEgg]
+			if egg then buildCard(egg, nextEgg, holderFor(row2, i, egg)) end
+			nextEgg += 1
+		end
 	end
-	for i = 1, 2 do
-		local egg = world.Eggs[nextEgg]
-		if egg then buildCard(egg, nextEgg, holderFor(row2, i, egg)) end
-		nextEgg += 1
+
+	-- Published as a KEY ON `cards` rather than as a local, deliberately: the
+	-- registry is only ever read as cards[egg.Id] and never iterated, so a named
+	-- key is free -- and the alternative, one more top-level local, is the single
+	-- thing this chunk cannot afford. Returns false for a world the shell cannot
+	-- draw, which is how the prompt handler at the foot of this script decides to
+	-- stay shut instead of opening an empty panel.
+	cards.setWorld = function(id)
+		local wr = id and EggConfig.GetWorld(id)
+		if not wr or not wr.Active or wr.ShopReady == false then return false end
+		WORLD_ID, world = id, wr
+		-- THE PANEL NAMES THE WORLD IT IS SHOWING. Reached by path rather than by
+		-- upvalue: the header is built in an earlier do-block and its `title` local is
+		-- long out of scope by here, and one more top-level local is the thing this
+		-- chunk cannot spend. Deliberately the same wording as the stall's own prompt
+		-- for a world with no named keeper, so the sign outside and the sign inside
+		-- agree instead of offering two names for one shop.
+		local hdr = cardArea.Parent and cardArea.Parent:FindFirstChild("Header")
+		local titleLbl = hdr and hdr:FindFirstChild("Title")
+		if titleLbl then
+			titleLbl.Text = string.upper(wr.DisplayName or id) .. " EGGS"
+		end
+		-- Holders keep the row and the LayoutOrder they were BUILT with -- only
+		-- Visible moves. Orders repeat across worlds (each world numbers its own
+		-- cards 1..3 then 1..2), which is harmless precisely because exactly one
+		-- world is ever visible, so no layout ever sees a tie.
+		for _, wid in ipairs(EggConfig.ShopWorldIds()) do
+			local showing = (wid == id)
+			for _, egg in ipairs(EggConfig.GetWorld(wid).Eggs) do
+				local c = cards[egg.Id]
+				local holder = c and c.root and c.root.Parent
+				if holder then holder.Visible = showing end
+			end
+		end
+		return true
 	end
+
+	-- The build loop left WORLD_ID pointing at whichever world came last; this
+	-- restores the default and hides every other world's cards for the first time.
+	cards.setWorld(EggConfig.DEFAULT_WORLD)
 end
 
 ---------------------------------------------------- hover + hatch odds (Task 4)
@@ -1394,8 +1522,8 @@ do
 				Name = "HeaderRow", Size = UDim2.new(1, 0, 0, HEAD_H),
 				BackgroundTransparency = 1, LayoutOrder = 1, ZIndex = panel.ZIndex + 1,
 			}, panel)
-			cell(head, "HATCH ODDS", false, T.color.textMuted, REST_A, 0)
-			cell(head, "CHANCE", true, T.color.textMuted, REST_A, 0)
+			cell(head, "HATCH ODDS", false, T.color.textMutedOnDark, REST_A, 0) -- light muted ink: the odds panel rides the DARK row family
+			cell(head, "CHANCE", true, T.color.textMutedOnDark, REST_A, 0)
 
 			local div = new("Frame", {
 				Name = "Divider", Size = UDim2.new(1, 0, 0, DIV_H),
@@ -1517,7 +1645,10 @@ do
 		end
 
 		------------------------------------------------------------------ install
-		for _, egg in ipairs(world.Eggs) do
+		-- EVERY world's cards, not just the one on screen: this runs ONCE, and a
+		-- card with no hover record is a card that never lifts, rings or shows its
+		-- odds panel -- which is exactly what a parked world's cards would be.
+		for _, egg in ipairs(EggConfig.ShopEggs()) do
 			local c = cards[egg.Id]
 			if c and c.root and c.figure then
 				local rec = {
@@ -1634,21 +1765,21 @@ end
 ---------------------------------------------------------------- buy state
 -- WHAT IS LEFT of the egg-row section Task 7 retired below. The lock and the
 -- remote call belong to fireBuy, which Task 5's card buy() calls through, and
--- the balance pair is what applyDarrel writes and every affordability repaint
+-- the balance pair is what applyEmerald writes and every affordability repaint
 -- reads.
 local buyLocked = false
 local qtyByEgg = {}  -- [eggId] = 1|3|10; Task 5's buy() writes it, fireBuy sends it
-local refreshAffordability -- assigned by Task 5's card block; applyDarrel calls it
--- Live balance, so a card can show whether it is affordable. applyDarrel feeds
+local refreshAffordability -- assigned by Task 5's card block; applyEmerald calls it
+-- Live balance, so a card can show whether it is affordable. applyEmerald feeds
 -- this; refreshAffordability re-runs on every balance change.
 --
--- darrelsKnown matters: DarrelState answers a pull that beats the DataStore load
+-- emeraldsKnown matters: EmeraldState answers a pull that beats the DataStore load
 -- with a PLACEHOLDER {Darrels = 0} (the same lying-zero GameHUDClient documents
 -- at length), and a 0 we have not confirmed would paint every egg "too poor" on
 -- open. Until a payload proves the profile is loaded, cards stay in the neutral
 -- affordable look rather than asserting something we cannot back up.
-local currentDarrels = 0
-local darrelsKnown = false
+local currentEmeralds = 0
+local emeraldsKnown = false
 
 local function fireBuy(egg)
 	if buyLocked then return end
@@ -1660,9 +1791,11 @@ local function fireBuy(egg)
 	-- would refuse a purchase the player can actually afford. The `or` keeps the old
 	-- behaviour if a qty ever reaches here that the bundle table does not know.
 	local cost = EggConfig.BundleCost(egg, qty) or (egg.Price * qty)
-	if darrelsKnown and currentDarrels < cost then return end
+	if emeraldsKnown and currentEmeralds < cost then return end
 	buyLocked = true
-	remotes.EggBuy:FireServer(WORLD_ID, egg.Id, qty)
+	-- The world is named off the EGG, not off whichever one the shell is showing.
+	-- Ids are globally unique, so this is exact; WORLD_ID is only a fallback.
+	remotes.EggBuy:FireServer(EggConfig.WorldIdOfEgg(egg.Id) or WORLD_ID, egg.Id, qty)
 	task.delay(0.6, function()
 		buyLocked = false
 	end)
@@ -1684,8 +1817,8 @@ end
 -- ODDS_H, ROW_H, ART, RARITY_RANK, eggTier, KIT_RARITY, kitTint and openButtons.
 --
 -- KEPT, because they are still live: fireBuy above (Task 5 buy() calls it),
--- buyLocked, qtyByEgg, currentDarrels, darrelsKnown, the refreshAffordability
--- forward declaration (Task 5 assigns it, applyDarrel calls it), and kitButton
+-- buyLocked, qtyByEgg, currentEmeralds, emeraldsKnown, the refreshAffordability
+-- forward declaration (Task 5 assigns it, applyEmerald calls it), and kitButton
 -- near the top of this file -- playMultiReveal's Skip button is still its caller.
 --
 -- REGISTER BUDGET: Task 7 freed 23 top-level locals here. Recounted at the
@@ -1697,11 +1830,19 @@ end
 -- Bazaar dark stall-shop card (bazaarPanel), matching the shop panel restyle --
 -- slide/fade-ish hold-then-hide is unchanged. ToastClient itself is never
 -- touched, per the brief.
+-- PARENTED INTO THE PANEL, NOT THE SCREEN (2026-08-19). At a fixed screen y=132
+-- this card was the one unscaled thing in a panel that is multiplied by
+-- Platform.FitPanel -- so it sat on the panel's own header at 1920x1080 (header
+-- y 74.6..202.8, covering ~106px of the wallet balance) and straight across the
+-- "n / n PETS DISCOVERED" strip at 1280x720 (strip y 146.3..170.5). The shop's
+-- toast was printing over the shop's own numbers, on every refused purchase.
+-- PopHolder is the panel's exact unpadded box and carries both the responsive
+-- fit and the open pop, so "bottom of the panel" stays that at every viewport.
 local toastCard = new("Frame", {
 	Name = "EggToast",
-	AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 132), Size = UDim2.new(0, 380, 0, 46),
+	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -18), Size = UDim2.new(0, 380, 0, 46),
 	Visible = false, ZIndex = 50,
-}, gui)
+}, frame:FindFirstChild("PopHolder") or gui)
 UITheme.bazaarPanel(toastCard, 12)
 local toastLabel = new("TextLabel", {
 	Size = UDim2.new(1, -20, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1,
@@ -1714,7 +1855,7 @@ local toastLabel = new("TextLabel", {
 
 local toastToken = 0
 -- ASSIGNS the forward-declared local at the top of the panel section (~line 253)
--- rather than declaring a fresh one: the header's BUY DARRELS button is above
+-- rather than declaring a fresh one: the header's BUY EMERALDS button is above
 -- this point and a `local function` here would shadow it, leaving that button
 -- calling nil. Same closure, same call sites, one keyword less.
 showToast = function(message)
@@ -1737,8 +1878,8 @@ end
 -- fireBuy(), which already owns the remote contract
 -- (remotes.EggBuy:FireServer(WORLD_ID, egg.Id, qty)) and the 0.6s buy-lock, and
 -- then this waits. EggHandler re-derives the price from its own EggConfig,
--- debits, rolls and grants; the balance on screen is whatever DarrelUpdate says
--- it is (applyDarrel -> refreshAffordability). NOTHING here decrements a local
+-- debits, rolls and grants; the balance on screen is whatever EmeraldUpdate says
+-- it is (applyEmerald -> refreshAffordability). NOTHING here decrements a local
 -- balance and treats it as truth, so the shop can never quietly disagree with
 -- the server about what the player owns -- including when the server refuses a
 -- purchase this client thought was fine.
@@ -1762,7 +1903,7 @@ end
 -- as an error on the offending line. This section is therefore ONE `do ... end`
 -- with ZERO new top-level locals; its ~30 are freed at the `end` and their
 -- registers reused. Everything it needs already has a name: cards, world,
--- EggConfig, fireBuy, buyLocked, qtyByEgg, currentDarrels, darrelsKnown,
+-- EggConfig, fireBuy, buyLocked, qtyByEgg, currentEmeralds, emeraldsKnown,
 -- refreshAffordability, frame, new, comma, UI, T, IconArt.
 do
 	local BUY_QTYS = { 1, 3, 10 }
@@ -1787,7 +1928,7 @@ do
 		local grad = btn:FindFirstChildOfClass("UIGradient")
 		if grad then
 			if on then
-				grad.Color = T.gradient[if qty == 10 then "gold" else "tab"]
+				grad.Color = T.gradient[if qty == 10 then "purple" else "tab"] -- must track the variant above or the next balance push repaints it gold
 			else
 				grad.Color = T.gradient.disabled
 			end
@@ -1807,20 +1948,58 @@ do
 	end
 
 	-- PLACEHOLDER ZERO vs REAL ZERO, and the distinction is the whole guard.
-	-- DarrelState answers a pull that beats the DataStore load with
-	-- { Darrels = 0 } and no .Daily table; applyDarrel only raises darrelsKnown
+	-- EmeraldState answers a pull that beats the DataStore load with
+	-- { Darrels = 0 } and no .Daily table; applyEmerald only raises emeraldsKnown
 	-- once that table arrives. Greying all fifteen buttons out during that
 	-- window would tell the player they are broke on the strength of a number
 	-- nobody has confirmed, so until it is confirmed every button stays live --
 	-- exactly the call the old row list already makes one section up.
 	local function refreshCards()
-		for _, egg in ipairs(world.Eggs) do
+		-- Across every world's cards rather than the visible one's. Ten button
+		-- rows is nothing to walk, and doing it this way means affordability can
+		-- never depend on whether a world swap happened before or after a balance
+		-- change landed.
+		-- PET BAG ROOM (2026-08-24, owner direction: a full pet bag cannot open eggs).
+		-- Read from the attribute PlayerDataManager publishes, so this asks EXACTLY
+		-- the question EggHandler refuses on -- HasPetSpace(data, qty) -- rather than
+		-- a second count that could disagree with it. nil reads as unlimited: an
+		-- attribute that has not replicated yet must not lock the shop, and the server
+		-- refuses independently if this client is wrong.
+		local room = tonumber(player:GetAttribute("PetSpace"))
+		for _, egg in ipairs(EggConfig.ShopEggs()) do
 			local c = cards[egg.Id]
 			if c and c.buyButtons then
 				for _, qty in ipairs(BUY_QTYS) do
 					local cost = EggConfig.BundleCost(egg, qty) or (egg.Price * qty)
-					setBuyEnabled(c, qty, (not darrelsKnown) or currentDarrels >= cost)
+					local affordable = (not emeraldsKnown) or currentEmeralds >= cost
+					-- THE WHOLE BUNDLE MUST FIT, matching EggHandler line for line: an
+					-- x10 into three free slots is refused there, so it must not be
+					-- offered here. Hence `>= qty`, not `> 0` -- with two slots left, x1
+					-- stays live and x3/x10 go dead, which is the true state of things.
+					local fits = (room == nil) or (room >= qty)
+					setBuyEnabled(c, qty, affordable and fits)
 				end
+			end
+		end
+
+		-- SAY WHY THE BUTTONS WENT DEAD. A greyed row with no reason reads as the
+		-- shop being broken rather than as the player's bag being full -- the same
+		-- reasoning behind EggHandler's refusal copy. Reached by path because the
+		-- strip is built in an earlier do-block; its own default is stashed on the
+		-- label the first time through so restoring it cannot guess wrong (the text
+		-- differs on touch).
+		local hint = cardArea and cardArea.Parent
+			and cardArea.Parent:FindFirstChild("SpecStrip")
+		hint = hint and hint:FindFirstChild("Slot3")
+		hint = hint and hint:FindFirstChild("Text")
+		if hint then
+			if hint:GetAttribute("DefaultText") == nil then
+				hint:SetAttribute("DefaultText", hint.Text)
+			end
+			if room ~= nil and room <= 0 then
+				hint.Text = "PET BAG FULL \u{2014} SELL PETS TO HATCH MORE"
+			elseif hint.Text:find("PET BAG FULL", 1, true) then
+				hint.Text = hint:GetAttribute("DefaultText")
 			end
 		end
 	end
@@ -1835,6 +2014,13 @@ do
 	-- explaining it was describing a list that no longer exists. The cards are now
 	-- the only affordability surface in the file, so the name simply IS refreshCards.
 	refreshAffordability = refreshCards
+
+	-- Bag room moves INDEPENDENTLY of the emerald balance -- hatching, selling a
+	-- pet, being gifted one, or buying a slot all change it without any purchase
+	-- happening. None of those reach applyEmerald, so without this listener the
+	-- buttons would stay dead (or stay live) until the next balance change happened
+	-- to repaint them.
+	player:GetAttributeChangedSignal("PetSpace"):Connect(refreshCards)
 
 	------------------------------------------------------------------- tokens
 	local gen = 0
@@ -1888,14 +2074,14 @@ do
 		UI.corner(host, T.radius.slot)
 		stamp = host
 
-		local txt = UI.label(host, ("x%d ACQUIRED"):format(qty), "cardLabel", T.color.textAccent)
+		local txt = UI.label(host, ("x%d ACQUIRED"):format(qty), "cardLabel", T.color.textAccentOnDark)
 		txt.Name = "Stamp"
 		txt.AnchorPoint = Vector2.new(0.5, 0.5)
 		txt.Position = UDim2.fromScale(0.5, 0.5)
 		txt.Rotation = STAMP_TILT
 		txt.TextTransparency = 1
 		txt.ZIndex = host.ZIndex + 1
-		txt.TextColor3 = T.color.textAccent   -- re-assert after UI.label returns
+		txt.TextColor3 = T.color.textAccentOnDark   -- gold on the black stamp scrim; re-assert after UI.label returns
 		local ink = txt:FindFirstChildOfClass("UIStroke")
 		if ink then ink.Transparency = 1 end
 
@@ -2035,7 +2221,7 @@ do
 		local y2 = TICKET_PAD + L1_H + ROW_GAP
 		local y3 = y2 + L2_H + ROW_GAP
 		line("ORDER CONFIRMED", "chip", T.color.claimRing, TICKET_PAD)
-		line("SENT TO HATCH QUEUE", "chip", T.color.textMuted, y3)
+		line("SENT TO HATCH QUEUE", "chip", T.color.textMutedOnDark, y3) -- light muted ink on the dark ticket
 
 		-- FIXED WIDTH AND TRUNCATED, unlike every other label here: this is the
 		-- one line with something to collide with. UI.label ships
@@ -2048,7 +2234,7 @@ do
 		name.TextYAlignment = Enum.TextYAlignment.Center
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 
-		-- Darrel's face leads the number, the same order the card price and the
+		-- Emerald's face leads the number, the same order the card price and the
 		-- header wallet use. AutomaticSize.X off an AnchorPoint of 1 grows the
 		-- group LEFTWARD from the ticket's right pad, so the cost stays pinned
 		-- however many digits it has.
@@ -2065,18 +2251,18 @@ do
 			Padding = UDim.new(0, 4),
 		}, costBox)
 		local iconSlot = new("Frame", {
-			Name = "DarrelIcon", Size = UDim2.fromOffset(ICON, ICON),
+			Name = "EmeraldIcon", Size = UDim2.fromOffset(ICON, ICON),
 			BackgroundTransparency = 1, LayoutOrder = 1, ZIndex = costBox.ZIndex,
 		}, costBox)
-		if IconArt and IconArt.has("darrel") then
-			IconArt.draw(iconSlot, "darrel", ICON, costBox.ZIndex)
+		if IconArt and IconArt.has("emerald") then
+			IconArt.draw(iconSlot, "emerald", ICON, costBox.ZIndex)
 		end
 		fadeGroup(iconSlot)
-		local costL = UI.label(costBox, "-" .. comma(cost), "cardLabel", T.color.textAccent)
+		local costL = UI.label(costBox, "-" .. comma(cost), "cardLabel", T.color.textAccentOnDark)
 		costL.Name = "Value"
 		costL.LayoutOrder = 2
 		costL.ZIndex = costBox.ZIndex + 1
-		costL.TextColor3 = T.color.textAccent   -- re-assert after UI.label returns
+		costL.TextColor3 = T.color.textAccentOnDark   -- gold on the dark ticket; re-assert after UI.label returns
 		fadeable(costL, "TextTransparency", 0)
 		local cs = costL:FindFirstChildOfClass("UIStroke")
 		if cs then fadeable(cs, "Transparency", 0) end
@@ -2091,7 +2277,7 @@ do
 			AnchorPoint = Vector2.new(1, 1),
 			Position = UDim2.new(1, -BAR_INSET_X, 1, -BAR_INSET_Y),
 			Size = UDim2.new(1, -BAR_INSET_X * 2, 0, BAR_H),
-			BackgroundColor3 = T.color.textAccent,
+			BackgroundColor3 = T.color.textAccentOnDark, -- gold drain bar on the dark ticket
 			BorderSizePixel = 0,
 			ZIndex = root.ZIndex + 2,
 		}, root)
@@ -2131,7 +2317,7 @@ do
 		-- A disabled button is already Active = false and should never get here,
 		-- but "the control looks dead" and "the control IS dead" have to be the
 		-- same test or one of them will drift.
-		if darrelsKnown and currentDarrels < cost then return end
+		if emeraldsKnown and currentEmeralds < cost then return end
 		pend = { id = egg.Id, qty = qty, cost = cost }
 		-- REUSES fireBuy rather than re-implementing it: that function owns the
 		-- remote contract and the 0.6s buy-lock, and one buy path means one
@@ -2142,7 +2328,10 @@ do
 		fireBuy(egg)
 	end
 
-	for _, egg in ipairs(world.Eggs) do
+	-- Wired ONCE, for every world's cards. A parked card cannot be clicked (its
+	-- ancestor is invisible), so wiring it early costs nothing and means a world
+	-- swap never has to re-wire anything.
+	for _, egg in ipairs(EggConfig.ShopEggs()) do
 		local c = cards[egg.Id]
 		if c and c.buyButtons then
 			for _, qty in ipairs(BUY_QTYS) do
@@ -2166,7 +2355,7 @@ do
 		-- print and no shop card for the ACQUIRED stamp to land on. Everything below
 		-- prices a bundle against `pend`, which a reward never sets.
 		if result.Source == "reward" then pend = nil; return end
-		local egg = EggConfig.GetEgg(WORLD_ID, result.EggId)
+		local egg = EggConfig.GetEgg(EggConfig.WorldIdOfEgg(result.EggId) or WORLD_ID, result.EggId)
 		if not egg then pend = nil; return end
 
 		-- WHAT WAS GRANTED, not what was asked for. EggHandler rolls a batch and
@@ -2230,9 +2419,9 @@ do
 		if cost then showTicket(myGen, egg, n, cost) end
 	end)
 
-	-- First paint. darrelsKnown is false this early, so this asserts nothing
+	-- First paint. emeraldsKnown is false this early, so this asserts nothing
 	-- about the balance -- it just puts every button in a known state before
-	-- pullDarrelState's answer arrives and repaints them for real.
+	-- pullEmeraldState's answer arrives and repaints them for real.
 	refreshCards()
 end
 
@@ -2371,10 +2560,10 @@ do
 		-- 190 + 168 + 44 + two 10px gaps = 422px wide; a portrait handset gives
 		-- the panel's padded content column about 362, so the desktop cluster
 		-- does not fit and would push the wallet clean off the left edge. BUY
-		-- DARRELS is still the control that goes, but as of 2026-08-10 the REASON
+		-- EMERALDS is still the control that goes, but as of 2026-08-10 the REASON
 		-- has changed and is worth writing down: it used to be free to drop
 		-- because it was inert, and it is live now. It is dropped because it is
-		-- the only DUPLICATE -- the HUD's own darrel counter opens that same shop
+		-- the only DUPLICATE -- the HUD's own emerald counter opens that same shop
 		-- panel and stays on screen behind this one, so a handset keeps a real
 		-- way to buy. If that counter ever stops opening the shop, this hide
 		-- becomes the phone losing the purchase path outright and has to be
@@ -2386,8 +2575,8 @@ do
 			local title   = header:FindFirstChild("Title")
 			local cluster = header:FindFirstChild("HeaderControls")
 			local wallet  = cluster and cluster:FindFirstChild("WalletSlot")
-			local buySlot = cluster and cluster:FindFirstChild("BuyDarrelsSlot")
-			local buyBtn  = buySlot and buySlot:FindFirstChild("BuyDarrels")
+			local buySlot = cluster and cluster:FindFirstChild("BuyEmeraldsSlot")
+			local buyBtn  = buySlot and buySlot:FindFirstChild("BuyEmeralds")
 			local chip    = wallet and wallet:FindFirstChild("WalletChip")
 			local bal     = chip and chip:FindFirstChild("Balance")
 			local clusterW = WALLET_W + CLOSE_W + CTRL_GAP
@@ -2495,7 +2684,10 @@ do
 		end
 
 		----------------------------------------------------------- the cards
-		for i, egg in ipairs(world.Eggs) do
+		-- Every world's, once. `i` is the card's slot WITHIN its own world, which
+		-- is what the stagger wants, and ShopEggs() hands worlds over whole and in
+		-- order so the count restarts naturally at each world's first egg.
+		for i, egg in ipairs(EggConfig.ShopEggs()) do
 			local c = cards[egg.Id]
 			if c and c.root and c.content and c.figure then
 				local card      = c.root
@@ -2623,7 +2815,10 @@ do
 						P(cap, "Size", UDim2.new(1, 0, 0, 24))
 						P(cap, "Position", UDim2.fromOffset(0, 6))
 						P(sub, "Size", UDim2.new(1, 0, 0, 16))
-						P(sub, "Position", UDim2.fromOffset(0, 28))
+						-- 30, not 28: the Qty box above occupies y 6..30, so 28 made the two
+						-- label rects intersect by 2px. 30 + 16 = 46, still inside the
+						-- 48-tall phone button.
+						P(sub, "Position", UDim2.fromOffset(0, 30))
 					end
 				end
 
@@ -2751,14 +2946,19 @@ end
 --
 -- FOUR DELIBERATE DEVIATIONS, each forced by the engine or by this game:
 --
---  1. THE EGG ART IS OURS. The brief was to keep our five egg designs and adopt
---     the handoff's SEQUENCE, so nothing here draws its cream voxel egg. The
---     authored model renders untouched through idle/shake/crack; the two halves
---     are generated FROM it -- its own shell colour, material and ellipsoid
---     profile, with every decoration inherited and straddling ones cut in two --
---     and swap in under the split's own white flash, which is what hides the
---     swap. The handoff's jagged 5-tooth seam, its +-0.20 tooth depth and its
---     below-centre split line are reproduced exactly.
+--  1. THE EGG ART IS OURS -- REBUILT IN VOXELS. The brief was to keep our five
+--     egg designs and adopt the handoff's SEQUENCE. Since 2026-08-13 the
+--     ceremony shows a cube-built rebuild of the authored egg FROM THE FIRST
+--     FRAME (user: the smooth egg clashed with the game's voxel feel): the
+--     shell becomes a hollow one-cube-thick lattice in its own colour, the
+--     decorations are refilled cube-by-cube on the same lattice (near-invisible
+--     aura shells dropped -- the 2D glow carries that job), fully-opaque
+--     decoration colours are painted onto the shell cubes they touch, and every
+--     cube is dealt to cap or cradle by its own centre against the seam. The
+--     pet is voxelised the same way at the reveal (display only -- the granted
+--     pet stays authored art everywhere else). The handoff's jagged 5-tooth
+--     seam, its +-0.20 tooth depth and its below-centre split line are
+--     reproduced exactly.
 --
 --  2. NO POINT LIGHT. ViewportFrames do not render Lights at all -- the ceremony
 --     this replaces parented a PointLight into one and it drew nothing, ever.
@@ -2814,17 +3014,30 @@ do
 		FOV = 32, FOV_NARROW = 42, NARROW_AT = 0.85,
 		CAM_Y = 0.2, CAM_Z = 7.6, CAM_Z_OUT = 8.6, LOOK_Y = 0.02,
 		-- damped approach: value += (target - value) * (1 - e^(-lambda*dt))
-		LAM_SHAKE = 9, LAM_OPEN = 5.5, LAM_GLOW = 7, LAM_PET = 6, LAM_LIFT = 4, LAM_CAM = 3,
-		AT_CRACK = 0.90, AT_SPLIT = 1.50, AT_REVEAL = 2.35,
+		-- LAM_OPEN raised 5.5 -> 11 (2026-08-14, measured): the reference shell reaches
+		-- 68% of its full gap in 130ms and ours took ~250ms, so the split read as a
+		-- drift rather than a snap. Everything else keeps its damping.
+		LAM_SHAKE = 9, LAM_OPEN = 11, LAM_GLOW = 7, LAM_PET = 6, LAM_LIFT = 4, LAM_CAM = 3,
+		-- RETIMED to the user's reference clip, measured frame-by-frame 2026-08-14
+		-- (30fps, re-based at the frame the new egg appears): crack 2.20, split 2.47,
+		-- reveal ~3.40. The old 0.90/1.50/2.35 cracked before any anticipation had
+		-- built, which is why the payoff did not land -- the reference spends 2.2s
+		-- just wobbling. Note crack->split TIGHTENS (0.60 -> 0.27): the shell snaps.
+		AT_CRACK = 2.20, AT_SPLIT = 2.47, AT_REVEAL = 3.40,
 		SPIN_IDLE = 0.42, SPIN_BUSY = 0.12, BOB_HZ = 1.5, BOB_AMP = 0.045,
-		SHAKE = 1, SHAKE_CRACK = 1.7,
+		SHAKE = 1, SHAKE_CRACK = 1.7, SHAKE_MIN = 0.32,
 		GLOW_CRACK = 0.9, GLOW_SPLIT = 2.2, GLOW_REVEAL = 0.45,
 		TOP_Y = 1.35, TOP_X = 0.12, TOP_RX = 0.2, TOP_RZ = -0.16,
 		BOT_Y = -0.12, BOT_RX = -0.06,
 		LIFT = 0.48, CORE_Y = 0.1, CORE_DY = 0.3,
 		SECT = 7, BURST_CAP = 1.25, BURST_G = 2.4, BURST_R = 0.45, BURST_H = 0.4,
 		BURST_HOLD = 0.95, BURST_FADE = 0.3,
-		PET_Y = -1.1, PET_DY = 0.98, PET_S = 0.5, PET_DS = 0.55, PET_H = 0.95,
+		-- PET_S/PET_DS raised 0.5/0.55 -> 0.62/0.72 (2026-08-14, user: "you cant even
+		-- see the pet"). Measured at reveal, the pet came out 0.82 wide against a
+		-- 4.05-wide cradle -- a fifth of the egg -- and its own colours were fine
+		-- (mean luminance 0.66, zero near-black parts), so it read as invisible
+		-- purely from being small and nested down among the decorations.
+		PET_Y = -1.1, PET_DY = 0.98, PET_S = 0.70, PET_DS = 0.85, PET_H = 0.95,
 		-- seam: yCut(theta) = -0.05 + 0.20 * tri(theta, 5). FIVE teeth, +-0.20
 		-- deep (~16% of egg height), centred BELOW the equator so the cradle is
 		-- the larger piece -- the handoff calls out all three as must-keeps.
@@ -2840,12 +3053,27 @@ do
 	-- to playMultiReveal, which is not this design.
 	local STAGE_DIM = 0.04
 
-	-- Our shell is one smooth ellipsoid, so the two halves are rebuilt as stacked
-	-- elliptical slabs plus one band of tooth blocks across the seam. 16 slabs
-	-- over the full height is the handoff's own granularity (CELL 0.185 against
-	-- RY 1.24 is ~13 steps), which is what keeps the stepped blocky profile it
-	-- asks for; 20 wedges puts four blocks on each of the five teeth.
-	local SLABS, WEDGES = 16, 20
+	-- TERRACED TIERS, not a cube lattice (user's two reference videos,
+	-- 2026-08-14). The reference egg is a stack of about a DOZEN thick discs,
+	-- each carrying a visible lip, finished with a few BIG rim teeth -- its
+	-- blocky read comes from a handful of large vertical STEPS, not from
+	-- cube-sized detail. The 294-cube lattice tried the opposite and came out
+	-- FINER than the smooth mesh it replaced, so it read as mush on screen and
+	-- cost ~25x the parts. WEDGES cuts the tooth band (4 segments per tooth,
+	-- so each of the 5 teeth is a chunky stepped triangle) and the inner wall.
+	-- 9 tiers, measured off the reference: its silhouette shows 7-8 countable
+	-- plateaus, each about an eighth of the egg's height. 12 was a shade too fine
+	-- and started blending back toward a curve.
+	local TIERS, WEDGES = 9, 20
+
+	-- VOXEL_SHELL (2026-08-14). Flip to false to get the 9 terraced tiers back --
+	-- the tier code below is untouched, it just moves into the else branch.
+	-- Measured off the user's 2026-08-13 reference clip: its silhouette shows ~11
+	-- clean plateaus averaging 6-7% of egg height (the four shorter ones are rim
+	-- pebbles, not steps), i.e. a ~13-14 row lattice. That disagrees with the 9
+	-- terraced discs read off the 08-14 clips -- they are DIFFERENT videos of
+	-- different eggs, and the user pointed at the 08-13 one.
+	local VOXEL_SHELL, VOX_ROWS = true, 16   -- 16 to match Modules.VoxelEgg; 14 drifted from the shop eggs
 
 	-- TWO UNIT MAPS, and the split between them is load-bearing.
 	--
@@ -2928,7 +3156,14 @@ do
 	-- which is most of why they read as chips at all, so the short ones are spaced
 	-- by hand -- the standard trick, and it only ever touches a few words.
 	local function spaced(s)
-		return (tostring(s):upper():gsub("(.)", "%1 "):gsub(" $", ""))
+		-- per CODEPOINT, not per byte: a byte-wise gsub("(.)") splits the
+		-- \u{00B7} middot's two UTF-8 bytes apart and the label draws
+		-- replacement glyphs where the interpunct belongs
+		local out = {}
+		for _, cp in utf8.codes(tostring(s):upper()) do
+			out[#out + 1] = utf8.char(cp)
+		end
+		return table.concat(out, " ")
 	end
 
 	-- The handoff's corner chip counts the player's collection; ours counts pets.
@@ -3002,60 +3237,149 @@ do
 
 	----------------------------------------------------------------- shell build
 	-- Generates the two halves the handoff splits, out of the egg we actually
-	-- have: stacked elliptical slabs for the body, one band of tooth blocks across
-	-- the jagged seam, a dark inner wall so the open cradle reads hollow, and a
-	-- floor so you cannot see out through the bottom. Everything comes back
-	-- INVISIBLE -- the authored model is what renders until the flash swaps them
-	-- in -- and is returned as one list for that swap to walk.
+	-- have: a one-cube-thick voxel shell in the authored egg's own colour and
+	-- material (with a small deterministic per-cube shade jitter -- the clip's
+	-- checkered voxel read), a dark inner wall so the open cradle reads hollow,
+	-- and a floor so you cannot see out through the bottom. Everything comes
+	-- back VISIBLE: since the voxel-from-idle change the cube egg IS the egg on
+	-- stage from the first frame, its halves sitting flush until the split.
 	local function buildHalves(topM, botM, a, b, c, u, colour, material)
 		local made = {}
 		local t = D.SHELL * u                       -- shell thickness, the handoff's 0.30
 		local yLo = (D.SEAM_MID - D.SEAM_AMP) * u   -- bottom of the tooth band
 		local yHi = (D.SEAM_MID + D.SEAM_AMP) * u   -- top of it
-		local function kAt(y)
-			local ny = math.clamp(y / b, -1, 1)
-			return math.sqrt(math.max(0, 1 - ny * ny))
-		end
 		local function mk(parent, name, size, cf, col, mat)
 			local p = new("Part", {
 				Name = name, Size = size, CFrame = cf, Color = col, Material = mat,
 				Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
 				CastShadow = false, TopSurface = Enum.SurfaceType.Smooth,
-				BottomSurface = Enum.SurfaceType.Smooth, Transparency = 1,
+				BottomSurface = Enum.SurfaceType.Smooth, Transparency = 0,
 			}, parent)
 			made[#made + 1] = p
 			return p
 		end
-		local function slab(parent, name, y0, y1)
+
+		-- THE TIERS. Each is one disc whose radius follows the ellipsoid at its
+		-- own mid-height, so the STEP between neighbours is the whole effect. They
+		-- stop at the tooth band, because the band itself is the teeth.
+		local function kAt(y)
+			local ny = math.clamp(y / b, -1, 1)
+			return math.sqrt(math.max(0, 1 - ny * ny))
+		end
+		local function tier(parent, name, y0, y1)
 			local h = y1 - y0
 			if h <= 1e-4 then return end
-			local k = kAt((y0 + y1) / 2)
+			local ym = (y0 + y1) / 2
+			local k = kAt(ym)
+			if k < 0.02 then return end
 			local p = mk(parent, name, Vector3.new(2 * a * k, h, 2 * c * k),
-				CFrame.new(0, (y0 + y1) / 2, 0), colour, material)
+				CFrame.new(0, ym, 0), colour, material)
 			new("SpecialMesh", { MeshType = Enum.MeshType.Cylinder }, p)
 		end
+		if VOXEL_SHELL then
+			-- One column per (x,z) cell, merged vertically into at most two boxes --
+			-- one per half -- so the lattice reads chunky without paying a part per
+			-- cube. Cells are dealt cap/cradle by the SAME seamOf() the authored
+			-- decorations use, so the toothed seam falls out for free and shell and
+			-- decoration can never disagree about which half they belong to.
+			local CELL = (2 * b) / VOX_ROWS
+			local NX = math.max(3, math.round((2 * a) / CELL))
+			local NZ = math.max(3, math.round((2 * c) / CELL))
+			local hue, sat, val = colour:ToHSV()
+			local function vjit(ix, iz, k)
+				local n = bit32.bxor(ix * 73856093, iz * 19349663, (k + 3) * 83492791)
+				return bit32.band(bit32.rshift(n, 7), 1023) / 1023
+			end
+			-- 2026-08-15: THE PROFILE, not an ellipsoid. This block used to test
+			-- (x/a)^2+(z/c)^2+(y/b)^2 <= 1, which builds a symmetric blob. The real
+			-- egg -- voxel_egg.py, the recipe that matched the user's reference clip
+			-- and now ReplicatedStorage.Modules.VoxelEgg -- has a WIDE FLAT BASE from
+			-- a shallower lower exponent. The ceremony egg not matching the shop egg
+			-- was the whole complaint; this is what fixes the silhouette.
+			-- Returns the row's radius as a fraction of the widest row.
+			local function profile(iy)
+				local t = ((iy + 0.5) / VOX_ROWS) * 1.94 - 0.97
+				local s = math.max(0, 1 - t * t) ^ (t > 0 and 0.5 or 0.36)
+				return s * (1 - 0.14 * t)
+			end
+			for ix = 0, NX - 1 do
+				for iz = 0, NZ - 1 do
+					local x = (ix + 0.5 - NX / 2) * CELL
+					local z = (iz + 0.5 - NZ / 2) * CELL
+					-- +-0.4 cell wobble, so the silhouette is not a perfect ellipse
+					local jit = (vjit(ix, iz, 11) - 0.5) * 0.8 * (CELL / math.max(a, c))
+					local lo, hi
+					for iy = 0, VOX_ROWS - 1 do
+						local f = profile(iy) + jit
+						if f > 0.02 and (x / (a * f)) ^ 2 + (z / (c * f)) ^ 2 <= 1 then
+							lo = lo or iy
+							hi = iy
+						end
+					end
+					if lo then
+						local cut = math.clamp(seamOf(math.atan2(z, x)) * u, yLo, yHi)
+						local iCut = math.clamp(math.floor(cut / CELL + VOX_ROWS / 2), lo, hi + 1)
+						local function emit(i0, i1, parent, nm)
+							if i1 < i0 then return end
+							local y0 = (i0 - VOX_ROWS / 2) * CELL
+							local y1 = (i1 + 1 - VOX_ROWS / 2) * CELL
+							local k = 1 + (vjit(ix, iz, i0) - 0.5) * 0.17
+							mk(parent, nm, Vector3.new(CELL, y1 - y0, CELL),
+								CFrame.new(x, (y0 + y1) / 2, z),
+								Color3.fromHSV(hue, sat, math.clamp(val * k, 0, 1)), material)
+						end
+						emit(lo, iCut - 1, botM, "cradle_v" .. ix .. "_" .. iz)
+						emit(iCut, hi, topM, "cap_v" .. ix .. "_" .. iz)
+					end
+				end
+			end
 
-		local step = 2 * b / SLABS
+			-- PEBBLES. Axis-aligned, never free-rotated: a rotated cube inside an
+			-- otherwise grid-aligned voxel body pokes a CORNER out and reads as a flat
+			-- tan sticky note stuck on the shell. Aligned and half-buried it reads as
+			-- an embedded nugget. Outer face lands at (r + 0.35) cells.
+			local PEB_N = 24
+			local pebLt = Color3.fromRGB(216, 200, 156)
+			local pebDk = Color3.fromRGB(168, 152, 112)
+			for n = 1, PEB_N do
+				local r1, r2, r3 = rand(n, 91), rand(n, 92), rand(n, 93)
+				local iy = math.floor(VOX_ROWS * (0.10 + (r1 ^ 1.35) * 0.75))
+				local f = profile(iy)
+				if f > 0.20 then
+					local ang = r2 * TAU
+					local sz = CELL * (0.90 + r3 * 0.40)
+					local rx = a * f + 0.35 * CELL - sz / 2
+					local rz = c * f + 0.35 * CELL - sz / 2
+					local y = (iy + 0.5 - VOX_ROWS / 2) * CELL
+					local cut = math.clamp(seamOf(ang) * u, yLo, yHi)
+					mk(y >= cut and topM or botM,
+						(y >= cut and "cap_peb_" or "cradle_peb_") .. n,
+						Vector3.new(sz, sz * (0.88 + r1 * 0.12), sz),
+						CFrame.new(math.cos(ang) * rx, y, math.sin(ang) * rz),
+						(r3 < 0.30) and pebDk or pebLt, material)
+				end
+			end
+		else
+		local step = 2 * b / TIERS
 		local nBot = math.max(1, math.round((yLo + b) / step))
 		local nTop = math.max(1, math.round((b - yHi) / step))
 		for i = 0, nBot - 1 do
-			slab(botM, "cradle_slab_" .. (i + 1),
+			tier(botM, "cradle_tier_" .. (i + 1),
 				-b + (yLo + b) * (i / nBot), -b + (yLo + b) * ((i + 1) / nBot))
 		end
 		for i = 0, nTop - 1 do
-			slab(topM, "cap_slab_" .. (i + 1),
+			tier(topM, "cap_tier_" .. (i + 1),
 				yHi + (b - yHi) * (i / nTop), yHi + (b - yHi) * ((i + 1) / nTop))
 		end
+		end
 
-		-- The seam band: one tooth block per wedge per half, meeting at yCut(theta).
-		-- lookAt puts the block's Z along the tangent and its X radially, so Size
-		-- reads (thickness, height, length) with no extra rotation.
-		local dark = Color3.fromRGB(13, 12, 9)          -- the handoff's interior #0D0C09
-		-- only as deep as the OPENING: everything below this is inside the solid
-		-- slab stack, where nothing can ever see it
-		local innerLo = yLo - 0.06 * b
-		for j = 1, WEDGES do
-			local th = (j - 0.5) / WEDGES * TAU
+		-- THE TEETH, sampled at wedge EDGES rather than centres: 20 centres against
+		-- 5 teeth all land where tri() is exactly +-0.5, which built every tooth at
+		-- HALF the +-0.20 depth the handoff calls a must-keep. Edges hit 1/0/-1/0.
+		-- the voxel lattice already spans the tooth band and is dealt by seamOf, so
+		-- the separate wedge teeth would just double up inside it
+		for j = 1, (VOXEL_SHELL and 0 or WEDGES) do
+			local th = (j - 1) / WEDGES * TAU
 			local cut = math.clamp(seamOf(th) * u, yLo, yHi)
 			local dir = Vector3.new(math.cos(th), 0, math.sin(th))
 			local tang = Vector3.new(-math.sin(th), 0, math.cos(th))
@@ -3064,7 +3388,6 @@ do
 				if h <= 1e-4 then return end
 				local ym = (y0 + y1) / 2
 				local k = kAt(ym)
-				-- 1.06 so neighbours overlap and the band has no vertical slits
 				local len = (TAU * ((a + c) / 2) * k) / WEDGES * 1.06
 				local pos = Vector3.new(dir.X * (a * k - t / 2), ym, dir.Z * (c * k - t / 2))
 				mk(parent, name, Vector3.new(t, h, len),
@@ -3072,22 +3395,25 @@ do
 			end
 			tooth(botM, "cradle_tooth_" .. j, yLo, cut)
 			tooth(topM, "cap_tooth_" .. j, cut, yHi)
-			-- Dark inner wall, hanging from the rim. The far side of it, seen
-			-- through the opening, is the whole reason an open shell reads as
-			-- hollow. Kept BELOW the seam, as the handoff's interior note requires.
-			local ir = D.INNER_R
+		end
+
+		-- Dark inner lining, kept from the slab build: the cube shell is hollow
+		-- already, but its far side seen through the opening would be
+		-- shell-bright -- the wall ring and floor are what make the bowl read
+		-- deep instead of solid, and the floor is what the pet stands on.
+		local dark = Color3.fromRGB(13, 12, 9)          -- the handoff's interior #0D0C09
+		local innerLo = yLo - 0.06 * b
+		local ir = D.INNER_R
+		for j = 1, WEDGES do
+			local th = (j - 0.5) / WEDGES * TAU
+			local dir = Vector3.new(math.cos(th), 0, math.sin(th))
+			local tang = Vector3.new(-math.sin(th), 0, math.cos(th))
 			local pos = Vector3.new(dir.X * a * ir, (yHi + innerLo) / 2, dir.Z * c * ir)
 			mk(botM, "inner_wall_" .. j,
 				Vector3.new(t * 0.6, yHi - innerLo, (TAU * ((a + c) / 2) * ir) / WEDGES * 1.08),
 				CFrame.lookAt(pos, pos + tang, Vector3.yAxis), dark, Enum.Material.SmoothPlastic)
 		end
-		-- THE FLOOR SITS ON TOP OF THE SLAB STACK, not at the bottom of the egg.
-		-- The slabs are solid discs, so the deepest thing anyone can see through the
-		-- opening is the top face of the highest one -- and left alone that face is
-		-- SHELL-COLOURED, which is what made an open cradle read as a filled bowl
-		-- instead of a hollow one. Capping it dark is what the handoff's interior
-		-- hemisphere is for, and it is also the surface the pet stands on.
-		local floor = mk(botM, "inner_floor", Vector3.new(2 * a * D.INNER_R, 0.10 * b, 2 * c * D.INNER_R),
+		local floor = mk(botM, "inner_floor", Vector3.new(2 * a * ir, 0.10 * b, 2 * c * ir),
 			CFrame.new(0, innerLo + 0.05 * b, 0), dark, Enum.Material.SmoothPlastic)
 		new("SpecialMesh", { MeshType = Enum.MeshType.Cylinder }, floor)
 		return made
@@ -3105,7 +3431,9 @@ do
 		-- season EGG REWARD fires this same remote with the panel shut.
 		local shopWasVisible = frame.Visible
 
-		local eggDef = EggConfig.GetEgg(WORLD_ID, result.EggId)
+		-- Off the RESULT's own world: a hatch can land after the shell has been
+		-- retargeted, and resolving it against the visible world would miss.
+		local eggDef = EggConfig.GetEgg(EggConfig.WorldIdOfEgg(result.EggId) or WORLD_ID, result.EggId)
 		local tier = tierByName[result.Rarity]
 		local accent = (tier and tier.Color) or CF.ink
 		local glowCol = deepen(accent)
@@ -3124,7 +3452,9 @@ do
 			end
 		end
 
-		local vpSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 800)
+		-- Platform.Viewport, not the raw camera (2026-08-26): identical live, and the
+		-- only one of the two a device preview can drive -- see PlatformClient.fitPanels.
+		local vpSize = Platform.Viewport
 		-- The handoff is authored in CSS px on a full-screen stage; S maps that
 		-- canvas onto whatever this device is, and every px below goes through it.
 		local S = math.clamp(math.min(vpSize.X / 1280, vpSize.Y / 800), 0.62, 1.5)
@@ -3140,82 +3470,82 @@ do
 		local canSkip = false
 
 		------------------------------------------------------------ 2D: backdrop
+		-- ONE FLAT OPAQUE FIELD, and nothing else behind the egg. Sampling the
+		-- reference hatch at corners, edges and centre returns exactly RGB(10,8,13)
+		-- every time: no vignette, no gradient, no glow, no blur. Its "glow" is
+		-- free -- a bright model on flat black IS the contrast -- which is why the
+		-- reference reads crisp while a stack of translucent layers reads muddy.
 		local bg = new("Frame", {
-			Name = "Backdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(7, 9, 10),
+			Name = "Backdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(10, 8, 13),
 			BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1,
 		}, root)
-		TweenService:Create(bg, TweenInfo.new(FADE_TIME), { BackgroundTransparency = STAGE_DIM }):Play()
+		TweenService:Create(bg, TweenInfo.new(FADE_TIME), { BackgroundTransparency = 0 }):Play()
 		fades[#fades + 1] = { bg, "BackgroundTransparency" }
 
-		-- radial glow: a 52% x 58% ending shape gone by 70% of itself, at 0x22
-		-- idle and 0x77 from the first shake, crossfading over 500ms
-		-- 10 layers, not 6: at 6 the steps were visible as concentric rings
-		local glowLayers = radialStack(root, glowCol, 0.52 * 2 * 0.70, 0.58 * 2 * 0.70, 10,
-			1 - alpha(0x22), 2)
-		local glowLit = perLayer(1 - alpha(0x77), 10)
-		for _, f in ipairs(glowLayers) do fades[#fades + 1] = { f, "BackgroundTransparency" } end
-
-		-- SUNBURST: 16 wedges of 9 degrees on a 22.5-degree pitch, one revolution
-		-- per 40s, linear and continuous.
-		--
-		-- A wedge WIDENS with radius and this UI has no triangle, so each one is
-		-- five bands whose widths track 2*tan(4.5deg)*r at their own radius. A single
-		-- rectangle (the first cut) is 9 degrees only at its tip and nearly 17 in
-		-- close, which made the fan read as blunt slabs; butting the bands together
-		-- (the second) just moved the problem, because every width change landed on
-		-- a visible seam and the ray came out a staircase.
-		--
-		-- So the bands OVERLAP heavily and each fades to nothing at both ends: where
-		-- two meet they cross-dissolve, and the width step dissolves with them. The
-		-- radii are geometric, so every step is the same proportion and no single
-		-- one stands out. Alpha is roughly conserved through an overlap -- two bands
-		-- at half strength compound to about one at full for small alphas, which is
-		-- the range this fan lives in.
-		--
-		-- Each ray gets its OWN centred container so Rotation orbits the bands about
-		-- the fan's centre instead of about each band's own middle.
-		local fanSide = math.max(vpSize.X, vpSize.Y) * 2.3
-		local fan = new("Frame", {
-			Name = "Sunburst", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromOffset(fanSide, fanSide), BackgroundTransparency = 1, ZIndex = 3,
+		-- THE STAGE SNAP, and deliberately ONE frame (2026-08-14). The reference
+		-- clip's ground is not static: it sits near-black through the anticipation,
+		-- SNAPS lit on the crack and ramps again through the reveal -- measured
+		-- corner green 15 -> 35 -> 58.6. That beat is most of why the impact reads.
+		-- The 84-frame sunburst that used to live here is still gone: this buys the
+		-- brightness change without the fill-rate, driven by stageLit below.
+		-- A FLAT fill was wrong. Measured, the reference's 58.6 average is bright rays
+		-- against near-black GAPS; matching the average with an even wash matched the
+		-- number and lost the contrast, so the stage just went green and the impact
+		-- stopped reading. Banded falloff keeps the ground dark top and bottom and
+		-- puts the light behind the egg, which is where the reference concentrates it.
+		local snapGlow = new("Frame", {
+			Name = "StageSnap", Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(88, 158, 92),
+			BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 2,
 		}, root)
-		local rays = {}
-		-- Band centres, as a fraction of the fan radius. The first one's inner end
-		-- lands at 0.30 * 0.70 = 0.21, which is the handoff's own 9-22% mask: the
-		-- spokes fade out before they can cross the egg.
-		local CENTRES = { 0.30, 0.44, 0.62, 0.86, 1.20 }
-		local R = fanSide / 2
-		local halfW = math.tan(math.rad(4.5))
-		local SOFT = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.42, 0),
-			NumberSequenceKeypoint.new(0.58, 0),
-			NumberSequenceKeypoint.new(1, 1),
+		local snapGrad = Instance.new("UIGradient")
+		snapGrad.Rotation = 90
+		snapGrad.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0.00, 1.00),
+			NumberSequenceKeypoint.new(0.26, 0.62),
+			NumberSequenceKeypoint.new(0.50, 0.00),
+			NumberSequenceKeypoint.new(0.74, 0.62),
+			NumberSequenceKeypoint.new(1.00, 1.00),
 		})
-		for i = 0, 15 do
-			local arm = new("Frame", {
-				Name = "Ray" .. i, AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1),
-				BackgroundTransparency = 1, Rotation = i * 22.5, ZIndex = 3,
-			}, fan)
-			for k, cen in ipairs(CENTRES) do
-				local r0, r1 = cen * R * 0.70, cen * R * 1.42
-				local seg = new("Frame", {
-					Name = "B" .. k, AnchorPoint = Vector2.new(0.5, 1),
-					Position = UDim2.new(0.5, 0, 0.5, -r0),
-					Size = UDim2.fromOffset(math.max(2, 2 * halfW * cen * R), r1 - r0),
-					BackgroundColor3 = Color3.fromRGB(190, 200, 205),
-					BackgroundTransparency = alpha(0x29), BorderSizePixel = 0, ZIndex = 3,
-				}, arm)
-				new("UIGradient", { Rotation = 90, Transparency = SOFT }, seg)
-				rays[#rays + 1] = seg
-				fades[#fades + 1] = { seg, "BackgroundTransparency" }
-			end
-		end
+		snapGrad.Parent = snapGlow
 
-		for _, bar in ipairs(vignette(root, 4)) do
-			fades[#fades + 1] = { bar, "BackgroundTransparency" }
-		end
+		-- THE FLASH (2026-08-15). Distinct from StageSnap, and it has to be: the
+		-- reference's 2.20 beat is a HARD luma spike -- measured 200 -> 252 in a
+		-- single frame -- while stageLit is an exponentially DAMPED approach and by
+		-- construction cannot snap. StageSnap gives the sustained stage brightening;
+		-- it can never give the impact. This frame is the impact.
+		--
+		-- It is UI, not a Light, on purpose: this ceremony renders in a ViewportFrame
+		-- and ViewportFrames draw BaseParts only -- a PointLight parented in here
+		-- "drew nothing, ever". A full-screen frame over the viewport is the only way
+		-- a flash can exist on this surface at all.
+		--
+		-- Near-white, barely tinted by the tier: the reference spike is essentially
+		-- white, and pushing it to the rarity colour turned the impact into a wash.
+		local flashFrame = new("Frame", {
+			Name = "HatchFlash", Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.new(1, 1, 1):Lerp(accent, 0.12),
+			BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 11,
+		}, root)
+		fades[#fades + 1] = { flashFrame, "BackgroundTransparency" }
+
+		-- NO RADIAL GLOW. The 10-layer stack was ten full-screen-ish translucent
+		-- frames composited for the whole ceremony, and it raised the visual floor
+		-- so nothing later could read as an impact. Kept as an empty list so the
+		-- shake beat's fade loop stays valid and this stays a one-line revert.
+		local glowLayers, glowLit = {}, 0
+
+		-- NO SUNBURST AND NO VIGNETTE. Between them they were 84 large translucent
+		-- frames (16 arms x 5 overlapping bands, plus 4 edge bars) composited over
+		-- the whole screen for the entire ceremony -- the single biggest fill-rate
+		-- cost here, and the reference hatch has neither. A rotating fan also never
+		-- lets the stage go quiet, and the reference's impact works precisely
+		-- BECAUSE it interrupts a dead-still frame.
+		--
+		-- `fan` and `rays` stay declared: the per-frame driver spins the fan and the
+		-- split beat recolours the rays, and both are written to tolerate nil/empty
+		-- so this remains one edit to undo.
+		local fan, rays = nil, {}
 
 		------------------------------------------------------------ 3D: the stage
 		local eggVp = new("ViewportFrame", {
@@ -3238,7 +3568,8 @@ do
 		local u, us, a, b, c = 1, 1, 0.94, 1.24, 0.94   -- u: the shell map, us: the scene map
 		local intactShell, intactRest, coreOrb, coreHalo, coreBase
 		local topM, botM, petM = nil, nil, nil
-		local petBase, petYaw, petScaleNow = 1, 0, -1
+		local petBase, petYaw, petScaleNow, petLift = 1, 0, -1, 0
+		local petFixed = false   -- one-shot live correction, see the reveal block below
 		local chunks, capParts, genParts, petParts = {}, {}, {}, {}
 		local eggReady = false
 
@@ -3267,12 +3598,19 @@ do
 			topM = new("Model", { Name = "Cap" }, eggVp)
 			botM = new("Model", { Name = "Cradle" }, eggVp)
 
-			-- Deal the authored decorations out to the two halves along the
-			-- handoff's own seam, and CUT the ones that straddle it: our eggs carry
-			-- full-height stripes that would otherwise ride up with the cap as a
-			-- fin sticking out of the cradle. Only unmeshed blocks standing on
-			-- world Y are cut -- anything else goes whole, by its centre -- because
-			-- resizing a part that carries a mesh would deform the mesh with it.
+			genParts = buildHalves(topM, botM, a, b, c, u,
+				shell and shell.Color or Color3.fromRGB(255, 253, 246),
+				shell and shell.Material or Enum.Material.SmoothPlastic)
+
+			-- THE AUTHORED DECORATIONS, dealt to the two halves along the seam and
+			-- CUT where they straddle it. Reverted from the cube-refill (user's
+			-- reference videos, 2026-08-14): the reference egg's surface art is a
+			-- handful of BIG round spots, and our authored decorations already ARE
+			-- chunky parts of exactly that kind -- refilling them with 0.18 cubes
+			-- made them mushy and added several hundred parts per hatch to say the
+			-- same thing. Only unmeshed blocks standing on world Y are cut; anything
+			-- else goes whole by its centre, because resizing a part that carries a
+			-- mesh would deform the mesh with it.
 			local loose = {}
 			for _, d in ipairs(egg:GetDescendants()) do
 				if d:IsA("BasePart") and d ~= shell then loose[#loose + 1] = d end
@@ -3299,16 +3637,7 @@ do
 					part.Parent = botM
 				end
 			end
-
-			if shell then
-				shell.Parent = eggVp
-				intactShell, intactRest = shell, shell.CFrame
-			end
 			egg:Destroy()
-
-			genParts = buildHalves(topM, botM, a, b, c, u,
-				intactShell and intactShell.Color or Color3.fromRGB(255, 253, 246),
-				intactShell and intactShell.Material or Enum.Material.SmoothPlastic)
 
 			-- The core, standing in for the handoff's point light (deviation 2). A
 			-- SMALL, translucent neon ball wrapped in a much fainter halo: the first
@@ -3416,10 +3745,135 @@ do
 				petBase = petBase * ((D.PET_H / (D.PET_S + D.PET_DS)) * u / fit)
 				petM:ScaleTo(petBase)
 			end
+			-- HIGHER THAN THE HANDOFF'S FLOOR (user, 2026-08-13: "the pets are
+			-- blocked by the egg -- the pet needs to appear higher"). The handoff
+			-- ends the rise with the feet on the cradle floor, which its BARE egg
+			-- could afford. Ours cannot: the full-depth front teeth already reach
+			-- +0.15u, and the authored decorations dealt to the cradle stand far
+			-- taller still on some eggs (Hollow's band crosses the front right at
+			-- pet height). So the cradle's REAL front silhouette is measured --
+			-- the tallest cradle part whose footprint crosses the camera-facing
+			-- centre strip AND is actually wall-like: opaque and at least half
+			-- the cradle's radius wide. Both guards are load-bearing -- Mossy
+			-- carries a half-clear glow ray and Reedwater a lone thin reed stalk
+			-- across the front strip, 0.5-0.9u tall, and counting those as walls
+			-- pinned the rise at its cap with the pet hovering in mid-air above
+			-- the whole egg. A glow and a reed hide nothing; the rim does. The
+			-- generated teeth fail the width guard individually, which is fine:
+			-- frontTop STARTS at the rim line they top out at. The rise then ends
+			-- with only ~15% of the pet's own
+			-- final height behind it, whatever the egg and whatever the pet's
+			-- shape. Capped so a freak decoration cannot fire the pet into the
+			-- sky, floored at the handoff's own resting height so a low-walled
+			-- egg keeps the design's nestled look. petLift rides petUp's damped
+			-- ramp, so the motion stays one continuous rise.
+			local petClearH = D.PET_H * (fit > 0.01 and math.min(1, ext.Y / fit) or 1)
+			-- WHY THE WIDTH GUARD IS GONE (2026-08-14). The scan used to require a part at
+			-- least half the egg's radius wide before it counted as a wall. The voxel shell's
+			-- cells are one CELL wide and the generated teeth are thinner still, so NOTHING
+			-- passed and frontTop never left its seam-constant baseline of 0.15u. That is why
+			-- raising the cap did nothing: the cap was never the binding constraint, the
+			-- measurement was. Measured live, the pet's bottom sat 0.5 BELOW the cradle's top.
+			-- Opacity is still guarded, which is what actually excluded Mossy's half-clear
+			-- glow ray; the width test was only ever protecting against Reedwater's thin reed
+			-- stalk, and over-lifting by a stalk's height is far better than burying the pet.
+			local frontTop = (D.SEAM_MID + D.SEAM_AMP) * u
+			if botM then
+				for _, p in ipairs(botM:GetDescendants()) do
+					if p:IsA("BasePart") and p.Transparency < 0.4 then
+						frontTop = math.max(frontTop, p.Position.Y + p.Size.Y / 2)
+					end
+				end
+			end
+			-- RAISED AGAIN (owner: "raise it up higher dude"). 12% nestled still read as
+			-- sitting down in the bowl, so the feet now clear the cradle's real top by 10%
+			-- of the pet's own height -- the pet is presented ABOVE the shell rather than
+			-- seated in it. Cap 2.0 so the tall decorated eggs can still reach it.
+			petLift = math.max(0,
+				math.min(2.0, frontTop / u + 0.10 * petClearH) - (D.PET_Y + D.PET_DY))
 			local box, size = petM:GetBoundingBox()
 			petM.WorldPivot = CFrame.new(box.Position.X, box.Position.Y - size.Y / 2, box.Position.Z)
 			petM:PivotTo(CFrame.new())
-			petYaw = -math.atan2(BrainrotThumb.DEFAULT_DIR.X, BrainrotThumb.DEFAULT_DIR.Z)
+
+			-- UNIT-MAP SAFETY NET, and the reason the last two lift fixes did not land.
+			-- petLift is computed in handoff units against the SHELL map (u), but the cradle
+			-- is laid out on the SCENE map -- this file's own header calls mixing the two
+			-- load-bearing, and measured live the pet still came out 96% of its height BELOW
+			-- the rim even after the cap and the target were both raised. Rather than chase
+			-- the conversion, place the pet at its computed offset ONCE, measure the real gap
+			-- against the cradle, and fold the shortfall straight back into the lift. Feet end
+			-- up a clear 10% of the pet's own height above the cradle's true top, whatever
+			-- either unit map is doing.
+			if botM then
+				petM:PivotTo(CFrame.new(0, (D.PET_Y + (D.PET_DY + petLift)) * u, 0))
+				local pcf2, psz2 = petM:GetBoundingBox()
+				local bcf2, bsz2 = botM:GetBoundingBox()
+				local want = bcf2.Position.Y + bsz2.Y / 2 + 0.10 * psz2.Y
+				local have = pcf2.Position.Y - psz2.Y / 2
+				if want > have then petLift += (want - have) / math.max(u, 1e-3) end
+				petM:PivotTo(CFrame.new())
+			end
+			-- The pet is the AUTHORED model, not a voxel replica (user's reference
+			-- videos, 2026-08-14). The reference game's rooster is about a dozen
+			-- chunky boxes -- a head, two square eyes, a beak, a comb -- and our pets
+			-- are already built that way. Rebuilding them as a ~10-row cube lattice
+			-- destroyed exactly the crisp features that make them read, and cost
+			-- hundreds of parts to do it.
+			-- FACE THE PLAYER (owner, 2026-08-14: "the pets face should always face the
+			-- screen"). This used BrainrotThumb.DEFAULT_DIR, which is (0.9, 0.45, -1) --
+			-- the front-quarter the THUMBNAIL cameras sit on, at -Z. The ceremony camera
+			-- sits at +Z (D.CAM_Z = 7.6) and looks the other way, so borrowing that yaw
+			-- turned every hatched pet ~138 degrees away and showed the player its back
+			-- at the one moment the reveal exists to show the thing off.
+			-- PER-PET FACING (2026-08-14, owner: "the pets face should always face the
+			-- screen"). THERE IS NO SINGLE CORRECT YAW HERE. Measured across all 191 models,
+			-- the direction a pet actually faces is spread over the whole circle: only 45%
+			-- land within +-45 deg of the median, and the best single signal available
+			-- (PrimaryPart's LookVector) agrees for just 61%. Three different constants were
+			-- tried -- DEFAULT_DIR's yaw, a +Z yaw, and DEFAULT_DIR + pi -- and every one was
+			-- wrong for most pets, which is what "facing away" then "that's a profile" were
+			-- both reporting. A constant cannot solve this; the models disagree with it.
+			--
+			-- So facing is MEASURED on the model itself, best signal first:
+			--   named eye parts (truest) -> HeadAttachment's offset from centre -> pivot.
+			-- Measured BEFORE the pivot is reset below, so it reads the authored transform.
+			-- A facing at angle phi rotated by -phi lands on +Z, which is where the ceremony
+			-- camera sits (D.CAM_Z = 7.6).
+			local function petFacing(model)
+				local bcf, bsz = model:GetBoundingBox()
+				local centre = bcf.Position
+				-- relative threshold: these models differ hugely in scale, and a head sitting
+				-- straight on top of the body has a near-zero XZ offset whose .Unit is noise
+				local minXZ = 0.08 * math.max(bsz.X, bsz.Z)
+				local sum, n = Vector3.zero, 0
+				for _, p in ipairs(model:GetDescendants()) do
+					if p:IsA("BasePart") and p.Name:lower():find("eye") then
+						sum += p.Position
+						n += 1
+					end
+				end
+				if n > 0 then
+					local d = sum / n - centre
+					d = Vector3.new(d.X, 0, d.Z)
+					if d.Magnitude > minXZ then return d.Unit end
+				end
+				for _, a in ipairs(model:GetDescendants()) do
+					if a:IsA("Attachment") and a.Name == "HeadAttachment" then
+						local d = a.WorldPosition - centre
+						d = Vector3.new(d.X, 0, d.Z)
+						if d.Magnitude > minXZ then return d.Unit end
+					end
+				end
+				local lv = model:GetPivot().LookVector
+				local d = Vector3.new(lv.X, 0, lv.Z)
+				return (d.Magnitude > 0.01) and d.Unit or Vector3.new(0, 0, 1)
+			end
+			-- The +pi is MEASURED, not assumed. With plain -atan2 the posed pet came back at
+			-- dot(toCamera) = -1.000 exactly -- perfectly backwards -- so the sign convention
+			-- here is the opposite of the one the derivation assumed. Half a turn corrects it,
+			-- and because the facing is now per-model this holds for every pet, not just one.
+			local fdir = petFacing(petM)
+			petYaw = -math.atan2(fdir.X, fdir.Z) + math.pi
 			petM.Parent = eggVp
 		end
 
@@ -3484,12 +3938,14 @@ do
 
 		frame.Visible = false   -- hide the shop panel behind the ceremony
 
-		-- Spec build note: a 0.4s blur so nothing behind competes.
-		local blur = Instance.new("BlurEffect")
-		blur.Name = "EggRevealBlur"
-		blur.Size = 0
-		blur.Parent = game:GetService("Lighting")
-		TweenService:Create(blur, TweenInfo.new(0.4), { Size = REVEAL_BLUR }):Play()
+		-- NO BLUR. A full-screen BlurEffect is a per-pixel post-process pass over
+		-- the whole framebuffer every frame, and it was buying nothing: the stage
+		-- above is opaque, so there is no longer anything behind to compete with.
+		-- Neither reference game blurs anything, ever -- not for its hatch and not
+		-- behind its shop panels, where the world stays razor sharp. It also softens
+		-- exactly the hard block edges that sell the chunky look. skip() already
+		-- tests `blur` before touching it, so nil is a supported value here.
+		local blur = nil
 
 		-- world input during a cutscene: the "E / Open" prompt renders in 3D and
 		-- would draw straight over the egg
@@ -3561,6 +4017,7 @@ do
 		local phase = "idle"
 		local t, spinY = 0, 0
 		local shake, open, glow, petUp, lift, burstT = 0, 0, 0, 0, 0, 0
+		local stageLit = 0
 		local camZ = D.CAM_Z
 
 		local function tween(o, secs, props, style, dir, delay)
@@ -3608,35 +4065,10 @@ do
 			tween(rs, 0.7, { Transparency = 1 }):Play()
 			task.delay(0.75, function() if ring then ring:Destroy() end end)
 
-			-- The light shaft the prototype raises behind the egg on the split. The
-			-- handoff blurs it 16px and there is no blur on a Frame, so the softness
-			-- is three nested strips of falling width: the centre collects all three
-			-- and the edges only the widest, which is the horizontal falloff. One
-			-- flat rectangle read as a magenta slab standing behind the egg.
-			local beamHolder = new("Frame", {
-				Name = "Beam", AnchorPoint = Vector2.new(0.5, 1),
-				Position = UDim2.new(0.5, 0, 0.5, 130 * S), Size = UDim2.fromOffset(320 * S, 56 * S),
-				BackgroundTransparency = 1, ZIndex = 4,
-			}, root)
-			for _, w in ipairs({ 1.0, 0.62, 0.32 }) do
-				local strip = new("Frame", {
-					AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-					Size = UDim2.fromScale(w, 1), BackgroundColor3 = accent,
-					BackgroundTransparency = 0.72, BorderSizePixel = 0, ZIndex = 4,
-				}, beamHolder)
-				new("UICorner", { CornerRadius = UDim.new(0.5, 0) }, strip)
-				new("UIGradient", {
-					Rotation = 90,
-					Transparency = NumberSequence.new({
-						NumberSequenceKeypoint.new(0, 1),
-						NumberSequenceKeypoint.new(0.38, 0.28),
-						NumberSequenceKeypoint.new(0.78, 0.1),
-						NumberSequenceKeypoint.new(1, 1),
-					}),
-				}, strip)
-				fades[#fades + 1] = { strip, "BackgroundTransparency" }
-			end
-			tween(beamHolder, 0.9, { Size = UDim2.fromOffset(320 * S, 560 * S) }):Play()
+			-- NO LIGHT SHAFT. Three more translucent strips growing across the stage,
+			-- on the exact frame the flash and the ring are already carrying the beat.
+			-- The reference's entire split budget is a flash, two hollow rings and
+			-- some opaque debris -- everything else is subtraction.
 
 			-- the sunburst takes the rarity glow, 600ms crossfade
 			for _, ray in ipairs(rays) do
@@ -3682,6 +4114,29 @@ do
 			local cardStroke = new("UIStroke", { Color = accent, Thickness = 2 * S, Transparency = 1 }, card)
 			fades[#fades + 1] = { card, "BackgroundTransparency" }
 			fades[#fades + 1] = { cardStroke, "Transparency" }
+
+			-- the handoff's inner rarity glow (inset 0 0 40px at 0x33 alpha): one
+			-- gradient frame per axis, visible only near its own pair of edges --
+			-- the vignette's trick turned inward and accent-tinted. The 60px-blur
+			-- DROP shadow is deliberately absent: Frames cannot blur, and against
+			-- the near-black stage a hard un-blurred slab is all it could add.
+			local glowSeq = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.80),
+				NumberSequenceKeypoint.new(0.32, 1),
+				NumberSequenceKeypoint.new(0.68, 1),
+				NumberSequenceKeypoint.new(1, 0.80),
+			})
+			local innerGlow1, innerGlow2
+			for i, rot in ipairs({ 0, 90 }) do
+				local g = new("Frame", {
+					Name = "InnerGlow" .. i, Size = UDim2.fromScale(1, 1), BackgroundColor3 = accent,
+					BackgroundTransparency = 0, BorderSizePixel = 0, ZIndex = 17,
+				}, card)
+				new("UICorner", { CornerRadius = UDim.new(0, math.floor(18 * S)) }, g)
+				new("UIGradient", { Rotation = rot, Transparency = glowSeq }, g)
+				fades[#fades + 1] = { g, "BackgroundTransparency" }
+				if i == 1 then innerGlow1 = g else innerGlow2 = g end
+			end
 			local slide = TweenInfo.new(0.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, 0, false, 0.3)
 			TweenService:Create(holder, slide, { Position = UDim2.new(0.5, 0, 0.97, 0) }):Play()
 			TweenService:Create(card, slide, { BackgroundTransparency = 0.06 }):Play()
@@ -3743,7 +4198,7 @@ do
 			end
 			local bw = math.floor((cardW - pad * 2 - gapX) / 2)
 			local rebuyable = (eggDef ~= nil) and (result.Source ~= "reward")
-			local again = button(pad, bw, Color3.new(1, 1, 1), alpha(0x14),
+			local again, againStroke = button(pad, bw, Color3.new(1, 1, 1), alpha(0x14),
 				Color3.new(1, 1, 1), alpha(0x29), Color3.new(1, 1, 1), "HATCH ANOTHER")
 			local keep, keepStroke = button(pad + bw + gapX, bw, accent, 0, accent, 0,
 				Color3.fromRGB(11, 18, 12), "COLLECT")
@@ -3754,6 +4209,40 @@ do
 				keep.Size = UDim2.fromOffset(cardW - pad * 2, btnH)
 			end
 
+			-- THE CONTENTS RIDE THE CARD'S OWN FADE (spec: slides up + fades in
+			-- as a unit, 420ms after a 300ms delay). Children do not inherit a
+			-- Frame's transparency, so each element is born clear and tweened back
+			-- to the resting value it was authored with, on the same delayed
+			-- TweenInfo the card rides -- without this the text and buttons hang
+			-- fully opaque over a still-transparent slab for the 720ms entrance.
+			for _, e in ipairs({
+				{ nameL, "TextTransparency" }, { nameInk, "Transparency" },
+				{ chip, "BackgroundTransparency" }, { chip, "TextTransparency" },
+				{ chipStroke, "Transparency" }, { odds, "TextTransparency" },
+				{ again, "BackgroundTransparency" }, { again, "TextTransparency" },
+				{ againStroke, "Transparency" },
+				{ keep, "BackgroundTransparency" }, { keep, "TextTransparency" },
+				{ keepStroke, "Transparency" },
+				{ innerGlow1, "BackgroundTransparency" }, { innerGlow2, "BackgroundTransparency" },
+			}) do
+				local resting = e[1][e[2]]
+				e[1][e[2]] = 1
+				TweenService:Create(e[1], slide, { [e[2]] = resting }):Play()
+			end
+
+			-- the handoff's hover on HATCH ANOTHER: fill and border brighten under
+			-- the pointer (desktop only -- touch never fires MouseEnter)
+			again.MouseEnter:Connect(function()
+				if dead then return end
+				TweenService:Create(again, TweenInfo.new(0.12), { BackgroundTransparency = alpha(0x24) }):Play()
+				TweenService:Create(againStroke, TweenInfo.new(0.12), { Transparency = alpha(0x45) }):Play()
+			end)
+			again.MouseLeave:Connect(function()
+				if dead then return end
+				TweenService:Create(again, TweenInfo.new(0.12), { BackgroundTransparency = alpha(0x14) }):Play()
+				TweenService:Create(againStroke, TweenInfo.new(0.12), { Transparency = alpha(0x29) }):Play()
+			end)
+
 			again.Activated:Connect(function()
 				if dead or not rebuyable then return end
 				skip()
@@ -3763,7 +4252,9 @@ do
 				if dead then return end
 				-- the handoff's pressed state: the fill drops away, the border and
 				-- label take the tier colour, and the ceremony closes
-				keep.BackgroundTransparency = 1
+				-- tweened, not set: a bare set would be overwritten a frame later
+				-- if the press lands while the card's entrance tween still runs
+				TweenService:Create(keep, TweenInfo.new(0.06), { BackgroundTransparency = 1 }):Play()
 				keep.TextColor3 = accent
 				keep.Text = "COLLECTED \u{2713}"
 				keepStroke.Color = accent
@@ -3798,10 +4289,8 @@ do
 				qCap.Visible = true
 				SoundKit.play(CRACK_SFX[3], nil, { volume = 0.48, speed = 0.95 })
 				SoundKit.play("eggSplit", nil, { volume = 0.5 })
-				-- THE SWAP, under the flash: the authored ellipsoid steps aside and
-				-- the two generated halves take over (deviation 1).
-				if intactShell then intactShell.Transparency = 1 end
-				for _, gp in ipairs(genParts) do gp.Transparency = 0 end
+				-- No swap any more: the voxel egg has been the egg on stage since
+				-- the first frame (deviation 1), so the split just... splits.
 				-- THE PET UNCOVERS WITH THE SHELL, not a beat later at the reveal.
 				-- It is still down at PET_Y (-1.1), under the cradle floor and behind
 				-- the slab stack, so nothing shows yet -- but from here on the egg is
@@ -3824,9 +4313,13 @@ do
 		end
 
 		local started = false
+		-- when the shake actually began: tap-to-hatch means it is NOT t == 0, and the
+		-- anticipation ramp below has to measure from here or it starts mid-way
+		local hatchAt = nil
 		local function hatch()
 			if started or dead then return end
 			started = true
+			hatchAt = t
 			setPhase("shake")
 			task.delay(D.AT_CRACK, function() if myGen == revealGen then setPhase("crack") end end)
 			task.delay(D.AT_SPLIT, function() if myGen == revealGen then setPhase("split") end end)
@@ -3841,7 +4334,7 @@ do
 			end
 		end)
 		-- ...and it must never wait forever: a hatch left sitting here would leave
-		-- the player with no HUD and their darrels already spent.
+		-- the player with no HUD and their emeralds already spent.
 		task.delay(TAP_TIMEOUT, function()
 			if myGen == revealGen then hatch() end
 		end)
@@ -3852,24 +4345,77 @@ do
 		-- it ends. Each continuous value is an exponentially damped approach to a
 		-- target -- frame-rate independent, and the reason the phase boundaries do
 		-- not snap. Nothing here re-derives a value from wall-clock time per phase.
+		-- PER-EGG AURA (2026-08-15). Viewport flavour only: motes as PARTS, because
+		-- a ViewportFrame draws BaseParts and MeshParts and nothing else -- no
+		-- ParticleEmitter, no Light. The ground GROWTH half of Modules.VoxelEggAura
+		-- is deliberately not built here: this stage has no ground for it to grow
+		-- out of. That half belongs to the world stall.
+		-- Keyed off eggDef.Model ("ForestEgg1"...), which is exactly the EggPalettes
+		-- key, so each egg brings its own aura colour to its own hatch.
+		local AuraMod, auraMotes, auraH = nil, nil, 0
+		do
+			local RSx = game:GetService("ReplicatedStorage")
+			local okA, A = pcall(require, RSx.Modules:FindFirstChild("VoxelEggAura"))
+			local okP, Pal = pcall(require, RSx.Modules:FindFirstChild("EggPalettes"))
+			local spec = (okP and type(Pal) == "table" and eggDef and eggDef.Model) and Pal[eggDef.Model] or nil
+			if okA and type(A) == "table" and spec then
+				AuraMod = A
+				auraH = D.RY * 2 * us
+				local model
+				model, auraMotes = A.buildViewport(spec, auraH, 4242, 16)
+				model.Parent = eggVp
+			end
+		end
+
 		conn = RunService.RenderStepped:Connect(function(dt)
 			dt = math.min(dt, 0.05)
 			t += dt
 			local p = phase
 
-			local shakeT = (p == "shake" and D.SHAKE) or (p == "crack" and D.SHAKE_CRACK) or 0
+			-- RAMPED, not stepped. The reference's shake amplitude roughly doubles
+			-- across the anticipation (measured +-5k -> +-10k shell pixels); a flat
+			-- target made the longer wait read as dead time instead of a build.
+			local shakeT = 0
+			if p == "shake" then
+				local k = hatchAt and math.clamp((t - hatchAt) / math.max(0.01, D.AT_CRACK), 0, 1) or 0
+				shakeT = D.SHAKE * (D.SHAKE_MIN + (1 - D.SHAKE_MIN) * k)
+			elseif p == "crack" then
+				shakeT = D.SHAKE_CRACK
+			end
 			local glowT = (p == "crack" and D.GLOW_CRACK) or (p == "split" and D.GLOW_SPLIT)
 				or (p == "reveal" and D.GLOW_REVEAL) or 0
 
 			shake = damp(shake, shakeT, D.LAM_SHAKE, dt)
 			open = damp(open, ((p == "split" or p == "reveal") and 1) or 0, D.LAM_OPEN, dt)
 			glow = damp(glow, glowT, D.LAM_GLOW, dt)
+			stageLit = damp(stageLit, (p == "crack" and 0.45) or (p == "split" and 0.78)
+				or (p == "reveal" and 1.0) or 0, D.LAM_GLOW, dt)
+			-- user asked for a lighter ground than the reference's own measured 58.6
+			-- green, so this deliberately overshoots the clip: ~98 green at full lift.
+			if snapGlow then snapGlow.BackgroundTransparency = 1 - stageLit * 0.60 end
+
+			-- FLASH: stateless, derived straight from the hatch clock, so it fires on
+			-- exactly the measured beats and needs no trigger or extra state. Two pops:
+			-- the big one at AT_CRACK (the reference's 2.20 spike) and a smaller one at
+			-- AT_SPLIT when the shell actually breaks. Fast decay -- ~0.09s half-life --
+			-- because a slow one reads as a wash instead of an impact.
+			if flashFrame and hatchAt then
+				local since = t - hatchAt
+				local fl = 0
+				if since >= D.AT_CRACK then
+					fl = math.exp(-7.5 * (since - D.AT_CRACK))
+				end
+				if since >= D.AT_SPLIT then
+					fl = math.max(fl, 0.55 * math.exp(-8.0 * (since - D.AT_SPLIT)))
+				end
+				flashFrame.BackgroundTransparency = 1 - math.clamp(fl, 0, 1) * 0.88
+			end
 			petUp = damp(petUp, (p == "reveal") and 1 or 0, D.LAM_PET, dt)
 			lift = damp(lift, (p == "reveal") and D.LIFT or 0, D.LAM_LIFT, dt)
 			camZ = damp(camZ, (p == "reveal") and D.CAM_Z_OUT or D.CAM_Z, D.LAM_CAM, dt)
 			if p == "reveal" then burstT = math.min(D.BURST_CAP, burstT + dt) end
 
-			fan.Rotation = (t / 40) * 360 % 360
+			if fan then fan.Rotation = (t / 40) * 360 % 360 end
 			if not started then
 				local pulse = 0.25 - 0.25 * math.sin(t * (TAU / 1.1))
 				tapCap.TextTransparency, tapInk.Transparency = pulse, pulse
@@ -3880,14 +4426,48 @@ do
 			spinY += dt * ((p == "idle") and D.SPIN_IDLE or D.SPIN_BUSY)
 			local sh = shake
 			local bob = math.sin(t * D.BOB_HZ) * D.BOB_AMP * (1 - open) + lift
+			-- ROCK ON THE BASE, not around the middle (2026-08-15). Tilting about the
+			-- egg's centre reads as a floating object being rotated; an egg on a floor
+			-- turns about its contact point. Same tilt angles, completely different
+			-- read -- this was the single biggest cause of the motion feeling stiff.
+			-- Yaw is unaffected: spinY is about the Y axis, and the pivot sits ON that
+			-- axis, so shifting it changes the tilts only.
+			-- Two non-harmonic terms per axis as well: one clean sine reads as clockwork.
+			local rockX = (math.sin(t * 27 + 1.1) + 0.42 * math.sin(t * 46.7 + 0.4)) * 0.05 * sh
+			local rockZ = (math.sin(t * 34) + 0.30 * math.sin(t * 58.2)) * 0.075 * sh
+			local baseY = D.RY * us
 			local eggCF = CFrame.new(math.sin(t * 41) * 0.035 * sh * us, bob * us, 0)
-				* CFrame.Angles(math.sin(t * 27 + 1.1) * 0.05 * sh, spinY, math.sin(t * 34) * 0.075 * sh)
+				* CFrame.new(0, -baseY, 0)
+				* CFrame.Angles(rockX, spinY, rockZ)
+				* CFrame.new(0, baseY, 0)
 
 			-- The handoff's uniform egg puff is applied to the CAMERA rather than by
 			-- rescaling ~80 parts every frame: scaling the scene about the origin
 			-- and dividing the camera by that same factor are the same picture, and
 			-- while the puff is running the egg is the only thing in the scene.
-			local puff = 1 + 0.035 * sh * math.sin(t * 18)
+			-- ANTICIPATION (2026-08-15). AT_CRACK 2.20 -> AT_SPLIT 2.47 was 270ms in
+			-- which nothing changed but the shake, so the split arrived like a cut. The
+			-- egg now draws IN across that window and springs on release. Non-uniform
+			-- squash is not affordable here -- see the camera-puff note above -- so this
+			-- is a uniform gather, which still buys the wind-up.
+			local antic = 0
+			if hatchAt then
+				local since = t - hatchAt
+				if p == "crack" then
+					local k = math.clamp((since - D.AT_CRACK) / math.max(0.01, D.AT_SPLIT - D.AT_CRACK), 0, 1)
+					antic = -0.055 * math.sin(k * math.pi * 0.5)
+				elseif p == "split" or p == "reveal" then
+					local u2 = math.max(0, since - D.AT_SPLIT)
+					antic = 0.055 * math.exp(-5.0 * u2) * math.cos(u2 * 14.0)
+				end
+			end
+			-- motes orbit the STAGE, not the egg: they deliberately do not inherit the
+			-- rock, so the egg reads as moving against them rather than dragging them
+			if AuraMod and auraMotes then
+				AuraMod.stepViewport(auraMotes, t, auraH, math.clamp(t * 1.5, 0, 1))
+			end
+
+			local puff = 1 + 0.035 * sh * math.sin(t * 18) + antic
 			eggCam.CFrame = CFrame.lookAt(
 				Vector3.new(0, D.CAM_Y * us, camZ * us) / puff,
 				Vector3.new(0, D.LOOK_Y * us, 0) / puff)
@@ -3897,16 +4477,26 @@ do
 				* CFrame.Angles(D.TOP_RX * o, 0, D.TOP_RZ * o)
 			local botLocal = CFrame.new(0, D.BOT_Y * o * us, 0) * CFrame.Angles(D.BOT_RX * o, 0, 0)
 
-			if intactShell then intactShell.CFrame = eggCF * intactRest end
-			botM:PivotTo(eggCF * botLocal)
+			-- CRADLE RECOIL: it has just had its lid blown off and used to not react
+			-- at all. Damped dip-and-settle driven off the burst clock.
+			local recoil = (burstT > 0)
+				and (math.exp(-6.0 * burstT) * math.cos(burstT * 17.0) * 0.045) or 0
+			botM:PivotTo(eggCF * botLocal * CFrame.new(0, -recoil * us, 0))
 
 			local bt = burstT
-			for _, ck in ipairs(chunks) do
+			for ci, ck in ipairs(chunks) do
 				local chunkCF = ck.home
-				if bt > 0 then
-					chunkCF = CFrame.new(ck.pivot + ck.vel * bt
-						+ Vector3.new(0, -D.BURST_G * us * bt * bt, 0))
-						* CFrame.Angles(ck.spin.X * bt, ck.spin.Y * bt, ck.spin.Z * bt)
+				-- STAGGERED, up to 90ms apart (2026-08-15). All seven leaving on the
+				-- identical frame reads as one rigid lid disassembling rather than a
+				-- shell bursting. rand() is the handoff's own deterministic hash, so
+				-- the offsets are the same burst every hatch.
+				local cbt = math.max(0, bt - rand(ci, 77) * 0.09)
+				if cbt > 0 then
+					-- spin eases in rather than snapping to full rate on frame one
+					local sp = cbt ^ 1.25
+					chunkCF = CFrame.new(ck.pivot + ck.vel * cbt
+						+ Vector3.new(0, -D.BURST_G * us * cbt * cbt, 0))
+						* CFrame.Angles(ck.spin.X * sp, ck.spin.Y * sp, ck.spin.Z * sp)
 				end
 				ck.model:PivotTo(eggCF * topLocal * chunkCF)
 			end
@@ -3940,8 +4530,66 @@ do
 					petScaleNow = sc
 				end
 				petM:PivotTo(eggCF
-					* CFrame.new(0, (D.PET_Y + uu * D.PET_DY + math.sin(t * 2.1) * 0.04 * uu) * u, 0)
+					* CFrame.new(0, (D.PET_Y + uu * (D.PET_DY + petLift) + math.sin(t * 2.1) * 0.04 * uu) * u, 0)
 					* CFrame.Angles(0, petYaw + math.sin(t * 0.9) * 0.16, 0))
+
+				-- ONE-SHOT LIVE CORRECTION (2026-08-14). Height and facing were BOTH being
+				-- computed ahead of time and BOTH kept coming out wrong: petLift is derived in
+				-- the SHELL unit map while the cradle is laid out on the SCENE map, so a
+				-- build-time measurement compares two different spaces and returned a zero
+				-- correction while the pet sat 96% of its height below the rim. And the yaw
+				-- needs a rotation convention that three separate derivations each got wrong.
+				--
+				-- Both are fixed HERE instead, once, in the live viewport after the rise has
+				-- settled: measure what is actually on screen and correct against it. No unit
+				-- map and no sign convention is assumed, and because the facing is measured per
+				-- model it works for all 191 pets, which disagree with each other about which
+				-- way "forward" is (only 61% share a dominant direction).
+				if not petFixed and uu > 0.98 then
+					petFixed = true
+					local pcf, psz = petM:GetBoundingBox()
+					if botM then
+						local bc, bs = botM:GetBoundingBox()
+						local want = bc.Position.Y + bs.Y / 2 + 0.10 * psz.Y
+						local have = pcf.Position.Y - psz.Y / 2
+						if want > have then petLift += (want - have) / math.max(u, 1e-3) end
+					end
+					local centre = pcf.Position
+					local minXZ = 0.08 * math.max(psz.X, psz.Z)
+					local sum, n = Vector3.zero, 0
+					for _, p in ipairs(petM:GetDescendants()) do
+						if p:IsA("BasePart") and p.Name:lower():find("eye") then
+							sum += p.Position
+							n += 1
+						end
+					end
+					local dir
+					if n > 0 then
+						local d = sum / n - centre
+						d = Vector3.new(d.X, 0, d.Z)
+						if d.Magnitude > minXZ then dir = d.Unit end
+					end
+					if not dir then
+						for _, a in ipairs(petM:GetDescendants()) do
+							if a:IsA("Attachment") and a.Name == "HeadAttachment" then
+								local d = a.WorldPosition - centre
+								d = Vector3.new(d.X, 0, d.Z)
+								if d.Magnitude > minXZ then
+									dir = d.Unit
+									break
+								end
+							end
+						end
+					end
+					if dir then
+						local cp = eggCam.CFrame.Position
+						local toCam = Vector3.new(cp.X - centre.X, 0, cp.Z - centre.Z)
+						if toCam.Magnitude > 1e-3 then
+							toCam = toCam.Unit
+							petYaw += math.atan2(toCam.X, toCam.Z) - math.atan2(dir.X, dir.Z)
+						end
+					end
+				end
 			end
 		end)
 	end
@@ -3975,7 +4623,16 @@ local function playMultiReveal(result)
 		Name = "Dim", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
 		BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1,
 	}, root)
-	TweenService:Create(dim, TweenInfo.new(FADE_TIME), { BackgroundTransparency = 1 - DIM_TARGET }):Play()
+	-- dim-to-blur (2026-08-17): Dim keeps its layer slot but no longer paints;
+	-- separation is an instant backdrop blur (the HUDPanelBlur recipe under this
+	-- ceremony's own name). Property writes only -- NEVER tween a BlurEffect
+	-- (TweenService silently no-ops on non-GuiObjects in this place).
+	if not game:GetService("Lighting"):FindFirstChild("EggRevealBlur") then
+		local fx = Instance.new("BlurEffect")
+		fx.Name = "EggRevealBlur"
+		fx.Size = 10
+		fx.Parent = game:GetService("Lighting")
+	end
 
 	local clickCatcher = new("TextButton", {
 		Name = "ClickCatcher", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 2,
@@ -3994,7 +4651,8 @@ local function playMultiReveal(result)
 		revealGen += 1
 		if revealSkip == skip then revealSkip = nil end
 		frame.Visible = shopWasVisible
-		TweenService:Create(dim, TweenInfo.new(FADE_TIME), { BackgroundTransparency = 1 }):Play()
+		local revealBlurFx = game:GetService("Lighting"):FindFirstChild("EggRevealBlur")
+		if revealBlurFx then revealBlurFx:Destroy() end
 		for _, p in ipairs(pops) do
 			TweenService:Create(p, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0 }):Play()
 		end
@@ -4065,14 +4723,20 @@ local function playMultiReveal(result)
 			UITheme.corner(sw, 10)
 		end
 
+		-- NO BLEED (2026-08-19). Card is 150 wide on a 160 pitch, so a box of (1, 20)
+		-- starting at -10 runs to +160 while the neighbour's starts at +150 -- adjacent
+		-- result cards' name and tier boxes literally intersect across the whole
+		-- gutter. Today's longest pet name is 139px so glyphs do not reach it, but
+		-- these labels are NOT NoPolish, so UIPolish's 2.2-3.6px contextual stroke is
+		-- ink that crosses first -- and the Back-easing pop overshoots past scale 1.
 		local nameL = new("TextLabel", {
-			Name = "Name", Position = UDim2.new(0, -10, 1, -38), Size = UDim2.new(1, 20, 0, 20),
+			Name = "Name", Position = UDim2.new(0, 0, 1, -38), Size = UDim2.new(1, 0, 0, 20),
 			BackgroundTransparency = 1, Font = FONT, TextSize = 16, TextColor3 = CF.onDark,
 			TextTruncate = Enum.TextTruncate.AtEnd, Text = res.Name, ZIndex = 6,
 		}, slot)
 		UITheme.inkText(nameL, 2.2)
 		local tierL = new("TextLabel", {
-			Name = "Tier", Position = UDim2.new(0, -10, 1, -18), Size = UDim2.new(1, 20, 0, 16),
+			Name = "Tier", Position = UDim2.new(0, 0, 1, -18), Size = UDim2.new(1, 0, 0, 16), -- no bleed; see Name above
 			BackgroundTransparency = 1, Font = FONT, TextSize = 13, TextColor3 = accent,
 			Text = string.upper(tostring(res.Rarity or "?")), ZIndex = 6,
 		}, slot)
@@ -4112,31 +4776,31 @@ local function playMultiReveal(result)
 	end)
 end
 
----------------------------------------------------------------- darrel state pull
--- DarrelUpdate's join-time push can race this script's own listener connecting
+---------------------------------------------------------------- emerald state pull
+-- EmeraldUpdate's join-time push can race this script's own listener connecting
 -- (Task 3's note), so this ALSO pulls current state via a RemoteFunction --
 -- once at startup, and again every time the panel opens.
-local darrelStateRF = remotes:WaitForChild("DarrelState")
-local function applyDarrel(payload)
+local emeraldStateRF = remotes:WaitForChild("EmeraldState")
+local function applyEmerald(payload)
 	if type(payload) ~= "table" then return end
 	if payload.Darrels then
-		currentDarrels = math.floor(payload.Darrels)
-		darrelLabel.Text = comma(currentDarrels)
+		currentEmeralds = math.floor(payload.Darrels)
+		emeraldLabel.Text = comma(currentEmeralds)
 		-- .Daily is only a table once the profile has actually loaded, so it is the
 		-- discriminator that tells a real 0 from a placeholder 0.
-		if typeof(payload.Daily) == "table" then darrelsKnown = true end
+		if typeof(payload.Daily) == "table" then emeraldsKnown = true end
 		refreshAffordability()
 	end
 	-- payload.Daily is deliberately unused: quests render in the Goals panel now.
 end
-local function pullDarrelState()
+local function pullEmeraldState()
 	task.spawn(function()
-		local ok, res = pcall(function() return darrelStateRF:InvokeServer() end)
-		if ok then applyDarrel(res) end
+		local ok, res = pcall(function() return emeraldStateRF:InvokeServer() end)
+		if ok then applyEmerald(res) end
 	end)
 end
-pullDarrelState()
-remotes.DarrelUpdate.OnClientEvent:Connect(applyDarrel)
+pullEmeraldState()
+remotes.EmeraldUpdate.OnClientEvent:Connect(applyEmerald)
 
 ---------------------------------------------------------------- open / close
 -- THE LATCH IS THE FIX FOR THE STARVED CLOSE (final review C1).
@@ -4161,7 +4825,7 @@ remotes.DarrelUpdate.OnClientEvent:Connect(applyDarrel)
 --
 -- ONLY THE CLOSE PATH IS LATCHED, deliberately. setOpen(true) stays fully
 -- repeatable: the EggResult handler calls it on every successful purchase to
--- re-pull darrel state, and an early return there would silently drop that
+-- re-pull emerald state, and an early return there would silently drop that
 -- refresh.
 --
 -- NO NEW TOP-LEVEL REGISTER: openToken moved into the do-block below in exchange,
@@ -4184,12 +4848,12 @@ do
 			scrim.Visible = true
 			openPop.Scale = 0.92
 			TweenService:Create(openPop, T.tween.panelOpen, { Scale = 1 }):Play()
-			TweenService:Create(scrim, T.tween.scrim, { BackgroundTransparency = SCRIM_ALPHA }):Play()
+			-- scrim paint removed (dim-to-blur): EggShopBlur follows frame.Visible via the scrim mirror at the build site
 			SoundKit.play("panelOpen", nil, { volume = 0.15 })
-			pullDarrelState()
+			pullEmeraldState()
 		else
 			TweenService:Create(openPop, T.tween.panelClose, { Scale = 0.95 }):Play()
-			TweenService:Create(scrim, T.tween.scrim, { BackgroundTransparency = 1 }):Play()
+			-- scrim un-paint removed (dim-to-blur): the mirror destroys EggShopBlur when the deferred hide lands
 			-- hide after the close tween lands; the token guards a reopen racing it
 			task.delay(0.12, function()
 				if token ~= openToken then return end
@@ -4247,7 +4911,7 @@ do
 			showToast(result.Message)
 			return
 		end
-		-- setOpen first so darrel/quest state refreshes and the panel is the one
+		-- setOpen first so emerald/quest state refreshes and the panel is the one
 		-- the reveal hides behind its own overlay; both reveals restore
 		-- frame.Visible themselves when they end or are skipped. It also has to
 		-- happen NOW rather than after the hold: the stamp lands on a card inside
@@ -4291,7 +4955,12 @@ local StallPrompt = require(game:GetService("ReplicatedStorage").Modules.StallPr
 -- PromptTriggered lookup then fails to recognise a prompt it had definitely bound.
 -- Matching on name + owning stall has no such failure mode, and it survives streaming
 -- replacing the prompt with a fresh instance.
-local EGG_STALLS = { EggStall = true, TundraEggStall = true, GardensEggStall = true }
+-- VALUES ARE WORLD IDS, not `true` (2026-08-23). As a set of booleans this table
+-- said "these three stalls open the egg shop" and nothing more, so all three opened
+-- THIS shop -- whose WORLD_ID is a load-time constant of "Forest". That is how the
+-- Frozen Tundra stall came to sell world 1's eggs. Naming each stall's world lets
+-- the trigger handler below notice the mismatch.
+local EGG_STALLS = { EggStall = "Forest", TundraEggStall = "Tundra", GardensEggStall = "Gardens" }
 local eggParts = {}
 -- Via StallPrompt: the old one-shot WaitForChild(..., 30) timed out for the tundra
 -- stall whenever the player joined in the valley (streaming does not replicate parts
@@ -4310,7 +4979,17 @@ ProximityPromptService.PromptTriggered:Connect(function(triggeredPrompt, who)
 	if who ~= player then return end
 	if triggeredPrompt.Name ~= "EggPrompt" then return end
 	local stall = triggeredPrompt:FindFirstAncestorWhichIsA("Model")
-	if not (stall and EGG_STALLS[stall.Name]) then return end
+	local stallWorld = stall and EGG_STALLS[stall.Name]
+	if not stallWorld then return end
+	-- ONE SHELL, EVERY WORLD. The shop holds a full set of cards per shop-ready
+	-- world and swaps which set is on screen, so a stall opens its OWN catalogue
+	-- instead of world 1's. Retarget BEFORE opening, and ONLY when opening: a
+	-- press that is about to close the panel has no world to choose, and swapping
+	-- cards under a panel already up would be a visible flicker. setWorld returns
+	-- false for a world the shell cannot draw (unknown, not Active, or
+	-- ShopReady = false); refusing there keeps this in step with EggHandler, which
+	-- has already relabelled that stall to read "Coming Soon".
+	if not shopOpen and not cards.setWorld(stallWorld) then return end
 	-- OFF THE LATCH, not off frame.Visible (final review C1): during setOpen's
 	-- 0.12s pending hide the frame is still visible although the shop is already
 	-- closing, so the old test made a prompt press in that window re-issue a close

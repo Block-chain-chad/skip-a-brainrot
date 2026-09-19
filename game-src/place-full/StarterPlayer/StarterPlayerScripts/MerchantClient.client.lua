@@ -44,6 +44,17 @@
 -- calls changed. The close button's hover scale/rotate tween is dropped --
 -- UITheme.bazaarClose is a static 38px button with no hover state, matching
 -- every other Bazaar-styled panel in the game.
+--
+-- 2026-08-21 SCROLL RESTYLE (owner: "make all the shops scroll wheels and give
+-- them the same design as the egg shop but you can scroll through"). The Bazaar
+-- chrome described above is REPLACED, and the pager with it. This window is now
+-- built from UIKit.Builders + Tokens at the egg shop's own 940x700 footprint,
+-- and the 3x2-per-page grid is one ScrollingFrame holding every item -- Rocco's
+-- valley shelf is fourteen rocks, which the old PER_PAGE = 6 split across three
+-- pages. All three merchants (ROCK SHOP / UPGRADES / CHARMS) share this file, so
+-- all three are restyled by it. Prompts, walk-away close, SideRail registration,
+-- the dialogue hand-off and the BuyRock / EquipRock / BuyUpgrade remotes are
+-- untouched; makeCard even keeps its old signature so rebuild() never changed.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -60,6 +71,13 @@ local MerchantConfig = require(ReplicatedStorage.Modules.MerchantConfig)
 local MerchantDialog = require(ReplicatedStorage.Modules.MerchantDialog)
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
+-- THE EGG SHOP'S KIT (2026-08-21). EggShopClient builds its window out of these
+-- two modules and nothing else, so pulling the same pair is what makes the two
+-- shops the same furniture rather than two things that merely resemble each
+-- other. Platform sizes the modal -- see the viewport-fit block below.
+local T = require(ReplicatedStorage.Modules.UIKit.Tokens)
+local UI = require(ReplicatedStorage.Modules.UIKit.Builders)
+local Platform = require(ReplicatedStorage.Modules:WaitForChild("Platform"))
 
 local BZ = UITheme.Bazaar
 local P = UITheme.Palette
@@ -71,21 +89,21 @@ local current = nil
 -- MerchantConfig.StallWorld). Defaults to the valley for any stall not listed.
 local currentWorld = WorldProgression.Default
 local function shelf()
-	return WorldProgression.RocksFor(currentWorld)
+	return WorldProgression.ShelfFor(currentWorld)
 end
-local page = 1
-local PER_PAGE = 6   -- mock 1d: 3x2 grid per page (was 2x4 of 8)
+-- `page` and PER_PAGE are gone with the pager: the card grid is one scroller now
+-- and every item is always in it. See the panel block below.
 
 ---------------------------------------------------------------- palette (2026-08-06 Bazaar restyle)
 -- Panel/header/close/card chrome now comes straight from UITheme.Bazaar
 -- (BZ, above). Only the state-identity colours Bazaar's palette has no slot
 -- for -- LOCKED/MAXED gray, the gold active page chip -- stay as literals.
--- LemonPop 2026-08-13: cool grays land as dead spots on the lemon panel --
--- locked state takes the theme's warm-taupe disabled family instead
-local LOCK_TOP = Color3.fromHex("#8A7C5E") -- LOCKED/MAXED (was cool gray 150,156,170)
-local LOCK_BOT = Color3.fromHex("#5C5138") -- (was 94,100,114)
-local TAB_GOLD_TOP = Color3.fromHex("#ffdf5e") -- active pager chip: gold is the selected-tab identity
-local TAB_GOLD_BOT = Color3.fromHex("#f7a721")
+-- PS99 cool 2026-08-16: locked state uses the cool grey-blue Inert family
+-- (SpecTheme Action.Inert) on the new cool light panel
+local LOCK_TOP = Color3.fromHex("#93A1B4") -- LOCKED/MAXED (was warm taupe #8A7C5E)
+local LOCK_BOT = Color3.fromHex("#6E7E94") -- (was #5C5138)
+-- The gold/green PAGER CHIP colours that stood here are gone with the pager
+-- itself (2026-08-21 scroll restyle) -- there are no page tabs left to paint.
 
 local function short(n)
 	n = math.floor(n)
@@ -116,13 +134,13 @@ local spinParts = {}
 local function makeRockViewport(med, rock)
 	local vp = Instance.new("ViewportFrame")
 	vp.Size = UDim2.new(1, 0, 1, 0)
-	vp.BackgroundColor3 = Color3.fromHex("#FFF4D9") -- LemonPop light art well (was dark 26,30,40)
+	vp.BackgroundColor3 = Color3.fromHex("#EFF3F9") -- PS99 cool light art well (was warm #FFF4D9)
 	vp.Ambient = Color3.fromRGB(160, 160, 170)
-	vp.LightColor = Color3.fromRGB(255, 244, 224)
+	vp.LightColor = Color3.fromRGB(255, 255, 255) -- neutral light, no warm cast (was 255,244,224)
 	vp.LightDirection = Vector3.new(-0.6, -1, -0.4)
 	vp.ZIndex = med.ZIndex + 1
 	vp.Parent = med
-	UITheme.corner(vp, 8)   -- guide: art 8, matched to the display case it fills
+	UITheme.corner(vp, 16)  -- was 8; tracks the r20 icon slot so the 3D preview stops showing square corners inside a rounded tile
 
 	local model = RockDesign.Build(rock.Id, rock.Color)
 	model:PivotTo(CFrame.Angles(math.rad(-8), 0, 0))
@@ -140,7 +158,18 @@ local function makeRockViewport(med, rock)
 
 	table.insert(spinParts, model)
 end
+-- Forward-declared so the spinner driver below can ask whether the panel is even
+-- on screen. The frame itself is built further down.
+local frame
 RunService.RenderStepped:Connect(function()
+	if #spinParts == 0 then return end
+	-- VISIBILITY GUARD (2026-08-19). Without it, once the merchant panel had been
+	-- opened a SINGLE time this kept pivoting a whole page of rock models (up to 7
+	-- BaseParts each) and re-rendering their ViewportFrames every frame for the rest
+	-- of the session, with the panel closed. The identical driver in EggShopClient
+	-- already carries this guard. Pruning still runs while hidden so a closed panel
+	-- can never pin destroyed models for the session.
+	local spin = frame ~= nil and frame.Visible
 	local a = os.clock() * 0.8
 	-- backwards + prune: every rebuild destroys the page's viewports, and a
 	-- table that only ever grows would pin every dead Model for the session
@@ -149,57 +178,172 @@ RunService.RenderStepped:Connect(function()
 	for i = #spinParts, 1, -1 do
 		local mdl = spinParts[i]
 		if mdl.Parent then
-			mdl:PivotTo(CFrame.Angles(0, a, 0) * CFrame.Angles(math.rad(-8), 0, 0))
+			if spin then
+				mdl:PivotTo(CFrame.Angles(0, a, 0) * CFrame.Angles(math.rad(-8), 0, 0))
+			end
 		else
 			table.remove(spinParts, i)
 		end
 	end
 end)
 
----------------------------------------------------------------- panel (mock 1d)
-local FRAME_W, FRAME_H = 680, 620
-local HEADER_H = 54   -- bazaarHeader's own footprint: 10px inset + 44px bar
-local BLURB_H = 20
-local CHIPS_H = 38
-local GRID_TOP = HEADER_H + 8 + BLURB_H + 6 + CHIPS_H + 6
+---------------------------------------------------------------- panel (2026-08-21: the egg shop's window)
+-- WHY THIS IS THE EGG SHOP'S FURNITURE NOW (owner: "make all the shops scroll
+-- wheels and give them the same design as the egg shop but you can scroll
+-- through"). What stood here was a 680x552 Bazaar window with a 3x2 grid and a
+-- PAGE 1 / PAGE 2 / PAGE 3 chip row. Rocco's valley shelf is FOURTEEN rocks, so
+-- the pager was hiding two thirds of the shop behind chips nobody clicks.
+--
+-- So this window is now built from the same two modules EggShopClient builds its
+-- panel from -- UIKit.Builders and UIKit.Tokens -- at the same 940x700 footprint,
+-- with the same 92px header band and the same 295-wide cards. The pager is gone,
+-- replaced by ONE scroller holding every item at once.
+--
+-- All three merchants share this window (MerchantConfig: ROCK SHOP, UPGRADES,
+-- CHARMS), so all three get the restyle from this one file.
+local PANEL_W, PANEL_H = 940, 700       -- the egg shop's own footprint
+local HEADER_H = T.size.headerHeight    -- 92
+local STRIP_H  = 26                     -- blurb strip under the header
+local BLOCK_GAP = T.pad.gap             -- 12
+local CARD_W, CARD_H = 295, 250
+local GRID_GAP, GRID_COLS = 9, 3
+-- 3 x 295 + 2 x 9 = 903 inside the panel's 908 padded content box: three columns
+-- exactly, the same count the egg shop's top row runs.
+local GRID_TOP = HEADER_H + BLOCK_GAP + STRIP_H + BLOCK_GAP
 
-local frame = Instance.new("Frame")
+-- ITS OWN ScreenGui, and BOTH reasons are load-bearing (2026-08-21):
+--
+-- ZIndexBehavior.Sibling. MainUI runs GLOBAL, where a child draws BELOW a parent
+-- that has a higher ZIndex -- and UI.button hardcodes its caption to ZIndex 3, so
+-- the close button's glyph rendered underneath its own ZIndex-14 button and came
+-- out as a blank red circle. EggShopClient's own header carries a note about
+-- exactly this trap; every kit panel runs Sibling, and so must this one.
+--
+-- DisplayOrder 24. MainUI sits at 5 and GameHUD at 7, so at the egg shop's full
+-- 940x700 footprint the HUD's currency cluster drew straight across this window's
+-- title bar. 24 clears the HUD and sits just under the egg shop's own 25.
+local host = Instance.new("ScreenGui")
+host.Name = "MerchantShopUI"
+host.ResetOnSpawn = false
+host.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+host.DisplayOrder = 24
+host.Enabled = true
+host.Parent = player:WaitForChild("PlayerGui")
+Platform.PrepareGui(host)
+
+frame = Instance.new("Frame") -- assigns the forward-declared upvalue (see the spinner guard above)
 frame.Name = "MerchantFrame"
 frame.AnchorPoint = Vector2.new(0.5, 0.5)
 frame.Position = UDim2.new(0.5, 0, 0.5, 0)
-frame.Size = UDim2.fromOffset(FRAME_W, FRAME_H)
+frame.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
+frame.BackgroundTransparency = 1   -- the UI.panel inside draws the window
 frame.Visible = false
 frame.ZIndex = 10
-frame.Parent = gui
+frame.Parent = host
 -- The rail sits at DisplayOrder 6 and this panel at 0; registering it means
 -- the legacy rail folds away while the shop is open (single-open registry).
 SideRail.registerPanel(frame)
-UITheme.bazaarPanel(frame)   -- dark gradient stall-shop panel body
 
--- Viewport fit, CENTRED.
---
--- This used to reserve a 146px band at the top so the panel never covered the
--- TabBar, and pushed itself down below it. That cost a quarter of the height on a
--- short window: measured at 940x568 the panel was forced to 0.616 scale and sat
--- 53px below centre, which is what "the shop is low on the screen and the text is
--- tiny" was -- 16px body text rendering at ~10px.
---
--- A shop is a MODAL. Covering the nav band while it is open is fine and is what
--- every other panel in the game does; what is not fine is shrinking the whole
--- panel to dodge it. Fit the full viewport with an even margin and sit dead centre.
--- THE SIZE KNOB. Fraction of the viewport the panel is allowed to occupy.
--- 1.0 fits it to the screen edge-to-edge (too big -- it read as full-screen);
--- the old behaviour was effectively ~0.6 with a 146px band reserved on top
--- (too small -- 16px body text rendered at ~10px). Turn this one number.
-local FILL = 0.76
+-- Assigned further down; openMerchant and apply() both call it. Kept as a real
+-- local -- without the declaration the `rebuild = function()` below would quietly
+-- create a GLOBAL instead.
+local rebuild
+
+-- The window itself. UI.panel carries its own 16px padding, which is why every
+-- child below sits at x = 0 rather than at a hand-written margin.
+local panel = UI.panel(frame, UDim2.fromScale(1, 1))
+panel.Name = "Panel"
+panel.ZIndex = 11
+
+---------------------------------------------------------------- header band
+local header = UI.surface(panel, UDim2.new(1, 0, 0, HEADER_H), "panel", T.radius.panel, T.stroke.panel)
+header.Name = "Header"
+header:SetAttribute("PolishOnDark", true)
+header.ZIndex = panel.ZIndex + 1
+-- RETINT the gradient UI.surface already parented; do not add a second. Two
+-- UIGradients on one GuiObject do not blend -- one simply wins, and which one is
+-- not something to rely on. BZ.rockHeader1/2 is the pair the Bazaar palette
+-- already defines for this shop, sibling to the eggHeader pink next door: same
+-- furniture, different colour, which is exactly the family resemblance wanted.
+do
+	local hg = header:FindFirstChildOfClass("UIGradient")
+	if hg then
+		hg.Color = ColorSequence.new(BZ.rockHeader1, BZ.rockHeader2)
+	else
+		UI.gradient(header, ColorSequence.new(BZ.rockHeader1, BZ.rockHeader2))
+	end
+end
+
+local title = UI.label(header, "SHOPS", "panelTitle", T.color.white)
+title.Name = "Title"
+title.AnchorPoint = Vector2.new(0, 0.5)
+title.Position = UDim2.new(0, 18, 0.5, 0)
+title.Size = UDim2.new(1, -96, 0, 44)
+title.AutomaticSize = Enum.AutomaticSize.None
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = header.ZIndex + 1
+
+-- "X" THE LETTER, never U+2715 -- and "buttonL", not "buttonM". EggShopClient
+-- carries the same line with the same warning ("this file already lost a close
+-- button"): UIPolish force-sets Font = FredokaOne on every label in the game, and
+-- FredokaOne has no U+2715, so the multiplication-X renders as nothing and the
+-- button ships as a blank red circle. Verified here the same way -- the glyph
+-- measured 12x27 of bounds and drew nothing.
+local closeBtn = UI.button(header, "X", "red", UDim2.fromOffset(44, 44), "buttonL")
+closeBtn.Name = "CloseButton"
+closeBtn.AnchorPoint = Vector2.new(1, 0.5)
+closeBtn.Position = UDim2.new(1, -16, 0.5, 0)
+closeBtn.ZIndex = header.ZIndex + 2
+
+---------------------------------------------------------------- blurb strip
+local blurb = UI.label(panel, "", "meta", T.color.textOnWindow)
+blurb.Name = "Blurb"
+blurb.Position = UDim2.fromOffset(0, HEADER_H + BLOCK_GAP)
+blurb.Size = UDim2.new(1, 0, 0, STRIP_H)
+blurb.AutomaticSize = Enum.AutomaticSize.None
+blurb.TextXAlignment = Enum.TextXAlignment.Center
+blurb.ZIndex = panel.ZIndex + 1
+
+---------------------------------------------------------------- the scroller
+-- THE PAGER'S REPLACEMENT. AutomaticCanvasSize grows the canvas to whatever the
+-- grid lays out, so a 14-rock shelf and a 7-upgrade list both work with no page
+-- count computed anywhere and no chips to keep in sync with the data.
+local list = Instance.new("ScrollingFrame")
+list.Name = "CardGrid"
+list.Size = UDim2.new(1, 0, 1, -GRID_TOP)
+list.Position = UDim2.fromOffset(0, GRID_TOP)
+list.BackgroundTransparency = 1
+list.BorderSizePixel = 0
+list.ScrollBarThickness = 8
+list.ScrollBarImageColor3 = T.color.scrollThumb
+list.ScrollBarImageTransparency = 0.15
+list.CanvasSize = UDim2.new()
+list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+list.ScrollingDirection = Enum.ScrollingDirection.Y
+list.ZIndex = panel.ZIndex + 1
+list.Parent = panel
+local layout = Instance.new("UIGridLayout")
+layout.CellSize = UDim2.fromOffset(CARD_W, CARD_H)
+layout.CellPadding = UDim2.fromOffset(GRID_GAP, GRID_GAP)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.Parent = list
+-- bottom gutter, so the last row does not sit flush against the panel edge
+local listPad = Instance.new("UIPadding")
+listPad.PaddingBottom = UDim.new(0, GRID_GAP)
+listPad.Parent = list
+
+---------------------------------------------------------------- viewport fit
+-- Platform.FitPanel is the project's single answer to "how big is a modal on this
+-- device", and it is the call EggShopClient makes for the very same window size.
+-- It replaces this file's old bespoke `FILL = 0.76` constant, which knew nothing
+-- about phones or console title-safe. The measure-and-recentre loop below is kept
+-- verbatim: layout still positions the frame from its UNSCALED size while UIScale
+-- draws it scaled, so the centre still has to be read back rather than predicted.
 local hudScale = Instance.new("UIScale")
 hudScale.Name = "HudFixScale"
 hudScale.Parent = frame
 
--- Centre on the MEASURED rect, not a predicted one. Two things make the position
--- hard to predict here: layout positions the frame from its UNSCALED size while
--- UIScale draws it scaled, and this ScreenGui carries ScreenInsets, so the canvas
--- is not always the screen. Reading back what actually rendered sidesteps both.
 local function recentre()
 	-- Retries across frames and ignores a zero-size read: at script load the frame
 	-- has not been laid out yet, and an early pass saw a delta of ~0, returned, and
@@ -207,8 +351,13 @@ local function recentre()
 	for _ = 1, 8 do
 		local h = frame.AbsoluteSize.Y
 		if h > 0 then
-			local vpY = workspace.CurrentCamera.ViewportSize.Y
-			local delta = vpY / 2 - (frame.AbsolutePosition.Y + h / 2)
+			-- CENTRE IN THE PARENT GUI'S BOX, not the camera's (2026-08-21). MainUI
+			-- carries ScreenInsets, so its space runs -58 .. vpY-58 rather than
+			-- 0 .. vpY. Solving against the raw viewport therefore parked the window
+			-- 58px low, which the old 552-tall panel had the slack to absorb and the
+			-- egg shop's 973 does not: measured, it hung 6px off the bottom edge.
+			local mid = host.AbsolutePosition.Y + host.AbsoluteSize.Y / 2
+			local delta = mid - (frame.AbsolutePosition.Y + h / 2)
 			if math.abs(delta) < 1 then return end
 			frame.Position = frame.Position + UDim2.fromOffset(0, delta)
 		end
@@ -217,16 +366,14 @@ local function recentre()
 end
 
 local function relayout()
-	local vh, vw = gui.AbsoluteSize.Y, gui.AbsoluteSize.X
+	local vh, vw = host.AbsoluteSize.Y, host.AbsoluteSize.X
 	if vh <= 0 or vw <= 0 then return end
-	-- capped at 1: the panel is authored at its true pixel size, and upscaling
-	-- magnifies the ink strokes along with the text
-	local s = math.min(1, (vh * FILL) / FRAME_H, (vw * FILL) / FRAME_W)
-	hudScale.Scale = s
+	hudScale.Scale = Platform.FitPanel(PANEL_W, PANEL_H)
 	frame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	task.defer(recentre)
 end
-gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+host:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+Platform.Watch(relayout)
 relayout()
 -- Re-centre whenever the panel is actually shown. Startup layout is the unreliable
 -- moment; the instant it becomes visible, the rect is real.
@@ -234,169 +381,103 @@ frame:GetPropertyChangedSignal("Visible"):Connect(function()
 	if frame.Visible then task.defer(recentre) end
 end)
 
--- inset bronze-gradient header bar (Bazaar chrome): small coin glyph + white
--- title. Per-merchant Accent recolour stays dropped, but the whole panel now
--- gets its OWN identity colour (bronze/gold, fitting a rock+upgrade market
--- stall) instead of sharing the plain cyan every other Bazaar panel used to.
-local headerBar, title = UITheme.bazaarHeader(frame, "SHOPS", "\u{1F4B0}", BZ.rockHeader1, BZ.rockHeader2)
+---------------------------------------------------------------- coming soon plate
+-- For a merchant whose shelf is not built yet (MerchantConfig.ComingSoon). Built
+-- ONCE and toggled, like the blurb above -- rebuild() only clears the card grid,
+-- so anything parented to the panel itself must not be rebuilt per open or it
+-- would stack a copy every time you walked up.
+local comingSoon = UI.label(panel, "COMING SOON!", "panelTitle", T.color.textOnWindow)
+comingSoon.Name = "ComingSoon"
+comingSoon.AnchorPoint = Vector2.new(0.5, 0)
+comingSoon.Position = UDim2.new(0.5, 0, 0, GRID_TOP + 110)
+comingSoon.Size = UDim2.new(1, -60, 0, 90)
+comingSoon.AutomaticSize = Enum.AutomaticSize.None
+comingSoon.TextXAlignment = Enum.TextXAlignment.Center
+comingSoon.Visible = false
+comingSoon.ZIndex = panel.ZIndex + 3
 
--- round red X, top-right corner of the panel (Bazaar chrome)
-local closeBtn = Instance.new("TextButton")
-closeBtn.Name = "CloseButton"
-closeBtn.Parent = frame
-UITheme.bazaarClose(closeBtn)
+---------------------------------------------------------------- card builder (egg-shop card)
+-- SIGNATURE DELIBERATELY UNCHANGED from the Bazaar card this replaces, so
+-- rebuild()'s item closures below -- and with them the whole rock/upgrade data
+-- path, the remotes and the state rules -- are untouched by the restyle.
+--
+-- The bands mirror EggShopClient's card so the two grids read as one design:
+-- art / name / info / action, four bands and three gaps inside a 13px pad.
+-- 13 + 101 + 9 + 24 + 9 + 32 + 9 + 40 + 13 = 250 = CARD_H, which is why none of
+-- these numbers is free to drift on its own.
+local CARD_PAD, BAND_GAP = 13, 9
+local ART_H, NAME_H, INFO_H, BTN_H = 101, 24, 32, 40
 
-local blurb = Instance.new("TextLabel")
-blurb.Name = "Blurb"
-blurb.Size = UDim2.new(1, -44, 0, BLURB_H)
-blurb.Position = UDim2.new(0, 22, 0, HEADER_H + 8)
-blurb.BackgroundTransparency = 1
-blurb.Font = Enum.Font.GothamMedium
-blurb.TextSize = 13
-blurb.TextColor3 = BZ.desc   -- panel body is dark now, so the blurb reads light gray
-blurb.ZIndex = 12
-blurb.Parent = frame
-
----------------------------------------------------------------- page chips (mock tab row, driving the pager)
-local chipRow = Instance.new("Frame")
-chipRow.Name = "PageChips"
-chipRow.AnchorPoint = Vector2.new(0.5, 0)
-chipRow.Position = UDim2.new(0.5, 0, 0, HEADER_H + 8 + BLURB_H + 6)
-chipRow.Size = UDim2.new(1, -44, 0, CHIPS_H)
-chipRow.BackgroundTransparency = 1
-chipRow.ZIndex = 14
-chipRow.Parent = frame
-local chipList = Instance.new("UIListLayout")
-chipList.FillDirection = Enum.FillDirection.Horizontal
-chipList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-chipList.VerticalAlignment = Enum.VerticalAlignment.Center
-chipList.SortOrder = Enum.SortOrder.LayoutOrder
-chipList.Padding = UDim.new(0, 10)
-chipList.Parent = chipRow
-
-local rebuild -- forward-declared; chips call it on page change
-
-local function renderPageChips(totalPages)
-	for _, c in ipairs(chipRow:GetChildren()) do
-		if c:IsA("TextButton") then c:Destroy() end
-	end
-	chipRow.Visible = totalPages > 1
-	if totalPages <= 1 then return end
-	for n = 1, totalPages do
-		local active = n == page
-		local chip = Instance.new("TextButton")
-		chip.Name = "PageChip" .. n
-		chip.LayoutOrder = n
-		chip.Size = UDim2.fromOffset(64, 34)
-		chip.AutoButtonColor = false
-		chip.Text = "PAGE " .. n
-		chip.TextSize = 14
-		chip.Font = FONT
-		chip.BorderSizePixel = 0
-		chip.ZIndex = 15
-		chip.Parent = chipRow
-		UITheme.corner(chip, 10)
-		if active then
-			-- gold selected tab: identity, kept through the Bazaar restyle
-			chip.BackgroundColor3 = TAB_GOLD_TOP
-			UITheme.gradient(chip, TAB_GOLD_TOP, TAB_GOLD_BOT, 90)
-			chip.TextColor3 = BZ.white
-			local ink = Instance.new("UIStroke")
-			ink.Color = BZ.ink; ink.Thickness = 2
-			ink.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-			ink.Parent = chip
-		else
-			-- unselected tab: Bazaar's dark card gradient, so the gold active
-			-- chip still pops off the row
-			chip.BackgroundColor3 = BZ.cardTop
-			UITheme.gradient(chip, BZ.cardTop, BZ.cardBot, 90)
-			chip.TextColor3 = BZ.muted
-			local border = Instance.new("UIStroke")
-			border.Color = BZ.cardEdge; border.Thickness = 2
-			border.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-			border.Parent = chip
-			chip.Activated:Connect(function()
-				page = n
-				rebuild()
-			end)
-		end
-	end
-end
-
----------------------------------------------------------------- card grid
-local list = Instance.new("ScrollingFrame")
-list.Name = "CardGrid"
-list.Size = UDim2.new(1, -44, 0, 398)   -- one 3x2 page (2 rows of 192 + 14 gap); no in-page scroll
-list.Position = UDim2.new(0, 22, 0, GRID_TOP)
-list.BackgroundTransparency = 1
-list.BorderSizePixel = 0
-list.ScrollBarThickness = 6
-list.CanvasSize = UDim2.new()
-list.AutomaticCanvasSize = Enum.AutomaticSize.Y
-list.ZIndex = 11
-list.Parent = frame
-local layout = Instance.new("UIGridLayout")
-layout.CellSize = UDim2.fromOffset(200, 192)
-layout.CellPadding = UDim2.fromOffset(14, 14)
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-layout.Parent = list
-
----------------------------------------------------------------- card builder (Bazaar dark bordered card)
--- Signature kept close to the old makeRow so rebuild()'s item closures stay
--- recognisable: order, name, infoLine, button spec (+ its text colour),
--- click, preview builder, optional statLine (upgrades), optional stockText
--- (a red bazaarStock warning line, e.g. sequential-unlock "buy the previous
--- rock first"). Price is no longer a separate row -- it is embedded in
--- btnText as a cash pill, matching ClientMain's rockRows/sellList pattern.
 local function makeCard(order, name, infoLine, btnText, btnTop, btnBot, textColor, onClick, previewBuilder, statLine, stockText)
-	local card = UITheme.bazaarRow(list, 192)
+	-- UI.surface, NOT UI.panel: UI.panel hangs a hard shadow as a SIBLING, and a
+	-- sibling dropped into this UIGridLayout becomes a phantom cell that shoves
+	-- every later card one slot along. Cards are surfaces everywhere in this kit.
+	local card = UI.surface(list, UDim2.fromOffset(CARD_W, CARD_H), "subPanel", T.radius.panel, T.stroke.control)
 	card.Name = "Card" .. order
 	card.LayoutOrder = order
-	card.ZIndex = 12
+	card.ZIndex = list.ZIndex + 1
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, CARD_PAD)
+	pad.PaddingBottom = UDim.new(0, CARD_PAD)
+	pad.PaddingLeft = UDim.new(0, CARD_PAD)
+	pad.PaddingRight = UDim.new(0, CARD_PAD)
+	pad.Parent = card
 
-	-- icon tile: dark display case holding the 3D preview (or a glyph),
-	-- top-centred instead of bazaarIconSlot's default left-middle so it
-	-- still reads as a card inside the 3x2 grid
-	local icon = UITheme.bazaarIconSlot(card, 72)
-	icon.AnchorPoint = Vector2.new(0.5, 0)
-	icon.Position = UDim2.new(0.5, 0, 0, 10)
+	-- ART WELL: the kit's "slot" ground, so a spinning 3D rock and an upgrade
+	-- glyph sit in the same frame instead of each inventing their own tile.
+	local well = UI.surface(card, UDim2.new(1, 0, 0, ART_H), "slot", T.radius.art, T.stroke.control)
+	well.Name = "ArtWell"
+	well.ZIndex = card.ZIndex + 1
+	well.ClipsDescendants = true
 	if previewBuilder then
-		previewBuilder(icon)
+		previewBuilder(well)
 	end
 
-	local n = UITheme.bazaarTitle(card, name)
-	n.Size = UDim2.new(1, -16, 0, 20)
-	n.Position = UDim2.new(0, 8, 0, 86)
-	n.TextSize = 16
-	n.TextXAlignment = Enum.TextXAlignment.Center
-
-	-- two wrapped lines, not one truncated one: an upgrade's desc + level
-	-- stat ("Better rarity rolls  Lv. 3/12 +15%") never fits 184px at 11px
-	-- (review catch); rocks use a single line and are unaffected
-	local info = UITheme.bazaarDesc(card, statLine and (infoLine .. "  \u{2022}  " .. statLine) or infoLine)
-	info.Size = UDim2.new(1, -16, 0, 28)
-	info.Position = UDim2.new(0, 8, 0, 104)
-	info.TextSize = 11
-	info.TextXAlignment = Enum.TextXAlignment.Center
-
-	-- optional red warning line (sequential-unlock "buy the previous rock first")
+	-- Sequential-unlock warning, laid OVER the foot of the art well rather than
+	-- given a band of its own: every cell in a UIGridLayout is the same height, so
+	-- a card that grew when it had a warning would misalign its whole row.
 	if stockText then
-		local stock = UITheme.bazaarStock(card, stockText)
-		stock.Size = UDim2.new(1, -16, 0, 14)
-		stock.Position = UDim2.new(0, 8, 0, 132)
-		stock.TextSize = 10
-		stock.TextXAlignment = Enum.TextXAlignment.Center
+		local warn = UI.label(well, stockText, "meta", T.color.white)
+		warn.Name = "StockWarn"
+		warn.AnchorPoint = Vector2.new(0.5, 1)
+		warn.Position = UDim2.new(0.5, 0, 1, -4)
+		warn.Size = UDim2.new(1, -12, 0, 16)
+		warn.AutomaticSize = Enum.AutomaticSize.None
+		warn.TextXAlignment = Enum.TextXAlignment.Center
+		warn.ZIndex = well.ZIndex + 4
 	end
 
-	-- chunky action / price pill (mock BUY): Bazaar cash/state gradient
+	local n = UI.label(card, name, "cardLabel", T.color.textOnWindow)
+	n.Name = "Name"
+	n.Position = UDim2.fromOffset(0, ART_H + BAND_GAP)
+	n.Size = UDim2.new(1, 0, 0, NAME_H)
+	n.AutomaticSize = Enum.AutomaticSize.None
+	n.TextXAlignment = Enum.TextXAlignment.Center
+	n.TextTruncate = Enum.TextTruncate.AtEnd
+	n.ZIndex = card.ZIndex + 1
+
+	local info = UI.label(card, statLine and (infoLine .. "  \u{2022}  " .. statLine) or infoLine,
+		"meta", T.color.textOnWindow)
+	info.Name = "Info"
+	info.Position = UDim2.fromOffset(0, ART_H + BAND_GAP + NAME_H + BAND_GAP)
+	info.Size = UDim2.new(1, 0, 0, INFO_H)
+	info.AutomaticSize = Enum.AutomaticSize.None
+	info.TextWrapped = true
+	info.TextXAlignment = Enum.TextXAlignment.Center
+	info.ZIndex = card.ZIndex + 1
+
+	-- ACTION PILL. Still a bare TextButton restyled by stylePill rather than a
+	-- UI.button: the caller passes an explicit gradient PAIR per state (cash
+	-- green, header cyan, Palette green, locked grey) and the kit's named variants
+	-- have no slot for that vocabulary. Absolutely positioned, so UI.hardShadow's
+	-- sibling problem cannot bite -- the card itself carries no layout.
 	local b = Instance.new("TextButton")
 	b.Name = "ActionButton"
 	b.AnchorPoint = Vector2.new(0.5, 1)
-	b.Position = UDim2.new(0.5, 0, 1, -12)
-	b.Size = UDim2.new(1, -24, 0, 34)
+	b.Position = UDim2.new(0.5, 0, 1, 0)
+	b.Size = UDim2.new(1, 0, 0, BTN_H)
 	b.Text = btnText
-	b.TextSize = 16
+	b.TextSize = 18
 	b.ZIndex = card.ZIndex + 2
 	b.Parent = card
 	stylePill(b, btnTop, btnBot, textColor)
@@ -411,9 +492,19 @@ rebuild = function()
 	for _, c in ipairs(list:GetChildren()) do
 		if c:IsA("GuiObject") then c:Destroy() end
 	end
-	if not current then chipRow.Visible = false; return end
+	if not current then return end
 	title.Text = titleWord(current.Title)
 	blurb.Text = current.Npc .. "  \u{2022}  " .. current.Blurb
+
+	-- SHELF NOT BUILT YET. The walk-up, the dialogue and the panel all behave
+	-- exactly as they do for any other merchant -- you just get told, instead of
+	-- being shown an empty grid. The blurb above still runs, so the merchant keeps
+	-- their own pitch over the notice.
+	comingSoon.Visible = current.ComingSoon == true
+	list.Visible = not current.ComingSoon
+	if current.ComingSoon then
+		return
+	end
 	-- style replacement (2026-08-04, Pet-Sim guide): the header no longer
 	-- repaints itself from current.Accent -- the guide gives shop chrome ONE
 	-- red, so headerGrad/SquareOff keep the colours they were built with and
@@ -421,7 +512,7 @@ rebuild = function()
 	-- still read where it means something (MerchantDialog.Show, below).
 
 	-- Build a flat list of render closures so pagination is Kind-agnostic: each entry
-	-- draws exactly one card when called with its on-page order (1..PER_PAGE).
+	-- draws exactly one card when called with its position in the scroller.
 	local items = {}
 	if current.Kind == "Rock" then
 		local rocks = shelf()
@@ -447,8 +538,12 @@ rebuild = function()
 					cb = function() remotes.BuyRock:FireServer(rock.Id) end
 				end
 				local desc = ("Up to %dm  \u{2022}  %.2fx luck"):format(rock.MaxDistance, rock.Luck)
-				local stockText = (not owned and not unlocked and prevRock) and ("Buy the %s first"):format(prevRock.Id) or nil
-				makeCard(order, rock.Id, desc, txt, top, bot, textColor, cb,
+				-- DISPLAY NAME, not the Id (2026-08-22). Ids are save keys in CamelCase,
+				-- so the shelf used to read "MeteoriteFragment" / "PermafrostHeart".
+				-- WorldProgression.RockName is the single resolver -- see its note there.
+				local stockText = (not owned and not unlocked and prevRock)
+					and ("Buy the %s first"):format(WorldProgression.RockName(prevRock)) or nil
+				makeCard(order, WorldProgression.RockName(rock), desc, txt, top, bot, textColor, cb,
 					function(med) makeRockViewport(med, rock) end, nil, stockText)
 			end
 		end
@@ -457,7 +552,11 @@ rebuild = function()
 			items[i] = function(order)
 				local lvl = UpgradeConfig.Level(state.Upgrades, up.Id)
 				local price = UpgradeConfig.Price(up.Id, lvl)
-				local pct = math.floor(lvl * up.PerLevel * 100 + 0.5)
+				-- NOT `+%d%%` off PerLevel any more (2026-08-20). The two bag upgrades
+				-- store a COUNT of slots per level rather than a fraction of a
+				-- multiplier, so the old inline format printed "+2500%" for one level
+				-- of Deep Pockets. UpgradeConfig.EffectText owns the per-unit wording.
+				local effect = UpgradeConfig.EffectText(up, lvl)
 				local txt, top, bot, textColor, cb
 				if not price then
 					txt, top, bot, textColor = "MAXED", LOCK_TOP, LOCK_BOT, BZ.white
@@ -476,45 +575,51 @@ rebuild = function()
 						e.ZIndex = holder.ZIndex + 1
 						e.Parent = holder
 					end,
-					("Lv. %d/%d  +%d%%"):format(lvl, up.MaxLevel, pct))
+					("Lv. %d/%d  %s"):format(lvl, up.MaxLevel, effect))
 			end
 		end
 	end
 
-	-- render only the current page
-	local total = #items
-	local totalPages = math.max(1, math.ceil(total / PER_PAGE))
-	page = math.clamp(page, 1, totalPages)
-	local startI = (page - 1) * PER_PAGE + 1
-	local order = 0
-	for i = startI, math.min(startI + PER_PAGE - 1, total) do
-		order += 1
-		items[i](order)
+	-- EVERY ITEM, IN ONE SCROLL. What this replaces rendered PER_PAGE = 6 of
+	-- Rocco's FOURTEEN valley rocks, so two thirds of the shop lived behind PAGE 2
+	-- and PAGE 3 chips. The grid's AutomaticCanvasSize means nothing here needs to
+	-- know how many rows that comes to.
+	for i = 1, #items do
+		items[i](i)
 	end
-
-	renderPageChips(totalPages)
 end
 
 ---------------------------------------------------------------- open / close
--- open to the page holding your next rock to buy, not always page 1
-local function firstRelevantPage(m)
-	if m.Kind == "Rock" then
-		for i, rock in ipairs(shelf()) do
-			if not state.OwnedRocks[rock.Id] then return math.ceil(i / PER_PAGE) end
+---------------------------------------------------------------- open / close
+-- Open SCROLLED TO your next rock rather than pinned at the top. This is the
+-- same intent firstRelevantPage had when it picked an opening PAGE, expressed
+-- against a scroller instead of a pager: you still walk up to Rocco and see the
+-- rock you are actually saving for, without the shop having to be split up.
+local function firstRelevantOffset(m)
+	if m.Kind ~= "Rock" then return 0 end
+	for i, rock in ipairs(shelf()) do
+		if not state.OwnedRocks[rock.Id] then
+			return math.max(0, math.floor((i - 1) / GRID_COLS) * (CARD_H + GRID_GAP))
 		end
 	end
-	return 1
+	return 0
 end
 
 local function openMerchant(m, world)
 	current = m
 	currentWorld = world or WorldProgression.Default
-	page = firstRelevantPage(m)
 	local shop = gui:FindFirstChild("ShopFrame"); if shop then shop.Visible = false end
 	local sell = gui:FindFirstChild("SellFrame"); if sell then sell.Visible = false end
 	local idx = gui:FindFirstChild("IndexFrame"); if idx then idx.Visible = false end
 	rebuild()
 	frame.Visible = true
+	-- DEFERRED, and it has to be: AutomaticCanvasSize has not measured the grid
+	-- yet on the frame rebuild() ran in, so the canvas is still zero-height and
+	-- any CanvasPosition written now would be clamped straight back to 0.
+	local want = firstRelevantOffset(m)
+	task.defer(function()
+		if frame.Visible then list.CanvasPosition = Vector2.new(0, want) end
+	end)
 end
 local function closeMerchant()
 	frame.Visible = false
