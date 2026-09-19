@@ -361,133 +361,147 @@ Platform.Watch(function()
 	syncPanelYield()
 end)
 
--- expanded breakdown panel
-local panel = Instance.new("Frame")
-panel.Name = "LuckPanel"
-panel.AnchorPoint = Vector2.new(1, 1)
-panel.Position = UDim2.new(1, -260, 1, -118)   -- shifted left, clear of the quest tracker band
--- WIDER AND TALLER (2026-08-19). At 278 the label column was 0.62 of 254 usable
--- px = 157px, and "Lucky Charm upgrade" at 13px does not fit -- so the longest,
--- most informative labels were exactly the ones being truncated.
-panel.Size = UDim2.new(0, 342, 0, 440)
-panel.BackgroundColor3 = P.white
-panel.BorderSizePixel = 0
+-- ======================= THE BREAKDOWN, ON THE KIT (2026-09-18 UI round 2) =======================
+-- The flyout used to be UITheme's cream "carved wood" Camp panel with 14px Gotham
+-- rows -- the last legacy-styled surface a player reaches from the HUD. It is now
+-- a white kit card in the same language as every panel: bubble title, the
+-- headline multiplier on a green plate, three tinted section bands (RARITY LUCK
+-- gold, MUTATION LUCK purple, BEST THROW blue), and inside RARITY LUCK the
+-- sources are split into PERMANENT (rock, charm, offerings, pets) and TEMPORARY
+-- (wheel boost, weather event) so a player can see at a glance what is theirs
+-- for keeps and what is ticking away. Row maths and every number are unchanged.
+local UIKit = modules:WaitForChild("UIKit")
+local PC = require(UIKit:WaitForChild("PanelChrome"))
+local S = require(UIKit:WaitForChild("SpecTheme"))
+
+local PANEL_W, PANEL_H = 360, 560 -- tall enough for all three sections at 1080p; clamped to the viewport below
+local panel = PC.plate({
+	name = "LuckPanel",
+	size = UDim2.fromOffset(PANEL_W, PANEL_H),
+	-- bottom-right, above the chip and LEFT of the quest tracker's column (the old
+	-- -260 overlapped the tracker by ~44px at 1891x793)
+	position = UDim2.new(1, -310, 1, -118),
+	anchor = Vector2.new(1, 1),
+	colors = { S.Surface.Shell, S.Surface.Shell },
+	radius = 24,
+	outline = 5,
+	zIndex = 5,
+	parent = gui,
+	gloss = false,
+})
 panel.Visible = false
-panel.Parent = gui
 -- single-open: the luck breakdown is a panel like any other, so opening the
 -- backpack (or anything else) puts it away, and vice versa
 require(modules:WaitForChild("SideRail")).registerPanel(panel)
-UITheme.campPanel(panel)
-UITheme.corner(panel, 16)
 
--- small carved-wood ribbon overhanging the panel top
-local ribbon, title = UITheme.ribbon(panel, "\u{1F340} YOUR LUCK", 0.84)
-title.TextSize = 17
+-- a phone has ~370px of height: the card never exceeds the screen, and the
+-- scrolling list inside it does the rest
+Platform.Watch(function()
+	local vp = Platform.Viewport
+	local h = math.min(PANEL_H, math.max(240, vp.Y - 60))
+	panel.Size = UDim2.fromOffset(if Platform.IsPhone then math.min(PANEL_W, vp.X - 40) else PANEL_W, h)
+end)
 
--- A ScrollingFrame rather than a plain Frame: the breakdown is now two sections
--- plus the rarity table, and the old fixed Frame silently CLIPPED anything past
--- its height. Scrolling means a future extra source, or a short phone screen,
--- hides nothing.
+----------------------------------------------------------------- title row
+local TITLE_H = 56
+PC.shout({
+	name = "Title", text = "\u{1F340} YOUR LUCK", size = 26,
+	color = S.Role.Positive[2], strokeColor = Color3.new(1, 1, 1),
+	align = Enum.TextXAlignment.Left,
+	frameSize = UDim2.new(1, -150, 0, TITLE_H), position = UDim2.fromOffset(16, 0),
+	zIndex = 7, parent = panel,
+})
+-- the headline: RARITY luck, the number that decides what you catch
+local headPlate = PC.plate({
+	name = "Headline",
+	size = UDim2.fromOffset(112, 38),
+	position = UDim2.new(1, -14, 0, 9), anchor = Vector2.new(1, 0),
+	colors = S.Role.Positive, radius = 14, outline = 3,
+	zIndex = 7, parent = panel, gloss = false,
+})
+local headline = PC.shout({ name = "Label", text = "\u{00D7}1.00", size = 22, zIndex = 9, parent = headPlate, scaled = true })
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Name = "Close"
+closeBtn.Text = ""
+closeBtn.BackgroundTransparency = 1
+closeBtn.Size = UDim2.fromScale(1, 1)
+closeBtn.ZIndex = 8
+closeBtn.Parent = headPlate
+closeBtn:SetAttribute("NoPolish", true)
+
+----------------------------------------------------------------- the list
 local listFrame = Instance.new("ScrollingFrame")
+listFrame.Name = "List"
 listFrame.BackgroundTransparency = 1
 listFrame.BorderSizePixel = 0
-listFrame.Position = UDim2.new(0, 12, 0, 44)
-listFrame.Size = UDim2.new(1, -24, 1, -56)
+listFrame.Position = UDim2.fromOffset(12, TITLE_H)
+listFrame.Size = UDim2.new(1, -24, 1, -TITLE_H - 12)
 listFrame.CanvasSize = UDim2.new()
 listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
 listFrame.ScrollBarThickness = 4
-listFrame.ScrollBarImageColor3 = CF.wood1
-listFrame.ZIndex = 2
+listFrame.ScrollBarImageColor3 = S.OutlineSoft
+listFrame.ElasticBehavior = Enum.ElasticBehavior.Never
+listFrame.ZIndex = 7
 listFrame.Parent = panel
 local listLayout = Instance.new("UIListLayout")
 listLayout.Padding = UDim.new(0, 3)
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 listLayout.Parent = listFrame
 
---[[ ================= THE ROW, REBUILT (2026-08-19) =================
-Owner: "so choppy and has weird overlapping lines, it just doesn't look good --
-make it cooler and more unique."
+local INK, SUB = S.Surface.ReadInk, S.Surface.ReadSub
+local DIM = Color3.fromHex("A3AFBD")
+-- section tints (handoff grammar): gold = value/what you catch, purple = special
+-- (mutations), blue = neutral info (odds), orange = time (temporary boosts)
+local TINT_RARITY = S.Role.Gold
+local TINT_MUT = S.Role.Purple
+local TINT_ODDS = S.Role.Neutral
+local TINT_TEMP = { Color3.fromHex("FFB454"), Color3.fromHex("FF8A1F") }
 
-THE CHOPPINESS WAS A STROKE, and it measures: every label carried a 1.8px ink
-UIStroke at TextSize 13. That is 13.8% of the glyph height, which fattens each
-letter until the counters in e/a/o close up -- and on a cream panel it is a DARK
-outline around DARK text, so it adds no contrast, only weight. Two neighbouring
-rows at an 18px pitch then had their strokes almost touching, which is the
-"overlapping lines". The stroke is gone from body rows; it survives only on the
-coloured section headings, where light-on-tint genuinely needs it.
-
-THE BAR IS THE NEW PART. Every contribution row now draws a faint bar behind its
-label, as wide as that source's SHARE of its section total. The panel stops being
-twenty numbers to read in sequence and becomes a chart you can scan: you can see
-at a glance that equipped pets are almost all of your mutation luck. It costs one
-Frame per row and no extra data -- refresh already knows every number.
-]]
+--[[ THE ROW. Label left (read face), value right (shout face), and behind them a
+faint bar as wide as that source's SHARE of its section total -- the panel reads
+as a chart you can scan instead of twenty numbers. One Frame per row. ]]
 local rowCount = 0
 local function addRow(leftText, rightText, leftColor, rightColor, bold, barFrac, barColour)
 	rowCount += 1
 	local row = Instance.new("Frame")
 	row.Name = "Row" .. rowCount
 	row.BackgroundTransparency = 1
-	row.Size = UDim2.new(1, -8, 0, 22)   -- 8px gutter so the scrollbar never sits on the numbers
+	row.Size = UDim2.new(1, -8, 0, 24)   -- 8px gutter so the scrollbar never sits on the numbers
 	row.LayoutOrder = rowCount
-	row.ZIndex = 2
+	row.ZIndex = 7
 	row.Parent = listFrame
 
-	-- share-of-section bar, behind everything
 	if barFrac and barFrac > 0.005 then
 		local bar = Instance.new("Frame")
 		bar.Name = "Bar"
 		bar.BorderSizePixel = 0
-		bar.BackgroundColor3 = barColour or CF.amber1
-		bar.BackgroundTransparency = 0.82
+		bar.BackgroundColor3 = barColour or TINT_RARITY[2]
+		bar.BackgroundTransparency = 0.84
 		bar.Size = UDim2.new(math.min(barFrac, 1), 0, 1, -4)
 		bar.Position = UDim2.new(0, 0, 0, 2)
-		bar.ZIndex = 2
+		bar.ZIndex = 7
 		bar.Parent = row
-		UITheme.corner(bar, 5)
+		local bc = Instance.new("UICorner")
+		bc.CornerRadius = UDim.new(0, 6)
+		bc.Parent = bar
 	end
 
-	local l = Instance.new("TextLabel")
-	l.Name = "L"
-	l.BackgroundTransparency = 1
-	l.Position = UDim2.new(0, 6, 0, 0)
-	l.Size = UDim2.new(0.60, -6, 1, 0)
-	l.Font = bold and Enum.Font.FredokaOne or Enum.Font.GothamMedium
-	l.TextSize = 14
-	l.TextColor3 = leftColor or CF.ink
-	l.TextXAlignment = Enum.TextXAlignment.Left
+	local l = PC.read({
+		name = "L", text = leftText, size = 16, color = leftColor or INK,
+		frameSize = UDim2.new(0.62, -6, 1, 0), position = UDim2.fromOffset(8, 0),
+		zIndex = 8, parent = row,
+	})
 	l.TextTruncate = Enum.TextTruncate.AtEnd
-	l.Text = leftText
-	l.ZIndex = 3
-	l.Parent = row
+	if bold then l.Font = S.Font.Shout end
 
-	local r = Instance.new("TextLabel")
-	r.Name = "R"
-	r.BackgroundTransparency = 1
-	r.AnchorPoint = Vector2.new(1, 0)
-	r.Position = UDim2.new(1, -6, 0, 0)
-	r.Size = UDim2.new(0.40, -6, 1, 0)
-	r.Font = bold and Enum.Font.FredokaOne or Enum.Font.GothamMedium
-	r.TextSize = 14
-	r.TextColor3 = rightColor or CF.ink
-	r.TextXAlignment = Enum.TextXAlignment.Right
-	r.Text = rightText
-	r.ZIndex = 3
-	r.Parent = row
-
-	-- Stroke ONLY where it earns its place: a bold heading sitting on a coloured
-	-- band. Body rows are dark ink on a cream panel and already have all the
-	-- contrast they need -- see the note above.
-	if bold then
-		for _, lbl in ipairs({ l, r }) do
-			local st = Instance.new("UIStroke")
-			st.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-			st.Color = CF.ink
-			st.Thickness = 1.4
-			st.Transparency = 0.15
-			st.Parent = lbl
-		end
-	end
+	local r = PC.shout({
+		name = "R", text = rightText, size = 16, color = rightColor or INK, strokeColor = Color3.new(1, 1, 1),
+		align = Enum.TextXAlignment.Right,
+		frameSize = UDim2.new(0.38, -6, 1, 0), position = UDim2.new(1, -8, 0, 0), anchor = Vector2.new(1, 0),
+		zIndex = 8, parent = row,
+	})
+	if not bold then r.Font = S.Font.Read end
 	return row
 end
 
@@ -498,49 +512,78 @@ local function clearRows()
 	rowCount = 0
 end
 
-local DIM = Color3.fromRGB(128, 110, 94)
-
 local function spacerRow()
 	local sp = addRow("", "")
-	sp.Size = UDim2.new(1, -8, 0, 6)
+	sp.Size = UDim2.new(1, -8, 0, 8)
 	return sp
 end
 
--- A short muted caption under a section heading. INDENTED and smaller, so it
--- reads as belonging to the heading above rather than as another data row -- it
--- carries no number and used to line up with the rows that do.
+-- a short muted caption under a section heading, indented so it reads as
+-- belonging to the heading rather than as another data row
 local function noteRow(text)
-	local r = addRow(text, "", DIM, DIM)
-	r.Size = UDim2.new(1, -8, 0, 16)
+	local r = addRow(text, "", SUB, SUB)
+	r.Size = UDim2.new(1, -8, 0, 18)
 	local l = r:FindFirstChild("L")
 	if l then
-		l.Position = UDim2.new(0, 14, 0, 0)
+		l.Position = UDim2.fromOffset(14, 0)
 		l.Size = UDim2.new(1, -14, 1, 0)
-		l.TextSize = 12
-		l.Font = Enum.Font.Gotham
+		l.TextSize = 14
 	end
 	return r
 end
 
---[[ A section heading, on its own tinted band.
-
-The three sections used to be plain bold rows in the same list as their contents,
-so the panel read as one undifferentiated column of twenty-odd lines and you had
-to read the words to find where a section began. A band makes that structural
-rather than typographic -- the three blocks are visible before you read anything.
-Tinted from the section's OWN accent so it groups without competing with the
-coloured numbers inside it. ]]
-local function sectionRow(leftText, rightText, colour)
-	local row = addRow(leftText, rightText, colour, colour, true)
-	row.Size = UDim2.new(1, -8, 0, 28)
-	row.BackgroundColor3 = colour
-	row.BackgroundTransparency = 0.86
+-- a section heading on its own coloured band: white shout on the ramp, the
+-- section total at the right
+local function sectionRow(leftText, rightText, ramp)
+	local row = addRow(leftText, rightText, Color3.new(1, 1, 1), Color3.new(1, 1, 1), true)
+	row.Size = UDim2.new(1, -8, 0, 32)
+	row.BackgroundTransparency = 0
+	row.BackgroundColor3 = ramp[1]
 	row.BorderSizePixel = 0
-	UITheme.corner(row, 8)
-	local l, r = row:FindFirstChild("L"), row:FindFirstChild("R")
-	if l then l.Position = UDim2.new(0, 10, 0, 0); l.TextSize = 15 end
-	if r then r.Position = UDim2.new(1, -10, 0, 0); r.TextSize = 15 end
+	local g = Instance.new("UIGradient")
+	g.Rotation = 90
+	g.Color = ColorSequence.new(ramp[1], ramp[2])
+	g.Parent = row
+	local rc = Instance.new("UICorner")
+	rc.CornerRadius = UDim.new(0, 10)
+	rc.Parent = row
+	local st = Instance.new("UIStroke")
+	st.Thickness = 2
+	st.Color = S.Outline
+	st.Parent = row
+	local lum = ramp[1].R * 0.299 + ramp[1].G * 0.587 + ramp[1].B * 0.114
+	for _, n in ipairs({ "L", "R" }) do
+		local lbl = row:FindFirstChild(n)
+		if lbl then
+			lbl.TextColor3 = if lum > 0.82 then INK else Color3.new(1, 1, 1)
+			lbl.TextSize = 17
+			local ls = lbl:FindFirstChildOfClass("UIStroke")
+			if not ls then
+				ls = Instance.new("UIStroke")
+				ls.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+				ls.Parent = lbl
+			end
+			ls.Color = if lum > 0.82 then Color3.new(1, 1, 1) else S.Outline
+			ls.Thickness = 2
+		end
+	end
+	local l = row:FindFirstChild("L")
+	if l then l.Position = UDim2.fromOffset(12, 0) end
+	local r = row:FindFirstChild("R")
+	if r then r.Position = UDim2.new(1, -12, 0, 0) end
 	return row
+end
+
+-- a small sub-heading inside a section (PERMANENT / TEMPORARY)
+local function groupRow(text, colour)
+	local r = addRow(string.upper(text), "", colour, colour, true)
+	r.Size = UDim2.new(1, -8, 0, 20)
+	local l = r:FindFirstChild("L")
+	if l then
+		l.TextSize = 13
+		l.Position = UDim2.fromOffset(10, 0)
+	end
+	return r
 end
 
 local function refresh()
@@ -549,8 +592,8 @@ local function refresh()
 	local offeringLuck = OfferingConfig.LuckMult(state.Offerings or 0)
 	-- Wheel Luck boost: a timed +30% from the daily wheel. state.Boosts.Luck is the os.time()
 	-- it expires (server clock), compared against os.time() the same way the server does.
-	local wheelActive = state.Boosts and tonumber(state.Boosts.Luck) ~= nil
-		and os.time() < tonumber(state.Boosts.Luck)
+	local wheelExpires = state.Boosts and tonumber(state.Boosts.Luck) or nil
+	local wheelActive = wheelExpires ~= nil and os.time() < wheelExpires
 	local wheelLuck = wheelActive and WheelConfig.BOOST_MULT or 1
 	-- Placed brainrots: summed as bonuses (mult-1), matching the server's additive accessLuck.
 	local petBonus = 0
@@ -601,53 +644,57 @@ local function refresh()
 
 	if not panel.Visible then return end
 	clearRows()
+	headline.Text = ("\u{00D7}%.2f"):format(rarityLuck)
 
 	--=================== 1. what you catch ==============================--
 	-- ADDITIVE: the header is the total (1 + every bonus below + weather). Each row is the
-	-- amount that source ADDS, not a multiplier.
-	-- Share-of-section denominator: every row below adds into rarityLuck, so a
-	-- source's bar is its own contribution over that total. Guarded against a zero
-	-- denominator so a broken stat can never divide by nothing.
+	-- amount that source ADDS, not a multiplier. Share-of-section denominator: every row
+	-- adds into rarityLuck, so a source's bar is its own contribution over that total.
 	local rTot = math.max(rarityLuck, 0.0001)
-	sectionRow("RARITY LUCK", ("\u{00D7}%.2f"):format(rarityLuck), CF.amber1)
+	sectionRow("RARITY LUCK", ("\u{00D7}%.2f"):format(rarityLuck), TINT_RARITY)
 	noteRow("which brainrot you catch")
-	addRow("Base", "\u{00D7}1.00", DIM, DIM, false, 1 / rTot, CF.amber1)
+	groupRow("Permanent", SUB)
+	addRow("Base", "\u{00D7}1.00", DIM, DIM, false, 1 / rTot, TINT_RARITY[2])
 	-- display name, not the save-key Id (see WorldProgression.RockName)
 	addRow("Rock (" .. WorldProgression.RockName(rock) .. ")", ("+%.2f"):format(rock.Luck - 1),
-		nil, nil, false, (rock.Luck - 1) / rTot, CF.amber1)
+		nil, nil, false, (rock.Luck - 1) / rTot, TINT_RARITY[2])
 	addRow("Lucky Charm upgrade", ("+%.2f"):format(upgradeLuck - 1),
-		nil, nil, false, (upgradeLuck - 1) / rTot, CF.amber1)
-	-- a source contributing nothing is dimmed rather than shown at full weight:
-	-- "Offerings (0)  +0.00" competing with a live bonus is half of why the list
-	-- was hard to scan
+		nil, nil, false, (upgradeLuck - 1) / rTot, TINT_RARITY[2])
+	-- a source contributing nothing is dimmed rather than shown at full weight
 	local offLive = offeringLuck > 1.0001
 	addRow("Offerings (" .. tostring(math.floor(state.Offerings or 0)) .. ")",
 		("+%.2f"):format(offeringLuck - 1),
-		offLive and CF.ember1 or DIM,
-		offLive and CF.ember1 or DIM,
-		false, (offeringLuck - 1) / rTot, CF.ember1)
-	if wheelLuck > 1.0001 then
-		addRow("Wheel boost", ("+%.2f"):format(wheelLuck - 1), CF.ember1, CF.ember1,
-			false, (wheelLuck - 1) / rTot, CF.ember1)
-	end
+		(if offLive then INK else DIM), (if offLive then INK else DIM),
+		false, (offeringLuck - 1) / rTot, TINT_RARITY[2])
 	if petBonus > 0.0001 then
 		-- "Brainrots on base", not "Pets": with equipped egg pets shown in the mutation
 		-- section below, an unqualified "Pets" row here reads as those.
-		addRow("Brainrots on base", ("+%.2f"):format(petBonus), CF.pine1, CF.pine1,
-			false, petBonus / rTot, CF.pine1)
+		addRow("Brainrots on base", ("+%.2f"):format(petBonus), nil, nil, false, petBonus / rTot, TINT_RARITY[2])
 	end
 	if petRarityAbility > 1.0001 then
-		-- "Pet abilities", distinct from the "Brainrots on base" row above and from the
-		-- "Equipped pets" row in the mutation section: three different pet-ish sources
-		-- feed these two totals, and an unqualified label would collapse them.
-		addRow("Pet abilities", ("+%.2f"):format(petRarityAbility - 1), CF.pine1, CF.pine1,
-			false, (petRarityAbility - 1) / rTot, CF.pine1)
+		addRow("Pet abilities", ("+%.2f"):format(petRarityAbility - 1), nil, nil, false, (petRarityAbility - 1) / rTot, TINT_RARITY[2])
+	end
+
+	-- TEMPORARY: what is ticking away. Always listed, so a player who has no boost
+	-- running can see there is one to go and get.
+	groupRow("Temporary", TINT_TEMP[2])
+	local anyTemp = false
+	if wheelLuck > 1.0001 then
+		anyTemp = true
+		local left = wheelExpires and math.max(0, wheelExpires - os.time()) or 0
+		local mins = math.floor(left / 60 + 0.5)
+		addRow(("Wheel boost \u{00B7} %dm left"):format(mins), ("+%.2f"):format(wheelLuck - 1),
+			TINT_TEMP[2], TINT_TEMP[2], false, (wheelLuck - 1) / rTot, TINT_TEMP[2])
 	end
 	if weatherAccessBonus > 0.0001 then
+		anyTemp = true
 		local wName = ReplicatedStorage:GetAttribute("WeatherName")
-		local wl = (wName and wName ~= "" and wName ~= "Clear") and ("Event (" .. wName .. ")") or "Event luck"
-		addRow(wl, ("+%.2f"):format(weatherAccessBonus), CF.lake1, CF.lake1,
-			false, weatherAccessBonus / rTot, CF.lake1)
+		local wl = (wName and wName ~= "" and wName ~= "Clear") and ("Event \u{00B7} " .. wName) or "Event luck"
+		addRow(wl, ("+%.2f"):format(weatherAccessBonus), TINT_TEMP[2], TINT_TEMP[2],
+			false, weatherAccessBonus / rTot, TINT_TEMP[2])
+	end
+	if not anyTemp then
+		noteRow("none active \u{2014} spin the daily wheel for +30%")
 	end
 	-- multiplies the total rather than adding to it, so it gets no share bar
 	addRow("Perfect throw", ("\u{00D7}%.3f"):format(PERFECT_LUCK_MULT), DIM, DIM)
@@ -656,28 +703,24 @@ local function refresh()
 
 	--=================== 2. what it comes out as ========================--
 	local mTot = math.max(mutBoost, 0.0001)
-	sectionRow("MUTATION LUCK", ("\u{00D7}%.2f"):format(mutBoost), CF.berry1)
+	sectionRow("MUTATION LUCK", ("\u{00D7}%.2f"):format(mutBoost), TINT_MUT)
 	noteRow("golden / diamond odds")
-	addRow("Base", "\u{00D7}1.00", DIM, DIM, false, 1 / mTot, CF.berry1)
+	addRow("Base", "\u{00D7}1.00", DIM, DIM, false, 1 / mTot, TINT_MUT[2])
 	local rbLive = rebirthLuck > 1.0001
 	addRow("Rebirths (" .. tostring(math.floor(state.Rebirths or 0)) .. ")",
 		("+%.2f"):format(rebirthLuck - 1),
-		rbLive and CF.berry1 or DIM,
-		rbLive and CF.berry1 or DIM,
-		false, (rebirthLuck - 1) / mTot, CF.berry1)
+		(if rbLive then INK else DIM), (if rbLive then INK else DIM),
+		false, (rebirthLuck - 1) / mTot, TINT_MUT[2])
 	if eggPetLuck > 1.0001 then
-		addRow("Equipped pets", ("+%.2f"):format(eggPetLuck - 1), CF.berry1, CF.berry1,
-			false, (eggPetLuck - 1) / mTot, CF.berry1)
+		addRow("Equipped pets", ("+%.2f"):format(eggPetLuck - 1), nil, nil, false, (eggPetLuck - 1) / mTot, TINT_MUT[2])
 	end
 	if petMutAbility > 1.0001 then
-		addRow("Pet abilities", ("+%.2f"):format(petMutAbility - 1), CF.berry1, CF.berry1,
-			false, (petMutAbility - 1) / mTot, CF.berry1)
+		addRow("Pet abilities", ("+%.2f"):format(petMutAbility - 1), nil, nil, false, (petMutAbility - 1) / mTot, TINT_MUT[2])
 	end
 	if weatherMutBonus > 0.0001 then
 		local wName = ReplicatedStorage:GetAttribute("WeatherName")
-		local wl = (wName and wName ~= "" and wName ~= "Clear") and ("Event (" .. wName .. ")") or "Event mutation"
-		addRow(wl, ("+%.2f"):format(weatherMutBonus), CF.lake1, CF.lake1,
-			false, weatherMutBonus / mTot, CF.lake1)
+		local wl = (wName and wName ~= "" and wName ~= "Clear") and ("Event \u{00B7} " .. wName) or "Event mutation"
+		addRow(wl, ("+%.2f"):format(weatherMutBonus), TINT_TEMP[2], TINT_TEMP[2], false, weatherMutBonus / mTot, TINT_TEMP[2])
 	end
 
 	spacerRow()
@@ -695,7 +738,7 @@ local function refresh()
 	local bestLuck = rarityLuck * PERFECT_LUCK_MULT
 	local probs = RarityCurve.Probabilities(bestDist, bestLuck)
 
-	sectionRow("BEST THROW", ("%dm odds"):format(math.floor(bestDist)), CF.lake1)
+	sectionRow("BEST THROW", ("%dm odds"):format(math.floor(bestDist)), TINT_ODDS)
 	noteRow("chance per catch at full power")
 	for i, tier in ipairs(RarityConfig) do
 		local pct = (probs[i] or 0) * 100
@@ -707,9 +750,9 @@ local function refresh()
 			-- not unlocked yet -- you must throw at least this far for any chance
 			rightTxt, rightCol = ("%dm \u{1F512}"):format(math.ceil(tier.MinDistance)), DIM
 		elseif pct >= 1 then
-			rightTxt, rightCol = ("%.1f%%"):format(pct), CF.pine1
+			rightTxt, rightCol = ("%.1f%%"):format(pct), INK
 		elseif pct >= 0.01 then
-			rightTxt, rightCol = ("%.2f%%"):format(pct), CF.pine1
+			rightTxt, rightCol = ("%.2f%%"):format(pct), INK
 		else
 			rightTxt, rightCol = "<0.01%", DIM
 		end
@@ -719,6 +762,10 @@ local function refresh()
 		addRow(tier.Name, rightTxt, tier.Color, rightCol, false, frac, tier.Color)
 	end
 end
+
+closeBtn.MouseButton1Click:Connect(function()
+	panel.Visible = false
+end)
 
 chip.MouseButton1Click:Connect(function()
 	panel.Visible = not panel.Visible
