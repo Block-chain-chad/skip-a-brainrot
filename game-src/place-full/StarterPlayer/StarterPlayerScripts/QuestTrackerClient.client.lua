@@ -314,7 +314,8 @@ local chevron = PC.plate({
 	colors = { S.Surface.RowTop, S.Surface.RowBottom }, radius = 10, outline = 3, strokeColor = S.Outline,
 	zIndex = 6, parent = header, gloss = false,
 })
-local chevronGlyph = PC.shout({ name = "Glyph", text = "\u{25BE}", size = 16, color = S.Surface.ReadInk, strokeColor = Color3.new(1, 1, 1), zIndex = 8, parent = chevron })
+-- U+25BC / U+25B6: the small triangles (25BE / 25B8) are not in LuckiestGuy and drew as blanks
+local chevronGlyph = PC.shout({ name = "Glyph", text = "\u{25BC}", size = 12, color = S.Surface.ReadInk, strokeColor = Color3.new(1, 1, 1), zIndex = 8, parent = chevron })
 local chevronHit = touchPad(chevron, "CollapseHit", 9)
 PC.bindPressFeedback(chevronHit)
 
@@ -562,11 +563,11 @@ render = function()
 	end
 
 	-- header
-	chevronGlyph.Text = collapsed and "\u{25B8}" or "\u{25BE}"
+	chevronGlyph.Text = collapsed and "\u{25B6}" or "\u{25BC}"
 	local lbl = morePill:FindFirstChild("Label")
 	if Platform.IsPhone then
 		morePill.Visible = n > 1
-		if lbl then lbl.Text = string.format("%d / %d  \u{25B8}", phoneIndex, n) end
+		if lbl then lbl.Text = string.format("%d / %d  \u{25B6}", phoneIndex, n) end
 	else
 		local hidden = n - #shown
 		morePill.Visible = (hidden > 0) or (showAll and n > 1)

@@ -78,11 +78,20 @@ local function inputTypeNow(): Enum.ProximityPromptInputType
 	return Enum.ProximityPromptInputType.Keyboard
 end
 
+-- A BillboardGui does not stand down with its ScreenGui: MerchantDialog disables
+-- every HUD gui while an NPC talks and the boards kept drawing over the
+-- conversation (capture 2026-09-19). Mirror the host's Enabled onto each board.
+local function syncEnabled()
+	for _, rec in pairs(live) do rec.handle.board.Enabled = host.Enabled end
+end
+host:GetPropertyChangedSignal("Enabled"):Connect(syncEnabled)
+
 ProximityPromptService.PromptShown:Connect(function(prompt, inputType)
 	if not prompt:GetAttribute(TAG) then return end
 	if live[prompt] then drop(prompt) end
 	local handle = InteractionPrompt.attach(prompt, inputType or inputTypeNow(), host)
 	if not handle then return end
+	handle.board.Enabled = host.Enabled
 	local conns = {}
 	-- a prompt that goes away while shown never fires PromptHidden
 	table.insert(conns, prompt.AncestryChanged:Connect(function(_, parent)

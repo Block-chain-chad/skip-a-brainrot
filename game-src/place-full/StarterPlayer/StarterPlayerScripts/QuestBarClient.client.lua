@@ -271,7 +271,7 @@ close.ZIndex = root.ZIndex + 3
 close.Parent = root
 do
 	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = close
-	local st = Instance.new("UIStroke"); st.Thickness = 2; st.Color = Color3.new(1, 1, 1); st.Parent = close
+	local st = Instance.new("UIStroke"); st.Thickness = 2; st.Color = Color3.new(1, 1, 1); st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; st.Parent = close   -- Border: a TextButton's default mode strokes its (empty) text
 	local g = Instance.new("UIGradient"); g.Rotation = 90; g.Color = ColorSequence.new(S.Action.Danger[1], S.Action.Danger[2]); g.Parent = close
 	PC.shout({ name = "Glyph", text = "X", size = 14, zIndex = close.ZIndex + 1, parent = close })
 end

@@ -102,6 +102,14 @@ function InteractionPrompt.attach(prompt: ProximityPrompt, inputType: Enum.Proxi
 	board.SizeOffset = Vector2.new(0, 0)
 	-- the stock prompt sits at the part's centre; UIOffset is the prompt's own px nudge
 	board.StudsOffset = Vector3.new(0, 0, 0)
+	-- ...except on an NPC RIG, where the centre is the chest and a board this
+	-- size hid the face (capture 2026-09-19): float it just above the head. The
+	-- designers' PromptParts (stalls, wheel, eggs) keep their authored centre.
+	local model = anchor:FindFirstAncestorOfClass("Model")
+	if model and model:FindFirstChildOfClass("Humanoid") then
+		board.StudsOffsetWorldSpace = Vector3.new(0, 2.4, 0)
+		board.SizeOffset = Vector2.new(0, 0.5)
+	end
 	board.MaxDistance = math.max(prompt.MaxActivationDistance + 6, 12)
 	board.ClipsDescendants = false
 	board:SetAttribute("NoPolish", true)
@@ -143,7 +151,9 @@ function InteractionPrompt.attach(prompt: ProximityPrompt, inputType: Enum.Proxi
 	pill.Parent = root
 	corner(pill, 16)
 	do
-		local s = Instance.new("UIStroke"); s.Thickness = 4; s.Color = S.Outline; s.LineJoinMode = Enum.LineJoinMode.Round; s.Parent = pill
+		-- Border, explicitly: on a TextButton the default (Contextual) strokes
+		-- the text, and this pill has none -- the plate drew edgeless (capture 2026-09-19)
+		local s = Instance.new("UIStroke"); s.Thickness = 4; s.Color = S.Outline; s.LineJoinMode = Enum.LineJoinMode.Round; s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; s.Parent = pill
 		local g = Instance.new("UIGradient"); g.Rotation = 90; g.Color = ColorSequence.new(S.Surface.RowTop, S.Surface.RowBottom); g.Parent = pill
 	end
 
