@@ -52,7 +52,9 @@ local STANDARD_JOINTS = {
 	{ name = "Root",          part0 = "HumanoidRootPart", part1 = "LowerTorso",    pivot = V(0, 0, 0) },
 	{ name = "Waist",         part0 = "LowerTorso",       part1 = "UpperTorso",    pivot = V(0, 0.10, 0) },
 	{ name = "Neck",          part0 = "UpperTorso",       part1 = "Head",          pivot = V(0, 1.00, 0) },
-	{ name = "RightShoulder", part0 = "UpperTorso",       part1 = "RightUpperArm", pivot = V(1.45, 0.95, 0),  mirror = "LeftShoulder" },
+	-- shoulder pivot at the TORSO EDGE (where the arm meets the body), as R15 places it -- a pivot on the
+	-- arm's own centre line sits outside the torso and opens the armpit on every spread (test_forge_npc)
+	{ name = "RightShoulder", part0 = "UpperTorso",       part1 = "RightUpperArm", pivot = V(1.10, 0.95, 0),  mirror = "LeftShoulder" },
 	{ name = "RightElbow",    part0 = "RightUpperArm",    part1 = "RightLowerArm", pivot = V(1.45, 0.05, 0),  mirror = "LeftElbow" },
 	{ name = "RightWrist",    part0 = "RightLowerArm",    part1 = "RightHand",     pivot = V(1.45, -0.83, 0), mirror = "LeftWrist" },
 	{ name = "RightHip",      part0 = "LowerTorso",       part1 = "RightUpperLeg", pivot = V(0.50, -0.60, 0), mirror = "LeftHip" },
@@ -106,8 +108,10 @@ local BODY_TYPE_OVERRIDES = {
 		RightHand = { offset = V(1.30, -1.15, 0) },
 	},
 }
--- stout/slight arms sit further out / in, so their shoulder/elbow/wrist pivots follow the arm x.
+-- stout/slight arms sit further out / in: elbow/wrist pivots follow the arm's centre x,
+-- the shoulder pivot follows the torso's edge.
 local JOINT_X_BY_TYPE = { standard = 1.45, stout = 1.60, slight = 1.30 }
+local SHOULDER_X_BY_TYPE = { standard = 1.10, stout = 1.25, slight = 0.95 }
 
 local function mirrorV(v) return V(-v.X, v.Y, v.Z) end
 
@@ -126,7 +130,9 @@ local function buildBodyType(id)
 	local armX = JOINT_X_BY_TYPE[id]
 	for _, j in ipairs(STANDARD_JOINTS) do
 		local pivot = j.pivot
-		if j.name == "RightShoulder" or j.name == "RightElbow" or j.name == "RightWrist" then
+		if j.name == "RightShoulder" then
+			pivot = V(SHOULDER_X_BY_TYPE[id], pivot.Y, pivot.Z)
+		elseif j.name == "RightElbow" or j.name == "RightWrist" then
 			pivot = V(armX, pivot.Y, pivot.Z)
 		end
 		joints[#joints + 1] = { name = j.name, part0 = j.part0, part1 = j.part1, pivot = pivot }

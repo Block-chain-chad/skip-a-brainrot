@@ -35,7 +35,8 @@ for _, bt in ipairs({ "standard", "stout", "slight" }) do
 		local id = "Body_" .. (shared and "shared" or bt) .. "_" .. seg
 		if not E[id] then
 			E[id] = { id = id, kind = "body", segment = seg, bodyType = shared and "shared" or bt,
-				forge = "npc_body_" .. (shared and "standard" or bt) .. "/" .. seg, tris = 220, estimated = true }
+				-- node name = "<segment>__body": the forge exporter's "<model>__<role>" convention
+				forge = "npc_body_" .. (shared and "standard" or bt) .. "/" .. seg .. "__body", tris = 220, estimated = true }
 		end
 	end
 end
@@ -43,8 +44,9 @@ end
 -- ===== HAIR / HAT / BEARD (slot = grip name into NpcRigSpec.Grips) ===========
 E.HairTousled = { id = "HairTousled", kind = "hair", slot = "Hair", colorRole = "hair", tris = 260, estimated = true,
 	forge = "npc_wave1/HairTousled",
-	blockout = { { name = "HairCap", shape = "Block", size = V(1.62, 0.55, 1.48), offset = CF(0, -0.28, 0.04) },
-	             { name = "HairFringe", shape = "Block", size = V(1.30, 0.30, 0.30), offset = CF(0.12, -0.42, -0.62) * ANG(0, 0, 6) } } }
+	-- cap and fringe stay ABOVE the brow line (kit rule: nothing crosses y +0.48 on the head)
+	blockout = { { name = "HairCap", shape = "Block", size = V(1.62, 0.36, 1.48), offset = CF(0, -0.09, 0.04) },
+	             { name = "HairFringe", shape = "Block", size = V(1.30, 0.26, 0.30), offset = CF(0.12, -0.10, -0.62) * ANG(0, 0, 3) } } }
 E.HairSidePart = { id = "HairSidePart", kind = "hair", slot = "Hair", colorRole = "hair", tris = 200, estimated = true,
 	forge = "npc_wave1/HairSidePart",
 	blockout = { { name = "HairCap", shape = "Block", size = V(1.58, 0.42, 1.44), offset = CF(0, -0.22, 0.02) } } }

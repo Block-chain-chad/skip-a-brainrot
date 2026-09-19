@@ -34,7 +34,7 @@ StupidGianluca                       Model   [contract name — unchanged]   Pri
 │    ├─ Neck           Motor6D   Part0 UpperTorso         C0 (0, +0.60, 0)   C1 (0, −0.45, 0)
 │    ├─ HatAttachment (0,+0.775,0) · HairAttachment (0,+0.775,0) · FaceFrontAttachment (0,0,−0.675) · FaceCenterAttachment (0,0,0)
 ├─ RightUpperArm      MeshPart  0.75×1.00×0.75   @ (+1.45, +0.55, 0)                                   [KIT]
-│    └─ RightShoulder  Motor6D   Part0 UpperTorso         C0 (+1.45, +0.55, 0)  C1 (0, +0.40, 0)
+│    └─ RightShoulder  Motor6D   Part0 UpperTorso         C0 (+1.10, +0.55, 0)  C1 (−0.35, +0.40, 0)   ← pivot at the torso edge (Step 0 pivot test)
 ├─ RightLowerArm      MeshPart  0.70×0.90×0.70   @ (+1.45, −0.38, 0)                                   [KIT]
 │    └─ RightElbow     Motor6D   Part0 RightUpperArm      C0 (0, −0.50, 0)   C1 (0, +0.43, 0)
 ├─ RightHand          MeshPart  0.75×0.70×0.75   @ (+1.45, −1.15, 0)                                   [KIT]

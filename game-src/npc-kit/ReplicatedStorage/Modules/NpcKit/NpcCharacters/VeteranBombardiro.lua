@@ -24,14 +24,16 @@ return {
 
 	-- the veteran layer, priority order; drop from the bottom if a species needs the budget
 	storyLayer = {
-		{ part = "WingSplint",   shape = "Block",    size = Vector3.new(0.18, 2.20, 0.50), color = WALNUT, bone = "WingL",  boneFallback = "Body", offset = CFrame.new(-2.1, 1.1, 0.2) * CFrame.Angles(0, 0, math.rad(-8)) },
-		{ part = "WingStrap",    shape = "Block",    size = Vector3.new(0.90, 0.10, 0.60), color = SOOT,   bone = "WingL",  boneFallback = "Body", offset = CFrame.new(-2.0, 1.2, 0.2) },
-		{ part = "HarnessPlate", shape = "Block",    size = Vector3.new(1.60, 1.20, 0.16), color = IRON,   bone = "Body",   offset = CFrame.new(0, 0.6, -1.4) * CFrame.Angles(0, 0, math.rad(6)) },
-		{ part = "HarnessStrap", shape = "Block",    size = Vector3.new(0.35, 1.40, 0.10), color = SOOT,   bone = "Body",   offset = CFrame.new(0.6, 1.3, -1.3) * CFrame.Angles(0, 0, math.rad(-30)) },
-		{ part = "GoggleBand",   shape = "Cylinder", size = Vector3.new(0.12, 1.50, 1.50), color = SOOT,   bone = "Head",   boneFallback = "Body", offset = CFrame.new(0, 2.4, -0.6) * CFrame.Angles(0, 0, math.rad(90)) },
-		{ part = "GoggleLens",   shape = "Block",    size = Vector3.new(0.90, 0.28, 0.22), color = SMOKED, material = Enum.Material.SmoothPlastic, bone = "GoggleBand", offset = CFrame.new(0, 2.5, -1.35) },
-		{ part = "Medal",        shape = "Cylinder", size = Vector3.new(0.06, 0.32, 0.32), color = BRASS,  material = Enum.Material.SmoothPlastic, bone = "HarnessPlate", offset = CFrame.new(-0.45, 0.3, -1.5) * CFrame.Angles(0, math.rad(90), 0) },
-		{ part = "SnoutChip",    shape = "Block",    size = Vector3.new(0.34, 0.20, 0.10), color = SCORCH, bone = "Snout",  boneFallback = "Body", offset = CFrame.new(-0.3, 0.2, -2.6) },
+		-- offsets are PLACEHOLDERS on a crocodile-plane stand-in (body 4x2.2x6 at the origin, snout to -Z,
+		-- left wing at -X, tail to +Z, ~7 studs long); E-13 replaces them with the real template's bounds
+		{ part = "WingSplint",   shape = "Block",    size = Vector3.new(0.18, 0.18, 2.20), color = WALNUT, bone = "WingL",  boneFallback = "Body", offset = CFrame.new(-4.2, 1.15, -0.3) * CFrame.Angles(0, 0, math.rad(-4)) },
+		{ part = "WingStrap",    shape = "Block",    size = Vector3.new(0.90, 0.10, 0.60), color = SOOT,   bone = "WingL",  boneFallback = "Body", offset = CFrame.new(-3.4, 1.08, 0.0) },
+		{ part = "HarnessPlate", shape = "Block",    size = Vector3.new(1.60, 1.20, 0.16), color = IRON,   bone = "Body",   offset = CFrame.new(0, 0.35, -3.05) * CFrame.Angles(0, 0, math.rad(6)) },
+		{ part = "HarnessStrap", shape = "Block",    size = Vector3.new(0.35, 1.40, 0.10), color = SOOT,   bone = "Body",   offset = CFrame.new(0.55, 0.95, -2.95) * CFrame.Angles(0, 0, math.rad(-30)) },
+		{ part = "GoggleBand",   shape = "Cylinder", size = Vector3.new(0.12, 2.00, 2.00), color = SOOT,   bone = "Head",   boneFallback = "Body", offset = CFrame.new(0, 1.05, -3.7) * CFrame.Angles(0, 0, math.rad(90)) },
+		{ part = "GoggleLens",   shape = "Block",    size = Vector3.new(0.90, 0.28, 0.22), color = SMOKED, material = Enum.Material.SmoothPlastic, bone = "GoggleBand", offset = CFrame.new(0, 1.15, -4.75) },
+		{ part = "Medal",        shape = "Cylinder", size = Vector3.new(0.06, 0.32, 0.32), color = BRASS,  material = Enum.Material.SmoothPlastic, bone = "HarnessPlate", offset = CFrame.new(-0.45, 0.15, -3.2) * CFrame.Angles(0, math.rad(90), 0) },
+		{ part = "SnoutChip",    shape = "Block",    size = Vector3.new(0.34, 0.20, 0.10), color = SCORCH, bone = "Snout",  boneFallback = "Head", offset = CFrame.new(-0.55, 0.55, -5.85) },
 	},
 
 	-- seated, weight off the bound wing, sunk into the rubble, watching the tunnel

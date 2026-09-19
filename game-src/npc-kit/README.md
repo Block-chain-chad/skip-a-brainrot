@@ -37,7 +37,8 @@ Extension convention (as `place-full`): `.lua` ModuleScript · `.client.lua` Loc
     cd tools
     python -m pip install lupa pytest        # once
     python -m npc_kit.lint                   # compile + syntax subset + forbidden APIs + data cross-refs
-    python -m pytest npc_kit/tests -q        # 31 tests: rig math, motion signs, forge builds, budget, driver, inert client
+    python -m pytest npc_kit/tests -q        # 42 tests: rig math, motion signs, forge builds, budget, driver, inert client, NPC forge profile
+    python -m npc_kit.build                  # bake the standard body (tools/out/npc_body_standard, git-ignored) + render docs/npc/previews
 
 ## Install order (Phase 3, gated — see docs/npc/phase2.5/H-phase3-execution-plan.md)
 

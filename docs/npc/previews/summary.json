@@ -1,0 +1,478 @@
+{
+  "segments": {
+    "Head": {
+      "size": [
+        1.5,
+        1.55,
+        1.35
+      ],
+      "bakedBbox": [
+        1.5,
+        1.55,
+        1.35
+      ],
+      "triangles": 740,
+      "cells": 21740
+    },
+    "UpperTorso": {
+      "size": [
+        2.2,
+        1.3,
+        1.1
+      ],
+      "bakedBbox": [
+        2.2,
+        1.3,
+        1.1
+      ],
+      "triangles": 284,
+      "cells": 22400
+    },
+    "LowerTorso": {
+      "size": [
+        1.9,
+        0.7,
+        1
+      ],
+      "bakedBbox": [
+        1.9,
+        0.7,
+        1.0
+      ],
+      "triangles": 148,
+      "cells": 10268
+    },
+    "UpperArm": {
+      "size": [
+        0.75,
+        1,
+        0.75
+      ],
+      "bakedBbox": [
+        0.75,
+        1.0,
+        0.75
+      ],
+      "triangles": 152,
+      "cells": 4004
+    },
+    "LowerArm": {
+      "size": [
+        0.7,
+        0.9,
+        0.7
+      ],
+      "bakedBbox": [
+        0.7,
+        0.9,
+        0.7
+      ],
+      "triangles": 136,
+      "cells": 3020
+    },
+    "Hand": {
+      "size": [
+        0.75,
+        0.7,
+        0.75
+      ],
+      "bakedBbox": [
+        0.75,
+        0.7,
+        0.75
+      ],
+      "triangles": 136,
+      "cells": 2806
+    },
+    "UpperLeg": {
+      "size": [
+        0.8,
+        1,
+        0.8
+      ],
+      "bakedBbox": [
+        0.8,
+        1.0,
+        0.8
+      ],
+      "triangles": 100,
+      "cells": 4644
+    },
+    "LowerLeg": {
+      "size": [
+        0.75,
+        0.9,
+        0.75
+      ],
+      "bakedBbox": [
+        0.75,
+        0.9,
+        0.75
+      ],
+      "triangles": 164,
+      "cells": 3506
+    },
+    "Foot": {
+      "size": [
+        0.8,
+        0.6,
+        1.1
+      ],
+      "bakedBbox": [
+        0.8,
+        0.6,
+        1.1
+      ],
+      "triangles": 156,
+      "cells": 3684
+    }
+  },
+  "bodyTriangles": 2860,
+  "segmentProblems": [],
+  "baseBody": {
+    "budgetPass": true,
+    "rows": {
+      "baseParts": [
+        23,
+        30,
+        "PASS"
+      ],
+      "descendants": [
+        66,
+        90,
+        "PASS"
+      ],
+      "emitters": [
+        0,
+        0,
+        "PASS"
+      ],
+      "lights": [
+        0,
+        0,
+        "PASS"
+      ],
+      "neon": [
+        0,
+        0,
+        "PASS"
+      ],
+      "motor6d": [
+        22,
+        22,
+        "PASS"
+      ],
+      "welds": [
+        0,
+        8,
+        "PASS"
+      ],
+      "attachments": [
+        16,
+        16,
+        "PASS"
+      ],
+      "bespokeMeshes": [
+        0,
+        0,
+        "PASS"
+      ],
+      "trianglesEstimated": [
+        2860,
+        5000,
+        "PASS"
+      ],
+      "scripts": [
+        0,
+        0,
+        "PASS"
+      ],
+      "humanoids": [
+        0,
+        0,
+        "PASS"
+      ],
+      "constraints": [
+        0,
+        0,
+        "PASS"
+      ],
+      "highlights": [
+        0,
+        0,
+        "PASS"
+      ],
+      "unions": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canQuery": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canTouch": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canCollide": [
+        0,
+        1,
+        "PASS"
+      ],
+      "orphans": [
+        0,
+        0,
+        "PASS"
+      ]
+    },
+    "blockout": false
+  },
+  "v11Proposal": {
+    "sizes": {
+      "Head": [
+        1.6,
+        1.55,
+        1.4
+      ],
+      "UpperTorso": [
+        2.3,
+        1.3,
+        1.2
+      ],
+      "LowerTorso": [
+        2.0,
+        0.7,
+        1.05
+      ],
+      "UpperArm": [
+        0.92,
+        1.0,
+        0.92
+      ],
+      "LowerArm": [
+        0.85,
+        0.9,
+        0.85
+      ],
+      "Hand": [
+        0.95,
+        0.72,
+        0.95
+      ],
+      "UpperLeg": [
+        0.95,
+        1.0,
+        0.95
+      ],
+      "LowerLeg": [
+        0.88,
+        0.9,
+        0.88
+      ],
+      "Foot": [
+        0.95,
+        0.6,
+        1.2
+      ]
+    },
+    "armX": 1.6,
+    "legX": 0.55,
+    "bodyTriangles": 2948,
+    "problems": []
+  },
+  "gianluca": {
+    "budgetPass": true,
+    "rows": {
+      "blockout allowance": [
+        1,
+        0,
+        "WARN"
+      ],
+      "baseParts": [
+        41,
+        49,
+        "PASS"
+      ],
+      "descendants": [
+        101,
+        132,
+        "PASS"
+      ],
+      "emitters": [
+        0,
+        2,
+        "PASS"
+      ],
+      "lights": [
+        0,
+        1,
+        "PASS"
+      ],
+      "neon": [
+        0,
+        1,
+        "PASS"
+      ],
+      "motor6d": [
+        22,
+        22,
+        "PASS"
+      ],
+      "welds": [
+        17,
+        18,
+        "PASS"
+      ],
+      "attachments": [
+        16,
+        18,
+        "PASS"
+      ],
+      "bespokeMeshes": [
+        0,
+        3,
+        "PASS"
+      ],
+      "trianglesEstimated": [
+        2860,
+        9000,
+        "PASS"
+      ],
+      "scripts": [
+        0,
+        0,
+        "PASS"
+      ],
+      "humanoids": [
+        0,
+        0,
+        "PASS"
+      ],
+      "constraints": [
+        0,
+        0,
+        "PASS"
+      ],
+      "highlights": [
+        0,
+        0,
+        "PASS"
+      ],
+      "unions": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canQuery": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canTouch": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canCollide": [
+        1,
+        1,
+        "PASS"
+      ],
+      "orphans": [
+        0,
+        0,
+        "PASS"
+      ]
+    },
+    "blockout": true,
+    "sources": {
+      "blockout": 10,
+      "forge": 15
+    }
+  },
+  "veteran": {
+    "budgetPass": true,
+    "rows": {
+      "baseParts": [
+        18,
+        28,
+        "PASS"
+      ],
+      "descendants": [
+        37,
+        100,
+        "PASS"
+      ],
+      "emitters": [
+        0,
+        6,
+        "PASS"
+      ],
+      "lights": [
+        0,
+        1,
+        "PASS"
+      ],
+      "neon": [
+        0,
+        2,
+        "PASS"
+      ],
+      "storyParts": [
+        8,
+        8,
+        "PASS"
+      ],
+      "scripts": [
+        0,
+        0,
+        "PASS"
+      ],
+      "humanoids": [
+        0,
+        0,
+        "PASS"
+      ],
+      "constraints": [
+        0,
+        0,
+        "PASS"
+      ],
+      "highlights": [
+        0,
+        0,
+        "PASS"
+      ],
+      "unions": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canQuery": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canTouch": [
+        0,
+        0,
+        "PASS"
+      ],
+      "canCollide": [
+        0,
+        1,
+        "PASS"
+      ],
+      "orphans": [
+        0,
+        0,
+        "PASS"
+      ]
+    },
+    "storyParts": 8,
+    "sourceUnchanged": true
+  }
+}

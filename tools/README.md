@@ -14,5 +14,8 @@ Design rules and budgets: ../docs/brainrot-build-standard.md. Pipeline: ../docs/
     python -m pip install lupa pytest
     python -m npc_kit.lint
     python -m pytest npc_kit/tests -q
+    python -m npc_kit.build        # forge NPC profile: bakes the SR-Rig body to out/npc_body_standard (Import 3D batch) and renders ../docs/npc/previews
 
-Kit sources and install order: ../game-src/npc-kit/README.md. Specs: ../docs/npc/PHASE2.5-IMPLEMENTATION-PREP.md.
+`npc_kit/forge_npc.py` is the forge's NPC profile (pitch 0.05, sizes read from NpcRigSpec.lua, forge bake()/write_glb unchanged); `npc_kit/preview.py` is the harness-side renderer.
+
+Kit sources and install order: ../game-src/npc-kit/README.md. Specs: ../docs/npc/PHASE2.5-IMPLEMENTATION-PREP.md. Visual prototype: ../docs/npc/STEP0-VISUAL-PROTOTYPE.md.

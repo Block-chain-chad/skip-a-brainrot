@@ -135,6 +135,26 @@ class Harness:
         """Lua-side identity/equality (lupa wrappers never compare equal in Python)."""
         return bool(self.lua.eval("function(a, b) return a == b end")(a, b))
 
+    def mul(self, a, b):
+        """Lua-side `a * b` (CFrame * CFrame, CFrame * Vector3)."""
+        return self.lua.eval("function(a, b) return a * b end")(a, b)
+
+    def world_aabb(self, part) -> tuple:
+        """World axis-aligned bounds of a possibly rotated part (8 corners through its CFrame)."""
+        f = self.lua.eval("""function(p)
+            local s = p.Size / 2
+            local lo, hi = nil, nil
+            for _, sx in ipairs({-1, 1}) do for _, sy in ipairs({-1, 1}) do for _, sz in ipairs({-1, 1}) do
+                local c = p.CFrame * Vector3.new(sx * s.X, sy * s.Y, sz * s.Z)
+                if not lo then lo, hi = c, c else
+                    lo = Vector3.new(math.min(lo.X, c.X), math.min(lo.Y, c.Y), math.min(lo.Z, c.Z))
+                    hi = Vector3.new(math.max(hi.X, c.X), math.max(hi.Y, c.Y), math.max(hi.Z, c.Z)) end
+            end end end
+            return lo.X, lo.Y, lo.Z, hi.X, hi.Y, hi.Z
+        end""")
+        x0, y0, z0, x1, y1, z1 = f(part)
+        return (x0, y0, z0), (x1, y1, z1)
+
     def dist(self, a, b) -> float:
         return self.lua.eval("function(a, b) return (a - b).Magnitude end")(a, b)
 
@@ -165,7 +185,10 @@ class Harness:
         fake = I.new("Part"); fake.Name = "FakeRootPart"; fake.Transparency = 1; fake.Size = self.stub.Vector3.new(1, 1, 1); fake.Parent = m
         m.PrimaryPart = root
         w = I.new("WeldConstraint"); w.Part0 = root; w.Part1 = fake; w.Parent = fake
-        for pname, size, off in [("Body", (4, 3, 6), (0, 0, 0)), ("Head", (2, 2, 2), (0, 1, -3.5)), ("WingL", (5, 0.3, 2), (-4, 1, 0)), ("WingR", (5, 0.3, 2), (4, 1, 0)), ("Tail", (1, 1, 3), (0, 0, 4))]:
+        # a crocodile-plane STAND-IN (body slab, long snout to -Z, wings, tail) -- not the pack asset
+        for pname, size, off in [("Body", (4, 2.2, 6), (0, 0, 0)), ("Head", (1.8, 1.4, 3), (0, 0.3, -4.4)),
+                                 ("WingL", (5, 0.3, 2), (-4.4, 0.9, 0)), ("WingR", (5, 0.3, 2), (4.4, 0.9, 0)),
+                                 ("Tail", (1, 1, 3.5), (0, -0.2, 4.5)), ("FinL", (0.3, 1.2, 1.2), (-0.9, 1.2, 1.5)), ("FinR", (0.3, 1.2, 1.2), (0.9, 1.2, 1.5))]:
             p = I.new("MeshPart"); p.Name = pname; p.Size = self.stub.Vector3.new(*size); p.CFrame = self.stub.CFrame.new(*off)
             p.Color = self.stub.Color3.fromRGB(90, 140, 86); p.Parent = m
             j = I.new("Motor6D"); j.Name = pname + "Joint"; j.Part0 = fake; j.Part1 = p; j.C0 = self.stub.CFrame.new(*off); j.Parent = p

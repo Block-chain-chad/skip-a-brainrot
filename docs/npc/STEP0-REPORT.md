@@ -75,7 +75,7 @@
 
 ## 6. Still to do inside Step 0 (Python-side, no Studio)
 
-- Forge `npc` profile (`MAX_ROLES 16`, body-share gate off) and the `standard` body lattice + rendered previews (`render.py`) — the visual half of STOP 0.
+- ~~Forge `npc` profile and the `standard` body lattice + rendered previews~~ — **done in the final Step 0 pass: see [STEP0-VISUAL-PROTOTYPE.md](STEP0-VISUAL-PROTOTYPE.md)** (`tools/npc_kit/forge_npc.py`, `preview.py`, `build.py`; 11 tests; `docs/npc/previews/`). Test count is now 42.
 - `NpcLifeClient` in-Studio smoke test needs the window (Step 8) — nothing else in this package does.
 
 ## 7. Dependency note
