@@ -128,7 +128,7 @@ local function subtitleFor(rw, seasonNumber: number): string
 	if rw.kind == "Cash" then
 		return "INSTANT PAYOUT"
 	elseif rw.kind == "Emeralds" then
-		return "PREMIUM CURRENCY"
+		return "GEMS" -- the currency is Gems (was PREMIUM CURRENCY)
 	elseif rw.kind == "Egg" then
 		return "HATCHERY"
 	elseif rw.kind == "Boost" then
@@ -152,6 +152,7 @@ end
 local UIKitFolder = game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("UIKit")
 local PC = require(UIKitFolder:WaitForChild("PanelChrome"))
 local S = require(UIKitFolder:WaitForChild("SpecTheme"))
+local Toast = require(UIKitFolder:WaitForChild("Toast")) -- round 2: claim confirmation toast
 
 function PassPanel.Build(ctx, opts)
 	local EMBEDDED = (type(opts) == "table" and opts.embedded == true)
@@ -236,6 +237,13 @@ function PassPanel.Build(ctx, opts)
 	header.Visible = not EMBEDDED
 	UI.gloss(header, T.radius.panel)
 	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
+	-- UI.hardShadow parents the shadow as a SIBLING of the header, so hiding the
+	-- header alone left a 700x68 navy slab behind the progress row once the body
+	-- went light (round 2); the shadow follows the header's visibility
+	if EMBEDDED then
+		local hs = group:FindFirstChild("HardShadow")
+		if hs and hs:IsA("GuiObject") then hs.Visible = false end
+	end
 
 	local headerIcon = UI.artSlot(header, UDim2.fromOffset(62, 62), T.icons.pass)
 	headerIcon.Name = "SectionIcon"
@@ -313,82 +321,27 @@ function PassPanel.Build(ctx, opts)
 	skipBtn.ZIndex = header.ZIndex + 2
 
 	----------------------------------------------------------- body
+	-- 2026-09-18 UI ROUND 2. The dark navy override (2026-08-14 "olive revert",
+	-- retinted cool navy) is gone: this tab sits inside the SAME Progress shell as
+	-- Goals, and Goals is a light body with white rows -- a navy sheet on the
+	-- second tab was the one panel in the game that broke the white-chrome
+	-- language. Embedded, the body is transparent so the shared shell's pale
+	-- ground shows through; standalone it keeps the kit window surface. Every
+	-- ink below is the dark family (S.Surface.ReadInk / ReadSub).
+	--
 	-- Still NOT UI.panel: UI.panel bundles surface + hardShadow + a UIPadding of
 	-- T.pad.panel, and every horizontal measurement in this file (INNER_W, and
 	-- LADDER_W under it) is taken against T.pad.panel specifically -- so the
 	-- padding stays hand-built to keep that relationship visible at the top of
 	-- the geometry block rather than buried in a builder.
-	--[[ PS99 COOL-NAVY DARK RAMP (was the 2026-08-14 olive revert). The pass
-	panel keeps a DARK ground, retinted to the cool navy family so every light
-	ink on it stays light. Its window comes from UI.surface("window") and its
-	type from T.color.*, and BOTH are shared with Goals / Bag / Settings /
-	Worlds -- retinting those tokens would drag every other panel along, which
-	the owner ruled out ("dont mess with the gui"). So the navy lives HERE, as
-	a local override on this panel only. Anything not listed stays on the
-	shared tokens.
-
-	The reward cards keep their GREEN (free) and GOLD (premium) ramps: those are
-	track identity, and they are light grounds that still want the dark ink they
-	already carry. Since field study delta 8 the tiles themselves encode STATE
-	(claimed green / locked silver -- see buildRewardCard), so the locked ramp
-	is the shared S.Action.Inert silver and no dark-card ink lives here. ]]
-	local OLIVE = {
-		window    = { Color3.fromHex("3A4656"), Color3.fromHex("2A3543") }, -- cool navy body
-		onWindow  = Color3.fromHex("DCE6F2"), -- near-white ice: type on the navy body (textMutedOnDark)
-		muted     = Color3.fromHex("A9BACE"), -- navy textMuted
-	}
-
 	local body = UI.surface(group, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
-	--[[ Repaint rather than rebuild, and note the TRANSPARENCY line -- it is the
-	whole reason this works.
-
-	This panel's own body ships FULLY TRANSPARENT: the cream a player actually
-	sees behind the ladder belongs to the SHARED ProgressPanel shell, which also
-	hosts GoalsPanel. Recolouring that shell would drag Goals along, so instead
-	this body is made OPAQUE and painted navy -- it covers the shared cream for
-	exactly as long as the Season Pass tab is up, and Goals is untouched.
-
-	Measured before the fix: the headings below had already flipped to pale sage
-	and were sitting on the shell's #FFF6CF at ~1.3:1, i.e. invisible. Set the
-	body opaque and the type light TOGETHER or not at all. ]]
-	do
-		body.BackgroundColor3 = Color3.new(1, 1, 1) -- gradient multiplies, so start white
-		body.BackgroundTransparency = 0             -- <- covers the shared cream shell
-		local g = body:FindFirstChildOfClass("UIGradient")
-		if not g then
-			g = Instance.new("UIGradient")
-			g.Rotation = 90
-			g.Parent = body
-		end
-		g.Color = ColorSequence.new(OLIVE.window[1], OLIVE.window[2])
-	end
 	body.Name = "Body"
 	body.Position = UDim2.fromOffset(0, BODY_TOP)
 	body.ZIndex = 12
 	if EMBEDDED then
-		--[[ 2026-08-14 OLIVE REVERT. This branch used to go TRANSPARENT and let the
-		shared spec shell's light ground be the visible surface -- and it DESTROYED
-		the body's gradient to do it. That is precisely why the first olive attempt
-		looked like it had done nothing: the repaint above ran, and this block threw
-		it away six lines later, leaving pale sage headings on the shell's #FFF6CF
-		at 1.4:1 (measured, unreadable).
-
-		The shell is SHARED with GoalsPanel, so it cannot be recoloured without
-		dragging Goals along. So this body becomes the opaque navy surface instead:
-		it covers the shell for exactly as long as the Season Pass tab is up, and
-		Goals still gets the cream shell it has always had.
-
-		The STROKE is still dropped -- the shell already draws the window's edge, and
-		a second one here would double the outline. ]]
-		body.BackgroundTransparency = 0
-		body.BackgroundColor3 = Color3.new(1, 1, 1) -- gradient multiplies; start white
+		body.BackgroundTransparency = 1
 		local bg = body:FindFirstChildOfClass("UIGradient")
-		if not bg then
-			bg = Instance.new("UIGradient")
-			bg.Rotation = 90
-			bg.Parent = body
-		end
-		bg.Color = ColorSequence.new(OLIVE.window[1], OLIVE.window[2])
+		if bg then bg:Destroy() end
 		local bs = body:FindFirstChildOfClass("UIStroke")
 		if bs then bs:Destroy() end
 	else
@@ -400,6 +353,9 @@ function PassPanel.Build(ctx, opts)
 	bodyPad.PaddingLeft = UDim.new(0, PAD)
 	bodyPad.PaddingRight = UDim.new(0, PAD)
 	bodyPad.Parent = body
+
+	local INK = S.Surface.ReadInk
+	local SUB = S.Surface.ReadSub
 
 	----------------------------------------------------------- progress row
 	local progressRow = Instance.new("Frame")
@@ -414,7 +370,7 @@ function PassPanel.Build(ctx, opts)
 	local tierPill = PC.plate({
 		name = "TierPill",
 		size = UDim2.fromOffset(TIER_PILL_W, PROGRESS_H),
-		colors = S.Action.Gold,
+		colors = S.Role.Gold,
 		radius = 22,
 		outline = 6,
 		zIndex = 14,
@@ -437,15 +393,11 @@ function PassPanel.Build(ctx, opts)
 	local XP_X = TIER_PILL_W + 16
 	local XP_W = INNER_W - XP_X - 16 - STATUS_W -- 450
 
-	local xpCaption = UI.label(progressRow, "", "meta", OLIVE.onWindow) -- navy body = light type
-	xpCaption.Name = "XPCaption"
-	xpCaption.Position = UDim2.fromOffset(XP_X, 2)
-	xpCaption.ZIndex = 14
-	-- 2026-08-11 polish: the progress row's small print washed at the kit's
-	-- meta/chip sizes once the panel scale shrinks it (user nit, 2026-08-10
-	-- visual pass). Explicit sizes below; UIPolish re-strokes on TextSize
-	-- change so the ink outline follows the bump.
-	xpCaption.TextSize = 20
+	local xpCaption = PC.read({
+		name = "XPCaption", text = "", size = 20, color = INK,
+		frameSize = UDim2.fromOffset(XP_W, 24), position = UDim2.fromOffset(XP_X, 0),
+		zIndex = 14, parent = progressRow,
+	})
 
 	-- sheet: XP bar 44 tall, the count ON the track
 	local xpTrack, xpFill = UI.track(progressRow, UDim2.fromOffset(XP_W, 44), "gold", 22)
@@ -474,34 +426,42 @@ function PassPanel.Build(ctx, opts)
 	statusList.SortOrder = Enum.SortOrder.LayoutOrder
 	statusList.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	statusList.VerticalAlignment = Enum.VerticalAlignment.Center
-	statusList.Padding = UDim.new(0, 3)
+	statusList.Padding = UDim.new(0, 4)
 	statusList.Parent = statusCol
 
 	local daysLabel: TextLabel? = nil
 	if type(SEASON.Ends) == "number" then
-		daysLabel = UI.label(statusCol, "", "chip", T.color.textAccent)
-		daysLabel.Name = "DaysLeft"
+		daysLabel = PC.shout({
+			name = "DaysLeft", text = "", size = 22, color = S.TitleInk.goals, strokeColor = Color3.new(1, 1, 1),
+			align = Enum.TextXAlignment.Right, frameSize = UDim2.new(1, 0, 0, 26), zIndex = 14, parent = statusCol,
+		})
 		daysLabel.LayoutOrder = 1
-		daysLabel.TextXAlignment = Enum.TextXAlignment.Right
-		daysLabel.ZIndex = 14
-		daysLabel.TextSize = 20 -- see the wash note at xpCaption
 	end
 
-	local claimStatus = UI.label(statusCol, "0 CLAIMED  0 READY", "chip", OLIVE.onWindow)
-	claimStatus.Name = "ClaimStatus"
+	-- READY is the number a player is looking for; it gets the shout weight
+	local claimStatus = PC.shout({
+		name = "ClaimStatus", text = "0 READY", size = 26, color = S.Role.Positive[2], strokeColor = Color3.new(1, 1, 1),
+		align = Enum.TextXAlignment.Right, frameSize = UDim2.new(1, 0, 0, 30), zIndex = 14, parent = statusCol,
+	})
 	claimStatus.LayoutOrder = 2
-	claimStatus.TextXAlignment = Enum.TextXAlignment.Right
-	claimStatus.ZIndex = 14
-	claimStatus.TextSize = 20 -- see the wash note at xpCaption
 
-	local xpSources = UI.label(statusCol, "XP FROM QUESTS  REBIRTHS  DAILY LOGIN", "meta", OLIVE.muted)
-	xpSources.Name = "XPSources"
-	xpSources.LayoutOrder = 3
-	xpSources.TextXAlignment = Enum.TextXAlignment.Right
-	xpSources.ZIndex = 14
-	xpSources.TextSize = 17 -- see the wash note at xpCaption
+	local claimedStatus = PC.read({
+		name = "ClaimedStatus", text = "0 CLAIMED", size = 18, color = SUB,
+		align = Enum.TextXAlignment.Right, frameSize = UDim2.new(1, 0, 0, 22), zIndex = 14, parent = statusCol,
+	})
+	claimedStatus.LayoutOrder = 3
+
+	local xpSources = PC.read({
+		name = "XPSources", text = "XP from quests, rebirths and daily login", size = 16, color = SUB,
+		align = Enum.TextXAlignment.Right, frameSize = UDim2.new(1, 0, 0, 20), zIndex = 14, parent = statusCol,
+	})
+	xpSources.LayoutOrder = 4
 
 	----------------------------------------------------------- column headers
+	-- Two identity chips over the two tracks -- FREE (green, everyone) and
+	-- PREMIUM (purple, the paid track) -- with the gold UNLOCK <price> R$ button
+	-- riding the premium column. Real money is gold with the Robux mark
+	-- (handoff §4); the track identity is what the chips carry.
 	local colHead = Instance.new("Frame")
 	colHead.Name = "ColumnHeaders"
 	colHead.Position = UDim2.fromOffset(0, PROGRESS_H + 10)
@@ -510,44 +470,34 @@ function PassPanel.Build(ctx, opts)
 	colHead.ZIndex = 14
 	colHead.Parent = body
 
-	local function columnHeading(name: string, text: string, x: number, w: number, color: Color3)
-		local l = UI.label(colHead, text, "meta", color)
-		l.Name = name
-		l.Position = UDim2.fromOffset(x, 6)
-		l.Size = UDim2.fromOffset(w, 18)
-		l.AutomaticSize = Enum.AutomaticSize.None
-		l.TextXAlignment = Enum.TextXAlignment.Center
-		l.ZIndex = 14
-		return l
+	local ROBUX = "\u{E002}"
+	local function trackChip(name: string, text: string, x: number, ramp: { Color3 })
+		local chip = PC.statePlate({
+			name = name, text = text, colors = ramp,
+			size = UDim2.fromOffset(150, 44),
+			position = UDim2.new(0, x, 0.5, 0), anchor = Vector2.new(0, 0.5),
+			textSize = 22, zIndex = 15, parent = colHead,
+		})
+		return chip
 	end
+	trackChip("FreeChip", "FREE", FREE_X, S.Role.Positive)
+	local premiumChip = trackChip("PremiumChip", "PREMIUM", PASS_X, S.Role.Purple)
 
-	local freeHead = columnHeading("FreeHeading", "FREE TRACK \u{00B7} EVERYONE", FREE_X, CARD_W, OLIVE.muted)
-	freeHead.Font = S.Font.Read
-	freeHead.TextSize = 20
-	freeHead:SetAttribute("NoPolish", true)
-	freeHead.Position = UDim2.fromOffset(FREE_X, COLHEAD_H - 24)
-	-- sheet: the price moves out of a caption and into a PLATE -- violet,
-	-- UNLOCK <price> over RETROACTIVE, sitting over the premium column
-	local unlockPlate = PC.plate({
-		name = "UnlockPlate",
-		size = UDim2.fromOffset(230, COLHEAD_H - 4),
-		position = UDim2.fromOffset(PASS_X + math.floor((CARD_W - 230) / 2), 0),
-		colors = S.Action.Premium,
-		radius = 18,
-		outline = 5,
-		zIndex = 14,
-		parent = colHead,
+	-- INERT until GamepassConfig's SeasonPass id is real (see the module header);
+	-- the price is read from the catalog so it cannot drift from what is charged.
+	local unlockBtn = PC.button({
+		kind = "gold", text = "UNLOCK " .. ROBUX .. tostring(passPrice), name = "UnlockButton",
+		size = UDim2.fromOffset(200, 48), textSize = 22, radius = 16, outline = 3,
+		position = UDim2.new(0, PASS_X + CARD_W, 0.5, 0), anchor = Vector2.new(1, 0.5),
+		zIndex = 15, parent = colHead,
 	})
-	PC.shout({
-		name = "UnlockPrice", text = "UNLOCK " .. passPrice .. " R$", size = 22,
-		frameSize = UDim2.new(1, 0, 0, 24), position = UDim2.new(0, 0, 0, 6),
-		zIndex = 15, parent = unlockPlate,
+	local retroNote = PC.read({
+		name = "RetroNote", text = "unlocks every tier you already passed", size = 15, color = SUB,
+		align = Enum.TextXAlignment.Right,
+		frameSize = UDim2.fromOffset(CARD_W - 160, 18), position = UDim2.new(0, PASS_X + 160, 1, -2), anchor = Vector2.new(0, 1),
+		zIndex = 15, parent = colHead,
 	})
-	PC.shout({
-		name = "UnlockKicker", text = "RETROACTIVE", size = 14,
-		frameSize = UDim2.new(1, 0, 0, 16), position = UDim2.new(0, 0, 1, -22),
-		zIndex = 15, parent = unlockPlate,
-	})
+	retroNote.Visible = false -- the footer already says it; kept for a taller header
 
 	----------------------------------------------------------- ladder
 	local scroll = Instance.new("ScrollingFrame")
@@ -557,8 +507,8 @@ function PassPanel.Build(ctx, opts)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-	scroll.ScrollBarThickness = SCROLLBAR_W - 2
-	scroll.ScrollBarImageColor3 = T.color.scrollThumb
+	scroll.ScrollBarThickness = SCROLLBAR_W - 4
+	scroll.ScrollBarImageColor3 = S.OutlineSoft
 	scroll.CanvasSize = UDim2.new()
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.ElasticBehavior = Enum.ElasticBehavior.Never
@@ -571,11 +521,19 @@ function PassPanel.Build(ctx, opts)
 	rowsList.Padding = UDim.new(0, ROW_GAP)
 	rowsList.Parent = scroll
 
+	-- A claim in flight: the button goes busy and the confirming SeasonState (the
+	-- ONLY thing that flips a card to CLAIMED) fires the reward toast. Cleared on
+	-- every state push so a lost reply never pins a stale note.
+	local pendingClaim: { tier: number, track: string, text: string }? = nil
+
 	----------------------------------------------------------- reward card
-	-- The state machine (kit README section 5) picks the surface kind BEFORE the
-	-- card is built. The old file built a card and then reached back in for its
-	-- UIGradient and UIStroke to recolour them, which is how the free column ended
-	-- up flat white with white text. Nothing here mutates a built card.
+	-- The state machine picks the surface kind BEFORE the card is built (kit
+	-- README section 5); nothing here mutates a built card's colours.
+	--
+	--   claimable  green tile, CLAIM button (kit positive)
+	--   claimed    pale green tile, check + CLAIMED
+	--   reached but track locked (premium without the pass)  violet tile + padlock
+	--   unreached  white tile, dimmed art, "TIER n" marker
 	local function buildRewardCard(row: Frame, tier: number, track: string)
 		local isPass = track == "pass"
 
@@ -586,25 +544,24 @@ function PassPanel.Build(ctx, opts)
 		-- Premium is gated on the gamepass ON TOP of the XP threshold, so a player
 		-- who has passed tier 30 still sees the premium column locked until they
 		-- own it -- and then sees all 30 waiting, which is the "RETROACTIVE"
-		-- promise in the column heading.
-		local locked = (not trackOpen) or (not reached)
+		-- promise in the footer.
+		local passLocked = isPass and not trackOpen
 		local claimable = trackOpen and reached and not claimed
 
-		-- Field study delta 8 (PS99 f072/f073): the tile IS the state box.
-		-- CLAIMED = green tile + darker-green edge + "Claimed!" strip; LOCKED =
-		-- silver-grey Inert tile; open cards keep track identity (free green,
-		-- premium gold -- the pass is REAL MONEY, so gold is right here).
 		local ramp
-		local edge: Color3? = nil -- nil -> the plate's default dark outline
-		if claimed then
-			ramp = S.Action.GreenFill
-			edge = Color3.fromHex("1F7A1A") -- darker green: claimed reads as settled
-		elseif locked then
-			ramp = S.Action.Inert -- PS99 silver 93A1B4 -> 6E7E94
-		elseif isPass then
-			ramp = S.Action.Gold
+		local edge: Color3 = S.OutlineSoft
+		if claimable then
+			-- a LIGHT green tile, so the green CLAIM button is the one saturated thing on it
+			ramp = { Color3.fromHex("E6FBDF"), Color3.fromHex("CFF3C3") }
+			edge = S.Role.Positive[2]
+		elseif claimed then
+			ramp = { Color3.fromHex("E9FBE6"), Color3.fromHex("D2F3CC") } -- settled: pale green
+			edge = Color3.fromHex("A9DDA0")
+		elseif passLocked then
+			ramp = S.Action.VioletRow -- the paid track, still closed
+			edge = Color3.fromHex("CDB7E8")
 		else
-			ramp = S.Action.GreenFill
+			ramp = { S.Surface.RowTop, S.Surface.RowBottom }
 		end
 
 		local card = PC.plate({
@@ -613,20 +570,12 @@ function PassPanel.Build(ctx, opts)
 			position = UDim2.fromOffset(isPass and PASS_X or FREE_X, 0),
 			colors = ramp,
 			strokeColor = edge,
-			radius = 24,
-			outline = 6,
+			radius = 22,
+			outline = 3,
 			zIndex = 15,
 			parent = row,
 			gloss = false,
 		})
-
-		-- Delta 8: every tile is a light-to-mid surface (green / gold / silver),
-		-- so they all carry the shared dark ReadInk (light surface, dark ink).
-		local ink = S.Surface.ReadInk
-
-		if claimable then
-			UI.claimRing(card)
-		end
 
 		local tierDef = SeasonConfig.TierFor(track, tier)
 		local rw = SeasonConfig.DescribeReward(tierDef)
@@ -637,11 +586,13 @@ function PassPanel.Build(ctx, opts)
 			size = UDim2.fromOffset(PLATE, PLATE),
 			position = UDim2.new(0, PLATE_X, 0.5, 0),
 			anchor = Vector2.new(0, 0.5),
-			colors = { Color3.new(1, 1, 1), Color3.fromHex("E4EDF7") }, -- always the light plate: locked art must stay FULL-COLOUR (delta 8)
+			colors = { Color3.new(1, 1, 1), Color3.fromHex("E4EDF7") },
 			radius = 18,
-			outline = 5,
+			outline = 3,
+			strokeColor = S.OutlineSoft,
 			zIndex = card.ZIndex + 1,
 			parent = card,
+			gloss = false,
 		})
 
 		local art
@@ -654,12 +605,10 @@ function PassPanel.Build(ctx, opts)
 			})
 		end
 		if not art and rw.kind == "Emeralds" and IconArt and IconArt.has("emerald") then
-			-- The emerald has its OWN drawn icon -- the one on the HUD currency pill.
-			-- T.icons.gem is a generic purple gem and is not the same thing, so
-			-- these tiers would otherwise advertise the wrong currency.
+			-- the gem has its OWN drawn icon -- the one on the HUD currency pill
 			local box = PLATE - 12
 			local host = Instance.new("Frame")
-			host.Name = "EmeraldIcon"
+			host.Name = "GemIcon"
 			host.AnchorPoint = Vector2.new(0.5, 0.5)
 			host.Position = UDim2.fromScale(0.5, 0.5)
 			host.Size = UDim2.fromOffset(box, box)
@@ -693,8 +642,8 @@ function PassPanel.Build(ctx, opts)
 			art.ZIndex = plate.ZIndex + 1
 		end
 		art.Name = "ArtSlot"
-		-- Delta 8: locked art stays FULL-COLOUR -- the silver tile alone says
-		-- "locked"; the reward itself is always worth seeing.
+		-- locked art stays FULL-COLOUR (field study delta 8): the tile alone says
+		-- "locked"; the reward itself is always worth seeing
 
 		----------------------------------------------------- name + subtitle
 		local rewardText
@@ -705,97 +654,120 @@ function PassPanel.Build(ctx, opts)
 			-- "x" not the multiplication sign: this game has been bitten by
 			-- glyphs the shipped fonts cannot render.
 			rewardText = rw.text .. "  x" .. tostring(rw.qty or 1)
+		elseif rw.kind == "Emeralds" then
+			rewardText = "+" .. tostring(rw.amount or 0) .. " Gems"
 		else
 			rewardText = rw.text
 		end
 
-		local name = UI.label(card, rewardText, "cardLabel", ink)
-		name.Name = "NameLabel"
-		name.Position = UDim2.fromOffset(TEXT_X, 16)
-		name.Size = UDim2.fromOffset(TEXT_W, 22)
-		name.AutomaticSize = Enum.AutomaticSize.None
-		name.TextXAlignment = Enum.TextXAlignment.Left
+		local name = PC.read({
+			name = "NameLabel", text = rewardText, size = 24, color = INK,
+			frameSize = UDim2.fromOffset(TEXT_W, 28), position = UDim2.fromOffset(TEXT_X, 22),
+			zIndex = card.ZIndex + 2, parent = card,
+		})
 		name.TextTruncate = Enum.TextTruncate.AtEnd
-		name.ZIndex = card.ZIndex + 2
 
-		local sub = UI.label(card, subtitleFor(rw, SEASON.Number), "meta", locked and S.Surface.ReadInk or Color3.fromHex("2E5A38")) -- dark ink on the silver tile; track green on open/claimed cards
-		sub.Name = "SubLabel"
-		sub.Position = UDim2.fromOffset(TEXT_X, 43)
-		sub.Size = UDim2.fromOffset(TEXT_W, 18)
-		sub.AutomaticSize = Enum.AutomaticSize.None
-		sub.TextXAlignment = Enum.TextXAlignment.Left
+		local sub = PC.read({
+			name = "SubLabel", text = subtitleFor(rw, SEASON.Number), size = 17,
+			color = if claimable then Color3.fromHex("1F6E2A") else SUB,
+			frameSize = UDim2.fromOffset(TEXT_W, 22), position = UDim2.fromOffset(TEXT_X, 54),
+			zIndex = card.ZIndex + 2, parent = card,
+		})
 		sub.TextTruncate = Enum.TextTruncate.AtEnd
-		sub.ZIndex = card.ZIndex + 2
 
 		----------------------------------------------------- action
 		if claimable then
-			-- white plate on the coloured row: the one pressable thing on it
-			local pill = PC.pill({
-				name = "ClaimPill",
-				text = "CLAIM",
-				colors = { Color3.new(1, 1, 1), Color3.fromHex("DCE6F0") }, -- cool light pill, pre-LemonPop value restored (was #FFF4D9)
-				size = UDim2.fromOffset(ACTION_W + 20, 54),
-				position = UDim2.new(1, -10, 0.5, 0),
-				anchor = Vector2.new(1, 0.5),
-				textSize = 24,
-				zIndex = card.ZIndex + 6,
-				parent = card,
+			local claimBtn = PC.button({
+				kind = "positive", text = "CLAIM", name = "ClaimButton",
+				size = UDim2.fromOffset(ACTION_W + 16, 54), textSize = 24, radius = 16, outline = 3,
+				position = UDim2.new(1, -12, 0.5, 0), anchor = Vector2.new(1, 0.5),
+				zIndex = card.ZIndex + 6, parent = card,
 			})
-			local pl = pill:FindFirstChild("Label")
-			if pl then pl.TextColor3 = Color3.fromHex("1F8B34") end
 			-- The ONE SeasonClaim:FireServer call site in this module. No local
 			-- state mutation here -- the card only re-renders CLAIMED once the
-			-- server pushes a fresh SeasonState with Claimed[tier] == true.
-			pill.MouseButton1Click:Connect(function()
+			-- server pushes a fresh SeasonState with Claimed[tier] == true. The
+			-- button goes BUSY meanwhile (auto-clears after 10s with a warning).
+			claimBtn.Activated:Connect(function()
+				if claimBtn:GetAttribute("UIBusy") == true then return end
+				PC.setBusy(claimBtn, true, { timeout = 8 })
+				pendingClaim = { tier = tier, track = track, text = rewardText }
 				-- track tells the server WHICH column; it re-checks gamepass
 				-- ownership itself, so a spoofed "pass" here still cannot claim
 				-- the paid track.
 				ctx.remotes.SeasonClaim:FireServer(tier, track)
 			end)
 		elseif claimed then
-			-- Delta 8: white "Claimed!" strip at full strength on the green tile
-			-- (shout = white bubble fill + dark contextual stroke already).
-			PC.shout({
-				name = "ClaimedMark", text = "Claimed!", size = 22,
-				anchor = Vector2.new(1, 0.5),
-				position = UDim2.new(1, -16, 0.5, 0),
-				frameSize = UDim2.fromOffset(130, 26),
-				zIndex = card.ZIndex + 2, parent = card,
+			local mark = PC.statePlate({
+				name = "ClaimedMark", text = "\u{2713} CLAIMED", colors = { Color3.fromHex("C9EFC2"), Color3.fromHex("B2E4A8") },
+				size = UDim2.fromOffset(ACTION_W + 26, 40),
+				position = UDim2.new(1, -12, 0.5, 0), anchor = Vector2.new(1, 0.5),
+				textSize = 18, zIndex = card.ZIndex + 2, parent = card,
+			})
+			local ml = mark:FindFirstChild("Label")
+			if ml and ml:IsA("TextLabel") then ml.TextColor3 = Color3.fromHex("1F6E2A") end
+		elseif passLocked then
+			-- the paid track: a padlock chip; the column's UNLOCK button is the way in
+			PC.statePlate({
+				name = "LockMarker", text = "\u{1F512} PREMIUM", colors = { Color3.fromHex("E4D3F7"), Color3.fromHex("D3BCF0") },
+				size = UDim2.fromOffset(ACTION_W + 30, 40),
+				position = UDim2.new(1, -12, 0.5, 0), anchor = Vector2.new(1, 0.5),
+				textSize = 17, zIndex = card.ZIndex + 2, parent = card,
 			})
 		else
-			-- Delta 8 'Locked' strip: white bubble text w/ dark stroke, full
-			-- strength on the silver tile. An open-but-unreached rung keeps its
-			-- "TIER 46" wording -- same strip, but it names the requirement.
-			PC.shout({
-				name = "LockMarker",
-				text = (not trackOpen) and "LOCKED" or ("TIER " .. tier),
-				size = 20,
-				anchor = Vector2.new(1, 0.5),
-				position = UDim2.new(1, -16, 0.5, 0),
-				frameSize = UDim2.fromOffset(120, 24),
-				zIndex = card.ZIndex + 2, parent = card,
+			-- an open-but-unreached rung names the requirement
+			PC.statePlate({
+				name = "LockMarker", text = "TIER " .. tier,
+				size = UDim2.fromOffset(ACTION_W + 10, 40),
+				position = UDim2.new(1, -12, 0.5, 0), anchor = Vector2.new(1, 0.5),
+				textSize = 18, zIndex = card.ZIndex + 2, parent = card,
 			})
+			-- unreached rewards sit back a little so the reachable ones lead
+			plate.BackgroundTransparency = 0.35
+			name.TextTransparency = 0.25
+			sub.TextTransparency = 0.25
 		end
 	end
 
-	local function buildTierPill(row: Frame, tier: number)
-		-- sheet: the tier spine -- a gold plate column, 88 tall per row, the
-		-- one vertical rhythm holding both tracks together
+	local function buildTierPill(row: Frame, tier: number, isNext: boolean)
+		-- the tier spine: a gold plate column, the one vertical rhythm holding both
+		-- tracks together. The NEXT tier to reach wears the blue selection ring --
+		-- "you are here" in the kit's own grammar (blue = navigation).
 		local badge = PC.plate({
 			name = "TierBadge" .. tier,
 			size = UDim2.fromOffset(TIER_COL_W, 88),
 			position = UDim2.new(0, TIER_X + TIER_COL_W / 2, 0.5, 0),
 			anchor = Vector2.new(0.5, 0.5),
-			colors = S.Action.Gold,
+			colors = S.Role.Gold,
 			radius = 22,
 			outline = 5,
 			zIndex = 15,
 			parent = row,
 		})
 		PC.shout({
-			name = "TierNumber", text = tostring(tier), size = 30,
+			name = "TierNumber", text = tostring(tier), size = 32,
 			zIndex = badge.ZIndex + 2, parent = badge,
 		})
+		if isNext then
+			local ring = Instance.new("Frame")
+			ring.Name = "HereRing"
+			ring.BackgroundTransparency = 1
+			ring.Position = UDim2.fromOffset(-6, -6)
+			ring.Size = UDim2.new(1, 12, 1, 12)
+			ring.ZIndex = badge.ZIndex + 1
+			ring.Parent = badge
+			local rc = Instance.new("UICorner")
+			rc.CornerRadius = UDim.new(0, 28)
+			rc.Parent = ring
+			local rs = Instance.new("UIStroke")
+			rs.Thickness = 4
+			rs.Color = S.Role.Selection
+			rs.Parent = ring
+			PC.shout({
+				name = "NextTag", text = "NEXT", size = 13, color = Color3.new(1, 1, 1), strokeColor = S.Outline,
+				frameSize = UDim2.fromOffset(TIER_COL_W, 16), position = UDim2.new(0, 0, 1, -18),
+				zIndex = badge.ZIndex + 3, parent = badge,
+			})
+		end
 	end
 
 	-- Full-width divider that announces the final tier, per the design.
@@ -808,14 +780,11 @@ function PassPanel.Build(ctx, opts)
 		strip.ZIndex = 15
 		strip.Parent = scroll
 
-		local label = UI.label(strip, "MILESTONE \u{00B7} TIER " .. tier, "chip", Color3.fromHex("FFD84D")) -- textAccentOnDark: gold on the dark body
-		label.Name = "MilestoneLabel"
-		label.AnchorPoint = Vector2.new(0.5, 0.5)
-		label.Position = UDim2.fromScale(0.5, 0.5)
-		label.Size = UDim2.fromScale(1, 1)
-		label.AutomaticSize = Enum.AutomaticSize.None
-		label.TextXAlignment = Enum.TextXAlignment.Center
-		label.ZIndex = strip.ZIndex + 2
+		PC.shout({
+			name = "MilestoneLabel", text = "MILESTONE \u{00B7} TIER " .. tier, size = 20,
+			color = S.TitleInk.goals, strokeColor = Color3.new(1, 1, 1),
+			frameSize = UDim2.fromScale(1, 1), zIndex = strip.ZIndex + 2, parent = strip,
+		})
 	end
 
 	local function clearLadder()
@@ -828,7 +797,7 @@ function PassPanel.Build(ctx, opts)
 
 	-- Row count is driven by SeasonConfig.Tiers, never a literal, so a config
 	-- change resizes the ladder on its own.
-	local function renderLadder(): (number, number)
+	local function renderLadder(nextTier: number): (number, number)
 		clearLadder()
 		local tierCount = #SeasonConfig.Tiers
 		local readyCount, claimedCount = 0, 0
@@ -846,7 +815,7 @@ function PassPanel.Build(ctx, opts)
 			row.Parent = scroll
 
 			buildRewardCard(row, tier, "free")
-			buildTierPill(row, tier)
+			buildTierPill(row, tier, tier == nextTier)
 			buildRewardCard(row, tier, "pass")
 
 			local reached = state.XP >= SeasonConfig.ThresholdFor(tier)
@@ -883,11 +852,11 @@ function PassPanel.Build(ctx, opts)
 			-- At the cap intoTier is 0, so the arithmetically-correct
 			-- "0 / 250 to tier 50" renders an EMPTY bar and reads like no
 			-- progress at the exact moment the track is finished.
-			xpCaption.Text = string.format("SEASON XP   %s / %s   TRACK COMPLETE", comma(state.XP), comma(tierCount * xpPerTier))
+			xpCaption.Text = string.format("Season XP  %s / %s  \u{00B7}  track complete", comma(state.XP), comma(tierCount * xpPerTier))
 			xpLabel.Text = "MAX"
 			UI.setFill(xpFill, 1, true)
 		else
-			xpCaption.Text = string.format("SEASON XP   %s / %s to tier %d", comma(intoTier), comma(xpPerTier), tierNow + 1)
+			xpCaption.Text = string.format("Season XP  %s / %s to tier %d", comma(intoTier), comma(xpPerTier), tierNow + 1)
 			xpLabel.Text = string.format("%d / %d", intoTier, xpPerTier)
 			UI.setFill(xpFill, xpPerTier > 0 and (intoTier / xpPerTier) or 0, true)
 		end
@@ -897,8 +866,19 @@ function PassPanel.Build(ctx, opts)
 			daysLabel.Text = string.format("%d DAYS LEFT", left)
 		end
 
-		local readyCount, claimedCount = renderLadder()
-		claimStatus.Text = string.format("%d CLAIMED   %d READY", claimedCount, readyCount)
+		-- a claim that the server has now confirmed (the card flips to CLAIMED in
+		-- renderLadder below) gets its reward toast here, from the state push
+		if pendingClaim and hasServerState then
+			local claimMap = (pendingClaim.track == "pass" and state.PassClaimed or state.Claimed) or {}
+			if claimMap[tostring(pendingClaim.tier)] == true then
+				Toast.show({ text = "CLAIMED: " .. string.upper(pendingClaim.text), tone = "reward" })
+			end
+			pendingClaim = nil
+		end
+
+		local readyCount, claimedCount = renderLadder(math.min(tierNow + 1, tierCount))
+		claimStatus.Text = string.format("%d READY", readyCount)
+		claimedStatus.Text = string.format("%d CLAIMED", claimedCount)
 
 		-- Kit README section 5 client state shape -- keep the shared ctx.state.pass
 		-- table current for any other consumer.

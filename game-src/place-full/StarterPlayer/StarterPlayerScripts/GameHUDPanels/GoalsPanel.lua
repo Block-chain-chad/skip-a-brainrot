@@ -1074,6 +1074,24 @@ function GoalsPanel.Build(ctx, opts)
 	end
 
 	----------------------------------------------------------- per-tab renderers
+	-- Index list sorted so rows that are still actionable (not done) come first and
+	-- done rows sink to the bottom; original (server) order is the tiebreak, since
+	-- table.sort is not stable. Shared by the Daily and Weekly tabs (round 2).
+	local function actionableFirst(list, isDone: (any) -> boolean): { number }
+		local ordered = {}
+		for i in ipairs(list) do
+			ordered[i] = i
+		end
+		table.sort(ordered, function(a, b)
+			local da, db = isDone(list[a]), isDone(list[b])
+			if da ~= db then
+				return not da
+			end
+			return a < b
+		end)
+		return ordered
+	end
+
 	local function renderDaily()
 		clearRows()
 		-- One chip width for the whole tab: the widest reward it has to show.
@@ -1081,15 +1099,18 @@ function GoalsPanel.Build(ctx, opts)
 		for _, q in ipairs(dailyQuests) do
 			chipW = math.max(chipW, measureChipWidth("+" .. tostring(q.Reward or 0)))
 		end
-		for i, q in ipairs(dailyQuests) do
-			buildQuestRow(i, {
+		-- round 2: the rows a player can still act on lead; auto-claimed (done)
+		-- rows sink to the bottom. Stable within each bucket (server order).
+		for row, idx in ipairs(actionableFirst(dailyQuests, function(q) return q.Claimed == true end)) do
+			local q = dailyQuests[idx]
+			buildQuestRow(row, {
 				ChipW = chipW,
 				Icon = T.icons.goals,
 				Title = q.Text or "",
 				Progress = q.Progress or 0,
 				Target = q.Target or 1,
 				MetaOverride = questMeta(q.Kind, q.Progress or 0, q.Target or 1),
-				RewardIconKey = "emerald", -- daily egg-quests pay emeralds, not a generic gem
+				RewardIconKey = "emerald", -- daily egg-quests pay gems (the drawn gem icon)
 				RewardText = "+" .. tostring(q.Reward or 0),
 				Action = q.Claimed and "claimed" or "inprogress",
 			})
@@ -1110,8 +1131,9 @@ function GoalsPanel.Build(ctx, opts)
 			chipW = math.max(chipW, measureChipWidth("+" .. tostring(q.Darrels or 0)))
 			chip2W = math.max(chip2W, measureChipWidth("+" .. tostring(q.XP or 0) .. " XP"))
 		end
-		for i, q in ipairs(weeklyQuests) do
-			buildQuestRow(i, {
+		for row, idx in ipairs(actionableFirst(weeklyQuests, function(q) return q.Claimed == true end)) do
+			local q = weeklyQuests[idx]
+			buildQuestRow(row, {
 				ChipW = chipW,
 				Chip2W = chip2W,
 				Icon = T.icons.goals,
@@ -1156,17 +1178,25 @@ function GoalsPanel.Build(ctx, opts)
 		-- action flips off "claim" and it leaves the float bucket). Stable
 		-- ordering: table.sort is not stable, so sort an INDEX list with the
 		-- original position as the tiebreaker rather than sorting the quests.
+		-- round 2: three buckets -- CLAIM first, then the progression in server
+		-- order (the next goals to work toward), then CLAIMED at the bottom -- so
+		-- the most actionable reward is always at the top of the list.
+		local function isClaimable(q): boolean
+			return q.Met == true and q.Claimed ~= true
+		end
+		local function bucketOf(q): number
+			if isClaimable(q) then return 0 end
+			if q.Claimed == true then return 2 end
+			return 1
+		end
 		local ordered = {}
 		for i in ipairs(goalsQuests) do
 			ordered[i] = i
 		end
-		local function isClaimable(q): boolean
-			return q.Met == true and q.Claimed ~= true
-		end
 		table.sort(ordered, function(a, b)
-			local ca, cb = isClaimable(goalsQuests[a]), isClaimable(goalsQuests[b])
-			if ca ~= cb then
-				return ca -- claimable goals first
+			local ba, bb = bucketOf(goalsQuests[a]), bucketOf(goalsQuests[b])
+			if ba ~= bb then
+				return ba < bb
 			end
 			return a < b -- otherwise keep original order (stable tiebreak)
 		end)
