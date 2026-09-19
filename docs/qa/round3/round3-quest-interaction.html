@@ -54,7 +54,7 @@ ul.tight{margin:6px 0 0;padding-left:20px} ul.tight li{margin:3px 0}
 <body>
 <main>
 <h1>Round 3 — quests + world interaction</h1>
-<p class="meta">Skip Rocks for Brainrots · <code>ui-foundation</code> @ <code>d874708</code> · 2026-09-19 · quest tracker, walk-up prompts, NPC dialogue and the Goals bar on the same kit as the Bag / shops / HUD. Audit first (<code>docs/ROUND3-QUEST-INTERACTION-AUDIT.md</code>), then built, then verified in Play on the owner's profile: desktop 1891×785, laptop 1366×766 (Studio's <code>average_laptop</code>), iPhone 16 sim 733×371. Every "before" shot is the pre-round-3 script run once in the same sitting (<code>ServerStorage.AuditBackups.PreUIRound3_2026_09_19</code>).</p>
+<p class="meta">Skip Rocks for Brainrots · <code>ui-foundation</code> · 2026-09-19 · <b>approved by Balkan</b>, with the two final UX decisions applied below · quest tracker, walk-up prompts, NPC dialogue and the Goals bar on the same kit as the Bag / shops / HUD. Audit first (<code>docs/ROUND3-QUEST-INTERACTION-AUDIT.md</code>), then built, then verified in Play on the owner's profile: desktop 1891×785, laptop 1366×766 (Studio's <code>average_laptop</code>), iPhone 16 sim 733×371. Every "before" shot is the pre-round-3 script run once in the same sitting (<code>ServerStorage.AuditBackups.PreUIRound3_2026_09_19</code>).</p>
 
 <h2>What changed</h2>
 <div class="grid">
@@ -71,7 +71,7 @@ ul.tight{margin:6px 0 0;padding-left:20px} ul.tight li{margin:3px 0}
 </div>
 <div class="two">
 <figure><img src="zoom-after-claim.png" alt="CLAIM state"><figcaption><b>Claimable — from server truth only</b><span>Maxwell State 3 → the card sorts first and wears <code>CLAIM FROM MAXWELL</code>; the bar hides because the stage has no count. Fired from a server exec with the real payload shape.</span></figcaption></figure>
-<figure><img src="zoom-after-compact-chips.png" alt="Collapsed with chips"><figcaption><b>Collapsed (chevron / J) — chips survive</b><span>Compact cards keep the objective plus ONE line under it: the chip when the stage has one (<code>RETURN TO ELDER TUNG</code>, Tung Ready), otherwise the bar. Two whole cards fit the room, the rest sit behind <code>+2 MORE</code>.</span></figcaption></figure>
+<figure><img src="zoom-after-compact-chips.png" alt="Collapsed with chips"><figcaption><b>Compact (chevron) — chips survive</b><span>Compact cards keep the objective plus ONE line under it: the chip when the stage has one (<code>RETURN TO ELDER TUNG</code>, Tung Ready), otherwise the bar. Two whole cards fit the room, the rest sit behind <code>+2 MORE</code>.</span></figcaption></figure>
 </div>
 <figure><img src="after-11-tracker-showall.jpg" alt="SHOW ALL"><figcaption><b>SHOW ALL</b><span>The pill flips to <code>SHOW FEWER</code> and the list scrolls inside the same room (a 3px scrollbar) — the only time a card can be cut by the list edge, and only by choice.</span></figcaption></figure>
 
@@ -135,16 +135,17 @@ ul.tight{margin:6px 0 0;padding-left:20px} ul.tight li{margin:3px 0}
 <ul class="tight">
 <li><b>Dialogue copy renders white with a navy outline on the white box.</b> That is the house readability floor in UIPolish (owner rule, 2026-08-21): any neutral dark ink on a NoPolish label is lifted to white + ink stroke, which is what every kit read label (Season Pass rows, Bag tiles) already does. The card and the dialogue follow it rather than fight it.</li>
 <li><b>Footprint on touch.</b> HudAudit flags the phone card and the Goals bar at 22–28% of the width (its cap is 18%). The card is the same 300 authored px as on desktop at the 0.6 widget scale; going narrower wraps every objective. The old expanded log had the same rect. Flagged, not changed — see the question below.</li>
-<li><b>Collapsing the tracker also folds the Goals bar.</b> Unchanged behaviour: <code>questsHidden</code> is one shared setting and HudToggleClient slides QuestBarUI on it. The chevron and J write that same setting, as the old log did.</li>
+<li><b>Chevron vs J.</b> The chevron's compact state is session-local (SettingsService's key list was not touched; a phone boots compact). J is the persisted global quest-HUD hide and folds the Goals bar through HudToggleClient, as it always did.</li>
 <li><b>Pre-existing, untouched:</b> MainUI's tab bar reports "under topbar" in HudAudit on every size; the bottom-right stack budget reads 174 of 172 px on the phone; the Humanoid nametag "stupid gianluca" over the NPC.</li>
 </ul>
 
-<h2>For Balkan</h2>
+<h2>Final UX decisions (Balkan, 2026-09-19)</h2>
 <div class="grid">
-<div class="card"><h3>Approve the round? <span class="pill ask">decision</span></h3><p>The six things you asked to see are above: tracker before/after, prompt, dialogue, desktop, phone, completion. Nothing beyond the fence was touched — no Quests menu, balance, quest text, new NPCs, Nico, world or Bag work.</p></div>
-<div class="card"><h3>Phone card width <span class="pill ask">your call</span></h3><p>Keep the 300px card at widget scale (24% of an iPhone 16's width, legible 12px objective) or narrow it to ~250 (20%, more wrapping)? The audit's 18% cap was written for chips, not a card.</p></div>
-<div class="card"><h3>Chevron folding the Goals bar <span class="pill ask">your call</span></h3><p>If you would rather the chevron only compact the cards and leave the Goals bar where it is, that is a one-line change in HudToggleClient's surface list (its own script, so it was left alone this round).</p></div>
+<div class="card"><h3>Round 3 <span class="pill done">approved</span></h3><p>Scope fence held: no Quests menu, balance, quest text, new NPCs, Nico, world or Bag work.</p></div>
+<div class="card"><h3>Phone card width <span class="pill done">keep 300</span></h3><p>The phone quest card stays at 300 authored px at the current widget scale (24% of an iPhone 16's width, 12px objective on the glass). Not narrowed to 250. The HudAudit footprint line for it is accepted.</p></div>
+<div class="card"><h3>Chevron ≠ Goals bar <span class="pill done">decoupled</span></h3><p>The chevron (and a card tap) now only compacts / expands the NPC quest-card stack, for the session. The Goals bar stays where it is. J keeps the global quest-HUD hide: the whole stack slides off the right edge and HudToggleClient folds the Goals bar on the same persisted <code>questsHidden</code>, exactly as it did. HIDE UI is untouched (rail + tab bar). No Goals or quest logic changed — one script, <code>QuestTrackerClient</code>.</p></div>
 </div>
+<figure><img src="zoom-after-compact-goals-stay.png" alt="Compact stack, Goals bar stays"><figcaption><b>After the decoupling — chevron pressed, Goals bar still up</b><span>Desktop 1891×785: two compact cards (Maxwell 10 / 12, Tundra 6 / 300), <code>+1 MORE</code>, chevron ▷ — and the GOAL nudge above them stays put. Re-tested on desktop, laptop (1366×766) and iPhone 16 (733×371): chevron compacts only; J hides both and J brings both back (tracker right edge 1269 / 1706 / 1073 px past the screen while hidden, back to 911 / 1348 / 581); HIDE UI still folds the rail and tab bar and nothing else; HudAudit 0 problems on desktop and laptop, the phone shows only the accepted footprint lines; painted-leaf overlap scan 0 hits; console zero new errors or warnings; <code>questsHidden</code> ends the session <code>false</code>, as it began.</span></figcaption></figure>
 
 <h2>Commits</h2>
 <table>
@@ -153,6 +154,8 @@ ul.tight{margin:6px 0 0;padding-left:20px} ul.tight li{margin:3px 0}
 <tr><td><code>6021541</code></td><td>chore(mirror): UIPolish re-synced (the readability floor the round relies on)</td></tr>
 <tr><td><code>b4f8334</code></td><td>feat(ui): QuestCard, QuestTrackerClient rewrite, InteractionPrompt + client, MerchantDialog shell, QuestBarClient on the kit</td></tr>
 <tr><td><code>d874708</code></td><td>fix(ui): capture-pass fixes (glyphs, pill border, boards stand down, rig boards above the head)</td></tr>
+<tr><td><code>30a9fc0</code></td><td>docs(qa): this report</td></tr>
+<tr><td>(next)</td><td>fix(ui): chevron compacts only; J / questsHidden hides the stack — Balkan's final decisions</td></tr>
 </table>
 <div class="note">Full-resolution captures, the per-check numbers and the repro notes live in <code>docs/qa/round3/README.md</code>. Studio is the source of truth; every touched script was pulled back byte-exact into <code>game-src/place-full/</code> through the bridge before committing.</div>
 </main>

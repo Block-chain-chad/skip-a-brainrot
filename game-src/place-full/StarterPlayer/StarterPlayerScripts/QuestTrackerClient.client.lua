@@ -11,17 +11,22 @@ state chip when the real server state says "go back to him" / "claim" / "done".
 Desktop shows as many WHOLE cards as the room between the Goals bar and the
 bottom-right control column takes (up to three) and a "+N MORE" pill in the
 header past that; a phone shows one card and a "1 / 3" pill that cycles.
-Collapsed (the persisted `questsHidden` setting, the J key, the header chevron,
-or a tap on a card) keeps only the objective and the bar.
+The header chevron (or a tap on a card) COMPACTS the stack -- each card keeps
+only its objective and the bar or chip -- for the session; J and the persisted
+`questsHidden` setting HIDE the quest HUD: the whole stack slides off the right
+edge, and HudToggleClient folds the Goals bar on the same setting. The two are
+separate on purpose (owner decision, 2026-09-19): compacting the cards must
+never take the Goals bar with it.
 
 WHAT DID NOT CHANGE, because other scripts lean on it:
   * QUESTS below is still the whole data model: one table entry per questline,
     each read through the same three payload keys (State / Step / Of) plus an
     optional Objective(payload) composer. Adding an NPC is one entry.
   * `questsHidden` is the same persisted setting (SettingsService whitelists
-    it; HudToggleClient writes it too and folds the Goals bar on it), J toggles
-    it, the ScreenGui is still "QuestTrackerUI" and the root frame "Tracker"
-    (HudToggleClient reads both).
+    it; HudToggleClient writes it too and folds the Goals bar on it) and J still
+    toggles it -- it now means "quest HUD hidden", which is what HudToggle
+    always read it as. The ScreenGui is still "QuestTrackerUI" and the root
+    frame "Tracker" (HudToggleClient reads both).
   * SideRail owns this ScreenGui's `Enabled` while a rail panel is open.
   * The bottom-reserve clamp: the stack never runs into the bottom-right
     control column (HIDE UI / RIDE / Luck / Sprint).
@@ -226,9 +231,16 @@ end
 ---------------------------------------------------------------- state
 local live = {}                  -- [questId] = { title, objective, current, required, hasProgress, kind, done, completing }
 local cards = {}                 -- [questId] = { card, holder }
-local collapsed = Platform.IsPhone
-local userTouched = false
-local expanded = {}              -- [questId] = true: a tap opened this card while collapsed
+-- THE CHEVRON: cards fold to objective + bar (or chip). Session-local -- there is
+-- no Settings key for it (SettingsService whitelists its keys and this round does
+-- not touch the server), and a phone always boots compact.
+local cardsCompact = Platform.IsPhone
+local compactTouched = false     -- the player pressed the chevron: stop re-deciding the phone default
+-- J / SETTINGS: the quest HUD is hidden -- this stack slides off the right edge
+-- and HudToggleClient folds the Goals bar on the same persisted setting.
+local questsHidden = false
+local userTouched = false        -- the player pressed J: stop following the server's questsHidden
+local expanded = {}              -- [questId] = true: a tap opened this card while compact
 local showAll = false            -- desktop "+N MORE" pressed
 local phoneIndex = 1             -- which quest the single phone card shows
 local firstCardH = CARD_H_FALLBACK   -- measured height of the card at the top of the stack
@@ -405,7 +417,7 @@ local function cardProps(q, e)
 		title = e.title, objective = e.objective,
 		current = e.current, required = e.required, hasProgress = hasProgress,
 		kind = e.kind, returnTo = q.Npc.name,
-		compact = collapsed and not expanded[q.Id] and not e.completing,
+		compact = cardsCompact and not expanded[q.Id] and not e.completing,
 		typeScale = typeScale(), minHeight = minHeight,
 	}
 end
@@ -432,7 +444,7 @@ local function ensureCard(quest, entry)
 	card.root.Position = UDim2.fromOffset(26, 0)
 	TweenService:Create(card.root, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.fromOffset(0, 0) }):Play()
 	card.Activated:Connect(function()
-		-- a tap opens a collapsed card (or folds an open one) for this session
+		-- a tap opens a compact card (or folds an open one) for this session
 		if expanded[quest.Id] then expanded[quest.Id] = nil else expanded[quest.Id] = true end
 		userTouched = true
 		render()
@@ -478,11 +490,17 @@ local function listRoom(): (number, number)
 	return ((floorPx - topY) / s) - chrome, topY
 end
 
+-- where the stack's right edge sits: at rightPad() from the screen edge, or
+-- parked past it while the quest HUD is hidden (the Goals bar folds the same way)
+local function homeX(): number
+	return questsHidden and (CARD_W + 40) or -rightPad()
+end
+
 local function relayout()
 	local s = (scale.Scale > 0) and scale.Scale or 1
 	local content = cardsLayout.AbsoluteContentSize.Y / s
 	local room, topY = listRoom()
-	root.Position = UDim2.new(1, -rightPad(), 0, topY)
+	root.Position = UDim2.new(1, homeX(), 0, topY)
 	-- the normal stack is sized to the whole cards render() chose; only a
 	-- "SHOW ALL" list is allowed to be taller than the room, and it scrolls.
 	-- A phone's one card can outgrow its lane (a two-line objective plus a
@@ -563,7 +581,7 @@ render = function()
 	end
 
 	-- header
-	chevronGlyph.Text = collapsed and "\u{25B6}" or "\u{25BC}"
+	chevronGlyph.Text = cardsCompact and "\u{25B6}" or "\u{25BC}"
 	local lbl = morePill:FindFirstChild("Label")
 	if Platform.IsPhone then
 		morePill.Visible = n > 1
@@ -588,20 +606,44 @@ moreHit.Activated:Connect(function()
 	render()
 end)
 
----------------------------------------------------------------- collapse
-local function setCollapsed(v: boolean, save: boolean)
-	collapsed = v and true or false
+---------------------------------------------------------------- compact (chevron)
+local function setCompact(v: boolean)
+	cardsCompact = v and true or false
+	compactTouched = true
 	table.clear(expanded)
-	if save then
-		userTouched = true
-		saveRemote:FireServer({ questsHidden = collapsed })
-	end
 	render()
 end
-chevronHit.Activated:Connect(function() setCollapsed(not collapsed, true) end)
+chevronHit.Activated:Connect(function() setCompact(not cardsCompact) end)
+
+---------------------------------------------------------------- hidden (J / Settings)
+-- The stack leaves the way a card does (0.22s out to the right) and comes back
+-- with the same Back ease a new card arrives with. A server-driven change (the
+-- saved setting arriving on join) snaps instead, so a saved fold never shows
+-- the stack for a frame and then whisks it away.
+local FOLD_OUT = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local FOLD_IN = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local foldTween: Tween? = nil
+local function setHidden(v: boolean, save: boolean, animate: boolean)
+	v = v and true or false
+	if v == questsHidden and not save then return end
+	questsHidden = v
+	if save then
+		userTouched = true
+		saveRemote:FireServer({ questsHidden = questsHidden })
+	end
+	if foldTween then foldTween:Cancel(); foldTween = nil end
+	local _, topY = listRoom()
+	local target = UDim2.new(1, homeX(), 0, topY)
+	if animate then
+		foldTween = TweenService:Create(root, questsHidden and FOLD_OUT or FOLD_IN, { Position = target })
+		foldTween:Play()
+	else
+		root.Position = target
+	end
+end
 ContextActionService:BindAction("QuestLogToggle", function(_, state)
 	if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-	setCollapsed(not collapsed, true)
+	setHidden(not questsHidden, true, true)
 	return Enum.ContextActionResult.Sink
 end, false, Enum.KeyCode.J)
 
@@ -676,16 +718,16 @@ end
 
 ---------------------------------------------------------------- saved preference
 -- Follow the server until the player takes over (the first DataUpdated of a
--- session can carry a default Settings table). A phone always BOOTS collapsed;
--- a tap on the chevron or a card still opens it for the session.
+-- session can carry a default Settings table). Only the fold is saved; the
+-- chevron's compact state is the session's own.
 local dataRemote = remotes:WaitForChild("DataUpdated")
 dataRemote.OnClientEvent:Connect(function(snap)
 	if userTouched then return end
 	if typeof(snap) ~= "table" then return end
 	local st = snap.Settings
 	if typeof(st) ~= "table" then return end
-	local want = (st.questsHidden == true) or Platform.IsPhone
-	if want ~= collapsed then setCollapsed(want, false) end
+	local want = (st.questsHidden == true)
+	if want ~= questsHidden then setHidden(want, false, false) end
 end)
 
 -- BOOT SAFETY NET (kept from the previous tracker). SideRail owns this
@@ -719,10 +761,10 @@ end)
 
 Platform.Watch(function()
 	-- the class can settle after boot (device sim, rotation): re-decide the
-	-- phone default while the player has not expressed a preference, and
-	-- rebuild the cards so their type compensation matches the class
-	if Platform.IsPhone and not userTouched and not collapsed then
-		collapsed = true
+	-- phone default while the player has not pressed the chevron, and rebuild
+	-- the cards so their type compensation matches the class
+	if not compactTouched then
+		cardsCompact = Platform.IsPhone
 	end
 	for id in pairs(cards) do
 		local rec = cards[id]

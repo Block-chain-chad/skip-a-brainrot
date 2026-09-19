@@ -1,7 +1,9 @@
 # Round 3 QA — quests + world interaction
 
-Branch `ui-foundation`, code at `b4f8334` + `d874708`, verified 2026-09-19 in Studio Play on the
-owner's profile (Team Create place 78783087742939). The report is `round3-quest-interaction.html`
+Branch `ui-foundation`, code at `b4f8334` + `d874708` (+ the post-approval fix commit), verified
+2026-09-19 in Studio Play on the owner's profile (Team Create place 78783087742939). **Approved by
+Balkan** with two final decisions: the phone card stays at 300 authored px, and the tracker chevron
+is decoupled from the Goals bar (see "Post-approval fix"). The report is `round3-quest-interaction.html`
 (open it from disk; the images are relative). The audit that preceded the build is
 `docs/ROUND3-QUEST-INTERACTION-AUDIT.md`.
 
@@ -44,6 +46,23 @@ activated). Phone = iPhone 16 device sim, 733×371 logical, screen crop 1230×62
 | `after-05-phone-expanded.jpg` / `zoom-after-phone-card.png` | expanded phone card |
 | `after-06-phone-tap-prompt.jpg` | TAP · TALK board (module rendered with the Touch input type) |
 | `after-07-phone-dialogue.jpg` | dialogue at the phone fit |
+
+## Post-approval fix (chevron ≠ Goals bar)
+
+`QuestTrackerClient` only. The chevron (and a card tap) now drive a session-local `cardsCompact`
+(phone boots compact; the chevron's first press takes over from the device default). J and the
+persisted `questsHidden` drive `setHidden`: the stack slides off the right edge (0.22 s out, 0.28 s
+Back-ease in; a server-driven value on join snaps) and HudToggleClient folds the Goals bar on the
+same setting, unchanged. HIDE UI (navHidden: rail + tab bar) untouched. Re-test:
+
+| Size | Chevron | J | J again | HIDE UI | HudAudit | Overlap |
+|---|---|---|---|---|---|---|
+| Desktop 929×771 / 1891×785 | cards 117 → 67, Goals bar stays at 611,165 | tracker right edge 1269 vs 929, Goals bar folded (gui disabled) | back at 611,264; Goals bar back | rail + tabs fold, tracker + Goals bar untouched | 0 problems | 0 hits |
+| Laptop 1366×766 | — | right edge 1706 vs 1366, Goals bar folded | back at 1048,264; Goals bar back | — | 0 problems | — |
+| iPhone 16 733×371 | boots compact (44px card) | right edge 1073 vs 733, Goals bar folded | back at 401,211; Goals bar back | — | footprint lines only (accepted) | 0 hits |
+
+Console: zero new errors or warnings. `questsHidden` left `false` (two J presses per size).
+Capture: `after-12-compact-goals-stay.jpg` / `zoom-after-compact-goals-stay.png`.
 
 ## Numbers
 
