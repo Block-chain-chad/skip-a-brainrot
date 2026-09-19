@@ -366,3 +366,57 @@ That the moon is the warship — and whether Tung built it, found it, or was giv
 ---
 
 *End of report. Waiting on approval before Phase 2.*
+
+---
+
+# PART D — WORLD 3 LORE APPROVAL BOARD (added 2026-09-19 after Balkan's direction review)
+
+Balkan approved the emotional/story direction (trust → doubt → suspicion; moon/warship withheld until World 4) but not the specific hooks. This board is the source of truth for what may be built on. **Nothing in the PROPOSED table is built until it is moved up.**
+
+## LOCKED CANON (Balkan)
+
+Elder Tung exists in World 2 · the player completes his World 2 quest · the player drills DOWN into World 3 · World 3 already contains a village and a castle · Elder Tung and his Brainrots fought Bacon Head and LOST · the people of this area were driven underground · World 3 is significantly more lore-driven · NPCs hold conflicting opinions of Tung · humans tell the survivors' side; important surviving Brainrot NPCs reveal deeper war secrets · World 3 is more devious in gameplay and tone · completing the major Tung/World 3 progression eventually gives access to a rocket · the player believes it goes to the moon · the moon is secretly Tung's warship · the full reveal belongs to the NEXT world; World 3 only foreshadows · cutscenes are short, cinematic, mysterious, devious · presentation target: denser, more intentional, Anime-Expeditions-level, original to Skip Rocks.
+
+## ALREADY EXISTS IN GAME (verified in the mirror; may be built on freely)
+
+| Fact | Where |
+|---|---|
+| Tung has two bodies: valley (`GameWorld.ElderTung`, rocking chair) and tundra (`ElderTungTundra`, `ElderHut`); none in World 3 | `NpcIdle`, `TundraQuestConfig`, World 2 audit |
+| Tung's species is Tung Tung Tung Sahur (Mythic roster entry; Legendary "Los Tungtungtungcitos"; Michael collects 5 mutated Sahurs) | `TungQuestConfig.NpcName`, `BrainrotConfig`, `MichelQuestConfig` |
+| Valley quest: hand over **twelve** brainrots (5 Epic, 5 Legendary, 2 Mythic); they are destroyed; lines "Those brainrots... I HATE them", "choose carefully, **I keep what you hand over**", "What lies beyond is your problem now" | `TungQuestConfig`, `TungQuest` |
+| Tundra arc pays **180,000,000 cash, 450 gems, 1 key** across 7 stages and stamps `CaveUnlocked` | `TundraQuestConfig.Stages[*].Reward` |
+| Tundra lines: "a CAVE, older than the ice… **something down there is still awake**. **I have listened to it for forty years**", "It runs on the loud ones… **do not ask me how I know**", "**Whatever is down there -- it knows you are coming**", `Finished`: "not ready for you yet. Soon." | `TundraQuestConfig` |
+| The drill (salvage → built → running) and the green shaft are drawn per client; the way down is `DepthsPortal` (`RequiresFlag = "CaveUnlocked"`, `ComingSoonMessage`, `RefuseX/Y/Z`); entry is a portal touch + black curtain, not a descent | `CaveDrillClient`, `TeleportService` |
+| World 3 = the Lush Gardens: gorge → Verdant Court → Silverwend causeway → Aelunmyr (12 houses, 4 towers, square/well) → Pilgrim Way → Verdant Sanctum (cathedral with moat, merlons, twin towers, great door, altar, banners, 24-segment floor rune) + Great Cascade, Drowned Colonnade, Fungal Hollow, Rootway, Weeping Cliffs (hidden chamber behind fall #4), Whisperdeep (tunnel + shrine); 8 creature statues in the hub; hill grottoes reserved but uncut | `GardensBuild.*` |
+| World 3 has no roster (aliased to Valley), no quests, no lore NPCs (4–5 shopkeepers only), no cutscenes, no in-world text beyond three labels; held back by `ComingSoon = true` | `WorldProgression`, `WorldTravelConfig`, `BuildLife` |
+| Return portal in the arrival chamber (built as "Return to the Valley"; live `Dest` reportedly Tundra) | `BuildPortals`, World 2 audit |
+| Weather events include **Blood Moon** and **Shooting Star** (global) | `WeatherHandler` |
+| The World 2 respawn/checkpoint blocker (death → valley spawn) | `World2Blockout.Generator` header, `TeleportService` |
+| Zero Bacon Head references anywhere | grep of the full mirror |
+
+## PROPOSED — NEEDS APPROVAL
+
+| # | Proposal | Why it improves the story |
+|---|---|---|
+| P1 | **The Seal** — a token Tung hands over at the end of the tundra arc; survivors recognise it | Gives every "you came from HIM" reaction a visible, diegetic cause; one object carries the whole arrival tension |
+| P2 | **The Seal's sigil is a crescent over three notches** ("a moon over a log") | Plants the moon in plain sight with an innocent in-world reading, so World 4 recontextualises something the player has looked at for an hour |
+| P3 | **The survivors believed Tung died in the war; "forty years" = the war's date** | Makes his existing "forty years" line the war's timestamp for free and makes "he is alive" a real shock |
+| P4 | **The Gardens are an ancient pre-war ruin the survivors fled into and fortified; the cathedral is their Keep (the castle); its defences were built against pursuit by Bacon Head** | Reconciles the built world with canon without rebuilding a district, and pays "a cave older than the ice" |
+| P5 | **Tung never appears in World 3; the Castle Keeper executes his "old orders" as proxy** | Keeps him mysterious and morally open while preserving one main questline; his absence is the tension |
+| P6 | **Cast + stances** — Keeper Aldo (proxy), Nonna Ines (blames him), Sgt Ottavio (hero-worship), Tino (born below, asks about the sky), Vespa (scavenger), Cpl Dario (contradicting witness); brainrots Il Vecchio Bombardiro (veteran), Il Disertore (deserter), Il Sussurro (the ancient in the Whisperdeep) | Covers every required archetype with the smallest cast; each holds a different Tung. Names are placeholders |
+| P7 | **"Another one?"** — the Veteran implies Tung has sent others before; nobody says what became of them | The most devious line available: implies a pattern without stating a fact; deliberately unresolved |
+| P8 | **The Deserter knows the war was lost because of something Tung DID** (not something Bacon Head did); he does not say what | The "deeper war secret" the brief assigns to brainrot NPCs, and it keeps Bacon Head from being the whole answer |
+| P9 | **The Ancient is what Tung "listened to" — and it has been listening back** | Pays the "something down there is still awake" promise inside World 3 while withholding what it is |
+| P10 | **The listening horn** — his forty years of listening were done by a machine | The first "technology too advanced for this setting" tell, built on an existing line |
+| P11 | **The mural** in the Keep with one figure chiselled out, never identified in World 3; NPCs give conflicting answers | The brief's castle-cutscene beat; "conflicting memories" delivered by one object |
+| P12 | **The sinister reading of the twelve** — NPCs make the player ask what he did with them | Turns existing text into suspicion with zero new content |
+| P13 | **The crypt: a first door (Deserter's key) and a sealed, humming SECOND door that is never opened** | A physical withheld answer the player can stand in front of; the World 4 seam |
+| P14 | **The Keep is the silo** — the floor rune is the hatch, the spire the fairing, the launch goes through the existing cathedral fissure | Uses existing geometry; "the thing you thought was X is a machine" rhymes with the moon reveal structurally instead of verbally |
+| P15 | **"He kept it."** (Ines) and the dead west beacon lighting for the launch | The finale's emotional button; the beacon is a cheap, readable visual tell |
+| P16 | **"The Old Orders"** questline shape (7 stages: Seal → Muster → Relics → Mural → Bell → Whisper → Contingency), rewards ~×10 tundra, one quest-only brainrot | Plugs into the proven `TundraQuest` pattern; every stage is a story beat, not a fetch |
+| P17 | **Sentinel Hour** (hourly: the Keep's old defences wake and "defend" the causeway against the player), the Rootway lane, the escape tunnel + rockfall, relic caches, the wrong lever | Devious gameplay rooted in the war; all consequences soft (no death) until the respawn fix lands |
+| P18 | **Blood Moon → the Dial pulses red** under the fissure | Moon foreshadowing through an existing weather, once per rare event |
+| P19 | **Roster recipe**: tundra crossover one rung up + 30 "war-touched" originals; own ladder and rocks before opening | Fixes the economic regression and sets the tone; content drop, not code |
+| P20 | **The six cutscene beats** (Descent, Arrival, Mural, Veteran, Second Door, Launch) at 8–20 s | Covers the brief's four required moments within the time budget |
+
+P1–P15 are lore; P16–P20 are structure. Approving P4, P5 and P13/P14 unlocks the most; P7/P8/P9 are the ones to weigh carefully because they set what World 4 must answer.
