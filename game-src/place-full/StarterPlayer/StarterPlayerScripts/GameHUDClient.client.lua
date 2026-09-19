@@ -2429,23 +2429,39 @@ end
 -- glide completed instantly on real opens while the identical tween glided
 -- from a probe), so the entrance owns the property frame-by-frame instead --
 -- pure math via TweenService:GetValue, gen-guarded, first-paint aware.
-local function glidePanel(fr, from, to, info, gen, waitFirstPaint)
+-- 2026-09-18 UI round 2: the glide also POPS -- a UIScale on the panel runs
+-- 0.94 -> 1 on open (Back-out, so it overshoots a hair and settles) and 1 -> 0.97
+-- on close, SET per frame in the same loop (a UIScale TWEEN is a silent no-op in
+-- this place; a plain property write every frame is not). One frame of work per
+-- open, no second driver. `scaleFrom/scaleTo` default to 1/1 so any other caller
+-- keeps the pure glide.
+local function glidePanel(fr, from, to, info, gen, waitFirstPaint, scaleFrom, scaleTo)
 	fr.Position = from
+	local pop = fr:FindFirstChild("PopScale")
+	if not pop then
+		pop = Instance.new("UIScale")
+		pop.Name = "PopScale"
+		pop.Parent = fr
+	end
+	local s0, s1 = scaleFrom or 1, scaleTo or 1
+	pop.Scale = s0
 	task.spawn(function()
 		local RS = game:GetService("RunService")
 		if waitFirstPaint then
 			-- let the (possibly heavy) first paint land before the clock starts,
 			-- or a 200ms build/paint frame eats the whole glide
 			RS.RenderStepped:Wait()
-			if closeGen ~= gen or not fr.Visible then return end
+			if closeGen ~= gen or not fr.Visible then pop.Scale = 1 return end
 		end
 		local t0 = os.clock()
 		while true do
 			RS.RenderStepped:Wait()
-			if closeGen ~= gen then return end
+			if closeGen ~= gen then pop.Scale = 1 return end
 			local a = math.clamp((os.clock() - t0) / info.Time, 0, 1)
-			fr.Position = from:Lerp(to, TweenService:GetValue(a, info.EasingStyle, info.EasingDirection))
-			if a >= 1 then return end
+			local e = TweenService:GetValue(a, info.EasingStyle, info.EasingDirection)
+			fr.Position = from:Lerp(to, e)
+			pop.Scale = s0 + (s1 - s0) * e
+			if a >= 1 then pop.Scale = s1 return end
 		end
 	end)
 end
@@ -2570,7 +2586,7 @@ function openPanel(id)
 		rest = frame.Position
 		frame:SetAttribute("RestPosition", rest)
 	end
-	glidePanel(frame, rest + UDim2.fromOffset(0, 26), rest, T.tween.panelOpen, closeGen, true)
+	glidePanel(frame, rest + UDim2.fromOffset(0, 26), rest, T.tween.panelOpen, closeGen, true, 0.94, 1)
 
 	-- blur-never-dim: the world softens, it does not go dark
 	setPanelBlur(true)
@@ -2615,7 +2631,7 @@ function closePanel()
 		-- PS99 restyle: Position drop-away instead of the inert UIScale shrink
 		local rest = frame:GetAttribute("RestPosition")
 		if rest then
-			glidePanel(frame, rest, rest + UDim2.fromOffset(0, 18), T.tween.panelClose, closeGen, false)
+			glidePanel(frame, rest, rest + UDim2.fromOffset(0, 18), T.tween.panelClose, closeGen, false, 1, 0.97)
 		end
 	end
 

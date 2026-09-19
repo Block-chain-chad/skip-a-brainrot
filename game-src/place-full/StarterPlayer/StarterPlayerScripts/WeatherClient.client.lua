@@ -29,7 +29,12 @@ end
 -- client-local sky tint
 local cc = new("ColorCorrectionEffect", { Name = "WeatherCC", TintColor = Color3.new(1, 1, 1), Saturation = 0, Brightness = 0 }, Lighting)
 
-local gui = new("ScreenGui", { Name = "WeatherUI", ResetOnSpawn = false, DisplayOrder = 8 }, player:WaitForChild("PlayerGui"))
+-- DisplayOrder 6, UNDER GameHUD's 7 (2026-09-18 UI round 2): at 8 the INCOMING
+-- banner drew straight across an open panel's top rows (measured: the Shop's
+-- PASSES section head). An open panel now covers it; the WeatherPill at the
+-- top-right keeps the countdown visible beside the panel, and MainUI (5) still
+-- sits under the banner.
+local gui = new("ScreenGui", { Name = "WeatherUI", ResetOnSpawn = false, DisplayOrder = 6 }, player:WaitForChild("PlayerGui"))
 -- UIPolish forces EVERY unexempted label to white on any ground ("every
 -- unexempted label is white now"), which silently ate the sub-line and clock
 -- colours below -- they measured #FFFFFF at runtime no matter what was authored
