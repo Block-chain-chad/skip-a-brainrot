@@ -1,0 +1,5 @@
+# Mirror files are byte-exact copies of the Studio `Source` property.
+# Never convert line endings on commit or checkout, on any platform, so the
+# repo blob == the working-tree file == the live script (see _MANIFEST.txt).
+*.lua -text
+_MANIFEST.txt -text
