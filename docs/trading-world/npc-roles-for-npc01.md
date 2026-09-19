@@ -37,3 +37,12 @@ For each mark below the Phase 2 generator places an invisible anchor part `GameW
 1. Does the current dialogue shell support an action button (role 2)? If not, TW-01 will list the Gem Broker as dialogue-only and the Gems tie-in becomes signage.
 2. Preferred rig scale for the Host so the sash reads at 40 studs — TW-01 can widen the arch landing if a 1.15× rig is wanted.
 3. Any NPC-01 naming convention for `GameWorld.TradingWorld.NPCs.<Name>` that TW-01 should mirror in the post names.
+
+## Inspection update (2026-09-19, after the read-only Studio pass)
+
+Roles, count, tiers and interactions are **unchanged**. Placement confirmed against measured ground: the plaza datum P is y 2002.4 (raycast), the Vault plateau is P + 6, the balcony P + 12.
+
+- The Exchange Host's mark (8000, P, 7948) is where the current MARKET arch pillars stand (z 7942); it is clear ground once that arch is replaced and sits 18 studs inside the new Great Arch (z 7930), so an arriving player's first steps land them face to face.
+- The six existing colossi (`CoveDressing.Guardians`, r 138) are kept in place: the Pier Angler's spot (8120, P, 8000) is under `Guardian_TungTungTungSahur` at (8138, 8000); the Colossus Walk runs under `Guardian_TralaleroTralala` at (7862, 8000).
+- **Do not place anything on the current island.** It is replaced whole in Phase 2; `NpcPost_<Role>` anchor parts are handed over only after the cutover (Track W step 8 in `docs/TRADING-WORLD-REWORK-PHASE1B-INSPECTION.md` §12).
+- District per role: Host and Gem Broker — Landing/Arch approach; Curator and Guards — the Vault; Attendants — arcade north ends; Collector — balcony; Trader pair — Exchange Floor; Angler — Skipper's Pier.
