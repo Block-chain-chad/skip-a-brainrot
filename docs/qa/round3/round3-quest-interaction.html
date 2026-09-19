@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Round 3 Quest Interaction</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --sub:#5a6577; --line:#e3e7ee;
+  --pass:#1f8a4c; --pass-bg:#e4f5ea; --warn:#b26a00; --warn-bg:#fff2dc; --info:#2d5bd1; --info-bg:#e6edfc; --ask:#8a3fb8; --ask-bg:#f1e6fa;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111418; --panel:#1a1f26; --ink:#eef1f5; --sub:#a7b0bd; --line:#2a313b;
+    --pass:#5fd08a; --pass-bg:#173523; --warn:#f2b14d; --warn-bg:#3a2a10; --info:#7fa3ff; --info-bg:#1a2540; --ask:#c98cf0; --ask-bg:#2c1a3a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --panel:#1a1f26; --ink:#eef1f5; --sub:#a7b0bd; --line:#2a313b;
+  --pass:#5fd08a; --pass-bg:#173523; --warn:#f2b14d; --warn-bg:#3a2a10; --info:#7fa3ff; --info-bg:#1a2540; --ask:#c98cf0; --ask-bg:#2c1a3a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:26px;margin:0 0 4px}
+h2{font-size:19px;margin:36px 0 12px}
+h3.sub{font-size:15px;margin:22px 0 8px;color:var(--sub);font-weight:600;letter-spacing:.02em;text-transform:uppercase}
+.meta{color:var(--sub);margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card p{margin:0;color:var(--sub);font-size:14px}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;letter-spacing:.02em}
+.done{background:var(--pass-bg);color:var(--pass)} .measured{background:var(--info-bg);color:var(--info)} .open{background:var(--warn-bg);color:var(--warn)} .ask{background:var(--ask-bg);color:var(--ask)}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{text-align:left;padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;font-size:14px}
+th{color:var(--sub);font-weight:600;border-top:none;background:var(--bg)}
+td:first-child{white-space:nowrap;font-weight:600}
+figure{margin:0 0 20px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+figure img{display:block;width:100%;height:auto;cursor:zoom-in}
+figcaption{padding:12px 16px}
+figcaption b{display:block;margin-bottom:2px}
+figcaption span{color:var(--sub);font-size:14px}
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;padding:16px;cursor:zoom-out;z-index:9}
+.lb.open{display:flex}
+.lb img{max-width:100%;max-height:100%;border-radius:8px}
+.note{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;color:var(--sub);font-size:14px;margin:0 0 14px}
+code{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:var(--line);padding:1px 5px;border-radius:5px}
+ul.tight{margin:6px 0 0;padding-left:20px} ul.tight li{margin:3px 0}
+@media (max-width:640px){ td:first-child{white-space:normal} }
+</style>
+</head>
+<body>
+<main>
+<h1>Round 3 — quests + world interaction</h1>
+<p class="meta">Skip Rocks for Brainrots · <code>ui-foundation</code> @ <code>d874708</code> · 2026-09-19 · quest tracker, walk-up prompts, NPC dialogue and the Goals bar on the same kit as the Bag / shops / HUD. Audit first (<code>docs/ROUND3-QUEST-INTERACTION-AUDIT.md</code>), then built, then verified in Play on the owner's profile: desktop 1891×785, laptop 1366×766 (Studio's <code>average_laptop</code>), iPhone 16 sim 733×371. Every "before" shot is the pre-round-3 script run once in the same sitting (<code>ServerStorage.AuditBackups.PreUIRound3_2026_09_19</code>).</p>
+
+<h2>What changed</h2>
+<div class="grid">
+<div class="card"><h3>Quest tracker <span class="pill done">Rebuilt</span></h3><p>The Quest Log (tabs, letter-ladder rail, naked text, 3px cyan line) is replaced by a short stack of <code>UIKit.QuestCard</code> cards at the middle-right: NPC badge (accent + initial + IconArt motif), quest name, ONE objective, a chunky bar with the numbers on it, and a state chip only when the server says so. Same QUESTS table, same remotes, same <code>questsHidden</code> / J / ScreenGui names for HudToggle and SideRail.</p></div>
+<div class="card"><h3>Walk-up prompts <span class="pill done">Unified</span></h3><p>Every stock ProximityPrompt draws as a kit board — object name over a <code>[E] VERB</code> pill with a hold sweep, keyboard / gamepad / touch glyphs, locked and success states. The prompt itself is untouched: HoldDuration, distances, keys, Enabled and the server's Triggered are exactly as authored. The pink FavPrompt keeps its own UI.</p></div>
+<div class="card"><h3>NPC dialogue <span class="pill done">One shell</span></h3><p>MerchantDialog now paints the kit's white plate, navy edge, shout-face name ribbon (each NPC's accent, as before) and the kit LEAVE / OK buttons. Not one line, reward, flow, portrait or failsafe changed.</p></div>
+<div class="card"><h3>Goals bar <span class="pill done">Kit, kept separate</span></h3><p>The nudge wears the card language with an orange GOAL chip and no NPC badge, so a Goal never reads as a story quest. Pick / dismiss / yields untouched. On touch it now sits inside the jump band instead of under the jump button.</p></div>
+</div>
+
+<h2>1 · Tracker, before / after</h2>
+<div class="two">
+<figure><img src="zoom-before-tracker.png" alt="Before: the Quest Log"><figcaption><b>Before — the Quest Log</b><span>Outlined text on the world, TRACKED / ALL / DONE tabs, a 3px cyan line for progress, "J · TOGGLE", and the Goals nudge as naked text above it.</span></figcaption></figure>
+<figure><img src="zoom-after-tracker.png" alt="After: quest card"><figcaption><b>After — one card per quest</b><span>QUESTS header with the <code>+2 MORE</code> pill and the chevron; Maxwell's card: badge with crown motif, name, "Collect every Secret brainrot", bar 10 / 12. The Goals bar above it on the same card language with its GOAL chip.</span></figcaption></figure>
+</div>
+<div class="two">
+<figure><img src="zoom-after-claim.png" alt="CLAIM state"><figcaption><b>Claimable — from server truth only</b><span>Maxwell State 3 → the card sorts first and wears <code>CLAIM FROM MAXWELL</code>; the bar hides because the stage has no count. Fired from a server exec with the real payload shape.</span></figcaption></figure>
+<figure><img src="zoom-after-compact-chips.png" alt="Collapsed with chips"><figcaption><b>Collapsed (chevron / J) — chips survive</b><span>Compact cards keep the objective plus ONE line under it: the chip when the stage has one (<code>RETURN TO ELDER TUNG</code>, Tung Ready), otherwise the bar. Two whole cards fit the room, the rest sit behind <code>+2 MORE</code>.</span></figcaption></figure>
+</div>
+<figure><img src="after-11-tracker-showall.jpg" alt="SHOW ALL"><figcaption><b>SHOW ALL</b><span>The pill flips to <code>SHOW FEWER</code> and the list scrolls inside the same room (a 3px scrollbar) — the only time a card can be cut by the list edge, and only by choice.</span></figcaption></figure>
+
+<h2>2 · Interaction prompt, before / after</h2>
+<div class="two">
+<figure><img src="zoom-before-prompt.png" alt="Before: stock prompt"><figcaption><b>Before — Roblox's stock prompt</b><span>Grey box at the rig's centre, "Gianluca / Talk" in the default font, across the chest.</span></figcaption></figure>
+<figure><img src="zoom-after-prompt.png" alt="After: kit board"><figcaption><b>After — kit board above the head</b><span><code>GIANLUCA</code> caption, white pill with the navy edge, the key in a navy cap, <code>TALK</code> in the shout face. Anchored to the same part; on an NPC rig it floats 2.4 studs up so the face stays clear. Stall / wheel / egg boards keep the designers' PromptPart centre.</span></figcaption></figure>
+</div>
+<figure><img src="strip-hold.png" alt="Hold sweep"><figcaption><b>Hold prompt (Gianluca, HoldDuration 0.5)</b><span>Idle → the green fill sweeps left-to-right over exactly HoldDuration (sampled 0.14 / 0.40 / 0.67 / 0.90 of the width) → success flash and settle; Triggered fires on the server as before. Burst-captured at 150 ms.</span></figcaption></figure>
+<figure><img src="zoom-after-shop-prompt.png" alt="Shop prompt"><figcaption><b>Shop prompt</b><span>Rocco's stall: <code>ROCCO THE ROCK DEALER · [E] SHOP</code>. Verbs come from one table keyed by prompt name (TALK / SHOP / SELL / OPEN / CHARMS / SPIN / CLAIM / LIKE / TAKE / UNLOCK / PET), falling back to the first word of the authored ActionText — so "Open Shop" / "Browse" / "Open Sell Menu" no longer disagree across worlds.</span></figcaption></figure>
+<div class="note">Glyphs by input type, rendered by the module for the same prompt: keyboard <code>E</code> (KeyboardKeyCode name), gamepad <code>X</code> (ButtonX; the map covers A / B / X / Y / bumpers / triggers), touch <code>TAP</code>. Locked (<code>PromptState = "locked"</code>) greys the pill. <code>UserInputService.LastInputTypeChanged</code> re-caps every live board when a player picks up a controller mid-session.</div>
+
+<h2>3 · Dialogue, before / after</h2>
+<div class="two">
+<figure><img src="zoom-before-dialogue.png" alt="Before dialogue"><figcaption><b>Before</b><span>Pre-round-2 kit: glossy surface, Gotham copy, "Leave" / "OK ▶" in the old button style.</span></figcaption></figure>
+<figure><img src="zoom-after-dialogue.png" alt="After dialogue"><figcaption><b>After</b><span>White plate with the 6px navy edge, <code>GIANLUCA</code> ribbon in the shout face on his own orange, read-face copy, kit <code>LEAVE</code> / <code>OK ▶</code>. Lower screen, NPC and portrait visible, HUD stood down as before. Enter / advance (tap anywhere) / LEAVE / walk-away (>24 studs) all verified; the walk-up board now stands down with the HUD instead of drawing over the box.</span></figcaption></figure>
+</div>
+
+<h2>4 · Desktop</h2>
+<figure><img src="after-01-tracker-desktop.jpg" alt="Desktop HUD"><figcaption><b>Desktop 1891×785 — idle HUD</b><span>Tracker at the middle-right under the Goals bar, clear of the HIDE UI / RIDE / Luck / Sprint column (bottom 419 vs column top 464; 1366×766 laptop: 419 vs 446). At this Studio height one full card fits; a 1080p client (951 usable) fits three.</span></figcaption></figure>
+<div class="two">
+<figure><img src="after-02-talk-prompt.jpg" alt="Desktop prompt"><figcaption><b>Talk prompt in the HUD</b><span>Board, tracker (Tung's card first: RETURN state), Goals bar, rail — nothing overlaps.</span></figcaption></figure>
+<figure><img src="after-03-dialogue.jpg" alt="Desktop dialogue"><figcaption><b>Dialogue in the HUD</b><span>Every ScreenGui stood down, blur + grade as before, boards hidden.</span></figcaption></figure>
+</div>
+
+<h2>5 · Phone (iPhone 16 sim, 733×371)</h2>
+<div class="two">
+<figure><img src="zoom-before-phone-column.png" alt="Before phone"><figcaption><b>Before</b><span>The letter-ladder rail (Q·U·E·S·T) and the naked Goals text — the Goals text sat 56–83% under the jump button (HudAudit).</span></figcaption></figure>
+<figure><img src="zoom-after-phone-column.png" alt="After phone compact"><figcaption><b>After — boots compact</b><span>Goals bar and the tracker's one card stacked under the Sprint button, inside the jump band (x ≤ 580), 44px tap targets on the glass (chevron, pill, the card itself). <code>1 / 3 ▶</code> cycles the quests.</span></figcaption></figure>
+</div>
+<div class="two">
+<figure><img src="zoom-after-phone-card.png" alt="After phone expanded"><figcaption><b>Expanded (chevron / tap)</b><span>Type re-authored 1.35× under the 0.6 widget scale: 14px title, 12px objective on the glass. Bottom edge 309 of 313 — inside the lane. Yields while the throw cluster is up; hides on short phones (&lt;340 tall), as the old rail did.</span></figcaption></figure>
+<figure><img src="after-06-phone-tap-prompt.jpg" alt="Phone TAP prompt"><figcaption><b>Touch prompt</b><span><code>TAP · TALK</code>, board scaled 0.7, still above the head. Touch tap / release on the pill drives <code>InputHoldBegin / InputHoldEnd</code> on the real prompt.</span></figcaption></figure>
+</div>
+<figure><img src="after-07-phone-dialogue.jpg" alt="Phone dialogue"><figcaption><b>Phone dialogue</b><span>Same shell at the phone fit; portrait, ribbon, copy and both buttons inside the screen.</span></figcaption></figure>
+
+<h2>6 · Completion behaviour</h2>
+<figure><img src="strip-completion.png" alt="Completion beat"><figcaption><b>Server says State &gt; top stage → the beat, then a clean dismiss</b><span>Frames from a 250 ms burst: CLAIM FROM MAXWELL → fill settles → <code>✓ COMPLETE</code> chip (lands 0.30 s after the state) → held 1.2 s → the card slides out to the right (0.22 s) and Elder Tung's card takes the slot; header count drops, <code>wheelWin</code> plays once. Measured timeline: chip at +0.30 s, dismiss at +1.5 s, gone at +1.75 s. Nothing is faked on the client — a state that arrives already finished (or for a card that was never on screen) just drops the entry.</span></figcaption></figure>
+<figure><img src="strip-progress.png" alt="Progress update"><figcaption><b>Progress update (10 → 11 / 12)</b><span>Fill tweens over 0.35 s, the count pops 3px (0.10 s up, 0.18 s Back-ease down), <code>wheelTick</code> plays at 0.25 × the SFX slider. Only when the count grows on the same requirement; a repaint with the same numbers is silent.</span></figcaption></figure>
+
+<h2>Checks</h2>
+<table>
+<tr><th>Area</th><th>Checked in Play</th><th>Result</th></tr>
+<tr><td>Quests</td><td>tracker appears on join · objective text · progress numbers · progress update (tween + pop + tick) · RETURN (Tung Ready, Tundra Met, Gianluca stage 2 in the table) · CLAIM (Maxwell 3) · completion beat + dismiss (Maxwell 5) · re-arrival after dismiss · +N MORE / SHOW FEWER · chevron · J · card tap (expand / fold) · phone NEXT cycling</td><td><span class="pill done">pass</span> accepting a quest was <em>not</em> driven in Play — it writes the owner's live profile; the accept path is unchanged server code and the tracker reads the same State payloads it always did</td></tr>
+<tr><td>Prompts</td><td>keyboard E · gamepad X · touch TAP (module-rendered) · hold sweep 0.5 s + Triggered · two prompts on E and F at once (both boards) · prompt destroyed while shown · prompt disabled while shown · locked state · input-type change re-caps boards · boards stand down with the HUD</td><td><span class="pill done">pass</span> streamed-in / streamed-out NPCs share the destroy path (AncestryChanged) — not exercised with real streaming in this sitting</td></tr>
+<tr><td>Dialogue</td><td>enter · typewriter advance (tap anywhere) · LEAVE · walk away · HUD stand-down and restore · portrait · phone fit</td><td><span class="pill done">pass</span> "quest accepted / already active / completed" branches are line choices inside each NPC client and were not changed; the completed branch is what the captures show</td></tr>
+<tr><td>Layout</td><td>desktop 1891×785 · laptop 1366×766 · phone 733×371 · overlap scan of every painted HUD leaf against the tracker rect · HudAudit.Measure() at each native size · HudAudit.Run() size checks on Phone short / small / tall, Tablet, Tablet 4:3, Laptop 768p, Desktop</td><td><span class="pill done">no overlaps, no under-control hits, no clipped buttons, no small targets</span> for the changed surfaces at every size; see the footprint note below</td></tr>
+<tr><td>Console</td><td>client + server log after every session</td><td><span class="pill done">zero new errors or warnings</span> — the only warning is the pre-existing <code>[UIKit] panel module PetAbilityHelp did not return { Id, Build }</code></td></tr>
+<tr><td>Performance</td><td>architecture review of the three new scripts</td><td><span class="pill measured">event-driven</span> no RenderStepped, no Heartbeat, no per-frame scans, no viewports; tweens are Size / Position only with fixed durations; boards are built on PromptShown and destroyed on PromptHidden</td></tr>
+</table>
+
+<h3 class="sub">Things that came out of the capture pass (all fixed in d874708)</h3>
+<ul class="tight">
+<li>U+25BE / U+25B8 are not in LuckiestGuy — the chevron and NEXT pill drew blank; now U+25BC / U+25B6.</li>
+<li>A UIStroke on a TextButton defaults to stroking its text: the prompt pill and the Goals-bar close had no edge. Border, explicitly.</li>
+<li>BillboardGuis do not stand down with a disabled ScreenGui: prompt boards drew over the dialogue. Mirrored the host's Enabled onto every board.</li>
+<li>A board on an NPC rig sat across the chest; lifted 2.4 studs on rigs only.</li>
+</ul>
+
+<h3 class="sub">Known and deliberate</h3>
+<ul class="tight">
+<li><b>Dialogue copy renders white with a navy outline on the white box.</b> That is the house readability floor in UIPolish (owner rule, 2026-08-21): any neutral dark ink on a NoPolish label is lifted to white + ink stroke, which is what every kit read label (Season Pass rows, Bag tiles) already does. The card and the dialogue follow it rather than fight it.</li>
+<li><b>Footprint on touch.</b> HudAudit flags the phone card and the Goals bar at 22–28% of the width (its cap is 18%). The card is the same 300 authored px as on desktop at the 0.6 widget scale; going narrower wraps every objective. The old expanded log had the same rect. Flagged, not changed — see the question below.</li>
+<li><b>Collapsing the tracker also folds the Goals bar.</b> Unchanged behaviour: <code>questsHidden</code> is one shared setting and HudToggleClient slides QuestBarUI on it. The chevron and J write that same setting, as the old log did.</li>
+<li><b>Pre-existing, untouched:</b> MainUI's tab bar reports "under topbar" in HudAudit on every size; the bottom-right stack budget reads 174 of 172 px on the phone; the Humanoid nametag "stupid gianluca" over the NPC.</li>
+</ul>
+
+<h2>For Balkan</h2>
+<div class="grid">
+<div class="card"><h3>Approve the round? <span class="pill ask">decision</span></h3><p>The six things you asked to see are above: tracker before/after, prompt, dialogue, desktop, phone, completion. Nothing beyond the fence was touched — no Quests menu, balance, quest text, new NPCs, Nico, world or Bag work.</p></div>
+<div class="card"><h3>Phone card width <span class="pill ask">your call</span></h3><p>Keep the 300px card at widget scale (24% of an iPhone 16's width, legible 12px objective) or narrow it to ~250 (20%, more wrapping)? The audit's 18% cap was written for chips, not a card.</p></div>
+<div class="card"><h3>Chevron folding the Goals bar <span class="pill ask">your call</span></h3><p>If you would rather the chevron only compact the cards and leave the Goals bar where it is, that is a one-line change in HudToggleClient's surface list (its own script, so it was left alone this round).</p></div>
+</div>
+
+<h2>Commits</h2>
+<table>
+<tr><th>Commit</th><th>What</th></tr>
+<tr><td><code>3e0275b</code></td><td>audit document + re-sync of 15 mirrors from Studio (pre-edit)</td></tr>
+<tr><td><code>6021541</code></td><td>chore(mirror): UIPolish re-synced (the readability floor the round relies on)</td></tr>
+<tr><td><code>b4f8334</code></td><td>feat(ui): QuestCard, QuestTrackerClient rewrite, InteractionPrompt + client, MerchantDialog shell, QuestBarClient on the kit</td></tr>
+<tr><td><code>d874708</code></td><td>fix(ui): capture-pass fixes (glyphs, pill border, boards stand down, rig boards above the head)</td></tr>
+</table>
+<div class="note">Full-resolution captures, the per-check numbers and the repro notes live in <code>docs/qa/round3/README.md</code>. Studio is the source of truth; every touched script was pulled back byte-exact into <code>game-src/place-full/</code> through the bridge before committing.</div>
+</main>
+<div class="lb" id="lb"><img id="lbimg" alt=""></div>
+<script>
+(function(){
+  var lb=document.getElementById('lb'),img=document.getElementById('lbimg');
+  document.querySelectorAll('figure img').forEach(function(i){i.addEventListener('click',function(){img.src=i.src;lb.classList.add('open');});});
+  lb.addEventListener('click',function(){lb.classList.remove('open');img.src='';});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'){lb.classList.remove('open');img.src='';}});
+})();
+</script>
+</body>
+</html>
