@@ -249,15 +249,19 @@ S.Card = {
 	Plate     = { hex("3A4656"), hex("2A3543") },
 	Radius    = 14,
 	Edge      = 3,
-	BandFrac  = 0.20,
-	BandMin   = 24,
+	BandFrac  = 0.18,           -- 2026-09-18 round 2: slimmer band (was 0.20) -- the model is the card
+	BandMin   = 22,             -- (was 24)
 	ArtInset  = 4,
-	Fill      = 0.88,           -- projected-box fill of the ART HOLDER (~76% of the card), i.e. ~67% of the card: handoff §6's 65-75%. 0.70 read small (Task 8/11, 2026-09-18)
+	Fill      = 0.94,           -- projected-box fill of the ART HOLDER (~78% of the card), i.e. ~73% of the card: handoff §6's 65-75%. 0.70 read small (Task 8/11), 0.88 still small in the live Bag (round 2)
 	Pip       = 7,
 	Badge     = 22,
 	BadgeSmall = 14,
 	MutationStar = 16,
-	ArtWellAlpha = 0.90,        -- white radial behind the model (transparency at centre)
+	ArtWellAlpha = 0.90,        -- white radial behind the model (transparency at centre) -- Common only since round 2
+	-- 2026-09-18 round 2: the well behind the model is a soft TIER-COLOURED glow (two stacked
+	-- discs approximate a radial falloff; UIGradient has no radial mode). Outer/Inner are the
+	-- transparencies of the big and small disc. Common keeps the neutral white well.
+	Well = { Outer = 0.86, Inner = 0.78 },
 	MaxAnimatedLayers = 2,
 	Light = {                   -- the Bag's relit rig (BackpackPanel build3DOrSwatch, 2026-08-17)
 		Dir = Vector3.new(0.18, 0.32, -1).Unit,
@@ -273,7 +277,7 @@ S.Card = {
 	MaxLive = { Desktop = 64, Tablet = 40, Phone = 24 },
 	Variants = {
 		grid    = { bandMin = 24, leftBadges = true,  rightCap = 2, title = false },
-		compact = { bandMin = 20, leftBadges = false, rightCap = 1, title = false },
+		compact = { bandMin = 20, leftBadges = false, rightCap = 2, title = false }, -- rightCap 2 since round 2: a plot pad shows its padlock AND its pad number
 		hero    = { bandMin = 32, leftBadges = true,  rightCap = 3, title = true },
 	},
 	-- rarity tier name -> S.Rarity key
@@ -282,15 +286,21 @@ S.Card = {
 	-- spec §7.4: one table drives every layer. foil = white-sheet transparency or nil,
 	-- aura = nil | "breathe" | "strong", band = "muted" | "solid" | "rainbow",
 	-- animated = the continuously animated layers (max 2), holo/sparkles booleans.
+	-- tint = how far the dark plate leans toward the tier colour (round 2, handoff §5:
+	-- "the rarity should feel like part of the whole card, not just the border"):
+	-- Common stays the neutral slate, Rare is blue-cast, Epic purple-cast, and so on.
+	-- well = the glow disc behind the model wears the tier's light colour (Common: white).
+	-- foil transparencies were raised ~0.06 each so the rainbow sheet stays a sheen now
+	-- that the plate itself carries colour (was 0.87 / 0.80 / 0.70).
 	Ladder = {
-		COM  = { pips = 1, band = "muted",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {} },
-		UNC  = { pips = 1, band = "solid",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {} },
-		RARE = { pips = 2, band = "solid",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {} },
-		EPIC = { pips = 3, band = "solid",   foil = 0.87, aura = nil,       holo = false, sparkles = false, animated = {} },
-		LEG  = { pips = 4, band = "solid",   foil = 0.80, aura = "breathe", holo = false, sparkles = false, animated = { "aura" } },
-		MYTH = { pips = 5, band = "rainbow", foil = 0.70, aura = "breathe", holo = true,  sparkles = false, animated = { "band", "aura" } },
-		SEC  = { pips = 5, band = "rainbow", foil = 0.70, aura = "strong",  holo = true,  sparkles = true,  animated = { "band", "sparkles" } },
-		GOD  = { pips = 5, band = "rainbow", foil = 0.70, aura = "strong",  holo = true,  sparkles = true,  animated = { "band", "sparkles" } },
+		COM  = { pips = 1, band = "muted",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {}, tint = 0.00, well = false },
+		UNC  = { pips = 1, band = "solid",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {}, tint = 0.14, well = true },
+		RARE = { pips = 2, band = "solid",   foil = nil,  aura = nil,       holo = false, sparkles = false, animated = {}, tint = 0.20, well = true },
+		EPIC = { pips = 3, band = "solid",   foil = 0.92, aura = nil,       holo = false, sparkles = false, animated = {}, tint = 0.26, well = true },
+		LEG  = { pips = 4, band = "solid",   foil = 0.86, aura = "breathe", holo = false, sparkles = false, animated = { "aura" }, tint = 0.22, well = true },
+		MYTH = { pips = 5, band = "rainbow", foil = 0.78, aura = "breathe", holo = true,  sparkles = false, animated = { "band", "aura" }, tint = 0.24, well = true },
+		SEC  = { pips = 5, band = "rainbow", foil = 0.78, aura = "strong",  holo = true,  sparkles = true,  animated = { "band", "sparkles" }, tint = 0.26, well = true },
+		GOD  = { pips = 5, band = "rainbow", foil = 0.78, aura = "strong",  holo = true,  sparkles = true,  animated = { "band", "sparkles" }, tint = 0.30, well = true },
 	},
 	Rainbow = ColorSequence.new({
 		ColorSequenceKeypoint.new(0.00, hex("FF2D6F")), ColorSequenceKeypoint.new(0.17, hex("FF9B2F")),

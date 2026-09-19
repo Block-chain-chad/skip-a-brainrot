@@ -199,15 +199,26 @@ function BrainrotCard.new(props: Props): Card
 	corner(ring, radius + 4)
 	stroke(ring, 3, S.Role.Selection)
 
+	-- 2026-09-18 round 2: the plate LEANS toward the tier colour (S.Card.Ladder.tint) so the
+	-- rarity is the whole card's cast, not just its edge -- the top leans on the light tier
+	-- colour (a glow from above), the bottom on the dark one; Common keeps the neutral slate.
+	local tint = tonumber(ladder.tint) or 0
+	local plateTop = C.Plate[1]:Lerp(ramp[1], tint)
+	local plateBottom = C.Plate[2]:Lerp(ramp[2], tint * 0.55)
 	local plate = frame("Plate", visual, z + 1)
 	plate.BackgroundTransparency = 0
-	plate.BackgroundColor3 = C.Plate[1]
+	plate.BackgroundColor3 = plateTop
 	plate.Size = UDim2.fromScale(1, 1)
 	plate.ClipsDescendants = true
 	corner(plate, radius)
 	local plateGrad = Instance.new("UIGradient")
 	plateGrad.Rotation = 90
-	plateGrad.Color = ColorSequence.new(C.Plate[1], C.Plate[2])
+	-- UIGradient MULTIPLIES BackgroundColor3, so the sequence runs white -> (bottom / top)
+	-- per channel to land exactly on plateBottom at the foot of the plate
+	plateGrad.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(
+		if plateTop.R > 0 then math.clamp(plateBottom.R / plateTop.R, 0, 1) else 0,
+		if plateTop.G > 0 then math.clamp(plateBottom.G / plateTop.G, 0, 1) else 0,
+		if plateTop.B > 0 then math.clamp(plateBottom.B / plateTop.B, 0, 1) else 0))
 	plateGrad.Parent = plate
 	local edge = stroke(plate, C.Edge, ramp[2])
 	edge.Name = "Edge"
@@ -237,13 +248,26 @@ function BrainrotCard.new(props: Props): Card
 		fg.Color = C.Rainbow -- static sheet: foil never drifts (decision 16)
 		fg.Parent = foil
 	end
+	-- the glow behind the model: two stacked discs in the tier's LIGHT colour approximate a
+	-- radial falloff (round 2); Common keeps the single neutral white disc. Either way the
+	-- job is the same -- a near-black body must separate from the dark plate.
+	local wellColor = if ladder.well then ramp[1] else Color3.new(1, 1, 1)
 	local well = frame("ArtWell", plate, z + 2)
-	well.BackgroundTransparency = C.ArtWellAlpha
-	well.BackgroundColor3 = Color3.new(1, 1, 1)
+	well.BackgroundTransparency = if ladder.well then C.Well.Outer else C.ArtWellAlpha
+	well.BackgroundColor3 = wellColor
 	well.AnchorPoint = Vector2.new(0.5, 0.5)
-	well.Position = UDim2.new(0.5, 0, (1 - bandFrac) * 0.5, 0)
-	well.Size = UDim2.new(0.8, 0, (1 - bandFrac) * 0.72, 0)
+	well.Position = UDim2.new(0.5, 0, (1 - bandFrac) * 0.52, 0)
+	well.Size = UDim2.new(0.88, 0, (1 - bandFrac) * 0.80, 0)
 	corner(well, 999)
+	if ladder.well then
+		local inner = frame("ArtWellInner", plate, z + 2)
+		inner.BackgroundTransparency = C.Well.Inner
+		inner.BackgroundColor3 = wellColor
+		inner.AnchorPoint = Vector2.new(0.5, 0.5)
+		inner.Position = UDim2.new(0.5, 0, (1 - bandFrac) * 0.54, 0)
+		inner.Size = UDim2.new(0.56, 0, (1 - bandFrac) * 0.52, 0)
+		corner(inner, 999)
+	end
 	local contact = frame("ContactShadow", plate, z + 3)
 	contact.BackgroundTransparency = 0.55
 	contact.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -471,13 +495,17 @@ function BrainrotCard.new(props: Props): Card
 				b.Visible = true
 				b.BackgroundTransparency = 0
 			elseif touchOnly then
-				b.Visible = true -- always reachable on touch, drawn subdued
-				b.BackgroundTransparency = 0.5
+				-- always reachable on touch, drawn SUBDUED: a faint glyph, no plate (round 2 --
+				-- at 0.5 the half-lit square read as a grey box on every card of a phone grid)
+				b.Visible = true
+				b.BackgroundTransparency = 0.88
+				local bs = b:FindFirstChildOfClass("UIStroke")
+				if bs then bs.Transparency = 0.7 end
 				for _, d in ipairs(b:GetChildren()) do
 					if d:IsA("Frame") then
-						d.BackgroundTransparency = 0.5
+						d.BackgroundTransparency = 0.45
 						local s = d:FindFirstChildOfClass("UIStroke")
-						if s then s.Transparency = 0.5 end
+						if s then s.Transparency = 0.45 end
 					end
 				end
 			else

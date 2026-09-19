@@ -27,8 +27,10 @@ function SortButton.new(props: Props): Api
 		parent = props.parent,
 		zIndex = props.zIndex,
 		radius = math.floor(h * 0.5),
-		outline = if h < 48 then 3 else nil,
-		textSize = if h < 48 then math.max(12, math.floor(h * 0.45)) else nil,
+		-- anything under the 56px row class is a SMALL control: thin edge, text sized to the
+		-- chip (round 2: the Bag's phone controls are 50 tall and were getting the 6px CTA edge)
+		outline = if h < 56 then 3 else nil,
+		textSize = if h < 56 then math.max(12, math.floor(h * 0.42)) else nil,
 		onChanged = function(i: number)
 			props.onChanged(props.modes[i].id)
 		end,

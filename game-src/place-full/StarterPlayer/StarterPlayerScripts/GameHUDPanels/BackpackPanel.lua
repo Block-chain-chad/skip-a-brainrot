@@ -200,7 +200,10 @@ local SortButton = require(modules:WaitForChild("UIKit"):WaitForChild("SortButto
 local Toast = require(modules:WaitForChild("UIKit"):WaitForChild("Toast"))
 -- grid state shared by renderBrainrots / fillBag / the hide handler. Not `bagState`
 -- (that is the snapshot table below); a module-level table adds no Build() locals.
-local gridUi = { culler = nil :: any, cards = {} :: { any }, fill = nil :: (() -> ())? }
+-- round 2: bayCards = the compact kit cards on the fold-out plot pads (mounted directly,
+-- at most 16); gen = fillBag's build generation, so a re-render or close cancels the
+-- chunked construction of a big bag mid-way instead of finishing into a dead grid.
+local gridUi = { culler = nil :: any, cards = {} :: { any }, bayCards = {} :: { any }, fill = nil :: (() -> ())?, gen = 0 }
 
 -- EVERY WORLD (fixed 2026-08-07). Built from BrainrotConfig alone, this left the 30
 -- tundra-exclusive brainrots unknown to the Bag -- $0/s, no rarity tint, sorted last.
@@ -833,7 +836,8 @@ function BackpackPanel.Build(ctx)
 		label.Parent = tab
 		do
 			local cap = Instance.new("UITextSizeConstraint")
-			cap.MaxTextSize = 11
+			-- round 2: a phone runs the panel at ~0.40, where an 11px cap is a 4px word
+			cap.MaxTextSize = if Platform.IsPhone then 16 else 11
 			cap.Parent = label
 			local st = Instance.new("UIStroke")
 			st.Thickness = 1.4
@@ -1881,41 +1885,49 @@ function BackpackPanel.Build(ctx)
 		table.sort(placedEntries, function(x, y) return (x.PadIndex or 0) < (y.PadIndex or 0) end)
 		if #placedEntries == 0 then closeModal() return end
 
+		-- 2026-09-18 round 2: the picker wears the kit's modal language (white sheet,
+		-- dark edge, bubble title) and each option is the kit's COMPACT card with the
+		-- pad number and a name under it, so "who comes off" reads exactly like the
+		-- plot fold-out it is choosing from. Mounted directly: at most 16, and the
+		-- whole tree goes with the scrim (FxDriver releases destroyed entries itself).
 		local COLS = 4
-		local CELL_W, CELL_H, GAPX = 136, 118, 10
+		local OPT_W, OPT_H, GAPX, GAPY = 136, 158, 10, 10
 		local rows = math.ceil(#placedEntries / COLS)
-		local gridH = rows * CELL_H + (rows - 1) * 8
-		local dlgH = math.min(150 + gridH + 74, 560)
+		local gridH = rows * OPT_H + (rows - 1) * GAPY
+		local DLG_W = OPT_W * COLS + GAPX * (COLS - 1) + 48 + 8 -- + scrollbar room
+		local dlgH = math.min(132 + gridH + 96, 640)
 
-		local dlg = UI.surface(scrim, UDim2.fromOffset(620, dlgH), "panel", T.radius.panel, T.stroke.panel)
-		dlg.Name = "ReplaceDialog"
-		dlg.AnchorPoint = Vector2.new(0.5, 0.5)
-		dlg.Position = UDim2.fromScale(0.5, 0.5)
-		dlg.ZIndex = z + 1
+		local dlg = PC.plate({
+			name = "ReplaceDialog",
+			size = UDim2.fromOffset(DLG_W, dlgH),
+			position = UDim2.fromScale(0.5, 0.5),
+			anchor = Vector2.new(0.5, 0.5),
+			colors = { S.Surface.Shell, S.Surface.Shell },
+			radius = 32,
+			outline = 7,
+			zIndex = z + 1,
+			parent = scrim,
+			gloss = false,
+		})
 		dlg.Active = true
 
-		local title = UI.label(dlg, "Your plot is full", "buttonL", T.color.textOnWindow)
-		title.AnchorPoint = Vector2.new(0.5, 0)
-		title.Position = UDim2.new(0.5, 0, 0, 16)
-		title.AutomaticSize = Enum.AutomaticSize.XY
-		title.ZIndex = z + 2
+		PC.shout({
+			name = "Title", text = "YOUR PLOT IS FULL", size = 34,
+			color = S.TitleInk.bag, strokeColor = Color3.new(1, 1, 1),
+			frameSize = UDim2.new(1, -40, 0, 44), position = UDim2.fromOffset(20, 16),
+			zIndex = z + 2, parent = dlg,
+		})
 
 		local incomingValue = valueOf(incoming.Name, incoming.Mutation, incoming.Size)
-		local body = Instance.new("TextLabel")
-		body.BackgroundTransparency = 1
-		body.Font = S.Font.Read
-		body.TextSize = 15
-		body.TextColor3 = Color3.fromHex("5D6B7A")
-		body.TextWrapped = true
-		body.Text = "All " .. plotState.Unlocked .. " spots are taken. Pick who "
-			.. Sizes.Label(incoming.Mutation, incoming.Size, incoming.Name)
-			.. " (" .. shortCash(incomingValue) .. "/s) should replace."
-		body.AnchorPoint = Vector2.new(0.5, 0)
-		body.Position = UDim2.new(0.5, 0, 0, 52)
-		body.Size = UDim2.new(1, -48, 0, 40)
-		body.ZIndex = z + 2
-		body:SetAttribute("NoPolish", true)
-		body.Parent = dlg
+		local body = PC.read({
+			name = "Body",
+			text = ("All %d pads are taken. Pick who %s (%s/s) should replace."):format(
+				plotState.Unlocked, Sizes.Label(incoming.Mutation, incoming.Size, incoming.Name), shortCash(incomingValue)),
+			size = 18, color = S.Surface.ReadSub, align = Enum.TextXAlignment.Center, wrap = true,
+			frameSize = UDim2.new(1, -48, 0, 48), position = UDim2.fromOffset(24, 62),
+			zIndex = z + 2, parent = dlg,
+		})
+		body.TextYAlignment = Enum.TextYAlignment.Top
 
 		-- lowest earner gets the highlighted callout -- the obvious drop
 		local lowestUid, lowestV = nil, math.huge
@@ -1925,122 +1937,116 @@ function BackpackPanel.Build(ctx)
 		end
 
 		local gridHost = Instance.new("ScrollingFrame")
+		gridHost.Name = "Options"
 		gridHost.BackgroundTransparency = 1
 		gridHost.BorderSizePixel = 0
-		gridHost.Position = UDim2.fromOffset(24, 100)
-		gridHost.Size = UDim2.new(1, -48, 1, -174)
+		gridHost.Position = UDim2.fromOffset(24, 118)
+		gridHost.Size = UDim2.new(1, -48, 1, -118 - 92)
 		gridHost.CanvasSize = UDim2.new()
 		gridHost.AutomaticCanvasSize = Enum.AutomaticSize.Y
 		gridHost.ScrollBarThickness = 5
+		gridHost.ScrollBarImageColor3 = S.OutlineSoft
 		gridHost.ScrollingDirection = Enum.ScrollingDirection.Y
 		gridHost.ElasticBehavior = Enum.ElasticBehavior.Never
 		gridHost.ZIndex = z + 2
 		gridHost.Parent = dlg
 		local gl = Instance.new("UIGridLayout")
-		gl.CellSize = UDim2.fromOffset(CELL_W, CELL_H)
-		gl.CellPadding = UDim2.fromOffset(GAPX, 8)
+		gl.CellSize = UDim2.fromOffset(OPT_W, OPT_H)
+		gl.CellPadding = UDim2.fromOffset(GAPX, GAPY)
 		gl.SortOrder = Enum.SortOrder.LayoutOrder
 		gl.Parent = gridHost
 
+		local pickerCards = {}
 		for i, e in ipairs(placedEntries) do
 			local isLowest = (e.Uid == lowestUid)
 			local v = valueOf(e.Name, e.Mutation, e.Size)
+			local info = infoByName[e.Name]
 
-			local opt = Instance.new("TextButton")
-			opt.Name = "Swap" .. tostring(e.Uid)
-			opt.Text = ""
-			opt.AutoButtonColor = false
-			opt.LayoutOrder = i
-			opt.BackgroundColor3 = isLowest and Color3.fromHex("E4EDFB") or Color3.fromHex("F2F4FA")
-			opt.BorderSizePixel = 0
-			opt.ZIndex = z + 3
-			opt.Parent = gridHost
-			UI.corner(opt, T.radius.inner)
-			local ost = Instance.new("UIStroke")
-			ost.Thickness = 3
-			ost.Color = isLowest and T.color.activeRing or Color3.fromHex("C9CFDD")
-			ost.Parent = opt
+			local opt = PC.plate({
+				name = "Swap" .. tostring(e.Uid),
+				size = UDim2.fromOffset(OPT_W, OPT_H),
+				colors = { S.Surface.RowTop, S.Surface.RowBottom },
+				radius = 18,
+				outline = 3,
+				strokeColor = if isLowest then S.Role.Selection else S.OutlineSoft,
+				zIndex = z + 3,
+				parent = gridHost,
+				layoutOrder = i,
+				gloss = false,
+			})
 
-			local slotNo = Instance.new("TextLabel")
-			slotNo.BackgroundTransparency = 1
-			slotNo.Font = S.Font.Shout
-			slotNo.TextSize = 11
-			slotNo.TextColor3 = Color3.fromHex("8B93A8")
-			slotNo.Text = "#" .. tostring(e.PadIndex)
-			slotNo.Position = UDim2.fromOffset(7, 4)
-			slotNo.Size = UDim2.fromOffset(30, 12)
-			slotNo.TextXAlignment = Enum.TextXAlignment.Left
-			slotNo.ZIndex = z + 4
-			slotNo:SetAttribute("NoPolish", true)
-			slotNo.Parent = opt
+			local cardCell = Instance.new("Frame")
+			cardCell.Name = "CardCell"
+			cardCell.BackgroundTransparency = 1
+			cardCell.AnchorPoint = Vector2.new(0.5, 0)
+			cardCell.Position = UDim2.new(0.5, 0, 0, 8)
+			cardCell.Size = UDim2.fromOffset(96, 84)
+			cardCell.ZIndex = z + 4
+			cardCell.Parent = opt
+			local card = BrainrotCard.new({
+				kind = "brainrot", name = e.Name,
+				rarity = (info and info.Rarity) or "Common",
+				income = v,
+				mutation = e.Mutation,
+				mutationColor = if e.Mutation then Mutations.Color(e.Mutation) else nil,
+				sizeTag = e.Size,
+				state = { equipped = e.PadIndex or true, locked = e.Fav == true },
+				variant = "compact", parent = cardCell, zIndex = z + 4, instanceName = "PadCard" .. tostring(e.PadIndex),
+			})
+			card.mount()
+			pickerCards[#pickerCards + 1] = card
 
-			local art = Instance.new("Frame")
-			art.BackgroundTransparency = 1
-			art.AnchorPoint = Vector2.new(0.5, 0)
-			art.Position = UDim2.new(0.5, 0, 0, 14)
-			art.Size = UDim2.fromOffset(52, 52)
-			art.ZIndex = z + 4
-			art.Parent = opt
-			local tier2 = infoByName[e.Name] and infoByName[e.Name].Rarity
-			build3DOrSwatch(art, e.Name, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), z + 4, rarityTint(T, tier2))
-
-			local nm = Instance.new("TextLabel")
-			nm.BackgroundTransparency = 1
-			nm.Font = S.Font.Read
-			nm.TextSize = 13
-			nm.TextColor3 = Color3.fromHex("3A3A45")
+			local nm = PC.read({
+				name = "Name", text = Sizes.Label(e.Mutation, e.Size, e.Name), size = 15,
+				color = S.Surface.ReadInk, align = Enum.TextXAlignment.Center,
+				frameSize = UDim2.new(1, -12, 0, 18), position = UDim2.new(0, 6, 0, 100),
+				zIndex = z + 4, parent = opt,
+			})
 			nm.TextTruncate = Enum.TextTruncate.AtEnd
-			nm.Text = Sizes.Label(e.Mutation, e.Size, e.Name)
-			nm.AnchorPoint = Vector2.new(0.5, 0)
-			nm.Position = UDim2.new(0.5, 0, 0, 70)
-			nm.Size = UDim2.new(1, -12, 0, 16)
-			nm.ZIndex = z + 4
-			nm:SetAttribute("NoPolish", true)
-			nm.Parent = opt
 
-			local inc = Instance.new("TextLabel")
-			inc.BackgroundTransparency = 1
-			inc.Font = S.Font.Shout
-			inc.TextSize = 13
-			-- red = the incoming one out-earns this: a good one to drop
-			inc.TextColor3 = (incomingValue > v) and Color3.fromHex("E0424F") or Color3.fromHex("3F8A17")
-			inc.Text = shortCash(v) .. "/s"
-			inc.AnchorPoint = Vector2.new(0.5, 0)
-			inc.Position = UDim2.new(0.5, 0, 0, 90)
-			inc.Size = UDim2.new(1, -12, 0, 16)
-			inc.ZIndex = z + 4
-			inc:SetAttribute("NoPolish", true)
-			inc.Parent = opt
+			-- the verdict line: red = the incoming one out-earns this pad (a good drop)
+			PC.shout({
+				name = "Verdict", text = if incomingValue > v then "WEAKER" else "STRONGER", size = 14,
+				color = if incomingValue > v then S.Role.Destructive[2] else S.Role.Positive[2], strokeColor = Color3.new(1, 1, 1),
+				frameSize = UDim2.new(1, -12, 0, 18), position = UDim2.new(0, 6, 0, 122),
+				zIndex = z + 4, parent = opt,
+			})
 
 			if isLowest then
-				local tag = Instance.new("TextLabel")
-				tag.Font = S.Font.Shout
-				tag.TextSize = 11
-				tag.Text = "LOWEST"
-				tag.TextColor3 = Color3.fromHex("3A2A00")
-				tag.BackgroundColor3 = T.color.activeRing
-				tag.BorderSizePixel = 0
-				tag.AnchorPoint = Vector2.new(1, 0)
-				tag.Position = UDim2.new(1, 6, 0, -6)
-				tag.Size = UDim2.fromOffset(54, 18)
-				tag.ZIndex = z + 5
-				tag:SetAttribute("NoPolish", true)
-				tag.Parent = opt
-				UI.corner(tag, 6)
+				local tag = PC.plate({
+					name = "LowestTag", size = UDim2.fromOffset(64, 20),
+					position = UDim2.new(1, 6, 0, -8), anchor = Vector2.new(1, 0),
+					colors = S.Role.Neutral, radius = 8, outline = 2,
+					zIndex = z + 5, parent = opt, gloss = false,
+				})
+				PC.shout({ name = "Label", text = "LOWEST", size = 12, zIndex = z + 6, parent = tag })
 			end
 
-			opt.MouseButton1Click:Connect(function()
+			local hit = Instance.new("TextButton")
+			hit.Name = "Hit"
+			hit.Text = ""
+			hit.BackgroundTransparency = 1
+			hit.AutoButtonColor = false
+			hit.Size = UDim2.fromScale(1, 1)
+			hit.ZIndex = z + 7
+			hit.Parent = opt
+			PC.bindPressFeedback(hit)
+			hit.Activated:Connect(function()
 				local r = remotes:FindFirstChild("SwapBrainrot")
 				if r then r:FireServer(e.Uid, incoming.uids[1]) end
 				closeModal()
 			end)
 		end
+		scrim.Destroying:Connect(function()
+			for _, c in ipairs(pickerCards) do c.destroy() end
+		end)
 
-		local keepBtn = UI.button(dlg, "KEEP WHAT I HAVE", "tab", UDim2.fromOffset(220, 46), "buttonM")
-		keepBtn.AnchorPoint = Vector2.new(0.5, 1)
-		keepBtn.Position = UDim2.new(0.5, 0, 1, -14)
-		keepBtn.ZIndex = z + 2
-		keepBtn.MouseButton1Click:Connect(closeModal)
+		PC.button({
+			kind = "secondary", text = "KEEP WHAT I HAVE", name = "KeepButton",
+			size = UDim2.fromOffset(260, 60), textSize = 22,
+			position = UDim2.new(0.5, 0, 1, -18), anchor = Vector2.new(0.5, 1),
+			zIndex = z + 2, parent = dlg, onActivated = closeModal,
+		})
 	end
 
 	----------------------------------------------------------- BRAINROTS render (2026-08-12 rework)
@@ -2237,9 +2243,12 @@ function BackpackPanel.Build(ctx)
 		local keepScroll = (grid and grid.Parent) and grid.CanvasPosition or nil
 		-- 2026-09-18: release the previous grid's viewports, driver entries and culler
 		-- BEFORE contentHost is cleared, so nothing animates or mounts into a dead tree
+		gridUi.gen += 1 -- cancels any in-flight chunked fillBag
 		if gridUi.culler then gridUi.culler.detach() gridUi.culler = nil end
 		for _, c in ipairs(gridUi.cards) do c.destroy() end
 		gridUi.cards = {}
+		for _, c in ipairs(gridUi.bayCards) do c.destroy() end
+		gridUi.bayCards = {}
 		gridUi.fill = nil
 		clearChildren(contentHost)
 		refreshHeader()
@@ -2254,17 +2263,43 @@ function BackpackPanel.Build(ctx)
 		-- pills, scroll grid of the same cards). Green = EQUIPPED chip,
 		-- active sort, "N / M" count. Bay = the 16 plot spots; click a bay
 		-- card to store, a bag card to equip; full plot flashes the toast.
+		-- ================================================================
+		-- 2026-09-18 UI ROUND 2 (Bag redesign). Measured before this change on a
+		-- 1891x793 viewport (panel scale 0.73): the inventory well was 137px tall --
+		-- 1.3 rows of 75x97px cards -- under a 182px plot rack, on a save with 16
+		-- placed and 36 benched. The two sections now read as ONE collection:
+		--   * every brainrot is in the grid, placed ones wearing the kit card's
+		--     green "check + pad" badge (click = take it off the plot, exactly what a
+		--     bay card did; a bench click still equips / opens the replace picker);
+		--   * the plot rack is a fold-out PLOT section, CLOSED by default -- its pads,
+		--     the next-slot UNLOCK purchase and the pad numbers are all still there
+		--     behind SHOW PLOT, and its occupied pads are the kit's compact card;
+		--   * search moves down to the inventory header beside the sorts (the bay
+		--     header was six controls wide and the search box sat on the slot count).
+		-- With the plot folded the well is ~392px: 2.8 rows, ~22 cards in view.
 		local CARD_GAP = 8
 		local WELL_PAD = 12
-		local CARD_W = math.floor((BR_W - WELL_PAD * 2 - CARD_GAP * 7) / 8) -- ~100
-		-- 132, up from 126, and the extra 6px all goes to artwork -- see buildCard:
-		-- the tier chip that used to eat the bottom 25px is gone, so the art well
-		-- grows from CARD_H-56 (70px) to CARD_H-30 (102px), a ~46% bigger pet in a
-		-- card only 5% taller. Measured against the reference: its artwork fills
-		-- ~85% of a tile where ours filled barely a third.
-		local CARD_H = 132
-		local GRIDW = CARD_W * 8 + CARD_GAP * 7
-		local HEAD_H = 40
+		-- a phone runs this panel at ~0.45 scale, so eight 103px columns come out at
+		-- 46px on the glass -- six columns keep a card ~63px and its badges legible
+		local COLS = if Platform.IsPhone then 6 else 8
+		local CARD_W = math.floor((BR_W - WELL_PAD * 2 - CARD_GAP * (COLS - 1)) / COLS) -- ~103 desktop / ~140 phone
+		local CARD_H = math.floor(CARD_W * 1.28) -- the kit card's grid proportion (103x132)
+		local GRIDW = CARD_W * COLS + CARD_GAP * (COLS - 1)
+		-- the plot pad grid keeps eight columns at the desktop width whatever COLS is
+		local PAD_W = math.floor((BR_W - WELL_PAD * 2 - CARD_GAP * 7) / 8)
+		local PADGRID_W = PAD_W * 8 + CARD_GAP * 7
+		-- PHONE DENSITY (round 2, measured on the iPhone 16 emulation: the whole panel
+		-- runs at 0.40 scale, so a 36px control came out 14px tall and its TextScaled
+		-- label hit the 9px floor and wrapped -- "SHOW" / "UNEQUIP" / "NEWES"). The two
+		-- control rows and everything in them are authored taller on a phone; the
+		-- grid loses ~30px of design height for it and keeps two full card rows.
+		local PHONE = Platform.IsPhone
+		-- 44, not 50: at the phone's 0.40 scale a 50px control is 20px on the glass, which
+		-- is room for TWO 9px lines, and TextScaled then wraps "SHOW PLOT" rather than
+		-- shrinking it; 44 (17.8px) only holds one line at the 9px floor
+		local CTRL_H = if PHONE then 44 else 36 -- strip/search/sort control height
+		local CTRL_TEXT = if PHONE then 19 else 15
+		local HEAD_H = if PHONE then 48 else 40
 		-- THE EQUIPPED BAY GETS ITS OWN, SHORTER CARD. Measured before this change:
 		-- the 16-slot bay held 264px of grid while the 166-item INVENTORY got a 113px
 		-- scroll viewport -- SHORTER THAN ONE 130px TILE -- so no inventory row was
@@ -2283,15 +2318,16 @@ function BackpackPanel.Build(ctx)
 		-- surface with it. Folding gives back the same height on demand and leaves
 		-- the plot untouched when open. Collapsed keeps the header strip (EQUIPPED
 		-- chip, slot count, TOTAL $/s, UNEQUIP ALL) and drops only the 2x8 pad grid.
-		local bayCollapsed = ctx.state.backpack.bayCollapsed == true
+		-- round 2: CLOSED unless the player opened it (nil = never touched = closed);
+		-- the placed cards live in the main grid now, so the fold-out is the plot
+		-- MANAGEMENT view (pad numbers + the next slot to buy), not the only place
+		-- an equipped brainrot can be seen
+		local bayCollapsed = ctx.state.backpack.bayCollapsed ~= false
 		local BAY_H = if bayCollapsed
 			then WELL_PAD + HEAD_H + WELL_PAD                               -- 64
 			else WELL_PAD + HEAD_H + 8 + EQ_H * 2 + CARD_GAP + WELL_PAD     -- 248
 		local SECTION_GAP = 10
-		local INV_HEAD_H = 38
-		local TweenService = game:GetService("TweenService")
-		local HOVER_INFO = TweenInfo.new(0.11, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-
+		local INV_HEAD_H = if PHONE then 48 else 40
 		-- LIGHT SURFACES (user, 2026-08-14: "ours is so dark and trash", holding up
 		-- Pet Simulator's inventory as the standard). The reference puts its pet art
 		-- on a near-WHITE field, and that single choice does most of the "easier to
@@ -2327,462 +2363,9 @@ function BackpackPanel.Build(ctx)
 		end
 		local lockedCount = 16 - plotState.Unlocked
 
-		-------------------------------------------------- toast
-		local function ensureToast(): Frame
-			local existing = wrapper:FindFirstChild("BagToast")
-			if existing and existing:IsA("Frame") then
-				return existing
-			end
-			local tf = Instance.new("Frame")
-			tf.Name = "BagToast"
-			tf.AnchorPoint = Vector2.new(0.5, 0)
-			tf.AutomaticSize = Enum.AutomaticSize.X
-			tf.Size = UDim2.fromOffset(0, 52)
-			tf.BackgroundColor3 = C_GREEN1
-			tf.BorderSizePixel = 0
-			tf.Visible = false
-			tf.ZIndex = shellZ + 45
-			tf:SetAttribute("PolishOnDark", true)
-			tf.Parent = wrapper
-			UI.corner(tf, 14)
-			UI.gradient(tf, ColorSequence.new(C_GREEN1, C_GREEN2))
-			do
-				local st = Instance.new("UIStroke")
-				st.Thickness = 3
-				st.Color = C_INK
-				st.Parent = tf
-			end
-			local pad = Instance.new("UIPadding")
-			pad.PaddingLeft = UDim.new(0, 18)
-			pad.PaddingRight = UDim.new(0, 18)
-			pad.Parent = tf
-			local lay = Instance.new("UIListLayout")
-			lay.FillDirection = Enum.FillDirection.Horizontal
-			lay.VerticalAlignment = Enum.VerticalAlignment.Center
-			lay.Padding = UDim.new(0, 8)
-			lay.SortOrder = Enum.SortOrder.LayoutOrder
-			lay.Parent = tf
-			local ic = Instance.new("ImageLabel")
-			ic.Name = "Icon"
-			ic.BackgroundTransparency = 1
-			ic.Image = T.icons.bag
-			ic.Size = UDim2.fromOffset(26, 26)
-			ic.LayoutOrder = 1
-			ic.ZIndex = tf.ZIndex + 1
-			ic.Parent = tf
-			local l = Instance.new("TextLabel")
-			l.Name = "Text"
-			l.BackgroundTransparency = 1
-			l.Font = S.Font.Shout
-			l.TextSize = 18
-			l.TextColor3 = Color3.new(1, 1, 1)
-			l.AutomaticSize = Enum.AutomaticSize.X
-			l.Size = UDim2.new(0, 0, 1, 0)
-			l.LayoutOrder = 2
-			l.ZIndex = tf.ZIndex + 1
-			l:SetAttribute("NoPolish", true)
-			l.Parent = tf
-			do
-				local st = Instance.new("UIStroke")
-				st.Thickness = 2
-				st.Color = C_INK
-				st.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-				st.Parent = l
-			end
-			return tf
-		end
-
-		local function flash(text: string, tone: string)
-			local tf = ensureToast()
-			local g = tf:FindFirstChildOfClass("UIGradient")
-			if g then
-				if tone == "error" then
-					g.Color = ColorSequence.new(Color3.fromHex("FF6B6B"), Color3.fromHex("D83E3E"))
-				elseif tone == "warn" then
-					g.Color = ColorSequence.new(Color3.fromHex("FFE066"), Color3.fromHex("E8930F"))
-				else
-					g.Color = ColorSequence.new(C_GREEN1, C_GREEN2)
-				end
-			end
-			local l = tf:FindFirstChild("Text")
-			if l and l:IsA("TextLabel") then
-				l.Text = text
-			end
-			local gen = (tonumber(tf:GetAttribute("Gen")) or 0) + 1
-			tf:SetAttribute("Gen", gen)
-			tf.Visible = true
-			tf.Position = UDim2.new(0.5, 0, 0, -60)
-			TweenService:Create(tf, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-				{ Position = UDim2.new(0.5, 0, 0, 16) }):Play()
-			task.delay(2.4, function()
-				if tf.Parent and tf:GetAttribute("Gen") == gen then
-					tf.Visible = false
-				end
-			end)
-		end
-
-		-------------------------------------------------- card pieces
-		local function lum(c: Color3): number
-			return 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B
-		end
-
-		-- 8-point sparkle badge (mutated marker). VIOLET, not gold (2026-08-17):
-		-- gold means real money in the PS99 grammar, and a gold star on most of a
-		-- rarity-sorted page read as 30 coin icons; violet is the game's
-		-- "special" family (emeralds, epics).
-		local function buildStarBadge(card: Frame, xOff: number)
-			local h = Instance.new("Frame")
-			h.Name = "StarBadge"
-			h.AnchorPoint = Vector2.new(1, 0)
-			h.Position = UDim2.new(1, xOff, 0, 4)
-			h.Size = UDim2.fromOffset(22, 22)
-			h.BackgroundTransparency = 1
-			h.ZIndex = 20
-			h.Parent = card
-			for _, r in ipairs({ 0, 45 }) do
-				local part = Instance.new("Frame")
-				part.AnchorPoint = Vector2.new(0.5, 0.5)
-				part.Position = UDim2.fromScale(0.5, 0.5)
-				part.Size = UDim2.fromOffset(13, 13)
-				part.Rotation = r
-				part.BackgroundColor3 = Color3.fromHex("C14CFF")
-				part.BorderSizePixel = 0
-				part.ZIndex = 20
-				part.Parent = h
-				UI.corner(part, 3)
-				local ps = Instance.new("UIStroke")
-				ps.Thickness = 1.5
-				ps.Color = Color3.fromHex("5E0FB8")
-				ps.Parent = part
-			end
-		end
-
-		-- pink padlock badge = the raid LOCK (2026-08-22 unified favorite). A real
-		-- button above the card hit; solid PINK when locked (matching the plot's pink
-		-- glow), revealed dim on card hover otherwise so favoriting stays reachable.
-		-- Click toggles the lock (ToggleLock, capacity-gated) -- same as right-click.
-		local function buildFavBadge(card: Frame, fav: boolean, uids: any, xOff: number): TextButton
-			local b = Instance.new("TextButton")
-			b.Name = "FavBadge"
-			b.Text = ""
-			b.AutoButtonColor = false
-			b.AnchorPoint = Vector2.new(1, 0)
-			b.Position = UDim2.new(1, xOff, 0, 4)
-			b.Size = UDim2.fromOffset(22, 22)
-			b.BackgroundColor3 = fav and Color3.fromHex("FF78C8") or Color3.fromHex("10141C")
-			b.BackgroundTransparency = fav and 0 or 0.35
-			b.BorderSizePixel = 0
-			b.Visible = fav
-			b:SetAttribute("Fav", fav)
-			b.ZIndex = 22
-			b.Parent = card
-			-- DELIBERATELY SHORT OF 44 (2026-08-25). This badge rendered 16x16 on a
-			-- phone, the worst target in the game -- but the full 44px floor is the
-			-- WRONG fix here and is not applied. Reaching 44 on screen means ~60 design
-			-- px, most of the card's own width, and on touch every badge is permanently
-			-- visible (wireCardHit reveals them, there being no hover to reveal them
-			-- with) -- so a grid of 129 of them would blanket the cards and eat the taps
-			-- meant to PLACE a brainrot, trading a bad target for a broken one. 30px
-			-- roughly doubles it and leaves the card the tappable thing on the tile.
-			-- Reaching the real minimum needs the lock moved off the tile entirely
-			-- (into the long-press tooltip); logged, not done here.
-			--
-			-- MUST come after `b.Parent` above: touchMin measures what rendered, so on
-			-- an unparented instance it has nothing to measure and returns silently.
-			UI.touchMin(b, 30)
-			UI.corner(b, 7)
-			do
-				local bs = Instance.new("UIStroke")
-				bs.Thickness = 2
-				bs.Color = fav and Color3.fromHex("C74C93") or Color3.fromHex("2C3444")
-				bs.Parent = b
-				local ink = fav and Color3.fromHex("5A1E3F") or C_PLACE
-				local lockBody = Instance.new("Frame")
-				lockBody.AnchorPoint = Vector2.new(0.5, 1)
-				lockBody.Position = UDim2.new(0.5, 0, 1, -4)
-				lockBody.Size = UDim2.fromOffset(10, 7)
-				lockBody.BackgroundColor3 = ink
-				lockBody.BorderSizePixel = 0
-				lockBody.ZIndex = 23
-				lockBody.Parent = b
-				UI.corner(lockBody, 2)
-				local shackle = Instance.new("Frame")
-				shackle.AnchorPoint = Vector2.new(0.5, 1)
-				shackle.Position = UDim2.new(0.5, 0, 1, -10)
-				shackle.Size = UDim2.fromOffset(7, 5)
-				shackle.BackgroundTransparency = 1
-				shackle.ZIndex = 23
-				shackle.Parent = b
-				UI.corner(shackle, 999)
-				local ss = Instance.new("UIStroke")
-				ss.Thickness = 2
-				ss.Color = ink
-				ss.Parent = shackle
-			end
-			b.MouseButton1Click:Connect(function()
-				-- 2026-08-22: the bag favorite IS the raid lock now -- toggle it through
-				-- ToggleLock (capacity-gated, plot-synced), not the retired ToggleFavorite.
-				local r = remotes:FindFirstChild("ToggleLock")
-				if r then r:FireServer(uids) end
-			end)
-			return b
-		end
-
-		-- The mock card: dark navy, 3px tier-coloured border, art on top,
-		-- name, tier chip pill. Count stacks get a small x-chip top-left.
-		-- `cardH` lets the equipped bay ask for its shorter, art-only card; the
-		-- inventory grid omits it and gets the full-height card with its name.
-		local function buildCard(cell: Frame, name: string, mutation: string?, size: string?, count: number, cardH: number?, splashKey: string?): Frame
-			local H = cardH or CARD_H
-			local compact = H < CARD_H
-			local tierName = infoByName[name] and infoByName[name].Rarity
-			local ramp = S.Rarity[RARITY_RAMP_KEY2[tierName] or "COM"] or S.Rarity.COM
-			local card = Instance.new("Frame")
-			card.Name = "Card"
-			card.Size = UDim2.fromScale(1, 1)
-			card.BackgroundColor3 = C_CARD
-			card.BorderSizePixel = 0
-			card.ZIndex = 15
-			card.Parent = cell
-			UI.corner(card, 14)
-			-- PS99 delta 4 (2026-08-16): an inventory-grid card (splashKey ~= nil)
-			-- loses the cell box -- plate invisible, art floats on a pastel splash
-			-- inserted FIRST so every existing child renders above it. The
-			-- equipped bay passes no splashKey and keeps its boxed look (state).
-			if splashKey then
-				card.BackgroundTransparency = 1
-				-- 21 of the 215 brainrots are pale enough to vanish into a pastel
-				-- splash (Orso Frigorifero 0.965, Inverno Eterno 0.953, Ombra
-				-- Bianca 0.953, Balena Polare 0.940 -- the tundra set). Resolving
-				-- the master here is free: BrainrotThumb caches it, and the art
-				-- call a few lines below would have built it anyway.
-				addSplash(card, splashTint(tierName, splashKey, ramp[2]), nil,
-					BrainrotThumb.isPale(BrainrotThumb.master(name)))
-			end
-			do
-				local g = Instance.new("UIGradient")
-				g.Rotation = 90
-				g.Color = ColorSequence.new(C_CARD, C_CARD2)
-				g.Parent = card
-				local st = Instance.new("UIStroke")
-				-- 2px, not 3: on the old near-black card the ring was the only thing
-				-- holding the tile together, so it had to shout. Against a light card
-				-- a saturated 2px ramp reads stronger and stops a rarity-sorted row
-				-- from looking like a fence of identical neon bars.
-				st.Thickness = 2
-				st.Color = ramp[2]
-				st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-				st.LineJoinMode = Enum.LineJoinMode.Round
-				st.Parent = card
-				if splashKey then
-					-- delta 4: border hidden, object kept. No hover/selection code
-					-- re-enables this stroke on the inventory grid (clicking IS the
-					-- action; there is no selected state on this tab) -- rarity now
-					-- lives in the hover tooltip, and Secret-family tiers keep it
-					-- via their splash tint.
-					st.Transparency = 1
-					st.Enabled = false
-				end
-			end
-
-			local art = Instance.new("Frame")
-			art.Name = "Art"
-			art.Position = UDim2.fromOffset(4, 4)
-			-- FULL-BLEED ART (2026-08-15). The name row used to reserve the bottom 22px
-			-- of every inventory card for text that truncated 90% of the time -- and
-			-- truncated from the RIGHT, while our names are mutation-first, so it
-			-- dropped the distinguishing half and left rows of "Diamond...". The art
-			-- now takes the whole card in both modes: 102 -> 124px on an inventory
-			-- card. The full name lives on hover, where it has room to wrap.
-			art.Size = UDim2.new(1, -8, 0, H - 8)
-			art.BackgroundTransparency = 1
-			art.ZIndex = 16
-			art.Parent = card
-			build3DOrSwatch(art, name, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), 17, rarityTint(T, tierName))
-
-			-- ...AND THE NUMBER YOU ACTUALLY DECIDE WITH GOES ON TOP OF IT. Sorting,
-			-- equipping and selling are all $/s decisions; the name only tells you
-			-- which meme it is. White glyphs under a heavy dark stroke (the
-			-- reference's trick) stay legible over ANY artwork -- a pale brainrot, a
-			-- near-black one, or the bare card while a model is still streaming in.
-			-- Bottom-centre, clear of the count chip (top-left) and fav lock (top-right).
-			local rate = Instance.new("TextLabel")
-			rate.Name = "Rate"
-			rate.BackgroundTransparency = 1
-			rate.Font = S.Font.Shout
-			rate.TextSize = compact and 13 or 15
-			rate.TextColor3 = Color3.new(1, 1, 1)
-			rate.Text = shortCash(valueOf(name, mutation, size)) .. "/s"
-			rate.AnchorPoint = Vector2.new(0.5, 1)
-			rate.Position = UDim2.new(0.5, 0, 1, -3)
-			rate.Size = UDim2.new(1, -8, 0, compact and 15 or 17)
-			rate.ZIndex = 19
-			rate:SetAttribute("NoPolish", true)
-			rate.Parent = card
-			do
-				local rs = Instance.new("UIStroke")
-				rs.Thickness = 2.5
-				rs.Color = Color3.fromHex("10141C")
-				rs.Parent = rate
-			end
-
-			-- NO TIER CHIP. It restated, in 10px text, exactly what the card's own 3px
-			-- tier-coloured border already says -- and it cost 25px of the card, which
-			-- is the single biggest reason our artwork was a third the size of the
-			-- reference's. The border reads far better now that the card behind it is
-			-- light, and the hover tooltip still spells the tier out in words.
-
-			if count > 1 then
-				local cc = Instance.new("TextLabel")
-				cc.Name = "CountChip"
-				cc.BackgroundColor3 = Color3.fromHex("10141C")
-				cc.BackgroundTransparency = 0.2
-				cc.Font = S.Font.Read
-				cc.TextSize = 11
-				cc.TextColor3 = Color3.new(1, 1, 1)
-				cc.Text = "x" .. count
-				cc.Position = UDim2.fromOffset(4, 4)
-				cc.AutomaticSize = Enum.AutomaticSize.X
-				cc.Size = UDim2.fromOffset(0, 18)
-				cc.BorderSizePixel = 0
-				cc.ZIndex = 20
-				cc:SetAttribute("NoPolish", true)
-				cc.Parent = card
-				UI.corner(cc, 6)
-				local ccp = Instance.new("UIPadding")
-				ccp.PaddingLeft = UDim.new(0, 6)
-				ccp.PaddingRight = UDim.new(0, 6)
-				ccp.Parent = cc
-			end
-
-			return card
-		end
-
-		-- hover lift + tooltip + click + hover-revealed fav toggle
-		-- TOUCH RELEASE-ANYWHERE GUARD (2026-08-19). MouseButton1Up/Click fire
-		-- only when the release lands OVER the button, so on a phone a finger that
-		-- slides off a card before lifting -- the ordinary scroll gesture on this
-		-- grid -- leaves that card sunk at Position(0,1) forever. ONE shared
-		-- UserInputService connection watches every release instead of paying for
-		-- a connection per card (this grid can hold hundreds).
-		local pressedCard: Frame? = nil
-		local function setPressedCard(c: Frame?)
-			pressedCard = c
-		end
-		do
-			local UIS = game:GetService("UserInputService")
-			UIS.InputEnded:Connect(function(input)
-				if input.UserInputType ~= Enum.UserInputType.Touch
-					and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-				local c = pressedCard
-				pressedCard = nil
-				if c and c.Parent then
-					TweenService:Create(c, HOVER_INFO, { Position = UDim2.fromOffset(0, 0) }):Play()
-				end
-			end)
-		end
-
-		local function wireCardHit(cell: Frame, card: Frame, tipGroup: any, favBadge: TextButton?, onClick: () -> ())
-			local hit = Instance.new("TextButton")
-			hit.Name = "Hit"
-			hit.Text = ""
-			hit.Size = UDim2.fromScale(1, 1)
-			hit.BackgroundTransparency = 1
-			hit.ZIndex = 21
-			hit.Parent = cell
-			-- press feedback (2026-08-17): the cards answered hover but not the
-			-- click itself -- a 1px sink on Down, released to whichever state the
-			-- cursor is in, same contract the rail buttons keep
-			local hovered = false
-			-- TOUCH (2026-08-19): a phone has no hover, so everything this card
-			-- revealed on MouseEnter was unreachable -- the info tooltip AND the
-			-- favourite button. Touch gets: long-press to inspect (below), and a
-			-- permanently visible fav badge (there is no hover to reveal it).
-			local isTouch = Platform.IsTouch
-			local LONG_PRESS = 0.35
-			local pressToken = 0
-			local suppressClick = false
-			if isTouch and favBadge and not favBadge:GetAttribute("Fav") then
-				favBadge.Visible = true
-			end
-			hit.MouseEnter:Connect(function()
-				hovered = true
-				cell.ZIndex = 30
-				TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, -3) }):Play()
-				if favBadge and not favBadge:GetAttribute("Fav") then
-					favBadge.Visible = true
-				end
-				if tipGroup and showCardTip and not isTouch then
-					showCardTip(tipGroup, card)
-				end
-			end)
-			hit.MouseLeave:Connect(function()
-				hovered = false
-				cell.ZIndex = 15
-				TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, 0) }):Play()
-				if favBadge and not favBadge:GetAttribute("Fav") and not isTouch then
-					favBadge.Visible = false
-				end
-				if hideCardTip and not isTouch then
-					hideCardTip()
-				end
-			end)
-			hit.MouseButton1Down:Connect(function()
-				TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, 1) }):Play()
-				if not isTouch then return end
-				-- long-press = inspect. Held past LONG_PRESS the tip opens and the
-				-- release is swallowed, so inspecting never also places the item.
-				--
-				-- EVERY press starts from a clean slate. MouseButton1Up/Click only
-				-- fire when the release happens OVER the button, so a finger that
-				-- slides off mid-press -- i.e. the ordinary scroll gesture on this
-				-- grid -- never clears state set here. Left latched, `suppressClick`
-				-- would swallow the NEXT genuine tap. Reset on the way in, and let
-				-- the release-anywhere guard below un-sink the card.
-				suppressClick = false
-				pressToken += 1
-				local myToken = pressToken
-				if hideCardTip then hideCardTip() end
-				setPressedCard(card)
-				task.delay(LONG_PRESS, function()
-					if myToken ~= pressToken or not card.Parent then return end
-					suppressClick = true
-					-- the press has been consumed by the inspect: settle the card back
-					-- to rest so it does not sit sunk while the tip is up
-					TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, 0) }):Play()
-					if tipGroup and showCardTip then showCardTip(tipGroup, card) end
-				end)
-			end)
-			hit.MouseButton1Up:Connect(function()
-				TweenService:Create(card, HOVER_INFO, { Position = UDim2.fromOffset(0, hovered and -3 or 0) }):Play()
-				if isTouch then
-					pressToken += 1 -- cancel any pending long-press
-					setPressedCard(nil)
-				end
-			end)
-			hit.MouseButton1Click:Connect(function()
-				if suppressClick then
-					-- this release ended an inspect long-press: leave the tip up and
-					-- do NOT run the card's action
-					suppressClick = false
-					return
-				end
-				if hideCardTip then
-					hideCardTip()
-				end
-				onClick()
-			end)
-			-- RIGHT-CLICK = toggle the RAID LOCK (2026-08-20). Fires ToggleLock with the
-			-- whole stack's uids; the server caps it against the Padlock upgrade, pink-
-			-- glows the placed copies and re-pushes so the bag repaints.
-			hit.MouseButton2Click:Connect(function()
-				if hideCardTip then hideCardTip() end
-				local r = remotes:FindFirstChild("ToggleLock")
-				if r and tipGroup and tipGroup.uids then
-					r:FireServer(tipGroup.uids)
-				end
-			end)
-		end
+		-- (round 2: the in-panel BagToast/flash, the light buildCard, its fav/star badges
+		-- and wireCardHit were retired here -- every card in this tab is the kit's
+		-- BrainrotCard now, and every notice goes through UIKit.Toast.)
 
 		local function buildWell(y: number, h: number): Frame
 			local w = Instance.new("Frame")
@@ -2896,18 +2479,37 @@ function BackpackPanel.Build(ctx)
 
 			local unlocked = spot <= plotState.Unlocked
 			if entry then
-				local card = buildCard(cell, entry.Name, entry.Mutation, entry.Size, 1, EQ_H)
-				local xOff = -4
-				local favB = buildFavBadge(card, entry.Fav == true, { entry.Uid }, xOff)
-				xOff -= 26
-				if entry.Mutation then
-					buildStarBadge(card, xOff)
-				end
+				-- round 2: the kit's COMPACT card on the pad (the old light buildCard is
+				-- retired). Mounted straight away -- there are at most 16 and the fold-out
+				-- is closed by default, so this never competes with the grid's culler cap
+				-- on a phone unless the player opens the plot on purpose.
+				local info = infoByName[entry.Name]
+				local card = BrainrotCard.new({
+					kind = "brainrot", name = entry.Name,
+					rarity = (info and info.Rarity) or "Common",
+					income = valueOf(entry.Name, entry.Mutation, entry.Size),
+					mutation = entry.Mutation,
+					mutationColor = if entry.Mutation then Mutations.Color(entry.Mutation) else nil,
+					sizeTag = entry.Size,
+					-- no lock TOGGLE on a pad card (the grid card carries it): the pad number is
+					-- what this view is for, and a locked pad still shows its (inert) padlock
+					state = { equipped = entry.PadIndex or true, locked = entry.Fav == true },
+					variant = "compact", parent = cell, zIndex = 15, instanceName = "PadCard" .. spot,
+				})
 				local tipGroup = { Name = entry.Name, Mutation = entry.Mutation, Size = entry.Size,
 					Fav = entry.Fav, count = 1, uids = { entry.Uid }, PadIndex = entry.PadIndex }
-				wireCardHit(cell, card, tipGroup, favB, function()
+				card.Activated:Connect(function()
+					if hideCardTip then hideCardTip() end
 					remotes.StoreBrainrot:FireServer(entry.Uid)
 				end)
+				card.HoverStart:Connect(function()
+					if showCardTip then showCardTip(tipGroup, card.root) end
+				end)
+				card.HoverEnd:Connect(function()
+					if hideCardTip then hideCardTip() end
+				end)
+				card.mount()
+				gridUi.bayCards[#gridUi.bayCards + 1] = card
 			elseif unlocked then
 				-- delta 8 (2026-08-16): EMPTY equip slot = white tile + one
 				-- large charcoal '+' -- the shared empty-equip glyph (the
@@ -3065,20 +2667,23 @@ function BackpackPanel.Build(ctx)
 				if enabled and price then
 					btn.MouseButton1Click:Connect(function()
 						if plotState.Cash < price then
-							flash("NOT ENOUGH COINS", "error")
+							Toast.show({ text = "NOT ENOUGH COINS", tone = "error" })
 							return
 						end
 						local r = remotes:FindFirstChild("BuyPlotSpot")
 						if r then
 							r:FireServer()
-							flash("SLOT UNLOCKED", "success")
+							Toast.show({ text = "SLOT UNLOCKED", tone = "success" })
 						end
 					end)
 				end
 			end
 		end
 
-		-------------------------------------------------- EQUIPPED BAY
+		-------------------------------------------------- EQUIPPED STRIP + fold-out PLOT (round 2)
+		-- One 40px strip: EQUIPPED n/m chip, plot income, locked-pad count on the
+		-- left; SHOW/HIDE PLOT and UNEQUIP ALL on the right. Every control sits in a
+		-- FIXED slot so the kit buttons' hover growth never reflows its neighbours.
 		local bay = buildWell(0, BAY_H)
 		bay.Name = "EquippedBay"
 
@@ -3101,123 +2706,81 @@ function BackpackPanel.Build(ctx)
 			local ll = Instance.new("UIListLayout")
 			ll.FillDirection = Enum.FillDirection.Horizontal
 			ll.VerticalAlignment = Enum.VerticalAlignment.Center
-			ll.Padding = UDim.new(0, 12)
+			ll.Padding = UDim.new(0, 10)
 			ll.SortOrder = Enum.SortOrder.LayoutOrder
 			ll.Parent = headLeft
 		end
 
-		local chip = Instance.new("Frame")
-		chip.Name = "EquippedChip"
-		chip.AutomaticSize = Enum.AutomaticSize.X
-		chip.Size = UDim2.fromOffset(0, 32)
-		chip.LayoutOrder = 1
-		chip.BackgroundColor3 = C_GREEN1
-		chip.BorderSizePixel = 0
-		chip.ZIndex = 16
-		chip.Parent = headLeft
-		UI.corner(chip, 10)
-		do
+		-- a self-sizing shout pill on a role ramp: EQUIPPED 16/16 (green), N LOCKED (grey)
+		local function stripPill(parent: Instance, order: number, name: string, text: string, ramp: { Color3 }, h: number, textSize: number): Frame
+			local f = Instance.new("Frame")
+			f.Name = name
+			f.BackgroundColor3 = ramp[1]
+			f.BorderSizePixel = 0
+			f.AutomaticSize = Enum.AutomaticSize.X
+			f.Size = UDim2.fromOffset(0, h)
+			f.LayoutOrder = order
+			f.ZIndex = 16
+			f.Parent = parent
+			UI.corner(f, math.floor(h / 2))
 			local g = Instance.new("UIGradient")
 			g.Rotation = 90
-			g.Color = ColorSequence.new(C_GREEN1, C_GREEN2)
-			g.Parent = chip
+			g.Color = ColorSequence.new(ramp[1], ramp[2])
+			g.Parent = f
 			local st = Instance.new("UIStroke")
 			st.Thickness = 2
-			st.Color = Color3.fromHex("1E5C12")
-			st.Parent = chip
-			local cp = Instance.new("UIPadding")
-			cp.PaddingLeft = UDim.new(0, 14)
-			cp.PaddingRight = UDim.new(0, 14)
-			cp.Parent = chip
-			local cl = Instance.new("TextLabel")
-			cl.Name = "Label"
-			cl.BackgroundTransparency = 1
-			cl.Font = S.Font.Shout
-			cl.TextSize = 15
-			cl.TextColor3 = Color3.new(1, 1, 1)
-			cl.Text = "EQUIPPED"
-			cl.AutomaticSize = Enum.AutomaticSize.X
-			cl.Size = UDim2.new(0, 0, 1, 0)
-			cl.ZIndex = 17
-			cl:SetAttribute("NoPolish", true)
-			cl.Parent = chip
-			local cs = Instance.new("UIStroke")
-			cs.Thickness = 2
-			cs.Color = C_INK
-			cs.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-			cs.Parent = cl
+			st.Color = S.Outline
+			st.Parent = f
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft = UDim.new(0, 12)
+			pad.PaddingRight = UDim.new(0, 12)
+			pad.Parent = f
+			local lum = ramp[1].R * 0.299 + ramp[1].G * 0.587 + ramp[1].B * 0.114
+			local l = PC.shout({
+				name = "Label", text = text, size = textSize,
+				color = if lum > 0.82 then S.Surface.ReadInk else Color3.new(1, 1, 1),
+				strokeColor = if lum > 0.82 then Color3.new(1, 1, 1) else nil,
+				frameSize = UDim2.new(0, 0, 1, 0), zIndex = 17, parent = f,
+			})
+			l.AutomaticSize = Enum.AutomaticSize.X
+			return f
 		end
 
-		local filledWrap = Instance.new("Frame")
-		filledWrap.Name = "Filled"
-		filledWrap.BackgroundTransparency = 1
-		filledWrap.AutomaticSize = Enum.AutomaticSize.X
-		filledWrap.Size = UDim2.new(0, 0, 1, 0)
-		filledWrap.LayoutOrder = 2
-		filledWrap.ZIndex = 15
-		filledWrap.Parent = headLeft
+		stripPill(headLeft, 1, "EquippedChip", ("EQUIPPED  %d / %d"):format(#placedEntries, plotState.Unlocked), S.Role.Positive, CTRL_H - 2, CTRL_TEXT + 1)
+
+		local totalPill = darkPill(headLeft, CTRL_H - 2)
+		totalPill.Name = "TotalPill"
+		totalPill.LayoutOrder = 2
 		do
-			local fl = Instance.new("UIListLayout")
-			fl.FillDirection = Enum.FillDirection.Horizontal
-			fl.VerticalAlignment = Enum.VerticalAlignment.Center
-			fl.Padding = UDim.new(0, 8)
-			fl.SortOrder = Enum.SortOrder.LayoutOrder
-			fl.Parent = filledWrap
-			local cnt = Instance.new("TextLabel")
-			cnt.Name = "Count"
-			cnt.BackgroundTransparency = 1
-			cnt.Font = S.Font.Read
-			cnt.TextSize = 20
-			cnt.TextColor3 = C_GREENTEXT
-			cnt.Text = #placedEntries .. " / " .. plotState.Unlocked
-			cnt.AutomaticSize = Enum.AutomaticSize.X
-			cnt.Size = UDim2.new(0, 0, 1, 0)
-			cnt.LayoutOrder = 1
-			cnt.ZIndex = 16
-			cnt:SetAttribute("NoPolish", true)
-			cnt.Parent = filledWrap
-			local cap = Instance.new("TextLabel")
-			cap.Name = "Caption"
-			cap.BackgroundTransparency = 1
-			cap.Font = S.Font.Read
-			cap.TextSize = 13
-			cap.TextColor3 = C_SUB
-			cap.Text = "SLOTS FILLED"
-			cap.AutomaticSize = Enum.AutomaticSize.X
-			cap.Size = UDim2.new(0, 0, 1, 0)
-			cap.LayoutOrder = 2
-			cap.ZIndex = 16
-			cap:SetAttribute("NoPolish", true)
-			cap.Parent = filledWrap
+			local tp = Instance.new("UIPadding")
+			tp.PaddingLeft = UDim.new(0, 8)
+			tp.PaddingRight = UDim.new(0, 12)
+			tp.Parent = totalPill
+			local tl = Instance.new("UIListLayout")
+			tl.FillDirection = Enum.FillDirection.Horizontal
+			tl.VerticalAlignment = Enum.VerticalAlignment.Center
+			tl.Padding = UDim.new(0, 6)
+			tl.SortOrder = Enum.SortOrder.LayoutOrder
+			tl.Parent = totalPill
+			local tcoin = Instance.new("ImageLabel")
+			tcoin.Name = "Coin"
+			tcoin.BackgroundTransparency = 1
+			tcoin.Image = T.icons.coin
+			tcoin.Size = UDim2.fromOffset(22, 22)
+			tcoin.LayoutOrder = 1
+			tcoin.ZIndex = 16
+			tcoin.Parent = totalPill
+			local tv = PC.shout({
+				name = "Value", text = shortCash(plotIncome) .. "/s", size = CTRL_TEXT + 1,
+				color = Color3.fromHex("8A5A00"), strokeColor = Color3.new(1, 1, 1),
+				frameSize = UDim2.new(0, 0, 1, 0), zIndex = 16, parent = totalPill,
+			})
+			tv.LayoutOrder = 2
+			tv.AutomaticSize = Enum.AutomaticSize.X
 		end
 
 		if lockedCount > 0 then
-			local lockPill = darkPill(headLeft, 26)
-			lockPill.Name = "LockedPill"
-			lockPill.LayoutOrder = 3
-			do
-				local st = lockPill:FindFirstChildOfClass("UIStroke")
-				if st then
-					st.Color = C_GOLD
-					st.Transparency = 0.5
-				end
-				local lp = Instance.new("UIPadding")
-				lp.PaddingLeft = UDim.new(0, 10)
-				lp.PaddingRight = UDim.new(0, 10)
-				lp.Parent = lockPill
-				local ll = Instance.new("TextLabel")
-				ll.Name = "Label"
-				ll.BackgroundTransparency = 1
-				ll.Font = S.Font.Read
-				ll.TextSize = 12
-				ll.TextColor3 = C_GOLD
-				ll.Text = lockedCount .. " LOCKED"
-				ll.AutomaticSize = Enum.AutomaticSize.X
-				ll.Size = UDim2.new(0, 0, 1, 0)
-				ll.ZIndex = 16
-				ll:SetAttribute("NoPolish", true)
-				ll.Parent = lockPill
-			end
+			stripPill(headLeft, 3, "LockedPill", lockedCount .. " LOCKED", S.Role.Disabled, CTRL_H - 6, CTRL_TEXT - 2)
 		end
 
 		local headRight = Instance.new("Frame")
@@ -3234,105 +2797,54 @@ function BackpackPanel.Build(ctx)
 			rl.FillDirection = Enum.FillDirection.Horizontal
 			rl.HorizontalAlignment = Enum.HorizontalAlignment.Right
 			rl.VerticalAlignment = Enum.VerticalAlignment.Center
-			rl.Padding = UDim.new(0, 12)
+			rl.Padding = UDim.new(0, 10)
 			rl.SortOrder = Enum.SortOrder.LayoutOrder
 			rl.Parent = headRight
 		end
 
-		local totalPill = darkPill(headRight, 36)
-		totalPill.Name = "TotalPill"
-		totalPill.LayoutOrder = 1
-		do
-			local tp = Instance.new("UIPadding")
-			tp.PaddingLeft = UDim.new(0, 8)
-			tp.PaddingRight = UDim.new(0, 14)
-			tp.Parent = totalPill
-			local tl = Instance.new("UIListLayout")
-			tl.FillDirection = Enum.FillDirection.Horizontal
-			tl.VerticalAlignment = Enum.VerticalAlignment.Center
-			tl.Padding = UDim.new(0, 8)
-			tl.SortOrder = Enum.SortOrder.LayoutOrder
-			tl.Parent = totalPill
-			local tcoin = Instance.new("ImageLabel")
-			tcoin.Name = "Coin"
-			tcoin.BackgroundTransparency = 1
-			tcoin.Image = T.icons.coin
-			tcoin.Size = UDim2.fromOffset(24, 24)
-			tcoin.LayoutOrder = 1
-			tcoin.ZIndex = 16
-			tcoin.Parent = totalPill
-			local tm = Instance.new("TextLabel")
-			tm.Name = "Caption"
-			tm.BackgroundTransparency = 1
-			tm.Font = S.Font.Read
-			tm.TextSize = 13
-			tm.TextColor3 = C_SUB
-			tm.Text = "TOTAL"
-			tm.AutomaticSize = Enum.AutomaticSize.X
-			tm.Size = UDim2.new(0, 0, 1, 0)
-			tm.LayoutOrder = 2
-			tm.ZIndex = 16
-			tm:SetAttribute("NoPolish", true)
-			tm.Parent = totalPill
-			local tv = Instance.new("TextLabel")
-			tv.Name = "Value"
-			tv.BackgroundTransparency = 1
-			tv.Font = S.Font.Read
-			tv.TextSize = 18
-			tv.TextColor3 = C_GOLD
-			tv.Text = shortCash(plotIncome) .. "/s"
-			tv.AutomaticSize = Enum.AutomaticSize.X
-			tv.Size = UDim2.new(0, 0, 1, 0)
-			tv.LayoutOrder = 3
-			tv.ZIndex = 16
-			tv:SetAttribute("NoPolish", true)
-			tv.Parent = totalPill
+		-- fixed slot + kit button: PC.button's hover tween moves Size, and a bare
+		-- button in a UIListLayout would shove its neighbours on every hover
+		local function slotButton(parent: Instance, order: number, w: number, kind: string, text: string, name: string, onActivated: () -> ()): TextButton
+			local slot = Instance.new("Frame")
+			slot.Name = name .. "Slot"
+			slot.BackgroundTransparency = 1
+			slot.Size = UDim2.fromOffset(w, CTRL_H)
+			slot.LayoutOrder = order
+			slot.ZIndex = 15
+			slot.Parent = parent
+			return PC.button({
+				kind = kind, text = text, name = name,
+				size = UDim2.fromOffset(w, CTRL_H), textSize = CTRL_TEXT, radius = 12, outline = 2,
+				zIndex = 16, parent = slot, onActivated = onActivated,
+			})
 		end
 
-		local unequipSlot = Instance.new("Frame")
-		unequipSlot.Name = "UnequipSlot"
-		unequipSlot.BackgroundTransparency = 1
-		unequipSlot.Size = UDim2.fromOffset(130, 36)
-		unequipSlot.LayoutOrder = 2
-		unequipSlot.ZIndex = 15
-		unequipSlot.Parent = headRight
-		local unequipBtn = flatButton(unequipSlot, "UNEQUIP ALL", 130, 36, false, true)
-		unequipBtn.Name = "UnequipAll"
-		unequipBtn.MouseButton1Click:Connect(function()
+		-- The fold control: renderBrainrots() is the same self-re-render the sorts
+		-- use, and the flag lives on ctx.state.backpack so the choice survives
+		-- closing the panel, exactly like the selected tab does.
+		slotButton(headRight, 1, if PHONE then 140 else 118, "secondary", if bayCollapsed then "SHOW PLOT" else "HIDE PLOT", "BayToggle", function()
+			ctx.state.backpack.bayCollapsed = not bayCollapsed
+			renderBrainrots()
+		end)
+		local unequipBtn = slotButton(headRight, 2, if PHONE then 160 else 130, "destructive", "UNEQUIP ALL", "UnequipAll", function()
 			for _, e in ipairs(placedEntries) do
 				remotes.StoreBrainrot:FireServer(e.Uid)
 			end
 		end)
-
-		-- The fold control sits in the bay header; LayoutOrder 0 puts it left of the
-		-- EQUIPPED chip, and it reuses flatButton so it matches every other pill in
-		-- the panel. Collapsing hands 184px straight to the inventory, taking its
-		-- scroll viewport from 1.3 rows to 2.6 -- 8 fully visible tiles to 16.
-		-- renderBrainrots() is the same self-re-render the sort pills already use,
-		-- and the flag lives on ctx.state.backpack so the choice survives closing
-		-- the panel, exactly like the selected tab does.
-		do
-			local tog = flatButton(headLeft, if bayCollapsed then "SHOW PLOT" else "HIDE PLOT", 112, 32, false)
-			tog.Name = "BayToggle"
-			tog.LayoutOrder = 0
-			tog.MouseButton1Click:Connect(function()
-				ctx.state.backpack.bayCollapsed = not bayCollapsed
-				renderBrainrots()
-			end)
-		end
+		if #placedEntries == 0 then PC.setEnabled(unequipBtn, false) end
 
 		if not bayCollapsed then
 			local bayGrid = Instance.new("Frame")
 			bayGrid.Name = "BayGrid"
 			bayGrid.AnchorPoint = Vector2.new(0.5, 0)
 			bayGrid.Position = UDim2.new(0.5, 0, 0, WELL_PAD + HEAD_H + 8)
-			bayGrid.Size = UDim2.fromOffset(GRIDW, EQ_H * 2 + CARD_GAP)
+			bayGrid.Size = UDim2.fromOffset(PADGRID_W, EQ_H * 2 + CARD_GAP)
 			bayGrid.BackgroundTransparency = 1
 			bayGrid.ZIndex = 15
 			bayGrid.Parent = bay
 			do
 				local bgl = Instance.new("UIGridLayout")
-				bgl.CellSize = UDim2.fromOffset(CARD_W, EQ_H)
+				bgl.CellSize = UDim2.fromOffset(PAD_W, EQ_H)
 				bgl.CellPadding = UDim2.fromOffset(CARD_GAP, CARD_GAP)
 				bgl.SortOrder = Enum.SortOrder.LayoutOrder
 				bgl.Parent = bayGrid
@@ -3342,7 +2854,9 @@ function BackpackPanel.Build(ctx)
 			end
 		end
 
-		-------------------------------------------------- INVENTORY
+		-------------------------------------------------- INVENTORY header (round 2)
+		-- YOUR BRAINROTS + "shown / owned" on the left; SEARCH and the three sorts on
+		-- the right -- the handoff's inventory controls, on one row above the grid.
 		local invHead = Instance.new("Frame")
 		invHead.Name = "InventoryHeader"
 		invHead.Position = UDim2.fromOffset(0, BAY_H + SECTION_GAP)
@@ -3362,35 +2876,22 @@ function BackpackPanel.Build(ctx)
 			local il = Instance.new("UIListLayout")
 			il.FillDirection = Enum.FillDirection.Horizontal
 			il.VerticalAlignment = Enum.VerticalAlignment.Center
-			il.Padding = UDim.new(0, 12)
+			il.Padding = UDim.new(0, 10)
 			il.SortOrder = Enum.SortOrder.LayoutOrder
 			il.Parent = invLeft
-			local title = Instance.new("TextLabel")
-			title.Name = "Title"
-			title.BackgroundTransparency = 1
-			title.Font = S.Font.Shout
-			title.TextSize = 22
-			-- INVENTORY sits on the panel BODY, which SpecTheme now paints pale cool
-		-- (#F5F8FC) -- white here was invisible the moment the wells went light.
-		title.TextColor3 = Color3.fromHex("33414F")
-			title.Text = "INVENTORY"
-			title.AutomaticSize = Enum.AutomaticSize.X
-			title.Size = UDim2.new(0, 0, 1, 0)
+			local title = PC.shout({
+				name = "Title", text = "YOUR BRAINROTS", size = if PHONE then 26 else 22,
+				color = S.Surface.ReadInk, strokeColor = Color3.new(1, 1, 1),
+				frameSize = UDim2.new(0, 0, 1, 0), zIndex = 15, parent = invLeft,
+			})
 			title.LayoutOrder = 1
-			title.ZIndex = 15
-			title:SetAttribute("NoPolish", true)
-			title.Parent = invLeft
-			local ts = Instance.new("UIStroke")
-			ts.Thickness = 2
-			ts.Color = C_INK
-			ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-			ts.Parent = title
+			title.AutomaticSize = Enum.AutomaticSize.X
 		end
 		local bagCount = Instance.new("TextLabel")
 		bagCount.Name = "OwnedCount"
 		bagCount.BackgroundTransparency = 1
 		bagCount.Font = S.Font.Read
-		bagCount.TextSize = 14
+		bagCount.TextSize = if PHONE then 18 else 15
 		bagCount.TextColor3 = C_SUB
 		bagCount.Text = ""
 		bagCount.AutomaticSize = Enum.AutomaticSize.X
@@ -3400,48 +2901,37 @@ function BackpackPanel.Build(ctx)
 		bagCount:SetAttribute("NoPolish", true)
 		bagCount.Parent = invLeft
 
-		local SORT_W, SORT_GAP2 = 96, 8
-		local sorts = Instance.new("Frame")
-		sorts.Name = "SortButtons"
-		sorts.AnchorPoint = Vector2.new(1, 0.5)
-		sorts.Position = UDim2.new(1, 0, 0.5, 0)
-		sorts.Size = UDim2.fromOffset(3 * SORT_W + 2 * SORT_GAP2, 36)
-		sorts.BackgroundTransparency = 1
-		sorts.ZIndex = 14
-		sorts.Parent = invHead
-		-- 2026-09-18 UI foundation: the kit's SortButton (blue active / grey rest)
-		-- at the row's 36px height; SORT_MODES/SORT_LABEL still name the modes.
-		-- Inline table on purpose: no new local in this already-crowded scope.
-		SortButton.new({
-			modes = {
-				{ id = SORT_MODES[1], label = SORT_LABEL[SORT_MODES[1]] },
-				{ id = SORT_MODES[2], label = SORT_LABEL[SORT_MODES[2]] },
-				{ id = SORT_MODES[3], label = SORT_LABEL[SORT_MODES[3]] },
-			},
-			selected = sortMode, height = 36,
-			width = 3 * SORT_W + 2 * SORT_GAP2, parent = sorts, zIndex = 15,
-			onChanged = function(id)
-				if sortMode ~= id then
-					sortMode = id
-					renderBrainrots()
-				end
-			end,
-		})
+		local invRight = Instance.new("Frame")
+		invRight.Name = "Right"
+		invRight.BackgroundTransparency = 1
+		invRight.AnchorPoint = Vector2.new(1, 0)
+		invRight.Position = UDim2.new(1, 0, 0, 0)
+		invRight.AutomaticSize = Enum.AutomaticSize.X
+		invRight.Size = UDim2.new(0, 0, 1, 0)
+		invRight.ZIndex = 14
+		invRight.Parent = invHead
+		do
+			local rl = Instance.new("UIListLayout")
+			rl.FillDirection = Enum.FillDirection.Horizontal
+			rl.HorizontalAlignment = Enum.HorizontalAlignment.Right
+			rl.VerticalAlignment = Enum.VerticalAlignment.Center
+			rl.Padding = UDim.new(0, 10)
+			rl.SortOrder = Enum.SortOrder.LayoutOrder
+			rl.Parent = invRight
+		end
 
-		-- SEARCH LIVES IN THE TOP ROW (user, 2026-08-14: "move the search to the top
-		-- like theirs"). The reference parks it top-right beside the close button,
-		-- above everything; ours was buried in the middle of the panel, in the
-		-- INVENTORY header between the equipped bay and the grid, which is the last
-		-- place you look. headRight is the bay header's right-aligned list, so
-		-- LayoutOrder 0 puts search leftmost in that group -- ahead of TOTAL and
-		-- UNEQUIP ALL -- and it costs ZERO extra height because that row already
-		-- exists. It also survives collapsing the plot, since the header stays.
-		local SEARCH_W = 220   -- 280 crowded TOTAL and UNEQUIP ALL out of the row
-		-- 2026-09-18 UI foundation: the kit's SearchBar (same 36px row, same
-		-- headRight slot, same searchQuery). fillBag is defined below, so the
-		-- handler reaches it through gridUi.fill (assigned once fillBag exists).
+		-- the kit's SearchBar, in its own fixed slot; fillBag is defined below, so the
+		-- handler reaches it through gridUi.fill (assigned once fillBag exists)
+		local SEARCH_W = if PHONE then 190 else 210
+		local searchSlot = Instance.new("Frame")
+		searchSlot.Name = "SearchSlot"
+		searchSlot.BackgroundTransparency = 1
+		searchSlot.Size = UDim2.fromOffset(SEARCH_W, CTRL_H)
+		searchSlot.LayoutOrder = 1
+		searchSlot.ZIndex = 14
+		searchSlot.Parent = invRight
 		local search = SearchBar.new({
-			placeholder = "SEARCH...", width = SEARCH_W, height = 36, parent = headRight, zIndex = 15, layoutOrder = 0,
+			placeholder = "SEARCH...", width = SEARCH_W, height = CTRL_H, parent = searchSlot, zIndex = 15,
 			onChanged = function(q)
 				if q == searchQuery then return end -- set() re-emits the same query on every re-render
 				searchQuery = q
@@ -3449,6 +2939,32 @@ function BackpackPanel.Build(ctx)
 			end,
 		})
 		search.set(searchQuery)
+
+		local SORT_W, SORT_GAP2 = if PHONE then 104 else 88, 8
+		local sorts = Instance.new("Frame")
+		sorts.Name = "SortButtons"
+		sorts.Size = UDim2.fromOffset(3 * SORT_W + 2 * SORT_GAP2, CTRL_H)
+		sorts.BackgroundTransparency = 1
+		sorts.LayoutOrder = 2
+		sorts.ZIndex = 14
+		sorts.Parent = invRight
+		-- the kit's SortButton (blue active / grey rest); SORT_MODES/SORT_LABEL still
+		-- name the modes. Inline table on purpose: no new local in this scope.
+		SortButton.new({
+			modes = {
+				{ id = SORT_MODES[1], label = SORT_LABEL[SORT_MODES[1]] },
+				{ id = SORT_MODES[2], label = SORT_LABEL[SORT_MODES[2]] },
+				{ id = SORT_MODES[3], label = SORT_LABEL[SORT_MODES[3]] },
+			},
+			selected = sortMode, height = CTRL_H,
+			width = 3 * SORT_W + 2 * SORT_GAP2, parent = sorts, zIndex = 15,
+			onChanged = function(id)
+				if sortMode ~= id then
+					sortMode = id
+					if gridUi.fill then gridUi.fill() end
+				end
+			end,
+		})
 
 		local subY = BAY_H + SECTION_GAP + INV_HEAD_H + SECTION_GAP
 		local sub = buildWell(subY, CONTENT_H - subY)
@@ -3480,13 +2996,74 @@ function BackpackPanel.Build(ctx)
 			gl.Parent = scroll
 		end
 
+		-- Empty state (round 2): the bag sticker, a headline and one line of help,
+		-- instead of a lone 14px sentence lost in the well.
+		local function buildInventoryEmpty(headline: string, help: string)
+			local es = Instance.new("Frame")
+			es.Name = "EmptyState"
+			es.BackgroundTransparency = 1
+			es.AnchorPoint = Vector2.new(0.5, 0.5)
+			es.Position = UDim2.fromScale(0.5, 0.5)
+			es.Size = UDim2.new(1, -40, 0, 150)
+			es.ZIndex = 15
+			es.Parent = sub
+			local icon = Instance.new("ImageLabel")
+			icon.Name = "Icon"
+			icon.BackgroundTransparency = 1
+			icon.Image = T.icons.bag
+			icon.ImageTransparency = 0.35
+			icon.ScaleType = Enum.ScaleType.Fit
+			icon.AnchorPoint = Vector2.new(0.5, 0)
+			icon.Position = UDim2.new(0.5, 0, 0, 0)
+			icon.Size = UDim2.fromOffset(72, 72)
+			icon.ZIndex = 16
+			icon.Parent = es
+			PC.shout({
+				name = "Headline", text = headline, size = 24, color = S.Surface.ReadInk, strokeColor = Color3.new(1, 1, 1),
+				frameSize = UDim2.new(1, 0, 0, 30), position = UDim2.fromOffset(0, 82), zIndex = 16, parent = es,
+			})
+			PC.read({
+				name = "Help", text = help, size = 17, color = C_SUB, align = Enum.TextXAlignment.Center,
+				frameSize = UDim2.new(1, 0, 0, 24), position = UDim2.fromOffset(0, 116), zIndex = 16, parent = es,
+			})
+		end
+
+		-- A save entry naming a brainrot no roster knows (retired tundra placeholders such
+		-- as "Nevito Lupetto" / "Gelatini Renna", 2026-09-18): it still renders as a card
+		-- so the player can see and store/sell it, but it is TAGGED rather than passed
+		-- off as a silent Common earning $0/s. The real fix is a load-time migration in
+		-- PlayerDataManager; this only stops the UI hiding the symptom.
+		local function markRetired(card)
+			local tag = Instance.new("Frame")
+			tag.Name = "RetiredTag"
+			tag.BackgroundColor3 = S.Role.Destructive[2]
+			tag.BorderSizePixel = 0
+			tag.AnchorPoint = Vector2.new(0.5, 0)
+			tag.Position = UDim2.new(0.5, 0, 0, 8)
+			tag.Size = UDim2.fromOffset(0, 16)
+			tag.AutomaticSize = Enum.AutomaticSize.X
+			tag.ZIndex = card.plate.ZIndex + 8
+			tag.Parent = card.plate
+			UI.corner(tag, 5)
+			local tp = Instance.new("UIPadding")
+			tp.PaddingLeft = UDim.new(0, 5)
+			tp.PaddingRight = UDim.new(0, 5)
+			tp.Parent = tag
+			local l = PC.shout({ name = "Label", text = "RETIRED", size = 11, frameSize = UDim2.new(0, 0, 1, 0), zIndex = tag.ZIndex + 1, parent = tag })
+			l.AutomaticSize = Enum.AutomaticSize.X
+		end
+
 		-- fillBag rebuilds only the cells, so search typing keeps its focus.
-		-- 2026-09-18 UI foundation (spec §9): ONE BrainrotCard PER UID -- no stacking
-		-- in the grid (mutation, size, lock and serial can all differ; the Sell panel
-		-- keeps its own stacks) -- on a ViewportCuller so only the visible window
-		-- holds live ViewportFrames. The legacy `Fav` save flag is normalised to the
-		-- card's `locked` state here and nowhere else.
+		-- ONE BrainrotCard PER UID -- no stacking in the grid (mutation, size, lock and
+		-- serial can all differ; the Sell panel keeps its own stacks) -- on a
+		-- ViewportCuller so only the visible window holds live ViewportFrames. The
+		-- legacy `Fav` save flag is normalised to the card's `locked` state here and
+		-- nowhere else. Round 2: the grid is the WHOLE collection (allBrainrots) --
+		-- placed entries wear the equipped badge and click to STORE; bench entries
+		-- click to EQUIP, or open the replace picker when the plot is full.
 		local function fillBag()
+			gridUi.gen += 1
+			local myGen = gridUi.gen
 			if gridUi.culler then gridUi.culler.detach() gridUi.culler = nil end
 			for _, c in ipairs(gridUi.cards) do c.destroy() end
 			gridUi.cards = {}
@@ -3495,18 +3072,20 @@ function BackpackPanel.Build(ctx)
 					c:Destroy()
 				end
 			end
-			local oldMsg = sub:FindFirstChild("EmptyMsg")
+			local oldMsg = sub:FindFirstChild("EmptyState")
 			if oldMsg then
 				oldMsg:Destroy()
 			end
 
 			local q = searchQuery:lower():gsub("^%s+", ""):gsub("%s+$", "")
 			local bag = {}
-			for _, e in ipairs(ownedBrainrots) do
+			for _, e in ipairs(allBrainrots) do
 				if q == ""
 					or e.Name:lower():find(q, 1, true) ~= nil
 					or (e.Mutation ~= nil and e.Mutation:lower():find(q, 1, true) ~= nil)
 					or (e.Size ~= nil and e.Size:lower():find(q, 1, true) ~= nil)
+					or (q == "equipped" and e.PadIndex ~= nil)
+					or (q == "locked" and e.Fav == true)
 				then
 					bag[#bag + 1] = e
 				end
@@ -3520,11 +3099,13 @@ function BackpackPanel.Build(ctx)
 					if rx ~= ry then
 						return rx > ry
 					end
-					return valueOf(x.Name, x.Mutation, x.Size) > valueOf(y.Name, y.Mutation, y.Size)
+					local vx, vy = valueOf(x.Name, x.Mutation, x.Size), valueOf(y.Name, y.Mutation, y.Size)
+					if vx ~= vy then return vx > vy end
+					return tostring(x.Uid) < tostring(y.Uid) -- deterministic: table.sort is not stable
 				end)
 			elseif sortMode == "newest" then
 				local pos = {}
-				for i, e in ipairs(ownedBrainrots) do
+				for i, e in ipairs(allBrainrots) do
 					pos[e.Uid] = i
 				end
 				table.sort(bag, function(x, y)
@@ -3535,31 +3116,25 @@ function BackpackPanel.Build(ctx)
 					if x.Name ~= y.Name then
 						return x.Name < y.Name
 					end
-					return valueOf(x.Name, x.Mutation, x.Size) > valueOf(y.Name, y.Mutation, y.Size)
+					local vx, vy = valueOf(x.Name, x.Mutation, x.Size), valueOf(y.Name, y.Mutation, y.Size)
+					if vx ~= vy then return vx > vy end
+					return tostring(x.Uid) < tostring(y.Uid)
 				end)
 			end
 
-			bagCount.Text = #bag .. " shown / " .. #ownedBrainrots .. " owned"
+			bagCount.Text = if q == "" then (#allBrainrots .. " owned") else (#bag .. " of " .. #allBrainrots)
 
 			if #bag == 0 then
-				local none = Instance.new("TextLabel")
-				none.Name = "EmptyMsg"
-				none.BackgroundTransparency = 1
-				none.Font = S.Font.Read
-				none.TextSize = 14
-				none.TextColor3 = C_SUB
-				none.Text = if #ownedBrainrots == 0
-					then "Nothing in the bag \u{2014} go skip some rocks!"
-					else "Nothing in the bag matches that search."
-				none.Size = UDim2.fromScale(1, 1)
-				none.ZIndex = 15
-				none:SetAttribute("NoPolish", true)
-				none.Parent = sub
+				if #allBrainrots == 0 then
+					buildInventoryEmpty("YOUR BAG IS EMPTY", "Skip some rocks to catch Brainrots!")
+				else
+					buildInventoryEmpty("NO MATCHES", "Nothing here matches \"" .. searchQuery .. "\" \u{2014} try a name, mutation or size.")
+				end
 				return
 			end
 
 			local cards = {}
-			for i, e in ipairs(bag) do
+			local function buildOne(i: number, e)
 				local info = infoByName[e.Name]
 				local card = BrainrotCard.new({
 					kind = "brainrot",
@@ -3569,9 +3144,8 @@ function BackpackPanel.Build(ctx)
 					mutation = e.Mutation,
 					mutationColor = if e.Mutation then Mutations.Color(e.Mutation) else nil,
 					sizeTag = e.Size,
-					-- bench entries are never placed (ownedBrainrots excludes PadIndex);
-					-- `Fav` IS the plot lock (PlotFav) -> the card's `locked`
-					state = { equipped = false, locked = e.Fav == true, new = newUids[e.Uid] == true, selected = false },
+					-- `Fav` IS the plot lock (PlotFav) -> the card's `locked`; PadIndex -> equipped badge
+					state = { equipped = e.PadIndex or false, locked = e.Fav == true, new = newUids[e.Uid] == true, selected = false },
 					lock = { onToggle = function(_nextLocked)
 						-- ToggleLock (capacity-gated, plot-synced) answers through
 						-- DataUpdated, which rebuilds this grid with the new flag
@@ -3584,26 +3158,62 @@ function BackpackPanel.Build(ctx)
 					layoutOrder = i,
 					instanceName = "BagCell" .. i,
 				})
+				if info == nil then markRetired(card) end
+				local tipGroup = { Name = e.Name, Mutation = e.Mutation, Size = e.Size,
+					Fav = e.Fav, count = 1, uids = { e.Uid }, PadIndex = e.PadIndex }
 				card.Activated:Connect(function()
 					if hideCardTip then hideCardTip() end -- a tap (touch) must not leave another card's tooltip up
 					newUids[e.Uid] = nil
 					card.setState({ new = false }) -- clear the NEW badge locally, plot-full branch included
-					if countPlaced() < plotState.Unlocked then
+					if e.PadIndex then
+						-- on the plot -> take it off (server validates the uid is really out)
+						remotes.StoreBrainrot:FireServer(e.Uid)
+					elseif countPlaced() < plotState.Unlocked then
 						remotes.EquipBrainrot:FireServer(e.Uid)
+					elseif openReplacePicker then
+						-- bench + plot full -> pick who comes off (SwapBrainrot)
+						openReplacePicker(tipGroup)
 					else
 						Toast.show({ text = "NO FREE SLOTS \u{2014} UNLOCK ONE", tone = "error" })
 					end
 				end)
 				card.HoverStart:Connect(function()
-					if showCardTip then showCardTip(e, card.root) end
+					if showCardTip then showCardTip(tipGroup, card.root) end
 				end)
 				card.HoverEnd:Connect(function()
 					if hideCardTip then hideCardTip() end
 				end)
-				cards[#cards + 1] = card
+				return card
+			end
+
+			-- CHUNKED CONSTRUCTION (round 2). A 400-card bag cost 277-332ms to build in
+			-- one frame (round 1's measurement). The first screenful is built now so the
+			-- panel opens on finished cards; the rest lands a chunk per Heartbeat, and
+			-- the culler -- which iterates this same `cards` table -- picks each chunk up
+			-- on the canvas-size change (refresh() is belt and braces). A re-render or a
+			-- close bumps gridUi.gen and the loop stops.
+			local FIRST, CHUNK = 32, 24
+			local built = math.min(#bag, FIRST)
+			for i = 1, built do
+				cards[i] = buildOne(i, bag[i])
 			end
 			gridUi.cards = cards
 			gridUi.culler = ViewportCuller.attach(scroll, cards)
+			if built < #bag then
+				task.spawn(function()
+					local i = built
+					while i < #bag do
+						RunService.Heartbeat:Wait()
+						if gridUi.gen ~= myGen or not scroll.Parent then return end
+						local stop = math.min(#bag, i + CHUNK)
+						for j = i + 1, stop do
+							cards[j] = buildOne(j, bag[j])
+						end
+						i = stop
+						if gridUi.culler then gridUi.culler.refresh() end
+					end
+				end)
+			end
 		end
 		gridUi.fill = fillBag
 
@@ -5198,10 +4808,13 @@ function BackpackPanel.Build(ctx)
 			-- connections; reopening re-renders the tab and re-attaches. A search
 			-- debounce landing after close must not rebuild a hidden grid either.
 			gridUi.fill = nil
+			gridUi.gen += 1
 			if gridUi.culler then
 				gridUi.culler.detach()
 				gridUi.culler = nil
 			end
+			-- the fold-out plot's cards are mounted by hand, so they are released by hand
+			for _, c in ipairs(gridUi.bayCards) do c.unmount() end
 		end
 		if wrapper.Visible then
 			renderActiveTab()
