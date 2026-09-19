@@ -13,6 +13,9 @@ local BrainrotMover = require(ServerScriptService.Modules.BrainrotMover)
 -- no require cycle: InventoryHandler only requires PlayerDataManager/BrainrotSpawner
 local InventoryHandler = require(ServerScriptService.Modules.InventoryHandler)
 local PriceIndex = require(ServerScriptService.Modules.PriceIndex)
+-- Brainrot bag capacity: a booth sale is a transfer path, checked PRE-FLIGHT
+-- alongside the unique cap below for the same reason.
+local BagConfig = require(ReplicatedStorage.Modules.BagConfig)
 local Mutations = require(ReplicatedStorage.Modules.MutationConfig)
 
 local remotes = ReplicatedStorage.Remotes
@@ -228,18 +231,55 @@ local function onStandPrompt(booth, player)
 	end
 end
 
+--[[ NEVER AN UNBOUNDED WaitForChild IN HERE (fixed 2026-08-09).
+
+Main calls every handler's Init() synchronously, on one thread, in a list. A wait
+that never returns therefore does not "delay booths" -- it stops the server boot
+dead on this line, and every Init BELOW BoothHandler's in Main never runs at all:
+DailyRewardHandler, QuestHandler, RebirthHandler, WeatherHandler, offline
+earnings, Fusion, SeasonPassHandler, the wheel, the leaderboards, EmeraldService
+and every NPC quest.
+
+That is not hypothetical, it is what this place was doing. The player stands were
+removed from the world in the 2026-08-02 cove rebuild -- the model survives only
+as ServerStorage.PreCove_Backup_2026_08_02.TradingCenter_OLD, its Booths folder
+with it -- and nothing updated this lookup, so the boot has been parked at
+Main:120 waiting for a model that no longer exists. The visible symptoms were a
+emerald balance frozen at 0 and an empty Goals panel: EmeraldService.Init never ran,
+so EmeraldState had no OnServerInvoke and every client pull yielded forever (a
+RemoteFunction with no callback never answers -- it does not error).
+
+So this looks, and stands down if it finds nothing. The remote handlers below are
+wired either way; with `booths` empty they all fall out at boothOwnedBy() == nil,
+which is the same answer they gave while the boot was hung, minus the hanging.
+
+PUT THE STANDS BACK and this comes back on its own: restore a Booths folder under
+GameWorld.TradingCenter (each booth keeping its BoothIndex attribute and its
+Counter.StandPrompt) and the loop below picks them up on the next server start.
+]]
 function BoothHandler.Init()
-	local tradingCenter = Workspace:WaitForChild("GameWorld"):WaitForChild("TradingCenter")
-	local boothsFolder = tradingCenter:WaitForChild("Booths")
-	for _, model in ipairs(boothsFolder:GetChildren()) do
+	local gameWorld = Workspace:FindFirstChild("GameWorld")
+	local tradingCenter = gameWorld and gameWorld:FindFirstChild("TradingCenter")
+	local boothsFolder = tradingCenter and tradingCenter:FindFirstChild("Booths")
+	if not boothsFolder then
+		warn("[BoothHandler] no GameWorld.TradingCenter.Booths in this place -- player stands are OFF for this session. Everything else boots normally.")
+	end
+	for _, model in ipairs(boothsFolder and boothsFolder:GetChildren() or {}) do
 		local idx = model:GetAttribute("BoothIndex")
 		if idx then
-			local booth = { index = idx, model = model, ownerUserId = nil, listings = {} }
-			booths[idx] = booth
-			local prompt = model:WaitForChild("Counter"):WaitForChild("StandPrompt")
-			prompt.Triggered:Connect(function(player)
-				onStandPrompt(booth, player)
-			end)
+			-- FindFirstChild for the same reason as above: a half-built booth must cost
+			-- that booth, not the server.
+			local counter = model:FindFirstChild("Counter")
+			local prompt = counter and counter:FindFirstChild("StandPrompt")
+			if not prompt then
+				warn(("[BoothHandler] booth %s has no Counter.StandPrompt -- skipped"):format(model.Name))
+			else
+				local booth = { index = idx, model = model, ownerUserId = nil, listings = {} }
+				booths[idx] = booth
+				prompt.Triggered:Connect(function(player)
+					onStandPrompt(booth, player)
+				end)
+			end
 		end
 	end
 
@@ -339,6 +379,14 @@ function BoothHandler.Init()
 		end
 		if sellerData.__noSave then
 			toast(buyer, "The seller's profile did not load - this stand can't sell right now.")
+			return
+		end
+
+		-- BAG SPACE, before any cash moves (2026-08-20). Pre-flight for the same
+		-- reason the unique cap below is: BrainrotMover.Give is total, so the only
+		-- safe place to refuse is before the Take.
+		if not BagConfig.HasBrainrotSpace(buyerData, 1) then
+			toast(buyer, BagConfig.BrainrotFullMessage(buyerData))
 			return
 		end
 

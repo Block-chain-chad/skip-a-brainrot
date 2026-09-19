@@ -17,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -24,6 +25,14 @@ local WheelConfig = require(ReplicatedStorage.Modules.WheelConfig)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local SideRail = require(ReplicatedStorage.Modules.SideRail)
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
+local CrateCeremony = require(ReplicatedStorage.Modules.CrateCeremony)
+-- pcall'd, like every other IconArt caller: a slot that cannot get its drawing
+-- falls back to the glyph it always had, so a kit that fails to load costs a
+-- picture rather than the wheel.
+local okIconArt, IconArt = pcall(function()
+	return require(ReplicatedStorage.Modules.UIKit.IconArt)
+end)
+if not okIconArt then IconArt = nil end
 
 local spunRemote  = remotes:WaitForChild("WheelSpun")
 local stateRemote = remotes:WaitForChild("WheelState")
@@ -75,6 +84,43 @@ local function stroke(o, thickness)
 	return o
 end
 
+--[[ ONE ICON RULE, for both places this wheel draws a prize -- the wedge chip
+and the prize list beside it. They MUST agree: two call sites drawing the same
+slot two different ways is how the wheel ends up showing a picture the list
+does not.
+
+A slot with an `Art` key gets the game's own drawn artwork (UIKit.IconArt);
+every other slot keeps its glyph, exactly as before. Only the emerald wedge
+carries one today, so the wheel shows the same green stone the HUD pill, the
+egg shop's wallet and every price row already show, instead of the blue
+diamond emoji the currency stopped being.
+
+AND IT IS NOT A VIEWPORT, which is the distinction that makes this safe here.
+The long note at the wedge chip below is about IconForge, whose icons are 3D
+MODELS: a ViewportFrame renders at its own pixel size with no anti-aliasing,
+which is why those were pulled off these chips after three rounds of "the
+pictures still look bad". IconArt draws with nested Frames -- ordinary GUI
+geometry, anti-aliased by the same renderer as the rest of the HUD, and sharp
+at 34px and 54px alike. Different mechanism, and the objection does not carry
+over. ]]
+local function paintIcon(holder, slot, size, z)
+	if IconArt and slot.Art and IconArt.has(slot.Art) then
+		local art = IconArt.draw(holder, slot.Art, size, z)
+		if art then
+			-- draw() bakes its shapes to `size` and parks the root at the holder's
+			-- top-left; re-anchoring the root centres the drawing without disturbing
+			-- anything inside it
+			art.AnchorPoint = Vector2.new(0.5, 0.5)
+			art.Position = UDim2.fromScale(0.5, 0.5)
+			return art
+		end
+	end
+	return new("TextLabel", {
+		Name = "Glyph", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+		Text = slot.Icon, Font = Enum.Font.FredokaOne, TextScaled = true, ZIndex = z,
+	}, holder)
+end
+
 --=================================== shell =================================--
 -- Task 4 fix: IgnoreGuiInset was true so Title/Close could "use the full
 -- screen", but measured live it did the opposite -- this build's real
@@ -98,11 +144,13 @@ local root = new("Frame", {
 }, gui)
 SideRail.registerPanel(root)   -- single-open: the wheel and rail panels close one another
 
--- Dim the world behind the wheel. Without it the saturated wedges compete with grass,
--- trees and the rest of the HUD and the whole thing reads as noise.
+-- The Scrim used to dim the world behind the wheel to 0.45 black. That black wash was
+-- cut on request -- the wheel now sits straight over the live world. The frame STAYS,
+-- fully transparent, because Active = true is what swallows clicks so a spin cannot
+-- also fire something in the world behind it; deleting the frame would let input through.
 new("Frame", {
 	Name = "Scrim", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-	BackgroundTransparency = 0.45, BorderSizePixel = 0, ZIndex = 0, Active = true,
+	BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 0, Active = true,
 }, root)
 
 -- Task 4: Title/Holder/SpinBtn/Sub used to be positioned independently --
@@ -199,7 +247,44 @@ local function besideFitsAt(scale)
 	return (vw - (vw / 2 + wheelHalf + 24 + DETAILS_W)) >= RIGHT_HUD_RESERVE - 24
 end
 
+-- SHORT-VIEWPORT GUARD (2026-08-26).
+-- TOP_MARGIN (100), BOTTOM_HUD_RESERVE (90) and DETAILS_BELOW_RESERVE (110) are
+-- all authored as DESKTOP pixels and sum to 300. A landscape phone's usable box
+-- is 302-382px tall, so on a handset the three of them consumed essentially the
+-- whole screen and avail/CLUSTER_H collapsed with nothing bounding it. Measured
+-- live, by pinning Root to each device's real box and letting its own
+-- AbsoluteSize reflow fire:
+--
+--   800x360  scale 0.002   disc   2px   SPIN 1x0
+--   667x375  scale 0.019   disc  15px   SPIN 6x1
+--   844x390  scale 0.036   disc  28px   SPIN 12x2
+--   956x440  scale 0.093   disc  72px   SPIN 30x6
+--   1180x820 scale 0.526   disc 404px   SPIN 168x34
+--
+-- i.e. the wheel was invisible on every phone and sub-touch on tablet, while
+-- desktop (0.94) was fine -- which is why nothing here ever looked wrong to
+-- anyone testing in Studio.
+--
+-- Each reserve is therefore capped at a SHARE of the height actually available,
+-- rather than spent as literal pixels on a box barely taller than their sum. The
+-- min() keeps the authored value on any viewport tall enough to afford it: the
+-- shares are chosen so the literal still wins at tablet height (762), so desktop
+-- AND tablet are unchanged to the pixel and only genuinely short screens see the
+-- proportional value. Verified before/after at all six profiles.
+local TOP_SHARE, BOTTOM_SHARE, BELOW_SHARE = 0.14, 0.13, 0.16
+-- Bounded floor. The collapse above was possible because nothing stopped the fit
+-- going to zero. This is deliberately NOT a bare clamp: see the HUD doc's "a
+-- floor can be the bug" -- clamping past the height the box can actually hold
+-- would push the SPIN button off the bottom of the screen, which is worse than a
+-- small wheel. So the floor is itself capped by the reserve-free fit, and the
+-- details sliver (not the wheel) is what yields when the two compete.
+local MIN_SCALE = 0.20
+
 local function layoutCluster()
+	local vh = root.AbsoluteSize.Y
+	local top    = math.min(TOP_MARGIN, vh * TOP_SHARE)
+	local bottom = math.min(BOTTOM_HUD_RESERVE, vh * BOTTOM_SHARE)
+	local below  = math.min(DETAILS_BELOW_RESERVE, vh * BELOW_SHARE)
 	-- DETAILS_BELOW_RESERVE is only ever USED when the panel collapses below the
 	-- wheel, but it used to be subtracted unconditionally -- so on a wide desktop,
 	-- where the panel sits BESIDE the wheel, 110px of height was reserved for
@@ -207,17 +292,21 @@ local function layoutCluster()
 	-- reserve was costing about a third of the wheel. Try the no-reserve fit first
 	-- and only fall back when the panel demonstrably cannot fit beside.
 	local function fitFor(reserve)
-		local avail = math.max(1, root.AbsoluteSize.Y - TOP_MARGIN - BOTTOM_HUD_RESERVE - reserve)
+		local avail = math.max(1, vh - top - bottom - reserve)
 		return math.min(MAX_SCALE, avail / CLUSTER_H), avail
 	end
 	local scale, available = fitFor(0)
 	detailsBelow = not besideFitsAt(scale)
 	if detailsBelow then
-		scale, available = fitFor(DETAILS_BELOW_RESERVE)
+		scale, available = fitFor(below)
 	end
+	-- largest scale the box can hold once top/bottom are paid -- the floor may
+	-- never exceed this
+	local fitsMax = math.max(0, vh - top - bottom) / CLUSTER_H
+	scale = math.clamp(scale, math.min(MIN_SCALE, fitsMax), MAX_SCALE)
 	clusterScale.Scale = scale
 	local extra = math.max(0, available - CLUSTER_H * scale)
-	cluster.Position = UDim2.new(0.5, 0, 0, TOP_MARGIN + extra / 2)
+	cluster.Position = UDim2.new(0.5, 0, 0, top + extra / 2)
 end
 layoutCluster()
 root:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutCluster)
@@ -295,14 +384,71 @@ end
 local TAN_HALF = math.tan(math.rad(SEG / 2))
 local function wedgeWidth(rr) return 2 * rr * TAN_HALF * 0.86 end
 
--- Odds are DERIVED, never typed -- Weight / TOTAL_WEIGHT -- so a future
--- re-weighting of WheelConfig can't make a displayed number lie. Shared by
--- the on-wheel Pct label and the details panel so both can never disagree.
+-- Odds are DERIVED, never typed, so a future re-weighting of WheelConfig can't
+-- make a displayed number lie. The maths moved INTO WheelConfig (OddsShort) once
+-- the world plaque needed the same string -- three call sites computing their own
+-- percentage is three chances for one of them to drift.
 local function oddsTextFor(slot)
-	local pct = (slot.Weight / WheelConfig.TOTAL_WEIGHT) * 100
-	return (pct >= 10 and ("%d%%"):format(pct + 0.5))
-		or (pct >= 1 and ("%.0f%%"):format(pct))
-		or ("%.2f%%"):format(pct)
+	return WheelConfig.OddsShort(slot)
+end
+
+-- Odds text is TIERED by rarity: rainbow on the 1%, diamond on the 9%, gold on the
+-- two 15%s, plain white below that. The gradient does the work, so every odds
+-- label is white with an ink outline underneath it -- a UIGradient MULTIPLIES the
+-- text colour, so painting these on the old dark ink would have produced mud.
+-- NO NEAR-WHITE STOPS. These sit on the white candy chip, and a UIGradient
+-- MULTIPLIES the text colour -- a stop at (255,255,255) paints that part of the
+-- glyph white on white and the top half of the digit simply vanishes. Every stop
+-- below is saturated enough to read against the chip on its own.
+local ODDS_GRADIENTS = {
+	gold = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(250, 196, 60)),
+		ColorSequenceKeypoint.new(0.50, Color3.fromRGB(238, 164, 24)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(176, 104, 6)),
+	}),
+	diamond = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(118, 214, 246)),
+		ColorSequenceKeypoint.new(0.45, Color3.fromRGB(58, 178, 234)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(16, 116, 186)),
+	}),
+	-- the yellow stop is pulled down from (250,238,72): pure yellow is the one
+	-- rainbow band that disappears against a near-white chip
+	rainbow = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(244, 62, 62)),
+		ColorSequenceKeypoint.new(0.20, Color3.fromRGB(248, 150, 24)),
+		ColorSequenceKeypoint.new(0.40, Color3.fromRGB(214, 196, 20)),
+		ColorSequenceKeypoint.new(0.60, Color3.fromRGB(48, 196, 84)),
+		ColorSequenceKeypoint.new(0.80, Color3.fromRGB(48, 148, 246)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(176, 74, 248)),
+	}),
+}
+
+-- Paint a label with the slot's rarity gradient and nothing else. The rainbow /
+-- diamond / gold treatment covers ALL of a wedge's lettering -- name, payout and
+-- odds -- not just the percentage, so a rung reads as one tier at a glance.
+--
+-- The CALLER owns the outline here: Name and Value already carry their own
+-- stroke, and a second UIStroke on the same label doubles the ink and closes up
+-- the counters on small glyphs.
+local function tintPrize(label, slot)
+	local seq = slot.OddsStyle and ODDS_GRADIENTS[slot.OddsStyle]
+	if not seq then return end
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	new("UIGradient", { Color = seq, Rotation = (slot.OddsStyle == "rainbow") and 0 or 90 }, label)
+end
+
+local function styleOdds(label, slot, strokeThickness)
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	new("UIStroke", {
+		Color = UITheme.Candy.ink, Thickness = strokeThickness or 2.5,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual, LineJoinMode = Enum.LineJoinMode.Round,
+	}, label)
+	local seq = slot.OddsStyle and ODDS_GRADIENTS[slot.OddsStyle]
+	if seq then
+		-- rainbow runs ACROSS the text so the whole spectrum is visible in "1%";
+		-- gold and diamond run top-to-bottom, which is how a metal/gem sheen reads
+		new("UIGradient", { Color = seq, Rotation = (slot.OddsStyle == "rainbow") and 0 or 90 }, label)
+	end
 end
 
 for i, slot in ipairs(SLOTS) do
@@ -313,7 +459,9 @@ for i, slot in ipairs(SLOTS) do
 			UDim2.fromOffset(math.min(w, wedgeWidth(rr)), h)
 	end
 
-	local p, s = at(R * 0.76, wk(215), wk(44))
+	-- Radii pulled in one notch across the board to make room for the odds chip that
+	-- now sits at R * 0.90: name 0.76 -> 0.71, value 0.60 -> 0.545, icon 0.40 -> 0.335.
+	local p, s = at(R * 0.71, wk(215), wk(42))
 	local name = new("TextLabel", {
 		Name = "Name" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = p, Size = s,
 		BackgroundTransparency = 1, Rotation = mid, Text = slot.Name,
@@ -322,29 +470,71 @@ for i, slot in ipairs(SLOTS) do
 	}, spinner)
 	new("UITextSizeConstraint", { MaxTextSize = wk(30) }, name)
 	stroke(name, 3)
+	tintPrize(name, slot)
 
-	-- 76, down from 86: with only 6 slots the wedge is 139px wide at this radius,
-	-- so the chip was never width-clamped and sat there as a 108px square -- louder
-	-- than the name and payout it belongs to. 95px still reads as an object.
-	p, s = at(R * 0.40, wk(76), wk(76))
-	-- Icon in a rounded gradient chip so it reads as an object, not loose text.
-	-- The chip carries Rotation = mid (candyPanel doesn't touch Rotation, only
-	-- fill/corner/stroke); the icon label nested inside it is Rotation = 0
-	-- because GuiObject.Rotation rotates an object AND its descendants together --
-	-- giving the label its own `mid` too would double the rotation and skew it.
+	-- SIZE AND RADIUS ARE THE FIX for "too big and overlapping each other". Wedge
+	-- width scales with radius -- wedgeWidth(r) is about 0.993 * r with six slots --
+	-- so at R * 0.335 (r = 117) the wedge is only 116px across and a 95px chip left
+	-- ~10px of clearance per side. Six chips that size, ringed that close to the hub,
+	-- visually collide.
+	-- 72px at R * 0.36 (r = 126, wedge 125px) leaves ~26px per side: over twice the
+	-- gap, and the chip stops competing with the name and payout it belongs to.
+	p, s = at(R * 0.36, wk(58), wk(58))
+	--[[ NO PLATE BEHIND THE ICON (2026-08-19, owner: "remove the white boxes").
+
+	This was a white candyPanel, and at wheel scale six of them read as stickers
+	pasted onto the disc -- white squares breaking six saturated wedges into
+	patches. The wedge's own colour is the background now.
+
+	That is what the Name and Value labels a few radii further out have always
+	done: white type, ink stroke, straight onto the paint. The icon was the odd
+	one out. IconArt's drawings each carry the kit's heavy dark keyline on their
+	outer silhouette, so they hold up against any wedge colour without a plate
+	underneath -- including the gold crate on the yellow wedge, the closest pair.
+
+	THE FRAME STAYS, transparent: it is the rotation carrier, and popWinner looks
+	it up by name to scale it on a landing. It carries Rotation = mid, and the
+	holder nested inside carries -mid, because GuiObject.Rotation rotates an
+	object AND its descendants together -- giving the holder its own `mid` too
+	would double the rotation and skew the drawing. ]]
 	local iconChip = new("Frame", {
 		Name = "IconChip" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = p, Size = s,
+		BackgroundTransparency = 1, BorderSizePixel = 0,
 		Rotation = mid, ZIndex = 6,
 	}, spinner)
-	UITheme.candyPanel(iconChip, wk(16))
-	new("TextLabel", {
-		Name = "Icon" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.82, 0.82), BackgroundTransparency = 1, Rotation = 0, Text = slot.Icon,
-		Font = Enum.Font.FredokaOne, TextScaled = true, ZIndex = 6,
+	-- same UIPolish opt-out as the details rows: the bolt glyph is 3-byte UTF-8 and
+	-- slips through UIPolish's 4-byte emoji test, coming back white and outlined
+	iconChip:SetAttribute("NoPolish", true)
+	-- GLYPHS, NOT 3D RENDERS -- reverted 2026-08-18 after three rounds of "the
+	-- pictures still look bad".
+	--
+	-- IconForge builds genuinely nicer art and it holds up when you blow it up, which
+	-- is exactly how I kept talking myself into keeping it. It does not survive THIS
+	-- slot: a ViewportFrame renders at its own pixel size with no anti-aliasing, and
+	-- here that size is ~50px inside a chip which is itself rotated to the wedge
+	-- angle. A six-part model at 50px is coloured mush, and the ink outline pass -- a
+	-- second render of the whole model sitting behind the first -- shows through
+	-- every gap between parts and reads as pieces sliding over one another.
+	--
+	-- A glyph is font-rendered: hinted, anti-aliased and unmistakable at 50px, which
+	-- is the only property that matters at this size. The IconForge builders stay in
+	-- that module for any surface big enough to earn them.
+	--
+	-- Nested in an unrotated holder because the chip carries Rotation = mid and
+	-- GuiObject.Rotation rotates descendants WITH it.
+	local iconInner = new("Frame", {
+		Name = "IconInner", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.8, 0.8), BackgroundTransparency = 1, Rotation = -mid, ZIndex = 7,
 	}, iconChip)
+	-- see paintIcon at the top: drawn art where the slot names some, glyph otherwise
+	paintIcon(iconInner, slot, wk(43), 7)
 	iconChipsBySlot[i] = iconChip
 
-	p, s = at(R * 0.60, wk(170), wk(30))
+	-- Back to a one-line box (54 -> 34): the crate no longer lists its contents, so
+	-- every value is a single line again and the extra height was only crowding the
+	-- icon chip below it. Radial budget at R = 350, all clear of each other:
+	--   icon  79..155   value 179..213   name 227..270   odds 296..334   rim 350
+	p, s = at(R * 0.56, wk(170), wk(34))
 	local val = new("TextLabel", {
 		Name = "Val" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = p, Size = s,
 		BackgroundTransparency = 1, Rotation = mid, Text = slot.Value,
@@ -353,19 +543,32 @@ for i, slot in ipairs(SLOTS) do
 	}, spinner)
 	new("UITextSizeConstraint", { MaxTextSize = wk(21) }, val)
 	stroke(val, 2.5)
+	tintPrize(val, slot)
 
-	p, s = at(R * 0.205, wk(70), wk(26))
-	local oddsLabel = new("TextLabel", {
+	-- ODDS ON THE RIM (2026-08-18, owner: "fix the chances on the outside of the
+	-- wheel"). These used to sit at R * 0.205 -- and wedge width scales with radius,
+	-- so at that radius each label had about 71px to live in, right where all six
+	-- converge on the hub. They piled into an unreadable knot in the middle of the
+	-- wheel. At R * 0.90 the same wedge is ~313px wide, which is room for a proper
+	-- chip, and the outer band was empty anyway.
+	p, s = at(R * 0.90, wk(96), wk(38))
+	-- The wheel's OTHER set of white boxes, removed with the icon plates above and
+	-- for the same reason. styleOdds below already paints this label white, strokes
+	-- it with the kit ink and lays the tier gradient over it -- the same treatment
+	-- Name and Value get on the bare wedge -- so the percentage was always carrying
+	-- its own readability and the plate behind it was decoration.
+	local oddsChip = new("Frame", {
 		Name = "Pct" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Position = p, Size = s,
-		BackgroundTransparency = 1, Rotation = mid, Text = oddsTextFor(slot),
-		Font = UITheme.Candy.font, TextScaled = true,
-		TextColor3 = slot.Text or Color3.fromRGB(255, 255, 255), ZIndex = 6,
+		BackgroundTransparency = 1, BorderSizePixel = 0,
+		Rotation = mid, ZIndex = 7,
 	}, spinner)
-	new("UITextSizeConstraint", { MaxTextSize = wk(19) }, oddsLabel)
-	new("UIStroke", {
-		Color = UITheme.Candy.ink, Thickness = 2.5,
-		ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual, LineJoinMode = Enum.LineJoinMode.Round,
-	}, oddsLabel)
+	local oddsLabel = new("TextLabel", {
+		Name = "PctText", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.86, 0.72), BackgroundTransparency = 1, Rotation = 0,
+		Text = oddsTextFor(slot), Font = UITheme.Candy.font, TextScaled = true, ZIndex = 8,
+	}, oddsChip)
+	new("UITextSizeConstraint", { MaxTextSize = wk(26) }, oddsLabel)
+	styleOdds(oddsLabel, slot, 3)
 end
 
 -- hub and pointer live OUTSIDE the spinner so they hold still while it turns
@@ -479,6 +682,53 @@ local spinBtn = new("TextButton", {
 new("UITextSizeConstraint", { MaxTextSize = 36 }, spinBtn)
 UITheme.candyButton(spinBtn, SPIN_READY_1, SPIN_READY_2, 16)
 
+-- BUY A SPIN (Robux). Sits BESIDE the spin button rather than under it, on purpose:
+-- CLUSTER_H is computed from TITLE/wheel/SPIN/SUB and layoutCluster scales the whole
+-- cluster to fit the viewport off that number, so a second row would silently shrink
+-- the wheel on every short screen. The cluster is WHEEL_PX + 160 wide and spinBtn is
+-- 320 centred, which leaves room on the right at the same Y for free.
+--
+-- SHOWN AS A PLACEHOLDER while the product does not exist (owner request), rather
+-- than hidden. ProductId 0 is the game-wide "not created yet" sentinel (see
+-- WheelConfig.PAID_SPIN) and ProductRegistry refuses to register it, so the button
+-- genuinely cannot work yet -- but an invisible slot is impossible to design around
+-- or to notice you still owe a Product ID. It is therefore drawn in the dead grey
+-- the spin button uses on cooldown, so it reads as "not wired up" rather than as a
+-- live button that eats clicks, and the Activated handler below says exactly where
+-- to paste the id. Fill PAID.ProductId in and it turns green and works, with no
+-- other edit anywhere.
+local PAID = WheelConfig.PAID_SPIN
+local paidLive = WheelConfig.IsPaidSpinLive()
+local buyBtn = new("TextButton", {
+	Name = "BuySpinBtn", AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 262, 0, TITLE_H + GAP_TITLE + WHEEL_PX + GAP_SPIN),
+	Size = UDim2.fromOffset(180, SPIN_H),
+	-- "R$" is how Roblox itself writes a Robux price in the purchase prompt this
+	-- button opens, so the two agree at a glance.
+	Text = ("R$ %d"):format(PAID.RobuxPrice),
+	TextScaled = true, ZIndex = 14, Visible = true,
+}, cluster)
+new("UITextSizeConstraint", { MaxTextSize = 30 }, buyBtn)
+if paidLive then
+	UITheme.candyButton(buyBtn, Color3.fromRGB(86, 190, 92), Color3.fromRGB(52, 148, 62), 16)
+else
+	UITheme.candyButton(buyBtn, Color3.fromRGB(150, 154, 164), Color3.fromRGB(110, 114, 124), 16)
+	-- a small corner tag, so it is unmistakably a slot waiting on setup and nobody
+	-- ships it thinking the grey is a styling choice
+	local tag = new("TextLabel", {
+		Name = "SetupTag", AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -4), Size = UDim2.fromOffset(170, 15),
+		BackgroundTransparency = 1, Text = "NEEDS PRODUCT ID",
+		Font = Enum.Font.GothamBold, TextScaled = true,
+		TextColor3 = Color3.fromRGB(255, 226, 140), ZIndex = 15,
+	}, buyBtn)
+	new("UITextSizeConstraint", { MaxTextSize = 11 }, tag)
+end
+
+-- Activated is wired further down, next to spinBtn's, NOT here: `spinning` is not
+-- declared until well below this point, so a closure written here would capture a
+-- nil GLOBAL of that name instead of the local and its guard would never fire.
+
 local subLabel = new("TextLabel", {
 	Name = "Sub", AnchorPoint = Vector2.new(0.5, 0),
 	Position = UDim2.new(0.5, 0, 0, TITLE_H + GAP_TITLE + WHEEL_PX + GAP_SPIN + SPIN_H + GAP_SUB),
@@ -547,41 +797,96 @@ new("UIListLayout", {
 	HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
 }, detailsPanel)
 
+-- One definition of the row geometry. These were three separate literals (56 in
+-- the row, 64 in the beside-mode height, 56/64 again in the below-mode snap), so
+-- resizing a row meant finding all four and the panel clipped its last row when
+-- one was missed.
+local ROW_H = 60                  -- a details row
+local ROW_PITCH = ROW_H + 8       -- + the UIListLayout padding above
+
 local rarestFirst = {}
 for i = 1, N do rarestFirst[i] = i end
 table.sort(rarestFirst, function(a, b) return SLOTS[a].Weight < SLOTS[b].Weight end)
 
 for order, slotIdx in ipairs(rarestFirst) do
 	local slot = SLOTS[slotIdx]
+	-- INSET BY THE STROKE WIDTH. DetailsPanel has ClipsDescendants = true and a
+	-- candyPanel UIStroke is ApplyStrokeMode.Border -- it draws OUTSIDE the frame.
+	-- At the panel's full width the left and right of every row's outline fell
+	-- outside the clip and was cut off, which is what made the corners read as
+	-- chopped and squared rather than rounded. CANDY.stroke is 3, so -8 clears it
+	-- on both sides with a pixel to spare.
 	local row = new("Frame", {
 		Name = "Row" .. slotIdx, LayoutOrder = order,
-		Size = UDim2.new(1, 0, 0, 56), ZIndex = 14,
+		Size = UDim2.new(1, -8, 0, ROW_H), ZIndex = 14,
 	}, detailsPanel)
 	UITheme.candyPanel(row, 14)
 
+	-- ONE tinted tile, not a swatch stripe plus a white chip. candyPanel'd, the chip
+	-- was a white panel with its own 3px ink border sitting on a white panel with a
+	-- 3px ink border -- two competing outlines, and a 12px radius on a 44px box is a
+	-- tight enough curve that Roblox's stroke renderer visibly steps around it. The
+	-- tile now carries the wedge's colour itself, which is what the separate stripe
+	-- was for, so the row loses a shape and both rough outlines at once.
 	local chip = new("Frame", {
-		Name = "Chip", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 6, 0.5, 0),
-		Size = UDim2.fromOffset(44, 44), ZIndex = 15,
+		Name = "Chip", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
+		Size = UDim2.fromOffset(44, 44), BorderSizePixel = 0,
+		BackgroundColor3 = slot.Colour:Lerp(Color3.new(1, 1, 1), 0.58), ZIndex = 15,
 	}, row)
-	UITheme.candyPanel(chip, 12)
-	new("TextLabel", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.8, 0.8), BackgroundTransparency = 1, Text = slot.Icon,
-		Font = Enum.Font.FredokaOne, TextScaled = true, ZIndex = 16,
+	new("UICorner", { CornerRadius = UDim.new(0, 9) }, chip)
+	-- NoPolish: UIPolish recolours and outlines text, and exempts emoji by testing
+	-- for a 4-byte UTF-8 lead byte. The bolt is U+26A1 -- THREE bytes -- so it slips
+	-- through that test and comes back white with a stroke smeared over it while the
+	-- other five render normally. Tagging the tile opts the whole subtree out and
+	-- does not depend on which glyph a slot happens to use.
+	chip:SetAttribute("NoPolish", true)
+	-- the same ICON RULE the wedge uses -- glyph or drawn art, decided once in
+	-- paintIcon -- so the list and the wheel are visibly the same six prizes rather
+	-- than two unrelated sets of pictures
+	-- Its own inset holder, matching the wedge chip's: paintIcon fills whatever it
+	-- is given, so the 0.8 inset the glyph has always had lives here rather than in
+	-- the shared helper, and a drawn icon lands with the same margin.
+	local listIcon = new("Frame", {
+		Name = "IconInner", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.8, 0.8), BackgroundTransparency = 1, ZIndex = 16,
 	}, chip)
+	paintIcon(listIcon, slot, 34, 16)
 
-	new("TextLabel", {
-		Name = "Payout", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 58, 0.28, 0),
-		Size = UDim2.new(1, -66, 0, 22), BackgroundTransparency = 1, Text = slot.Value,
+	-- Label, not Value. Value is written for the WEDGE, where it can run to three
+	-- lines (the loot crate does) -- poured into a 22px row it scaled down to
+	-- nothing. Label is the one-line name of the same prize.
+	local rowPayout = new("TextLabel", {
+		Name = "Payout", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 71, 0.31, 0),
+		Size = UDim2.new(1, -79, 0, 24), BackgroundTransparency = 1, Text = slot.Label,
 		Font = UITheme.Candy.font, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = UITheme.Candy.ink, ZIndex = 15,
 	}, row)
-	new("TextLabel", {
-		Name = "Odds", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 58, 0.74, 0),
-		Size = UDim2.new(1, -66, 0, 18), BackgroundTransparency = 1, Text = oddsTextFor(slot),
+	-- the list carries the same tiering as the wheel. It needs its OWN outline
+	-- first: unlike the wedge labels this one is plain ink text on a white card, so
+	-- a bright gradient would have nothing to sit against.
+	if slot.OddsStyle then
+		new("UIStroke", {
+			Color = UITheme.Candy.ink, Thickness = 2,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual, LineJoinMode = Enum.LineJoinMode.Round,
+		}, rowPayout)
+		tintPrize(rowPayout, slot)
+	end
+	local rowOdds = new("TextLabel", {
+		Name = "Odds", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 71, 0.76, 0),
+		Size = UDim2.new(1, -79, 0, 19), BackgroundTransparency = 1,
+		-- the long form here: this panel is the one place with room for "(1 in 100)",
+		-- and on a 1% prize that phrasing lands far harder than "1%"
+		Text = WheelConfig.OddsText(slot),
 		Font = UITheme.Candy.font, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = Color3.fromRGB(96, 102, 116), ZIndex = 15,
+		ZIndex = 15,
 	}, row)
+	-- same tiering as the wheel's rim chips, so the two readouts of the same number
+	-- do not disagree about how rare it is
+	if slot.OddsStyle then
+		styleOdds(rowOdds, slot, 2)
+	else
+		rowOdds.TextColor3 = Color3.fromRGB(96, 102, 116)
+	end
 end
 
 -- Beside the wheel when there's real room; collapses BELOW it otherwise.
@@ -611,7 +916,10 @@ local function layoutDetails()
 	if not detailsBelow then
 		detailsPanel.AnchorPoint = Vector2.new(0, 0.5)
 		detailsPanel.Position = UDim2.new(0, centerX + wheelHalf + 24, 0, centerY)
-		detailsPanel.Size = UDim2.fromOffset(DETAILS_W, math.min(N * 64, vh - BOTTOM_HUD_RESERVE - 20))
+		-- ROW_PITCH, not a literal: rows grew 56 -> 60 with the 2026-08-18 cleanup and
+		-- this panel ClipsDescendants, so a stale pitch silently guillotines the last
+		-- row instead of erroring.
+		detailsPanel.Size = UDim2.fromOffset(DETAILS_W, math.min(N * ROW_PITCH, vh - BOTTOM_HUD_RESERVE - 20))
 	else
 		detailsPanel.AnchorPoint = Vector2.new(0.5, 0)
 		detailsPanel.Position = UDim2.new(0, centerX, 0, clusterBottom + 16)
@@ -620,10 +928,10 @@ local function layoutDetails()
 		-- viewport hand this a negative Size.Y -- see the reserve's own comment.
 		-- Bottom bound is (vh - DETAILS_BOTTOM_RESERVE), NOT vh, so this clears
 		-- the native hotbar / Bag / Sprint row AND LuckHUDClient's luck chip.
-		local h = math.max(50, math.min(N * 60, (vh - DETAILS_BOTTOM_RESERVE) - clusterBottom - 16))
-		-- Snap to whole rows (56px row + 8px list padding = 64 per extra row)
+		local h = math.max(50, math.min(N * ROW_PITCH, (vh - DETAILS_BOTTOM_RESERVE) - clusterBottom - 16))
+		-- Snap to whole rows (ROW_H row + 8px list padding = ROW_PITCH per extra row)
 		-- so ClipsDescendants never leaves the last visible row half-cut.
-		if h >= 56 then h = 56 + math.floor((h - 56) / 64) * 64 end
+		if h >= ROW_H then h = ROW_H + math.floor((h - ROW_H) / ROW_PITCH) * ROW_PITCH end
 		detailsPanel.Size = UDim2.new(0.86, 0, 0, h)
 	end
 end
@@ -650,7 +958,9 @@ holder:GetPropertyChangedSignal("AbsolutePosition"):Connect(layoutDetails)
 -- path, no drift between the two controls).
 local fastSpin = player:GetAttribute("FastSpinPref") == true
 local FAST_OFF_1, FAST_OFF_2 = Color3.fromRGB(150, 154, 164), Color3.fromRGB(110, 114, 124)
-local FAST_ON_1,  FAST_ON_2  = UITheme.Candy.gold1, UITheme.Candy.gold2
+-- act/active = green family; gold is reserved for real-money (Robux) surfaces.
+-- Same pair the ready-state SPIN button uses, so ON reads as "active", not "paid".
+local FAST_ON_1,  FAST_ON_2  = UITheme.Candy.green1, UITheme.Candy.green2
 
 -- moved: left nav rail now occupies the upper-left column (ui overhaul).
 -- Bug E fix (ui-overhaul checkpoint-1 fix wave): the old Position (22,80)
@@ -758,6 +1068,11 @@ end)
 --================================= the spin ================================--
 local spinToken = 0
 local spinning = false
+-- The loot crate's contents, parked here between the two remotes that deliver a
+-- win: WheelState carries the manifest (per-player -- see WheelHandler), and it
+-- lands while the wheel is still turning, seconds before WheelSpun's landing
+-- callback is ready to use it.
+local pendingReveal = nil
 local cooldown, luckLeft, powerLeft = 0, 0, 0
 local lastSync = os.clock()
 
@@ -794,6 +1109,10 @@ local function refreshButton()
 		spinBtn.Text = "SPIN"
 		UITheme.setColors(spinBtn, SPIN_READY_1, SPIN_READY_2)
 	end
+	-- The paid spin stays available ON cooldown -- skipping the wait is the entire
+	-- thing being sold -- and is only suppressed mid-spin so two cannot overlap.
+	-- hidden only mid-spin; the placeholder stays on screen the rest of the time
+	buyBtn.Visible = not spinning
 	local bits = {}
 	if luckLeft > 0 then table.insert(bits, ("\u{1F340} LUCK %s"):format(hms(luckLeft))) end
 	if powerLeft > 0 then table.insert(bits, ("\u{1F4AA} POWER %s"):format(hms(powerLeft))) end
@@ -925,7 +1244,39 @@ local function spin(index, onDone)
 end
 
 --============================== open and close =============================--
+-- Blur-never-dim: instant world blur while the wheel is up. The old 0.45 black
+-- wash was cut on request; this restores the SEPARATION the shipped grammar
+-- uses everywhere (backdrop blur, never a dark dim). Driven off root.Visible
+-- rather than setOpen because SideRail's single-open force-closes this surface
+-- by writing root.Visible directly -- a setOpen-only toggle would strand the
+-- blur on. NEVER tween a BlurEffect (TweenService silently no-ops on
+-- non-GuiObjects in this place): create at full Size, destroy on close.
+local function setWheelBlur(on)
+	local Lighting = game:GetService("Lighting")
+	local existing = Lighting:FindFirstChild("WheelBlur")
+	if on and not existing then
+		local blur = Instance.new("BlurEffect")
+		blur.Name = "WheelBlur"
+		blur.Size = 10
+		blur.Parent = Lighting
+	elseif not on and existing then
+		existing:Destroy()
+	end
+end
 local isOpen = false
+-- One watcher, two jobs, and it MUST sit BELOW the isOpen declaration (this
+-- file's own note: a local declared later in the scope is not captured and
+-- silently resolves as a nil global):
+--   1. blur follows the surface's true visibility;
+--   2. LATENT DESYNC FIX (round-8 audit): SideRail's single-open force-closes
+--      this surface by writing root.Visible directly, so setOpen never ran and
+--      isOpen stayed true -- the next SpinPrompt press early-returned and the
+--      wheel was dead until the player walked out past FAR. Keeping the latch
+--      synced here makes every out-of-band hide recoverable.
+root:GetPropertyChangedSignal("Visible"):Connect(function()
+	setWheelBlur(root.Visible)
+	isOpen = root.Visible
+end)
 local function setOpen(on)
 	if isOpen == on then return end
 	isOpen = on
@@ -948,6 +1299,33 @@ spinBtn.Activated:Connect(function()
 	refreshButton()
 	spinRemote:FireServer()
 	task.delay(8, function() if spinning then spinning = false; refreshButton() end end)
+end)
+
+-- Deliberately NOT gated on `cooldown`: skipping the wait is the thing being sold.
+buyBtn.Activated:Connect(function()
+	if spinning then return end
+	if not WheelConfig.IsPaidSpinLive() then
+		-- The placeholder is deliberately clickable so this message is reachable --
+		-- silently swallowing the click is how a half-configured product survives to
+		-- release.
+		showResult("Robux spin is not set up yet", Color3.fromRGB(255, 214, 120))
+		warn("[WheelClient] paid spin has no Product ID. Create a DEVELOPER PRODUCT "
+			.. ("priced R$%d on the Creator Dashboard, then paste its id over the 0 in ")
+				:format(PAID.RobuxPrice)
+			.. "ReplicatedStorage.Modules.WheelConfig -> PAID_SPIN.ProductId. "
+			.. "It must be a developer product, not a game pass -- a pass fires no "
+			.. "ProcessReceipt and would take the Robux without granting the spin.")
+		return
+	end
+	-- Nothing is granted here. The purchase goes to Roblox and the spin happens only
+	-- server-side, in ProductRegistry's receipt handler -- so a client that fakes this
+	-- click, or a player who cancels the prompt, is paid nothing. There is also no
+	-- `spinning = true` here: the wheel starts turning when the SERVER answers with a
+	-- result, which for a purchase is after Roblox confirms the receipt.
+	local ok, err = pcall(function()
+		MarketplaceService:PromptProductPurchase(player, PAID.ProductId)
+	end)
+	if not ok then warn("[WheelClient] PromptProductPurchase failed: " .. tostring(err)) end
 end)
 
 -- Auto-open on approach, with hysteresis so standing on the boundary does not strobe the
@@ -991,8 +1369,41 @@ end)
 --================================== remotes ================================--
 spunRemote.OnClientEvent:Connect(function(index, whoName, text)
 	if type(index) ~= "number" or not SLOTS[index] then return end
+	local slot = SLOTS[index]
 	local mine = (whoName == player.Name)
 	spin(index, function()
+		-- THE CRATE OPENS INSTEAD OF TOASTING, and only for whoever won it. A one
+		-- line banner cannot carry $2.5M, 200 emeralds and five hatched pets, which
+		-- is the whole reason the wedge stopped printing its own contents.
+		--
+		-- Bystanders keep the banner: the manifest is on the per-player state remote
+		-- and they never receive one. The `pendingReveal` guard is belt and braces --
+		-- the payload arrives seconds before this callback, while the wheel is still
+		-- turning -- so a crate that somehow has no manifest falls through to the
+		-- banner rather than opening an empty chest.
+		if mine and slot.Crate and pendingReveal then
+			local rows = pendingReveal
+			pendingReveal = nil
+			-- The wheel goes first: the ceremony is a full-screen takeover, and the
+			-- wheel left up behind its own backdrop blur reads as two panels stacked.
+			setOpen(false)
+			if CrateCeremony.play({
+				Rows = rows, Title = slot.Label or slot.Name,
+				-- Tells the server the chest is done with, which is what releases the
+				-- crate's eggs to the egg shop's hatch ceremony. Resolved HERE rather
+				-- than at load: the remote is created by WheelHandler.Init, and a
+				-- WaitForChild at the top of this file would be one more thing that can
+				-- stall the whole wheel on a slow boot for a signal used once a spin.
+				OnFinished = function()
+					local done = remotes:FindFirstChild("WheelCrateDone")
+					if done then done:FireServer() end
+				end,
+			}) then
+				return
+			end
+			-- refused to start (one already playing, or no PlayerGui yet): fall through
+			-- and say it the old way rather than paying out nothing visible at all
+		end
 		if mine then
 			showResult("YOU WON  " .. tostring(text or ""), SLOTS[index].Colour)
 		elseif whoName then
@@ -1007,6 +1418,9 @@ stateRemote.OnClientEvent:Connect(function(s)
 	luckLeft = tonumber(s.LuckLeft) or 0
 	powerLeft = tonumber(s.PowerLeft) or 0
 	lastSync = os.clock()
+	-- Held, not used: the wheel has seven and a half seconds of spinning to do
+	-- before the landing callback wants this.
+	if type(s.Reveal) == "table" and #s.Reveal > 0 then pendingReveal = s.Reveal end
 	if s.Error then showResult(tostring(s.Error), Color3.fromRGB(255, 120, 110)); spinning = false end
 	if not s.Result then refreshButton() end
 end)
@@ -1025,3 +1439,155 @@ end)
 
 refreshButton()
 task.delay(2, function() stateRemote:FireServer() end)
+
+--============================= free-spin marker ============================--
+--[[ A red "!" floating over the wheel while YOUR daily spin is ready.
+
+PER-PLAYER, which is why it is built here and not in WheelBoard alongside the
+rest of the wheel. Everything on that model is server-built and therefore the
+same for everyone -- the headboard countdown included, and that one shows the
+SHORTEST cooldown of anyone online (WheelHandler.refreshSign), so "FREE SPIN
+READY" on the sign can perfectly well mean somebody else's spin. This marker
+reads this player's own WheelState, so it is never wrong about whose.
+
+Parented to PlayerGui with an Adornee rather than into the model: a
+LAYOUT_VERSION bump DESTROYS and rebuilds the wheel (WheelBoard.buildSite), and
+a badge living inside it would go with it -- the watcher below re-attaches to
+whatever model turns up instead. ResetOnSpawn = false is the same hazard on the
+other axis: PlayerGui clears resetting LayerCollectors on every respawn, and
+`claimed` would then never let this one be rebuilt.
+
+NoPolish is load-bearing, not decoration. UIPolish force-whitens every
+unexempted label under PlayerGui, so without it the red "!" is a white "!" --
+and it fails SILENTLY, because the marker still appears, just in the wrong
+colour. Exempt gets it the whole way through: the fill is saturated, which is
+the branch UIPolish's readability floor leaves alone as a deliberate colour.
+
+BOTH wheels get one -- valley and tundra. The cooldown is per player, not per
+wheel, so the marker has to be waiting at whichever one you walk up to. ]]
+do
+	local READY_RED = Color3.fromRGB(255, 58, 58)
+	local FLOAT_Y   = 3.4        -- studs above CallAnchor, clearing the SPIN call-out
+	-- Studs, so this shrinks with distance -- which means it has to be sized for the
+	-- FAR end of MaxDistance, not for how it looks standing at the wheel. 4.2 studs
+	-- is ~16px tall at 150 studs (a red tick you notice across the plaza) and ~95px
+	-- walking up, against the fixed-pixel SPIN call-out it sits above.
+	local W, H      = 3.0, 4.2
+
+	-- `cooldown` is 0 until the first WheelState lands, and 0 reads as READY -- so
+	-- without this the marker is up for the first few seconds of every session
+	-- whether the spin is banked or not (the server's own first send is on a 3s
+	-- delay). Connected here rather than folded into the handler above so the whole
+	-- marker stays inside this block, and last, so it always runs after `cooldown`
+	-- has been written.
+	local synced = false
+	stateRemote.OnClientEvent:Connect(function(s)
+		if type(s) == "table" then synced = true end
+	end)
+
+	local badges  = {}   -- [model] = { bb, mark, st, model }
+	local claimed = {}   -- [model] = true, taken BEFORE the first yield in attach()
+
+	-- CallAnchor is WheelBoard's own float point above the wheel; the fallbacks
+	-- cover a model built before it existed. Returns nil while the wheel's parts
+	-- are streamed out, which is a normal state, not a failure -- see the update
+	-- loop, which is what calls this.
+	local function anchorFor(model)
+		return model:FindFirstChild("CallAnchor")
+			or model:FindFirstChild("Sign") or model.PrimaryPart
+	end
+
+	local function attach(model)
+		-- Claimed up front: the initial sweep and ChildAdded can both land on the
+		-- same model, and every guard after this point is on the far side of a yield.
+		if claimed[model] then return end
+		claimed[model] = true
+		model.Destroying:Connect(function()
+			local b = badges[model]
+			if b then b.bb:Destroy() end
+			badges[model], claimed[model] = nil, nil
+		end)
+		local pg = player:WaitForChild("PlayerGui", 20)
+		if not (pg and model.Parent) then claimed[model] = nil; return end
+		-- Adornee is left nil here and resolved by the update loop instead. Under
+		-- StreamingEnabled a wheel's PARTS are absent until you are near it -- the
+		-- model replicates, its contents do not -- so waiting on CallAnchor at attach
+		-- time times out on every wheel except the one you spawned beside, and the
+		-- tundra wheel then never gets a marker no matter how close you walk. Measured
+		-- exactly that: 1 badge built, 2 wheels in the client's Workspace.
+		local bb = new("BillboardGui", {
+			Name = "SpinReadyBadge", Enabled = false,
+			-- Scale, not Offset: a studs-sized billboard shrinks with distance like
+			-- everything else in the world, instead of pinning itself over it at a
+			-- fixed pixel size -- which is the exact complaint the CallOut sitting
+			-- just below it was retuned for.
+			Size = UDim2.fromScale(W, H),
+			StudsOffsetWorldSpace = Vector3.new(0, FLOAT_Y, 0),
+			AlwaysOnTop = false, MaxDistance = 150, ResetOnSpawn = false,
+		}, pg)
+		bb:SetAttribute("NoPolish", true)
+		local mark = new("TextLabel", {
+			Name = "Mark", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+			Text = "!", TextColor3 = READY_RED, Font = Enum.Font.FredokaOne,
+			TextScaled = true, TextStrokeTransparency = 1,
+		}, bb)
+		stroke(mark, 4)
+		badges[model] = { bb = bb, mark = mark, model = model,
+			st = mark:FindFirstChildOfClass("UIStroke") }
+	end
+
+	task.spawn(function()
+		local gw = Workspace:WaitForChild("GameWorld", 30)
+		if not gw then return end
+		-- Prefix, not equality: DailyWheel and DailyWheelTundra (WheelBoard.SITES).
+		-- resolveWorld above deliberately tracks only the valley wheel -- it drives
+		-- the prop's spin animation -- but a marker that only ever appeared in world
+		-- 1 would be worse than none in world 2.
+		local function consider(c)
+			if c:IsA("Model") and c.Name:sub(1, 10) == "DailyWheel" then
+				task.spawn(attach, c)
+			end
+		end
+		gw.ChildAdded:Connect(consider)
+		for _, c in ipairs(gw:GetChildren()) do consider(c) end
+	end)
+
+	-- Down while the panel is open or a spin is running: you are already looking at
+	-- the answer, and a marker still shouting READY over a wheel mid-spin is the
+	-- badge lying about a state it has not caught up with.
+	local t0, nextResolve = os.clock(), 0
+	RunService.Heartbeat:Connect(function()
+		local ready = synced and cooldown <= 0 and not spinning and not isOpen
+		local el = os.clock() - t0
+		-- RE-RESOLVED, not resolved once: streaming removes the wheel's parts when
+		-- you walk away and streams back NEW instances when you return, so an Adornee
+		-- captured at attach time is a dead reference on the second visit -- and a
+		-- dead Adornee renders nothing at all, silently. Throttled because the answer
+		-- only changes on a stream event.
+		local resolve = el >= nextResolve
+		if resolve then nextResolve = el + 0.5 end
+		for _, b in pairs(badges) do
+			local a = b.bb.Adornee
+			if resolve and (not a or not a.Parent) then
+				a = anchorFor(b.model)
+				b.bb.Adornee = a
+			end
+			local show = ready and a ~= nil
+			if b.bb.Enabled ~= show then b.bb.Enabled = show end
+			if show then
+				-- slow bob + a small breath, so it reads as "come here" rather than as
+				-- one more static prop bolted to the wheel
+				local k = 1 + math.sin(el * 3.2) * 0.06
+				b.bb.Size = UDim2.fromScale(W * k, H * k)
+				b.bb.StudsOffsetWorldSpace =
+					Vector3.new(0, FLOAT_Y + math.sin(el * 2.0) * 0.26, 0)
+				-- UIStroke.Thickness is in PIXELS while the billboard is in STUDS, so a
+				-- fixed keyline is a hairline up close and a red blob at 150 studs.
+				-- Tracked off the glyph's own on-screen size instead.
+				if b.st then
+					b.st.Thickness = math.clamp(b.mark.AbsoluteSize.Y * 0.05, 1.2, 6)
+				end
+			end
+		end
+	end)
+end

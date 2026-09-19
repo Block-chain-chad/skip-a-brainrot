@@ -21,6 +21,9 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local PlayerDataManager = require(ServerScriptService.Modules.PlayerDataManager)
 local InventoryHandler = require(ServerScriptService.Modules.InventoryHandler)
 local SeasonPassHandler = require(ServerScriptService.Modules.SeasonPassHandler)
+-- the weekly emerald slate counts fuses too; SeasonPassHandler above already pulls
+-- this module in, so it is loaded either way and this adds no cycle
+local EmeraldService = require(ServerScriptService.Modules.EmeraldService)
 local MintRegistry = require(ServerScriptService.Modules.MintRegistry)
 local BrainrotConfig = require(ReplicatedStorage.Modules.BrainrotConfig)
 
@@ -125,6 +128,8 @@ function FusionHandler.Init()
 
 		InventoryHandler.SyncBackpack(player)
 		SeasonPassHandler.Notify(player, "Fuse", 1)
+		-- and the weekly emerald slate, which has a Fuse quest on it
+		EmeraldService.Notify(player, "Fuse", 1)
 		PlayerDataManager.PushUpdate(player)
 		if result then result:FireClient(player, { Success = true, Message = nextMut .. " " .. name .. " fused!" }) end
 		remotes.FusionRequest:FireClient(player, { Name = name, NewMutation = nextMut })

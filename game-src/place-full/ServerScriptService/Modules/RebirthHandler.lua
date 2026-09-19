@@ -41,11 +41,11 @@ local function doRebirth(player)
 		return
 	end
 
-	-- the prestige sacrifice: cash and the rock collection, nothing else.
-	-- Brainrots stay exactly where they are, still placed and still earning.
+	-- the prestige sacrifice: CASH ONLY (2026-09-03). Rocks used to be wiped back to
+	-- Pebble; with the ladder at ~20B (valley) and up to 950B (tundra) that made rebirth
+	-- a trap past the mid-game -- see RebirthConfig's header. Brainrots, placements and
+	-- rocks all stay exactly where they are; the price in RebirthConfig.Cost is the gate.
 	data.Cash = 0
-	data.OwnedRocks = { Pebble = true }
-	data.EquippedRock = "Pebble"
 	data.Rebirths = r + 1
 
 	PlayerDataManager.PushUpdate(player)

@@ -26,7 +26,23 @@ local C = Color3.fromRGB
 -- Bumped to 5: the floating CallOut was scaled down. Build() early-returns when the
 -- existing model's LayoutVersion matches, so a geometry change that does NOT bump this
 -- silently never reaches the wheel already sitting in the place.
-M.LAYOUT_VERSION = 5
+-- 6 (2026-08-18): the wheel's PRIZES changed (loot crate / 150 emeralds / the pro
+-- wheel spinner title). This number is the only thing that reaches a wheel already
+-- standing in the place -- buildSite adopts an existing model untouched when the
+-- version matches, so without a bump the CHANCES plaque and the wheel face keep
+-- advertising whatever WheelConfig said the day the model was first built. That is
+-- exactly what happened: the sign was still listing $1,000 / $100,000 / $2,500,000
+-- after the payouts had already changed underneath it.
+--
+-- 7 (2026-08-19): the wedge ICONS changed -- drawn IconArt instead of emoji, after
+-- the emerald wedge was caught advertising a blue DIAMOND. Exactly the case this
+-- number exists for, and the proof it was needed: the wheels standing in the place
+-- were still built from a generation whose title wedge drew a LABEL glyph, two
+-- config revisions stale, because nothing had bumped this since.
+--
+-- Bumping is safe for placement -- see the note in buildSite: the pivot is captured
+-- and restored, so a wheel someone dragged in Studio stays where they put it.
+M.LAYOUT_VERSION = 7
 
 -- leaderboard arc centre + radius, so the wheel lands opposite the boards
 local ARC = Vector2.new(-29.21, -28.75)
@@ -35,6 +51,17 @@ local GROUND_Y = 4.02
 
 local FACE_D  = 8.0      -- wheel diameter in studs
 local PPS     = 60       -- SurfaceGui pixels per stud -> 480px canvas
+
+-- The wedge icons. pcall'd because this module is on the server boot chain: a
+-- fault in a UI-art module must not be able to take the whole wheel -- and with
+-- it Main's Init -- down. Nil here just means every wedge falls back to its glyph.
+local okIconArt, IconArt = pcall(function()
+	return require(game:GetService("ReplicatedStorage").Modules.UIKit.IconArt)
+end)
+if not okIconArt then
+	warn("[WheelBoard] IconArt unavailable, wedges fall back to glyphs: " .. tostring(IconArt))
+	IconArt = nil
+end
 local HUB_Y   = GROUND_Y + 7.2   -- centre height of the wheel
 
 local WOOD_D = C(104, 66, 38)
@@ -43,7 +70,24 @@ local INK    = C(12, 9, 7)
 local CREAM  = C(255, 242, 219)
 local AMBER  = C(255, 200, 96)
 
-local built = nil
+-- WHERE THE WHEEL STANDS. One row per world; adding a world is adding a row.
+-- The valley row keeps the historical model name and the coordinates baked into
+-- construct(), so nothing about world 1 moves. World 2 gets its own copy on the
+-- walk from the return portal to the hub dome.
+-- LookAt turns the built wheel so its FACE points at that spot -- construct()
+-- orients everything to the valley arc, which means nothing out in the tundra.
+M.SITES = {
+	{ Name = "DailyWheel" },
+	-- World 2 blockout (2026-09-19): the +X side of the Avenue's mouth, just north of
+	-- the Warming Circle, facing the Avenue. The leaderboards sit opposite at -8045 (see
+	-- LeaderboardBoards.TUNDRA_AT), so the two flank the walk up to the camps.
+	{ Name = "DailyWheelTundra",
+	  Pivot  = CFrame.new(-7955, 2001.8, -8128),
+	  LookAt = Vector3.new(-8000, 2001.8, -8128) },
+}
+
+local built = nil     -- the valley wheel, for the single-wheel accessors
+local builtAll = {}   -- every wheel in the place, in SITES order
 
 local function part(parent, name, size, cf, colour, material, transparency)
 	local p = Instance.new("Part")
@@ -127,23 +171,60 @@ local function drawWheel(gui, px)
 		sp.Parent = spinner
 		radial(sp, (i - 1) * SEG, R)
 	end
+	--[[ DRAWN ART, NOT EMOJI (2026-08-19, owner: "there's a diamond icon when we
+	use gems"). Every wedge used to print slot.Icon, and the emerald wedge's glyph
+	is U+1F48E -- a blue DIAMOND. It was advertising the wrong currency on the one
+	surface a player reads before deciding to spin.
+
+	These are the same IconArt drawings the on-screen wheel and the rest of the HUD
+	use, so the physical wheel and the panel now show one set of pictures rather
+	than two. IconArt builds plain Frames, which a SurfaceGui renders exactly like
+	any other GUI -- and being built on the server, they replicate with the model.
+
+	The glyph stays as the fallback: a slot with no Art key, or an Art key IconArt
+	does not know, still draws something rather than an empty wedge. ]]
+	local ICON = 52
 	for i, slot in ipairs(SLOTS) do
 		local mid = math.rad((i - 1) * SEG + SEG / 2)
 		local r = R * 0.62
-		local l = label(spinner, "L" .. i, UDim2.fromOffset(120, 54),
-			UDim2.new(0.5, math.sin(mid) * r, 0.5, -math.cos(mid) * r),
-			slot.Icon .. "\n" .. slot.Short, C(255, 255, 255), 22)
-		l.AnchorPoint = Vector2.new(0.5, 0.5)
-		l.Rotation = (i - 1) * SEG + SEG / 2
-		l.ZIndex = 3
+		local holder = Instance.new("Frame")
+		holder.Name = "L" .. i
+		holder.AnchorPoint = Vector2.new(0.5, 0.5)
+		holder.Size = UDim2.fromOffset(120, ICON + 36)
+		holder.Position = UDim2.new(0.5, math.sin(mid) * r, 0.5, -math.cos(mid) * r)
+		holder.BackgroundTransparency = 1
+		holder.BorderSizePixel = 0
+		holder.Rotation = (i - 1) * SEG + SEG / 2
+		holder.ZIndex = 3
+		holder.Parent = spinner
+
+		local drew = false
+		if IconArt and slot.Art and IconArt.has(slot.Art) then
+			local box = Instance.new("Frame")
+			box.Name = "Art"
+			box.AnchorPoint = Vector2.new(0.5, 0)
+			box.Position = UDim2.new(0.5, 0, 0, 0)
+			box.Size = UDim2.fromOffset(ICON, ICON)
+			box.BackgroundTransparency = 1
+			box.BorderSizePixel = 0
+			box.ZIndex = 3
+			box.Parent = holder
+			drew = IconArt.draw(box, slot.Art, ICON, 3) ~= nil
+		end
+		if not drew then
+			label(holder, "Glyph", UDim2.fromOffset(120, ICON), UDim2.fromOffset(0, 0),
+				slot.Icon, C(255, 255, 255), 34).ZIndex = 3
+		end
+		label(holder, "Text", UDim2.fromOffset(120, 32), UDim2.fromOffset(0, ICON + 2),
+			slot.Short, C(255, 255, 255), 24).ZIndex = 3
 	end
 	return spinner
 end
 
 --=================================== build =================================--
-local function construct(parent)
+local function construct(parent, name)
 	local model = Instance.new("Model")
-	model.Name = "DailyWheel"
+	model.Name = name or "DailyWheel"
 	model.Parent = parent
 
 	-- due east of the arc, turned to face back into it (LookVector -X => yaw +90)
@@ -254,7 +335,11 @@ local function construct(parent)
 	local ordered = table.clone(WheelConfig.SLOTS)
 	table.sort(ordered, function(a, b)
 		if a.Weight ~= b.Weight then return a.Weight > b.Weight end
-		return a.Amount ~= nil and b.Amount == nil   -- stable tie-break for the two 15%s
+		-- Tie-break for the two 15% boosts. Was `a.Amount ~= nil and b.Amount == nil`,
+		-- which stopped meaning anything when slots moved from a single Kind/Amount
+		-- pair to a Grants list -- Amount is nil on every slot now, so it silently
+		-- degraded to "equal". Id is stable and always present.
+		return a.Id < b.Id
 	end)
 
 	for i, slot in ipairs(ordered) do
@@ -267,8 +352,12 @@ local function construct(parent)
 		sw.Parent = pbg
 		label(pbg, "N" .. i, UDim2.fromOffset(150, 34), UDim2.fromOffset(26, y),
 			slot.Label, CREAM, 21, Enum.TextXAlignment.Left)
+		-- OddsShort, not OddsText: this column is 70px and OddsText appends "(1 in N)"
+		-- for anything under 10%, which would overrun it. Derived either way -- not
+		-- slot.Weight directly, which only reads as a percentage while the weights
+		-- happen to total 100.
 		label(pbg, "O" .. i, UDim2.fromOffset(70, 34), UDim2.fromOffset(186, y),
-			slot.Weight .. "%", AMBER, 21, Enum.TextXAlignment.Right)
+			WheelConfig.OddsShort(slot), AMBER, 21, Enum.TextXAlignment.Right)
 	end
 
 	-- the thing you actually walk up to
@@ -367,12 +456,41 @@ local function bind(model)
 	return { Model = model, Spinner = spinner, State = state, Prompt = prompt, CallSub = callSub }
 end
 
-function M.Build(force)
-	local gw = Workspace:FindFirstChild("GameWorld") or Workspace
-	local existing = gw:FindFirstChild("DailyWheel")
+-- Turn a freshly built wheel so its face looks at `lookAt`. construct() aims
+-- everything at the valley arc, so a wheel pivoted into another world would
+-- otherwise present its back to the path.
+local function aim(model, lookAt)
+	local face = model:FindFirstChild("Face")
+	if not face then return end
+	local pivot = model:GetPivot()
+	local cur = face.CFrame.LookVector
+	cur = Vector3.new(cur.X, 0, cur.Z)
+	local want = Vector3.new(lookAt.X - pivot.X, 0, lookAt.Z - pivot.Z)
+	if cur.Magnitude < 1e-3 or want.Magnitude < 1e-3 then return end
+	cur, want = cur.Unit, want.Unit
+	local yaw = math.atan2(want.X, want.Z) - math.atan2(cur.X, cur.Z)
+	model:PivotTo(pivot * CFrame.Angles(0, yaw, 0))
+end
+
+-- Drop a model until its lowest point rests on whatever floor is under it. The
+-- geometry is built around the valley's GROUND_Y, so a site pivot alone leaves the
+-- wheel part-buried (measured: 0.4 studs into the tundra ice).
+local function seat(model)
+	local cf, size = model:GetBoundingBox()
+	local bottom = cf.Y - size.Y / 2
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { model }
+	local hit = Workspace:Raycast(Vector3.new(cf.X, bottom + 8, cf.Z), Vector3.new(0, -100, 0), params)
+	if not hit then return end
+	model:PivotTo(model:GetPivot() + Vector3.new(0, hit.Position.Y - bottom, 0))
+end
+
+local function buildSite(gw, site, force)
+	local existing = gw:FindFirstChild(site.Name)
 	if existing and not force and existing:GetAttribute("LayoutVersion") == M.LAYOUT_VERSION then
 		local b = bind(existing)
-		if b then built = b; return existing, "reused" end
+		if b then return existing, b, "reused" end
 	end
 	-- PRESERVE THE PLACED POSITION ACROSS A REBUILD.
 	-- LAYOUT_VERSION exists so a GEOMETRY change reaches a wheel already sitting in the
@@ -386,22 +504,54 @@ function M.Build(force)
 	-- the overall bounds can still shift it by a stud or so. Vastly better than 45.
 	local keepPivot = existing and existing:GetPivot() or nil
 	if existing then existing:Destroy() end
-	local model = construct(gw)
-	if keepPivot then model:PivotTo(keepPivot) end
-	built = bind(model)
-	return model, "built"
+	local model = construct(gw, site.Name)
+	-- A wheel already placed in the world always wins, exactly as before; a site
+	-- pivot only ever positions a wheel being built for the first time.
+	if keepPivot then
+		model:PivotTo(keepPivot)
+	elseif site.Pivot then
+		model:PivotTo(site.Pivot)
+		if site.LookAt then aim(model, site.LookAt) end
+		seat(model)
+	end
+	return model, bind(model), "built"
+end
+
+function M.Build(force)
+	local gw = Workspace:FindFirstChild("GameWorld") or Workspace
+	table.clear(builtAll)
+	local firstModel, firstHow
+	for _, site in ipairs(M.SITES) do
+		local model, handle, how = buildSite(gw, site, force)
+		if handle then
+			handle.Site = site
+			table.insert(builtAll, handle)
+		end
+		firstModel = firstModel or model
+		firstHow = firstHow or how
+	end
+	built = builtAll[1]
+	return firstModel, firstHow or "built"
 end
 
 function M.Get() return built end
 
--- sign text: ready, or how long until the next free spin
+-- every wheel in the place; WheelHandler binds a prompt on each
+function M.All() return builtAll end
+
+-- sign text: ready, or how long until the next free spin. Fans out: both worlds'
+-- wheels show the same countdown, because the cooldown is per PLAYER not per wheel.
 function M.SetState(text)
-	if built and built.State then built.State.Text = text end
-	if built and built.CallSub then built.CallSub.Text = text end
+	for _, b in ipairs(builtAll) do
+		if b.State then b.State.Text = text end
+		if b.CallSub then b.CallSub.Text = text end
+	end
 end
 
 function M.SetPromptEnabled(on)
-	if built and built.Prompt then built.Prompt.Enabled = on and true or false end
+	for _, b in ipairs(builtAll) do
+		if b.Prompt then b.Prompt.Enabled = on and true or false end
+	end
 end
 
 return M

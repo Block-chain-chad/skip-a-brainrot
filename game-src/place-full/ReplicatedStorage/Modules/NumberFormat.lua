@@ -14,8 +14,15 @@
 
 local NumberFormat = {}
 
--- descending: first threshold that fits wins
+-- descending: first threshold that fits wins.
+--
+-- Sx/Sp were added 2026-08-15 with World 2's 21-rock ladder: its top rock is 29e21,
+-- which without a sextillion unit renders as "29000.00Qi". Standard short-scale
+-- abbreviations, so the sequence stays guessable past the point players stop
+-- recognising the words.
 local UNITS = {
+	{ 1e24, "Sp" },
+	{ 1e21, "Sx" },
 	{ 1e18, "Qi" },
 	{ 1e15, "Qa" },
 	{ 1e12, "T"  },

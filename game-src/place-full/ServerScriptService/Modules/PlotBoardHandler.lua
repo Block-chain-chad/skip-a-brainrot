@@ -47,13 +47,25 @@ end
 PlotBoardHandler.PlotFrame = plotFrame
 
 -- ===== per-plot board placement (spec 1.2.1) =====
--- Bearings chosen per plot so the board FACES that plot's measured trail approach
--- while sitting in a pine-clear window with a >=20 deg stand-off. USER DECISION U5:
--- deliberately non-uniform between plot pairs.
+-- Bearing (deg, plot-local) + radius per plot. Chosen so the board sits at the plot's
+-- trail entrance and FACES down the trail at the approaching player.
+-- RE-MEASURED 2026-08-06: the old bearings were paired/uniform (25/25, 170/170, 97/97)
+-- and no longer lined up with the trails, so the boards faced off into the grass. These
+-- are each plot's actual nearest-trail bearing (the baked PlotBoard models were also
+-- re-aimed to match). Plots 1-3 face east toward the central trail, 4-6 face west.
 local BOARD = {
-	Plot1 = {  25, 24.0 }, Plot2 = {  25, 24.0 },
-	Plot3 = { 170, 26.5 }, Plot4 = { 170, 26.5 },
-	Plot5 = {  97, 24.0 }, Plot6 = {  97, 24.0 },
+	Plot1 = {  89, 24.0 }, Plot2 = {  91, 24.0 },
+	Plot3 = {  66, 26.5 }, Plot4 = { 296, 26.5 },
+	Plot5 = { 174, 24.0 }, Plot6 = { 179, 24.0 },
+	-- WORLD 2 (2026-08-06). The tundra plots used to carry a placeholder: a bare Part
+	-- named PlotBoard with a "CAMP n" label on it. buildBoardModel early-returns when a
+	-- PlotBoard already exists, so that placeholder is precisely why world 2 never got
+	-- a real camp board -- no nameplate, no like plaque, no prompt. Placeholder removed,
+	-- and these bearings aim each board back at the middle of the camp cluster, which is
+	-- where the return portal puts an arriving player.
+	Plot7  = {  76, 24.0 }, Plot8  = {  93, 24.0 },
+	Plot9  = { 132, 24.0 }, Plot10 = { 228, 24.0 },
+	Plot11 = { 266, 24.0 }, Plot12 = { 283, 24.0 },
 	BaseTemplate = { 25, 24.0 },
 }
 PlotBoardHandler.BOARD = BOARD

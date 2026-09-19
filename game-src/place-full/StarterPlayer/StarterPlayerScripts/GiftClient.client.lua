@@ -1,0 +1,4 @@
+-- PARKED 2026-08-12 (inventory rework): gifting was 'hold E on a player while
+-- HOLDING a brainrot Tool' -- both halves died with the Tool system. GiftService
+-- (server) is intact; re-entry needs a new initiation UI (e.g. a Gift action in
+-- the Bag). Original: ServerStorage.AuditBackups.GiftClient_pre_invrework

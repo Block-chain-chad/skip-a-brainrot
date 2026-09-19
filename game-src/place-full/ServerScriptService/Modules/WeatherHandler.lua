@@ -16,6 +16,10 @@ local CLEAR = { Name = "Clear", Luck = 1, Mut = 1, Duration = 180, IsEvent = fal
 -- a chance at its own mutation (see MutationConfig.Events). It does not make
 -- you catch rarer brainrots and does not nudge the base variant odds -- the
 -- mutation's own cash multiplier is the entire reward.
+--
+-- NOTE: luck is ADDITIVE game-wide now (ThrowHandler adds WeatherLuck-1 to every
+-- player's personal luck), so this is the one seam to raise a Luck above 1 if a
+-- shared, everyone-gets-it luck spike is ever wanted during an event. Left at 1 for now.
 -- Duration is not fixed per event any more; each occurrence rolls 4-7 minutes.
 local EVENTS = {
 	{ Name = "Fog",          Luck = 1, Mut = 1, Weight = 30,  Tint = { 200, 210, 220 }, Emoji = "\u{1F32B}\u{FE0F}" },

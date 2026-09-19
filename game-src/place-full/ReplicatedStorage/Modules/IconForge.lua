@@ -195,6 +195,130 @@ BUILDERS.stone = function(model)
 	end
 end
 
+--======================== daily wheel icons (2026-08-18) ===================--
+-- One per wedge, all six distinct in SILHOUETTE as well as colour. The wheel
+-- previously used emoji, which render at whatever size and style the player's
+-- device decides and read as clip-art next to the rest of this HUD. These render
+-- at ~76px inside the wedge chips, so the same "chunky beats detailed" rule as
+-- every icon above applies.
+local EM1 = Color3.fromRGB(52, 214, 132)
+local EM2 = Color3.fromRGB(26, 152, 94)
+local EM3 = Color3.fromRGB(168, 248, 208)
+local WOOD1 = Color3.fromRGB(178, 122, 66)
+local WOOD2 = Color3.fromRGB(132, 86, 44)
+local SKY1 = Color3.fromRGB(96, 206, 232)
+
+BUILDERS.gem = function(model)
+	-- emeralds: ONE SOLID MASS -- a square turned 45 degrees, flat-topped.
+	--
+	-- Two rebuilds got here. A `triangle` rotated 180 to make the pavilion does not
+	-- flip the point downward (rotating the shared CFrame swaps which side each
+	-- mirrored half sits on) and rendered as an arch. Replacing it with six stacked
+	-- blocks narrowing to a culet fixed the shape but made the SILHOUETTE a
+	-- staircase, and the outline pass traces every step -- which is precisely the
+	-- "choppy" edge. A single rotated block has one clean diagonal edge; the facets
+	-- go INSIDE it, where they cannot break the outline.
+	P(model, "Block", V(1.46, 1.46, 0.72), CFrame.new(0, -0.12, 0) * CFrame.Angles(0, 0, RAD(45)), EM1)
+	P(model, "Block", V(1.34, 0.46, 0.78), CFrame.new(0, 0.5, 0), EM1)      -- flat table on top
+	P(model, "Block", V(1.16, 0.12, 0.82), CFrame.new(0, 0.68, 0), EM3)     -- table highlight
+	P(model, "Block", V(0.56, 0.62, 0.84), CFrame.new(-0.3, 0.06, 0), EM2)  -- interior facet
+	P(model, "Block", V(0.34, 0.34, 0.86), CFrame.new(0.34, -0.2, 0), EM3)  -- interior facet
+end
+
+BUILDERS.clover = function(model)
+	-- luck: four lobes on a stem. Balls squashed on Z so they stay round from the
+	-- front without bulging toward the camera.
+	for i = 0, 3 do
+		local a = RAD(90 * i + 45)
+		P(model, "Ball", V(0.95, 0.95, 0.5),
+			CFrame.new(math.cos(a) * 0.46, math.sin(a) * 0.46 + 0.18, 0), PINE1)
+	end
+	Cyl(model, 0.42, 0.28, CFrame.new(0, 0.18, 0.16), "Z", PINE2)                 -- centre knot
+	Cyl(model, 0.16, 0.85, CFrame.new(0.16, -0.72, 0) * CFrame.Angles(0, 0, RAD(16)), "Y", PINE2)
+	P(model, "Ball", V(0.26, 0.26, 0.14), CFrame.new(-0.42, 0.62, 0.26), Color3.fromRGB(196, 244, 200))
+end
+
+BUILDERS.bolt = function(model)
+	-- power: a zigzag of three slanted bars.
+	--
+	-- TWO bars, parallel, offset along the diagonal. The OFFSET between them is the
+	-- bolt's kink and it is the only feature that survives at 68px.
+	--
+	-- Two earlier tries failed differently and are worth not repeating: capping the
+	-- ends with `triangle` scattered loose shapes everywhere, and three alternating
+	-- bars read as a hook rather than a zigzag.
+	-- The two bars must FUSE, not merely sit near each other. The outline pass shows
+	-- ink through any gap BETWEEN parts, so a bolt whose halves meet only at a
+	-- corner renders with a black seam across its middle and reads as two separate
+	-- gold sticks. Tight offsets plus an explicit connector at the kink give the
+	-- union one unbroken silhouette.
+	P(model, "Block", V(0.86, 0.86, 0.36), CFrame.new(0, 0, 0), GOLD1)   -- fills the join
+	for _, s in ipairs({ { 0.2, 0.42 }, { -0.2, -0.42 } }) do
+		P(model, "Block", V(0.86, 1.4, 0.36),
+			CFrame.new(s[1], s[2], 0) * CFrame.Angles(0, 0, RAD(30)), GOLD1)
+	end
+	-- brighter core, inset so it never reaches the silhouette
+	for _, s in ipairs({ { 0.2, 0.42 }, { -0.2, -0.42 } }) do
+		P(model, "Block", V(0.3, 1.0, 0.12),
+			CFrame.new(s[1], s[2], 0.2) * CFrame.Angles(0, 0, RAD(30)), CREAM)
+	end
+end
+
+BUILDERS.crate = function(model)
+	-- the 1% loot crate. Deliberately NOT BUILDERS.gift: the jackpot wants weight,
+	-- so this is a banded chest with a domed lid rather than a bow.
+	P(model, "Block", V(1.6, 1.0, 1.05), CFrame.new(0, -0.34, 0), WOOD1)
+	P(model, "Block", V(1.68, 0.2, 1.12), CFrame.new(0, 0.2, 0), WOOD2)           -- lid lip
+	Cyl(model, 1.0, 1.66, CFrame.new(0, 0.26, 0), "X", WOOD1)                     -- domed lid
+	for _, s in ipairs({ -1, 1 }) do
+		P(model, "Block", V(0.2, 1.05, 1.1), CFrame.new(s * 0.6, -0.32, 0), GOLD2)   -- corner bands
+		Cyl(model, 0.98, 0.2, CFrame.new(s * 0.6, 0.26, 0), "X", GOLD2)
+	end
+	P(model, "Block", V(0.34, 0.46, 0.16), CFrame.new(0, -0.02, 0.56), GOLD1)     -- clasp
+	P(model, "Ball", V(0.2, 0.2, 0.2), CFrame.new(0, -0.06, 0.66), GOLD2)
+	P(model, "Ball", V(0.26, 0.26, 0.16), CFrame.new(-0.38, 0.62, 0.3), CREAM)    -- gloss
+end
+
+BUILDERS.coins = function(model)
+	-- cash: three coins seen FACE ON, overlapping up the diagonal.
+	--
+	-- The first version stacked them on their edges (axis "Y"). This camera is
+	-- nearly front-on, so a flat-stacked coin presents its RIM -- three of them read
+	-- as a bundle of tubes, not as money. Face-on discs are unmistakable.
+	-- SPACING matters as much as the facing. The first face-on attempt put three
+	-- 1.3-wide coins 0.46 apart, so each one covered all but a crescent of the one
+	-- behind and the icon read as three yellow slivers. Two behind, one big in
+	-- front, far enough apart that all three silhouettes are whole.
+	local function coin(x, y, z, dia)
+		Cyl(model, dia, 0.2, CFrame.new(x, y, z), "Z", GOLD1)
+		Cyl(model, dia * 0.7, 0.24, CFrame.new(x, y, z + 0.04), "Z", GOLD2)
+	end
+	coin(-0.62, -0.5, 0.0, 1.02)
+	coin(0.5, -0.66, 0.14, 1.02)
+	coin(0.02, 0.44, 0.34, 1.36)
+	-- a $ on the front coin: a bar and two crossbars is all that survives at 68px
+	P(model, "Block", V(0.17, 0.74, 0.12), CFrame.new(0.02, 0.44, 0.54), CREAM)
+	P(model, "Block", V(0.5, 0.16, 0.12), CFrame.new(0.02, 0.64, 0.54), CREAM)
+	P(model, "Block", V(0.5, 0.16, 0.12), CFrame.new(0.02, 0.24, 0.54), CREAM)
+end
+
+BUILDERS.crown = function(model)
+	-- the PRO WHEEL SPINNER title. A crown reads as RANK at a glance; the hanging
+	-- name-plate this replaces rendered as a blank white card with two grey dashes
+	-- on it -- accurate to the idea, and completely unreadable as a picture.
+	P(model, "Block", V(1.95, 0.5, 0.72), CFrame.new(0, -0.52, 0), GOLD2)         -- band
+	P(model, "Block", V(2.02, 0.17, 0.78), CFrame.new(0, -0.24, 0), GOLD1)        -- band lip
+	-- three points, centre tallest. `triangle` pointing UP -- the direction it is
+	-- known good in (BUILDERS.tent builds its A-frame the same way).
+	for _, s in ipairs({ { -0.66, 0.6 }, { 0, 0.95 }, { 0.66, 0.6 } }) do
+		triangle(model, CFrame.new(s[1], -0.16 + s[2] / 2, 0), s[2], 0.66, 0.68, GOLD1)
+	end
+	P(model, "Ball", V(0.26, 0.26, 0.2), CFrame.new(-0.66, 0.46, 0.3), RED1)      -- jewels
+	P(model, "Ball", V(0.32, 0.32, 0.24), CFrame.new(0, 0.8, 0.32), TEAL1)
+	P(model, "Ball", V(0.26, 0.26, 0.2), CFrame.new(0.66, 0.46, 0.3), RED1)
+	P(model, "Ball", V(0.22, 0.22, 0.16), CFrame.new(0, -0.52, 0.38), CREAM)
+end
+
 --=============================== mounting ==================================--
 -- Camera direction is fixed (three-quarter view from upper right); the DISTANCE
 -- is fitted per icon from its real bounding box, so a tall trophy and a wide
@@ -257,9 +381,16 @@ function M.Mount(parent, kind)
 	-- (drop shadow removed: on a white sticker card the glyph's own shadow
 	-- read as smudge rather than depth. The ink outline below still gives the
 	-- silhouette its definition.)
-	-- chunky outline: the same render pulled 12% closer, pure ink, so a black
-	-- silhouette peeks out evenly around the icon on top of it
-	local outline = makeViewport(holder, model, z + 2, dist / 1.12)
+	-- Chunky outline: the same render pulled closer, pure ink, so a black silhouette
+	-- peeks out around the icon on top of it.
+	--
+	-- 1.06, down from 1.12 (2026-08-18). This is a full ink render of the WHOLE
+	-- model sitting behind the real one, so it does not only outline the outer
+	-- silhouette -- it also shows through every gap BETWEEN parts. At 12% those
+	-- internal seams were thick enough that a multi-part icon read as several
+	-- pieces stacked on top of each other rather than as one object. Halving it
+	-- keeps the cartoon outline and closes the seams.
+	local outline = makeViewport(holder, model, z + 2, dist / 1.06)
 	outline.ImageColor3 = CF.ink
 	-- the icon itself
 	makeViewport(holder, model, z + 3, dist)

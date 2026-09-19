@@ -1,29 +1,27 @@
 -- RebirthConfig: prestige curves shared by RebirthHandler, IncomeLoop, ThrowHandler.
 local RebirthConfig = {}
 
--- ===================== RETUNED ALONGSIDE THE ROCK LADDER =====================
--- The old cost was 1,000,000 x 1.8^n. Against 12 pads of Mythic brainrots that first
--- rebirth was EIGHT AND A HALF SECONDS of income, and the 1.8 growth never caught up
--- with a ~5.8x-per-tier income curve, so rebirth stopped being a decision.
+-- ===================== ROCKS SURVIVE, CASH IS THE PRICE (2026-09-03) =====================
+-- History: 1M x 1.8^n (rebirth was seconds of income), then 100M x 2^n with a ROCK WIPE
+-- sized against a ~725M ladder. The ladder then grew to ~20B in the valley (Singularity
+-- alone 7.38B) and 10B-950B in the tundra, while the price stayed at 100M -- so rebirth
+-- became a trap: weeks of rock purchases gone for +15% income, which Golden Touch sells
+-- for 1.1B with no loss. Nobody past Cometfall should have pressed it, and nobody before
+-- it felt the sacrifice.
 --
--- The other half of this is RebirthHandler: rebirth wipes OwnedRocks back to Pebble.
--- That used to cost ~2.6M to rebuild; with the reworked RockConfig the full ladder is
--- ~725M, so the rock wipe is now the dominant sacrifice and the cash price has to sit
--- in the same order of magnitude or the gate is meaningless.
+-- Now: rocks are KEPT (RebirthHandler no longer touches OwnedRocks/EquippedRock) and the
+-- cash price carries the whole sacrifice: 1B x 2^n. That is ~10 hours of a Legendary camp
+-- for the first one, ~2 hours of a Mythic camp, and it scales with the rock ladder instead
+-- of sitting under it. Growth stays 2.0 rather than steeper because MaxwellQuest asks for
+-- Rebirth 15: at 2.0 that is 16.4T for the last step (~a week of a mutated tundra camp);
+-- at 2.5 it would be 373T, a decade.
 --
--- Payout was raised with it. At +10% per rebirth, giving up ~725M of rocks bought so
--- little that rebirthing was close to a trap; +15% keeps the loop worth entering. The
--- old comment claimed "the value is in rebirthing often" -- that is no longer the
--- shape of it. Rebirth is now an occasional milestone that replays the rock ladder,
--- which is exactly what makes the longer ladder worth having built.
---
--- Brainrots and their placements still survive, so income does NOT collapse on
--- rebirth: placed brainrots keep producing at their tier. What you lose is your cash
--- and your ability to CATCH high tiers until the rocks are rebought.
+-- Payout unchanged: +15% income, +7% luck (mutation odds only, never tier access), +7%
+-- power per rebirth, permanent. Brainrots and their placements survive as before.
 
 -- cash needed to perform the NEXT rebirth, given the current rebirth count
 function RebirthConfig.Cost(rebirths)
-	return math.floor(100000000 * (2.0 ^ (rebirths or 0)))
+	return math.floor(1000000000 * (2.0 ^ (rebirths or 0)))
 end
 
 -- permanent money multiplier (+15% per rebirth)

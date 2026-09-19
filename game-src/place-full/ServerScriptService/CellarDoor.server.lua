@@ -1,65 +1,60 @@
 -- CellarDoor: the padlocked hatch on the grass west of the fishing hut.
 --
--- The key does not exist in the game yet, so hasKey() is false for everyone today and
--- every trigger falls through to the rattle. The whole unlock path below is already
--- wired though -- padlock drops, both leaves swing, the prompt retires -- so shipping
--- the key later is one of:
---     * give the player a Tool named exactly KEY_NAME (Backpack or equipped), or
---     * player:SetAttribute("HasCellarKey", true) from whatever grants it.
--- Nothing in this script needs editing for either.
+-- TWO KEYS, as of this pass. The hatch is the gate to the dungeon and to the Frozen
+-- Tundra portal beyond it, so it now costs BOTH questline rewards:
+--     * Elder Tung's Cellar Key -- the HasCellarKey player attribute (or a Tool named
+--       KEY_NAME). Not a currency: you have it or you don't.
+--     * one of Stupid Gianluca's Keys -- data.Keys, and it is SPENT on the way in.
+-- The Tundra portal used to charge that Gianluca key itself; that lock is gone (its
+-- PortalTouch no longer carries RequiresKey) and the cost moved here, so there is ONE
+-- gate to the whole underground rather than two in a row.
 --
--- The cellar is a WORLD door, not a per-player one: once any keyholder opens it, it
--- stays open for the rest of that server. Making it per-player would mean replicating
--- two different door states to two different clients, which is a client-side rebuild
--- of the whole hatch -- not worth it for a shared overworld prop.
+-- Paid once, open forever: the spend stamps data.CellarUnlocked and every later trip is
+-- free FOR THAT PLAYER.
+--
+-- PER-PLAYER. This script never touches the leaves or the padlock. It validates the
+-- keys and fires the CellarDoor remote to that ONE player; StarterPlayerScripts.
+-- CellarDoorClient swings the hatch LOCALLY on their machine only, so a keyholder
+-- cannot walk a friend down the ladder. Local changes to a workspace part never
+-- replicate up and nothing here writes to those parts, so each client's hatch is
+-- independent.
+--
+-- The BACKSTOP below is what is actually authoritative. Local geometry is by definition
+-- tamperable, so a position check runs server-side: anyone underground without the
+-- entitlement is put back on the grass.
 
+local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService        = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local PlayerDataManager = require(ServerScriptService.Modules.PlayerDataManager)
 
 local cellar   = workspace:WaitForChild("GameWorld"):WaitForChild("Cellar")
 local entrance = cellar:WaitForChild("Entrance")
 local padlock  = entrance:WaitForChild("Padlock")
 local prompt   = padlock.Body:WaitForChild("CellarPrompt")
 
-local KEY_NAME   = cellar:GetAttribute("RequiredKey") or "Cellar Key"
-local OPEN_TIME  = 1.1              -- seconds for the leaves to swing
-local OPEN_ANGLE = math.rad(105)
+local KEY_NAME    = cellar:GetAttribute("RequiredKey") or "Cellar Key"
+local GIANLUCA_KEYS = 1              -- how many of data.Keys the way in costs
+local UNLOCK_FLAG = "CellarUnlocked" -- stamped on the profile once paid
 
-local leaves = {}
-for _, name in ipairs({ "LeafWest", "LeafEast" }) do
-	local leaf = entrance:WaitForChild(name)
-	local hingeX = leaf:GetAttribute("HingeX")
-	table.insert(leaves, {
-		model = leaf,
-		pivot = Vector3.new(hingeX, 4.55, 87),
-		-- the leaf swings up and away from its own hinge, so the direction of the
-		-- rotation is just which side of the hinge the plank sits on
-		sign  = hingeX < leaf.PrimaryPart.Position.X and 1 or -1,
-		base  = leaf:GetPivot(),
-	})
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local doorRemote = remotes:FindFirstChild("CellarDoor")
+if not doorRemote then
+	doorRemote = Instance.new("RemoteEvent")
+	doorRemote.Name = "CellarDoor"
+	doorRemote.Parent = remotes
 end
 
-local function setAngle(theta)
-	for _, l in ipairs(leaves) do
-		local t = CFrame.new(l.pivot) * CFrame.Angles(0, 0, l.sign * theta) * CFrame.new(-l.pivot)
-		l.model:PivotTo(t * l.base)
-	end
-end
-
-local function play(name)
-	local snd = padlock.Body:FindFirstChild(name)
-	if snd then snd:Play() end
-end
-
-local function notify(player, message)
-	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-	local remote = remotes and remotes:FindFirstChild("PurchaseResult")
+local function notify(player, ok, message)
+	local remote = remotes:FindFirstChild("PurchaseResult")
 	if remote then
-		remote:FireClient(player, { Success = false, Message = message })
+		remote:FireClient(player, { Success = ok, Message = message })
 	end
 end
 
-local function hasKey(player)
+-- Elder Tung's half. Runtime attribute, or the Tool, exactly as before.
+local function hasTungKey(player)
 	if player:GetAttribute("HasCellarKey") then return true end
 	local backpack = player:FindFirstChildOfClass("Backpack")
 	if backpack and backpack:FindFirstChild(KEY_NAME) then return true end
@@ -68,60 +63,135 @@ local function hasKey(player)
 	return false
 end
 
-local busy = false
-
-local function rattle()
-	-- a short shudder against the padlock: the leaves lift a couple of degrees and
-	-- drop back, twice, so a locked pull reads as blocked rather than as nothing
-	play("LockedRattle")
-	for _ = 1, 2 do
-		for i = 0, 1, 0.34 do
-			setAngle(math.rad(2.5) * math.sin(i * math.pi))
-			RunService.Heartbeat:Wait()
-		end
-	end
-	setAngle(0)
+local function gianlucaKeys(player)
+	local data = PlayerDataManager.Get(player)
+	return data and (tonumber(data.Keys) or 0) or 0
 end
 
-local function open()
-	cellar:SetAttribute("Locked", false)
-	prompt.Enabled = false
-	play("UnlockClunk")
-	task.wait(0.35)
+local function alreadyPaid(player)
+	local data = PlayerDataManager.Get(player)
+	return data and data[UNLOCK_FLAG] == true
+end
 
-	-- padlock falls off into the grass and is gone for good
-	local body = padlock.Body
-	for _, d in ipairs(padlock:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Anchored = false
-			d.CanCollide = true
+-- READ-ONLY. Used by the trespass backstop, which runs twice a second and must never
+-- spend anything -- that is why the paying path is a separate function.
+local function mayBeDownThere(player)
+	if alreadyPaid(player) then return true end
+	return hasTungKey(player) and gianlucaKeys(player) >= GIANLUCA_KEYS
+end
+
+-- Spends the Gianluca key and stamps the profile. Returns true if the way is open.
+local function tryUnlock(player)
+	if alreadyPaid(player) then return true end
+
+	local hasTung = hasTungKey(player)
+	local keys = gianlucaKeys(player)
+	if not hasTung or keys < GIANLUCA_KEYS then
+		-- name the MISSING half rather than a flat refusal: two different quests hand
+		-- these out and "you need a key" would not say which one to go and do
+		local missing
+		if not hasTung and keys < GIANLUCA_KEYS then
+			missing = ("Elder Tung's %s AND %d of Gianluca's keys"):format(KEY_NAME, GIANLUCA_KEYS)
+		elseif not hasTung then
+			missing = ("Elder Tung's %s"):format(KEY_NAME)
+		else
+			missing = ("%d of Gianluca's keys (you have %d)"):format(GIANLUCA_KEYS, keys)
 		end
+		notify(player, false, ("\u{1F512} The cellar takes TWO keys. You still need %s."):format(missing))
+		return false
 	end
-	body.AssemblyLinearVelocity = Vector3.new(0, 4, -6)
-	task.delay(4, function() padlock:Destroy() end)
 
-	play("HatchOpen")
-	local t0 = os.clock()
-	while true do
-		local a = math.min((os.clock() - t0) / OPEN_TIME, 1)
-		-- ease out, so the leaves land rather than slam
-		setAngle(OPEN_ANGLE * (1 - (1 - a) ^ 3))
-		if a >= 1 then break end
-		RunService.Heartbeat:Wait()
-	end
+	local data = PlayerDataManager.Get(player)
+	if not data then return false end
+	data.Keys = keys - GIANLUCA_KEYS
+	data[UNLOCK_FLAG] = true
+	PlayerDataManager.PushUpdate(player)
+	notify(player, true, "\u{1F513} Both keys turn. The cellar is open to you \u{2014} for good.")
+	return true
+end
+
+-- Who has already had it swing open. Re-sent on respawn so a keyholder who dies
+-- underground does not come back to a hatch their own client thinks is shut.
+--
+-- SEEDED FROM THE PROFILE, not just from what happened this session. data.CellarUnlocked
+-- is stamped the moment both keys are spent and never cleared, so a player who has paid
+-- should find the hatch already open on every future join. Without the seed below this
+-- table started empty each session and they had to walk up and trigger the prompt again
+-- every single time -- it cost them nothing, but it read as the door having re-locked.
+local opened = {}
+
+local function markOpenIfPaid(player)
+	-- the profile may not be loaded the instant they join; wait briefly for it
+	task.spawn(function()
+		for _ = 1, 40 do
+			if PlayerDataManager.Get(player) then break end
+			task.wait(0.25)
+		end
+		if player.Parent and alreadyPaid(player) then
+			opened[player] = true
+			if player.Character then doorRemote:FireClient(player, "already") end
+		end
+	end)
 end
 
 prompt.Triggered:Connect(function(player)
-	if busy or not cellar:GetAttribute("Locked") then return end
-	busy = true
-
-	if hasKey(player) then
-		open()
+	if opened[player] then
+		doorRemote:FireClient(player, "already")
+		return
+	end
+	if tryUnlock(player) then
+		opened[player] = true
+		doorRemote:FireClient(player, "open")
 	else
-		notify(player, "The cellar is padlocked. You need the " .. KEY_NAME .. ".")
-		rattle()
-		busy = false
+		doorRemote:FireClient(player, "rattle")
 	end
 end)
 
-print("CellarDoor online (locked, requires '" .. KEY_NAME .. "')")
+Players.PlayerRemoving:Connect(function(player) opened[player] = nil end)
+
+local function hookRespawn(player)
+	player.CharacterAdded:Connect(function()
+		task.wait(1.5)
+		if opened[player] then doorRemote:FireClient(player, "already") end
+	end)
+end
+Players.PlayerAdded:Connect(function(player)
+	hookRespawn(player)
+	markOpenIfPaid(player)
+end)
+for _, p in ipairs(Players:GetPlayers()) do
+	hookRespawn(p)
+	markOpenIfPaid(p)
+end
+
+--=========================== SERVER-SIDE BACKSTOP ==========================--
+-- The one check that does not depend on client geometry. Anyone below the hatch line
+-- inside the cellar's footprint without the entitlement is lifted back onto the grass.
+local cellarCF, cellarSize = cellar:GetBoundingBox()
+local MIN = cellarCF.Position - cellarSize * 0.5
+local MAX = cellarCF.Position + cellarSize * 0.5
+local entranceCF = entrance:GetPivot()
+local CEIL = entranceCF.Position.Y - 2.5                    -- just under the hatch leaves
+local EJECT = entranceCF.Position + Vector3.new(0, 4, -7)   -- the apron, south of the hatch
+
+local function inCellar(pos)
+	return pos.Y < CEIL
+		and pos.X > MIN.X and pos.X < MAX.X
+		and pos.Z > MIN.Z and pos.Z < MAX.Z
+end
+
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		for _, player in ipairs(Players:GetPlayers()) do
+			local char = player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp and inCellar(hrp.Position) and not mayBeDownThere(player) then
+				hrp.CFrame = CFrame.new(EJECT)
+				notify(player, false, "The cellar is locked to whoever earned both keys.")
+			end
+		end
+	end
+end)
+
+print(("CellarDoor online (per-player, needs '%s' + %d Gianluca key)"):format(KEY_NAME, GIANLUCA_KEYS))

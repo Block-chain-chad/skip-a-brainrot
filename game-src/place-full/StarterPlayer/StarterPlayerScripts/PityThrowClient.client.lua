@@ -10,6 +10,8 @@ local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local pityRemote = remotes:WaitForChild("PityThrow")
 local UITheme = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("UITheme"))
+local SoundKit = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("SoundKit"))
+local PITY_VOL = 0.34   -- peer of the perfect pop; the two never co-occur
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "PityThrowUI"
@@ -54,6 +56,9 @@ pityRemote.OnClientEvent:Connect(function(tierName, tierColor)
 	label.Text = ("\u{2728} %s PITY THROW! \u{2728}"):format(string.upper(tierName))
 	label.TextColor3 = (typeof(tierColor) == "Color3") and tierColor or Color3.fromRGB(255, 226, 120)
 	holder.Visible = true
+	-- the dry-streak safety net firing is a gift, not a warning: a reward sting,
+	-- reusing the wheel's existing win voice rather than inventing an id
+	SoundKit.play("wheelWin", nil, { volume = PITY_VOL })
 	scale.Scale = 0.55
 	TweenService:Create(scale, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 	task.delay(2.6, function()

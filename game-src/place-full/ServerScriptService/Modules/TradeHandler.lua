@@ -13,6 +13,9 @@ local BrainrotMover = require(ServerScriptService.Modules.BrainrotMover)
 -- no require cycle: InventoryHandler only requires PlayerDataManager/BrainrotSpawner
 local InventoryHandler = require(ServerScriptService.Modules.InventoryHandler)
 local Mutations = require(ReplicatedStorage.Modules.MutationConfig)
+-- Brainrot bag capacity. A trade is a transfer path, so it takes the same
+-- PRE-FLIGHT treatment the unique cap already gets here -- see below.
+local BagConfig = require(ReplicatedStorage.Modules.BagConfig)
 
 local remotes = ReplicatedStorage.Remotes
 
@@ -242,6 +245,28 @@ local function executeTrade(session)
 				BrainrotMover.CountOwned(dir.recvData, name),
 				dir.outgoing.Items[name] or 0, count) then
 				return false, ("%s is one-per-player \u{2014} a player would end up with more than one."):format(name)
+			end
+		end
+	end
+
+	-- BAG SPACE, netted exactly like the unique cap above (2026-08-20). Same
+	-- pre-flight rule and the same reason: Take() has mutated the giver by the
+	-- time Give runs, so refusing later would destroy items mid-swap.
+	--
+	-- `incoming > outgoing` is what makes an even swap always legal. A player at
+	-- exactly 150/150 can still trade one brainrot for another all day -- only a
+	-- trade that would leave them holding MORE than they started with has to fit.
+	for _, dir in ipairs({
+		{ recvData = dataB, incoming = offerA, outgoing = offerB },
+		{ recvData = dataA, incoming = offerB, outgoing = offerA },
+	}) do
+		local incoming, outgoing = 0, 0
+		for _, count in pairs(dir.incoming.Items) do incoming += count end
+		for _, count in pairs(dir.outgoing.Items) do outgoing += count end
+		if incoming > outgoing then
+			local after = BagConfig.BrainrotCount(dir.recvData) - outgoing + incoming
+			if after > BagConfig.BrainrotCap(dir.recvData.Upgrades, dir.recvData.BagX2) then
+				return false, "A player has no room left in their bag for this trade."
 			end
 		end
 	end

@@ -155,6 +155,22 @@ end
 function UIStyle.bubbleText(label, accent, bodyFont)
 	label.Font = bodyFont and UIStyle.Fonts.Body or UIStyle.Fonts.Title
 	label.TextColor3 = P.White
+	-- One text outline per label. Contextual mode on a text object strokes the
+	-- GLYPHS, so a label that was authored in StarterGui with its own Contextual
+	-- stroke -- the cash counter is the one that mattered -- ends up wearing two
+	-- once we add ours, at two thicknesses and two colours. That renders as a
+	-- single fat lumpy edge rather than as two outlines, so it looks like sloppy
+	-- art rather than a bug. Ours is the one that matches the surface, so the
+	-- older one is retired (hidden, not destroyed: it may be authored content a
+	-- collaborator still looks up by name).
+	for _, k in ipairs(label:GetChildren()) do
+		if k:IsA("UIStroke")
+			and k.Name ~= "UIStyleStrokeText"
+			and k.ApplyStrokeMode ~= Enum.ApplyStrokeMode.Border
+		then
+			k.Transparency = 1
+		end
+	end
 	local s = findChild(label, "UIStyleStrokeText", "UIStroke")
 	if not s then
 		s = Instance.new("UIStroke")
@@ -169,11 +185,15 @@ function UIStyle.bubbleText(label, accent, bodyFont)
 	return s
 end
 
+-- 2026-08-05 cross-platform: was `math.clamp(vp.Y / 900, 0.8, 1.25)` inline.
+-- Same formula and the same numbers on desktop, but Platform raises the FLOOR
+-- on phones and consoles. That floor is the part that mattered: a 414-tall
+-- handset landed on 0.8 -- identical furniture size to a 720p monitor -- which
+-- put HUD buttons at ~38px, under Roblox's 44px minimum touch target.
+local Platform = require(script.Parent:WaitForChild("Platform"))
+
 local function clampedScale()
-	local cam = workspace.CurrentCamera
-	local y = cam and cam.ViewportSize.Y or 900
-	if y <= 1 then y = 900 end -- viewport not ready yet
-	return math.clamp(y / 900, 0.8, 1.25)
+	return Platform.Height(900, 0.8, 1.25)
 end
 
 local function rootScale(panel)

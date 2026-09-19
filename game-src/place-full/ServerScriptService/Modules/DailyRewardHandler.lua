@@ -1,6 +1,16 @@
--- DailyRewardHandler — 30-day login streak calendar with escalating cash rewards,
--- a once-a-week streak-freeze grace (one missed day forgiven), and promo codes.
--- Self-contained: reads DailyStreak / LastClaimDay / LastFreezeDay / RedeemedCodes.
+-- DailyRewardHandler — SEVEN-DAY login streak week, a once-a-week streak-freeze
+-- grace (one missed day forgiven), and promo codes.
+-- Reads DailyStreak / LastClaimDay / LastFreezeDay / RedeemedCodes.
+--
+-- The week used to be 30 days of escalating CASH and nothing else. It is now
+-- seven MIXED days -- cash, a Luck boost, emeralds, a title, eggs -- authored in
+-- ReplicatedStorage.Modules.DailyRewardConfig so the panel renders from the same
+-- table the server pays from.
+--
+-- GRANTING IS NOT DONE HERE. Every payout goes through
+-- SeasonPassHandler.GrantReward, the same switch the season track uses, so a
+-- reward Kind is implemented exactly once. See SeasonConfig's header for the
+-- exhaustive Kind list and the silent-dud warning that motivates sharing it.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -8,15 +18,20 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local PlayerDataManager = require(ServerScriptService.Modules.PlayerDataManager)
 local CodeConfig = require(ServerScriptService.Modules.CodeConfig)
 local SeasonPassHandler = require(ServerScriptService.Modules.SeasonPassHandler)
+local DailyRewardConfig = require(ReplicatedStorage.Modules.DailyRewardConfig)
+-- NO BagConfig REQUIRE ANY MORE (2026-08-26). The bag check this file used to
+-- run before stamping a claim has moved down into GrantReward's Egg branch,
+-- which PARKS what will not fit instead of refusing it -- see the long note in
+-- claim() below for why the daily week, unlike the season track, cannot afford
+-- to back out of a claim. (The comment that stood here also named the wrong day:
+-- the egg is day 7, not day 5.)
 local remotes = ReplicatedStorage.Remotes
 
--- reward per streak-day (1..30), milestone spikes on days 7/14/21/30; cycle repeats
-local DAILY_REWARDS = {
-	500, 1000, 2500, 5000, 10000, 25000, 100000,
-	2000, 4000, 8000, 15000, 30000, 60000, 250000,
-	10000, 20000, 40000, 75000, 150000, 300000, 750000,
-	25000, 50000, 100000, 200000, 400000, 800000, 1500000, 3000000, 10000000,
-}
+-- The week, authored in the shared config. Seven TYPED rewards now, not thirty
+-- numbers; streakDayFor() below cycles the streak back through them, so day 8 is
+-- day 1 again. Everything downstream sizes itself off #DAILY_REWARDS, including
+-- the panel's card row, so the length lives in one place.
+local DAILY_REWARDS = DailyRewardConfig.Days
 
 local FREEZE_COOLDOWN_DAYS = 7
 
@@ -66,6 +81,34 @@ local function claim(player)
 	local today = currentDay()
 	if data.LastClaimDay >= today then return end -- already claimed today (also guards spam)
 
+	-- === A FULL PET BAG PARKS THE EGG DAY, IT DOES NOT REFUSE IT (2026-08-26) ===
+	-- This block USED to call SeasonPassHandler.PetSpaceNeeded here and bail before
+	-- stamping anything, reasoning that "the day stays claimable ... they can claim
+	-- it the moment they sell a pet". THAT PREMISE WAS FALSE FOR THIS CALLER.
+	--
+	-- The rule it came from is still right for the SEASON TRACK, and claimTier
+	-- still enforces it: a tier you refuse today is still sitting in the Goals
+	-- panel tomorrow, so backing out costs the player nothing. A DAILY CARD HAS NO
+	-- SECOND ENTRANCE. Its rail tile was removed on 2026-08-07 (see the "NO DAILY
+	-- TILE" note in GameHUDClient) and the calendar now opens only at join.
+	--
+	-- Worse: GameHUDClient's AUTO-CLAIM ON DISMISS -- the net that exists precisely
+	-- so closing the panel cannot forfeit the day -- fires this same remote, hit
+	-- this same refuse, and returned silently behind a panel that was already
+	-- closing. A full bag therefore ATE the day and, once the gap reached 2, burned
+	-- the streak freeze or reset the streak outright: the exact outcome both of
+	-- those decisions were written to prevent.
+	--
+	-- So the daily week now does what the wheel's crate does. Claim, then let
+	-- GrantReward's Egg branch park whatever will not fit into data.PendingEggs and
+	-- say so on the toast channel. PetHandler.FlushPendingEggs hands them over the
+	-- moment room appears -- every sale, every rejoin, and the Bag's own claim
+	-- button -- so the reward is DEFERRED rather than lost, and the streak survives
+	-- a full bag.
+	--
+	-- GrantReward's contract is still met. A committed claim still always delivers:
+	-- parking IS delivery, on exactly the terms the wheel already ships.
+
 	local gap = today - data.LastClaimDay
 	local usedFreeze = false
 	if gap == 1 then
@@ -80,7 +123,14 @@ local function claim(player)
 	data.LastClaimDay = today
 	local day = streakDayFor(data.DailyStreak)
 	local reward = DAILY_REWARDS[day]
-	PlayerDataManager.GrantCash(data, reward)
+
+	-- LastClaimDay is already written, so the claim is committed and the grant must
+	-- not be able to no-op -- GrantReward holds that contract for every Kind and
+	-- falls back to this day's Fallback cash if a branch cannot deliver (an egg
+	-- that will not hatch, a title the player already owns).
+	SeasonPassHandler.GrantReward(player, data, reward, (reward and reward.Fallback) or 0,
+		("daily day %d"):format(day), "daily:day" .. day)
+
 	SeasonPassHandler.Notify(player, "DailyClaim", 1)
 	PlayerDataManager.PushUpdate(player)
 	remotes.DailyState:FireClient(player, {

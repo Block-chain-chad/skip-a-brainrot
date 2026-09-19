@@ -24,6 +24,10 @@ end
 
 M.FORCE_ON = {
 	["Secret Pete"] = true,   -- fixed-odds apex; his gate is LimitedStock's cap
+	-- Gianluca's Chim. Same shape as Pete: fixed-odds, and its gate is the Unique cap
+	-- rather than the schedule. Pinned ON so a future season retirement or a tide flip
+	-- can never quietly make the quest's alternate route uncatchable.
+	["Chim"] = true,
 }
 M.VAULTED = {}
 

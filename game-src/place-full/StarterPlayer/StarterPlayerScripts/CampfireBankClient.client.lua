@@ -300,9 +300,18 @@ local function applyFlame(c, f)
 		}):Play()
 	end
 	if c.light and c.light.Parent then
+		-- Scale UP FROM the campfire's own resting light, never onto a fixed floor.
+		-- This used to read `2.8 + 1.2 * f`, i.e. brightness 2.8 no matter what was
+		-- banked -- so the instant after a collect (f = 0) the fire still burned ~9x
+		-- its resting 0.30 and washed the whole plot out, which is exactly what it
+		-- looked like: collecting never dimmed anything. lightB0/lightR0 are the
+		-- values captured when the controller was built and the ones teardown puts
+		-- back, so f = 0 now matches an untouched campfire and a full bank tops out
+		-- around 1.0 -- the weight of the portal braziers, the brightest fire in the
+		-- game elsewhere.
 		TweenService:Create(c.light, info, {
-			Brightness = 2.8 + 1.2 * f,
-			Range = 26 + 5.0 * f,
+			Brightness = c.lightB0 + 0.70 * f,
+			Range = c.lightR0 + 7.0 * f,
 		}):Play()
 	end
 end

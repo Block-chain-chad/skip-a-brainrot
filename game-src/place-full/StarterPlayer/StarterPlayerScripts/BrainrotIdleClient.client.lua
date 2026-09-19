@@ -23,6 +23,30 @@ local SHIVER_AMP = 0.05    -- studs; shiver should read as tension, not travel
 -- own offsets can never trip it, whatever their amplitude -- this is purely
 -- replication-jitter headroom.
 local RESEAT = 0.5
+-- A correctly seated body has its pivot ON its bounding-box centre (BrainrotSpawner
+-- writes PivotOffset to centre it), so a good capture has rel == identity. During a
+-- plot CLAIM the whole plot's models replicate in one burst and that centring PivotOffset
+-- can arrive a few frames AFTER the parts -- capture in that gap and rel bakes in the raw
+-- limb pivot (up to ~3.75 studs), which makes yaw motions ORBIT the body around its pad
+-- forever (our own writes keep the drift at zero, so it never self-heals). So: only lock
+-- in the anchor once the pivot is within SEAT_TOL of the box centre. SEAT_GRACE is the
+-- backstop -- if a body somehow never centres (a genuinely off-centre pivot), capture it
+-- anyway after this long so nothing is left frozen.
+local SEAT_TOL = 0.5       -- studs; centred pivot sits ~0 off, a bad limb capture is 1.4-3.75
+local SEAT_GRACE = 0.5     -- seconds to wait for the centring pivot before capturing regardless
+
+-- ===== Distance LOD (added 2026-08-24 for FPS with many full plots) =====
+-- Plots are clustered ~60-120 studs apart, so StreamingEnabled never unloads a
+-- neighbour's plot -- every client renders EVERY occupied plot at once, and cost
+-- grows linearly with players. Past LOD_FAR a body is drawn as only its LOD_KEEP
+-- biggest parts (its silhouette); the rest are blanked with LocalTransparencyModifier.
+-- That flag is CLIENT-ONLY (never replicates -- the server pays nothing) and the
+-- renderer skips fully-transparent parts, so a far plot costs a handful of draw
+-- calls instead of ~350. Hysteresis (LOD_NEAR < LOD_FAR) stops boundary flicker.
+-- Revert: restore ServerStorage.AuditBackups.BrainrotIdleClient_pre_lod.
+local LOD_KEEP = 3         -- biggest parts kept drawn when a body is far
+local LOD_FAR  = 70        -- studs; beyond this a body drops to its silhouette
+local LOD_NEAR = 60        -- studs; inside this it returns to full detail
 
 -- Phase must be stable across sessions and identical on every client, so it
 -- is hashed, never rolled. The name alone is not enough: plots can hold
@@ -77,7 +101,89 @@ function MOTIONS.shiver(t, phase)
 		math.sin(t * 53 + phase * 1.7) * SHIVER_AMP)
 end
 
--- bodies[model] = { model, animBase, rel, lastPos, phase, offset, dist, conn }
+-- The parts to blank when a body is far: everything except its LOD_KEEP largest
+-- (and its PrimaryPart, so the pivot part always shows). Computed ONCE per body,
+-- at seat time, so the per-frame toggle touches the fewest instances and never
+-- calls GetDescendants. Volume-ranked so the silhouette keeps the body's mass.
+local function collectLodSmall(model)
+	local parts = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			parts[#parts + 1] = d
+		end
+	end
+	table.sort(parts, function(a, b)
+		return (a.Size.X * a.Size.Y * a.Size.Z) > (b.Size.X * b.Size.Y * b.Size.Z)
+	end)
+	local keep = {}
+	for i = 1, math.min(LOD_KEEP, #parts) do keep[parts[i]] = true end
+	if model.PrimaryPart then keep[model.PrimaryPart] = true end
+	local small = {}
+	for _, p in ipairs(parts) do
+		if not keep[p] then small[#small + 1] = p end
+	end
+	return small
+end
+
+-- Only writes on a band CROSSING, never every frame. near = LTM 0 (the default,
+-- so nothing authored-invisible is forced visible); far = LTM 1 (blanked locally).
+-- The effects to switch off when a body is far (added 2026-09-03 with BrainrotFX).
+-- A far body is drawn as a 3-part silhouette, but its ParticleEmitters, Beams, Trails
+-- and Lights kept running at full rate -- on the pack models that is up to 31 emitters
+-- per body, on every occupied plot in the camp. Emitters are CLIENT-simulated, so
+-- toggling Enabled here costs the server nothing and never replicates. Snapshot the
+-- authored Enabled so an emitter the author left off is never forced on.
+local function collectLodFx(model)
+	local fx = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") or d:IsA("Light") then
+			fx[#fx + 1] = { inst = d, enabled = d.Enabled }
+		end
+	end
+	return fx
+end
+
+-- Unconditional write of a band state over the CURRENT snapshot.
+local function applyLod(entry, far)
+	local ltm = far and 1 or 0
+	for _, p in ipairs(entry.lodSmall) do
+		p.LocalTransparencyModifier = ltm
+	end
+	if entry.lodFx then
+		for _, f in ipairs(entry.lodFx) do
+			f.inst.Enabled = (not far) and f.enabled
+		end
+	end
+end
+
+-- Only writes on a band CROSSING, never every frame.
+local function setLod(entry, far)
+	local want = far and "far" or "near"
+	if entry.lodState == want then return end
+	entry.lodState = want
+	applyLod(entry, far)
+end
+
+-- STREAMING RE-SNAPSHOT (2026-09-03). Measured: a body claimed on a plot 100+ studs
+-- away seats within 0.1s of its tag arriving, while StreamingEnabled has delivered
+-- 2 of its ~1,000 descendants (Zero Assoluto: 2, Inverno Eterno: 277 of 1001). The
+-- seat-time snapshot then covered almost nothing, so a far plot was NEVER reduced
+-- to its silhouette and its emitters never switched off -- and every OTHER player's
+-- plot is claimed far away, so that was the common case, not the edge. DescendantAdded
+-- stamps the entry dirty (one timestamp write per arriving part, nothing else);
+-- LOD_RESNAP seconds after the LAST arrival the snapshot is rebuilt once and the
+-- current band re-applied over it.
+local LOD_RESNAP = 0.3
+local function resnapLod(entry, t)
+	if not entry.lodDirtyAt or not entry.lodSmall then return end
+	if t - entry.lodDirtyAt < LOD_RESNAP then return end
+	entry.lodDirtyAt = nil
+	entry.lodSmall = collectLodSmall(entry.model)
+	entry.lodFx = collectLodFx(entry.model)
+	applyLod(entry, entry.lodState == "far")
+end
+
+-- bodies[model] = { model, animBase, rel, lastPos, phase, offset, dist, conn, lodSmall, lodState }
 local bodies = {}
 
 local function drop(model)
@@ -85,6 +191,7 @@ local function drop(model)
 	if not entry then return end
 	bodies[model] = nil
 	entry.conn:Disconnect()
+	if entry.descConn then entry.descConn:Disconnect() end
 	-- a body that survives untagged parks exactly where the server thinks it
 	-- is, so nothing is left frozen mid-bob above its pad
 	if model.Parent and entry.animBase then
@@ -110,12 +217,22 @@ local function adopt(model)
 		model = model,
 		offset = offset,
 		dist = 0,
+		-- Glitched tic (phase 2, mutation handoff): composed INSIDE this driver
+		-- because it owns every client-side pivot write -- a second writer (the
+		-- mutation motion client) would fight these offsets frame by frame.
+		-- Cached once: a placed model's mutation never changes in its lifetime.
+		glitched = model:GetAttribute("Mutation") == "Glitched",
+		adoptedAt = os.clock(),   -- for the SEAT_GRACE backstop on the first capture
 		conn = model.AncestryChanged:Connect(function()
 			if not model:IsDescendantOf(Workspace) then
 				drop(model)
 			end
 		end),
 	}
+	local entry = bodies[model]
+	entry.descConn = model.DescendantAdded:Connect(function()
+		entry.lodDirtyAt = os.clock()
+	end)
 end
 
 -- a player can join with plots already full, so sweep what exists first
@@ -136,26 +253,48 @@ RunService.Heartbeat:Connect(function()
 
 	table.clear(candidates)
 	for _, entry in pairs(bodies) do
-		-- Deferred capture (see adopt): animate about an UPRIGHT frame at the
-		-- bounding-box centre, NOT the raw pivot -- on the pack models the
-		-- pivot is an arbitrary limb (CatchReveal measured 3.75 studs off),
-		-- and yawing about a limb makes the body ORBIT across neighbouring
-		-- pads. `rel` carries the offset pivot along, so PivotTo lands the
-		-- body exactly where it stood; on a centred pivot (BrainrotSpawner
-		-- now centres them at spawn) rel is identity. One-time cost per body.
+		-- Deferred, SEAT-GATED capture (see adopt + the SEAT_TOL note): animate about an
+		-- UPRIGHT frame at the bounding-box centre, NOT the raw pivot -- on the pack models
+		-- the pivot is an arbitrary limb (CatchReveal measured 3.75 studs off), and yawing
+		-- about a limb makes the body ORBIT across neighbouring pads. We only lock the
+		-- capture in once the centring pivot has settled onto the box centre (rel identity),
+		-- or the SEAT_GRACE backstop expires -- capturing during a claim burst, before the
+		-- centring PivotOffset lands, is exactly what baked in the orbit.
 		if not entry.animBase then
 			local pivot = entry.model:GetPivot()
 			local boxCF = entry.model:GetBoundingBox()
-			entry.animBase = CFrame.new(boxCF.Position)
-			entry.rel = entry.animBase:ToObjectSpace(pivot)
-			entry.lastPos = pivot.Position
-			entry.phase = phaseFor(entry.model, entry.animBase)
+			if (pivot.Position - boxCF.Position).Magnitude <= SEAT_TOL
+				or (t - entry.adoptedAt) >= SEAT_GRACE then
+				entry.animBase = CFrame.new(boxCF.Position)
+				entry.rel = entry.animBase:ToObjectSpace(pivot)
+				entry.lastPos = pivot.Position
+				entry.phase = phaseFor(entry.model, entry.animBase)
+				-- snapshot the hideable parts on the same frame the body seats; parts
+				-- have all replicated by now (that is what seating waited for)
+				entry.lodSmall = collectLodSmall(entry.model)
+				entry.lodFx = collectLodFx(entry.model)
+				entry.lodState = "near"
+			end
 		end
-		-- gate on the cached box centre: one Vector3 subtraction per body,
-		-- where GetPivot here would touch every part of every body every frame
-		entry.dist = (entry.animBase.Position - camPos).Magnitude
-		if entry.dist <= RANGE then
-			candidates[#candidates + 1] = entry
+		-- gate on the cached box centre: one Vector3 subtraction per body, where GetPivot
+		-- here would touch every part of every body every frame. A body still waiting to
+		-- seat has no animBase yet -- it sits still (correct) until its pivot settles.
+		if entry.animBase then
+			resnapLod(entry, t)
+			entry.dist = (entry.animBase.Position - camPos).Magnitude
+			-- LOD runs for EVERY seated body, not just the animated ones: a body past
+			-- RANGE is still rendered by the engine, and that is exactly the far plot
+			-- we want reduced to its silhouette.
+			if entry.lodSmall then
+				if entry.dist > LOD_FAR then
+					setLod(entry, true)
+				elseif entry.dist < LOD_NEAR then
+					setLod(entry, false)
+				end
+			end
+			if entry.dist <= RANGE then
+				candidates[#candidates + 1] = entry
+			end
 		end
 	end
 
@@ -180,9 +319,31 @@ RunService.Heartbeat:Connect(function()
 		if (current.Position - entry.lastPos).Magnitude > RESEAT then
 			local boxCF = model:GetBoundingBox()
 			entry.animBase = CFrame.new(boxCF.Position)
-			entry.rel = entry.animBase:ToObjectSpace(current)
+			-- Same guard as the first capture: a server re-seat can also land mid-burst with
+			-- the centring pivot not yet caught up. If the pivot is off the box centre, use an
+			-- identity rel (animate about the centre) rather than re-baking the limb offset.
+			if (current.Position - boxCF.Position).Magnitude <= SEAT_TOL then
+				entry.rel = entry.animBase:ToObjectSpace(current)
+			else
+				entry.rel = CFrame.identity
+			end
 		end
-		local target = entry.animBase * entry.offset(t, entry.phase) * entry.rel
+		local motion = entry.offset(t, entry.phase)
+		if entry.glitched then
+			-- a hard displacement for ~4 frames every few seconds. Hash-driven,
+			-- not rolled, per this file's own no-math.random discipline; the
+			-- phase salt keeps neighbouring Glitched bodies from ticking together.
+			local cycle = t + entry.phase * 3
+			local bucket = math.floor(cycle / 2.7)
+			if cycle - bucket * 2.7 < 0.07 then
+				local j = (bucket * 7919 + math.floor(entry.phase * 100)) % 8
+				motion = motion * CFrame.new(
+					(j % 3 - 1) * 0.24,
+					(math.floor(j / 3) % 3 - 1) * 0.1,
+					(j % 2) * 0.2 - 0.1)
+			end
+		end
+		local target = entry.animBase * motion * entry.rel
 		model:PivotTo(target)
 		entry.lastPos = target.Position
 	end

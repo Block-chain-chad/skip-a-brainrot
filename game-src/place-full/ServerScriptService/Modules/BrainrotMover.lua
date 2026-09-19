@@ -94,6 +94,34 @@ function BrainrotMover.Take(giver, giverData, name)
 	return record
 end
 
+-- Removes the brainrot with THIS EXACT Uid and returns its record.
+--
+-- WHY THIS EXISTS ALONGSIDE Take(). Take resolves by NAME and deliberately takes
+-- the least valuable match, which is right for a trade offer ("one Broccolo
+-- Torpedo") and WRONG for gifting: the player is holding one specific copy, and
+-- name-matching would hand over their plain one while the Rainbow they are
+-- actually holding stays put. A gift has to move the thing in your hand.
+--
+-- Uid is per-player and unique, so this cannot be ambiguous the way a name is.
+-- Same pending-drain and pad-visual removal as Take, so the two paths leave the
+-- giver in identical shape.
+function BrainrotMover.TakeByUid(giver, giverData, uid)
+	if uid == nil then return nil end
+	for i, entry in ipairs(giverData.Brainrots) do
+		if entry.Uid == uid then
+			local record = {
+				Name = entry.Name, Mutation = entry.Mutation,
+				Serial = entry.Serial, MintedAt = entry.MintedAt, Size = entry.Size,
+			}
+			PlayerDataManager.DrainPending(giver, entry, giverData)
+			BrainrotMover.RemovePadVisual(giver, entry.PadIndex)
+			table.remove(giverData.Brainrots, i)
+			return record
+		end
+	end
+	return nil
+end
+
 -- Gives ONE brainrot to the receiver (data + plot visual if a pad is free).
 -- Pass the RECORD returned by Take so the mutation travels with the item; a bare
 -- name string is still accepted for any legacy caller.
@@ -105,6 +133,9 @@ end
 --   TradeHandler.executeTrade  -- in the existing validation block, before any Take
 --   BoothHandler  BoothBuy     -- alongside the cash/ownership checks, before the Take
 --   GianlucaQuest.grantChim    -- before inserting the quest reward
+--   GiftService  (2026-08-07)  -- checked twice: when the offer is made AND again
+--                                 when it is accepted, since the receiver can catch
+--                                 a second copy while the popup is on their screen
 -- Add a new transfer path and you must add the check there too; Give stays total.
 function BrainrotMover.Give(receiver, receiverData, record)
 	if type(record) == "string" then record = { Name = record } end
@@ -123,7 +154,7 @@ function BrainrotMover.Give(receiver, receiverData, record)
 	})
 	if padIndex then
 		for _, plot in ipairs(PlayerDataManager.GetPlots(receiver)) do
-			BrainrotSpawner.Spawn(plot, record.Name, padIndex, record.Mutation, uid)
+			BrainrotSpawner.Spawn(plot, record.Name, padIndex, record.Mutation, uid, record.Size)
 		end
 	end
 end

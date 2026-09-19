@@ -42,6 +42,9 @@ local KEYLINE = Color3.fromHex("#16170F")
   circle cx, cy, radius
   bar    x1, y1, x2, y2, t      -- straight stroked segment, round caps
   arch   x1, x2, yTop, yBottom, t -- upside-down U, e.g. the bag handle
+  ring   cx, cy, radius, t      -- circular band; add `clip` to cut it to an arc
+  tri    cx, cy, h, dir         -- right-isoceles triangle (arrowhead), apex `h`
+                                   from the base in direction `dir`, base 2h wide
   star   cx, cy, outerRadius    -- 5-pointed star (drawn as a glyph)
 Shared optional fields:
   rot / pivotX / pivotY   degrees clockwise, about a point (SVG rotate(a px py));
@@ -187,40 +190,174 @@ IconArt.SHAPES = {
 		{ type = "circle", cx = 35, cy = 49, radius = 1.6, fill = "#FFD84D", outline = false, note = "door knob" },
 	},
 
-	--[[ Darrel -- the egg-shop currency is named after the mascot, so his face IS
-	the currency icon. Colours are lifted straight off the ReplicatedStorage
-	"DarrelBust" model the retired DarrelHUDClient used to render in a 30px
-	ViewportFrame: skin rgb(150,99,64), cap rgb(32,32,35), strap rgb(92,86,76),
-	buckle rgb(150,148,145), glass frames rgb(12,12,12), lenses rgb(228,222,206),
-	locs/mustache rgb(24,19,17), grin rgb(248,244,235), ear stud rgb(212,175,55).
+	--[[ Gem -- the premium currency icon. 2026-08-13: the currency was renamed
+	from "emeralds" to GEMS, and the owner picked an EMERALD over a diamond, so
+	the mascot-face drawing that lived here (Emerald, transcribed off the
+	EmeraldBust model) is replaced by a step-cut emerald. The KEY stays
+	"emerald": every call site -- GameHUDClient's pill, EggShopClient's wallet
+	and price rows, ShopPanel's pack cards, GoalsPanel/PassPanel/DailyPanel
+	reward chips -- asks IconArt for "emerald", and renaming the key would
+	touch seven scripts for zero visual gain.
 
-	Deliberately COARSE. This renders at 38px in the currency pill -- less than
-	two thirds the rail's 66px -- so the bust's finer parts (chin beard, mustache
-	tips, individual locs, teeth split) are merged or dropped. What has to survive
-	at that size is the silhouette: cap, big dark glasses, mustache, locs. ]]
-	darrel = {
-		-- Locs stop at the jaw rather than running the full height of the head:
-		-- carried lower they merge with the cap into one black mass, which is what
-		-- the first pass looked like.
-		{ type = "bar", x1 = 15, y1 = 29, x2 = 13, y2 = 45, t = 8, fill = "#181311", outline = true, note = "locs left" },
-		{ type = "bar", x1 = 49, y1 = 29, x2 = 51, y2 = 45, t = 8, fill = "#181311", outline = true, note = "locs right" },
-		{ type = "rect", x = 14.5, y = 31, w = 4.5, h = 7, r = 2, fill = "#96633F", outline = true, note = "ear left" },
-		{ type = "rect", x = 45, y = 31, w = 4.5, h = 7, r = 2, fill = "#96633F", outline = true, note = "ear right" },
-		-- skin lifted a shade off the model's rgb(150,99,64): at icon size the true
-		-- value goes muddy between the black cap and the black mustache
-		{ type = "rect", x = 17, y = 15, w = 30, h = 35, r = 10, gradTop = "#B8825C", gradBottom = "#85583A", outline = true, note = "head" },
-		{ type = "circle", cx = 16.7, cy = 37.5, radius = 1.8, fill = "#D4AF37", outline = false, note = "ear stud" },
-		-- cap: rounded on top, cut flat where it meets the brow
-		{ type = "rect", x = 15, y = 10, w = 34, h = 19, r = 9, gradTop = "#3A3A42", gradBottom = "#1E1E22", clip = { 15, 10, 49, 24 }, outline = true, note = "cap dome" },
-		{ type = "rect", x = 15, y = 21.5, w = 34, h = 4.5, r = 2, fill = "#5C564C", outline = true, note = "cap strap" },
-		{ type = "rect", x = 30, y = 22, w = 4, h = 3.5, r = 1, fill = "#96948F", outline = false, note = "strap buckle" },
-		-- the glasses are the single most recognisable feature, so they get the
-		-- most area: widened until the pair nearly spans the face
-		{ type = "rect", x = 18, y = 29, w = 12.5, h = 11, r = 3.5, fill = "#E4DECE", strokeColor = "#0C0C0C", strokeWidth = 3.5, outline = true, note = "lens left" },
-		{ type = "rect", x = 33.5, y = 29, w = 12.5, h = 11, r = 3.5, fill = "#E4DECE", strokeColor = "#0C0C0C", strokeWidth = 3.5, outline = true, note = "lens right" },
-		{ type = "bar", x1 = 30.5, y1 = 34.5, x2 = 33.5, y2 = 34.5, t = 3, fill = "#0C0C0C", outline = false, note = "bridge" },
-		{ type = "bar", x1 = 26.5, y1 = 43.5, x2 = 37.5, y2 = 43.5, t = 5, fill = "#181311", outline = true, note = "mustache" },
-		{ type = "rect", x = 29, y = 46.5, w = 6, h = 2.6, r = 1.3, fill = "#F8F4EB", outline = false, note = "grin" },
+	Emerald-cut read: a fat rounded octagon (rect with a heavy corner radius)
+	with a lighter inner step -- the two-mass rectangle-in-rectangle is what
+	says "emerald" rather than "diamond" at the pill's 38px. ]]
+	emerald = {
+		-- PORTRAIT, bevel-cornered, stepped: the tall rectangle-in-rectangle is
+		-- the emerald-cut read. Corner bevels are 45-degree squares shaved off by
+		-- the diagonal edge pieces below rather than a big corner radius -- heavy
+		-- rounding made the first pass read as a green gummy, not a cut stone.
+		{ type = "rect", x = 17, y = 12, w = 30, h = 40, r = 4, gradTop = "#4FE487", gradBottom = "#0C9447", outline = true, note = "emerald body" },
+		{ type = "rect", x = 20.5, y = 15.5, w = 23, h = 33, r = 2.5, gradTop = "#2FCB6E", gradBottom = "#12A855", outline = false, note = "crown facet ring" },
+		{ type = "rect", x = 24, y = 19, w = 16, h = 26, r = 2, gradTop = "#A9F5C4", gradBottom = "#41D883", outline = false, note = "table (inner step)" },
+		{ type = "bar", x1 = 21, y1 = 17.5, x2 = 28, y2 = 16.5, t = 3, fill = "#FFFFFF", opacity = 0.55, outline = false, note = "gloss" },
+		{ type = "circle", cx = 45, cy = 10.5, radius = 2.6, fill = "#FFFFFF", outline = false, note = "sparkle" },
+	},
+
+	--[[ Gem CLUSTER -- the currency counter's hero art, from the owner's
+	reference (2026-08-14). A SEPARATE key from `emerald` on purpose: `emerald`
+	is what the 34px reward chips, shop rows and price rows still ask for, and
+	this much layering turns to mush at that size (the same reason the backpack
+	category marks below are single silhouettes). Only the HUD counter draws
+	this one, at 76px, where the satellites and sparkles still read.
+
+	Two deliberate departures from the reference art, both learned by rendering
+	it rather than by argument:
+
+	NO LEAVES. The reference paints foliage behind the stones. Every attempt
+	here read as a green caterpillar laid across the gems -- a capsule is the
+	only primitive available and it cannot make a leaf's point -- so they are
+	dropped rather than shipped badly.
+
+	SPARKLES ARE STARS, not two crossed capsules. Crossed capsules are exactly
+	a PLUS SIGN, and the buy button a few pixels to the right of this art is a
+	plus; the first pass had the counter wearing three of them. ]]
+	gemCluster = {
+		{ type = "rect", x = 4, y = 10, w = 9, h = 9, r = 1.8, rot = 45, gradTop = "#9CF3B4", gradBottom = "#35BE70", gradFixed = true, outline = true, note = "chip upper left" },
+		{ type = "rect", x = 3, y = 43, w = 10, h = 10, r = 1.8, rot = 45, gradTop = "#8CEAA6", gradBottom = "#2CAE64", gradFixed = true, outline = true, note = "chip lower left" },
+		-- Satellites: a crown over a SHALLOW pavilion, and kept clearly smaller
+		-- than the hero. Sized to match it, the cluster read as four competing
+		-- blobs instead of one stone with company.
+		{ type = "rect", x = 44, y = 14, w = 13, h = 7, r = 1.5, gradTop = "#7FE79C", gradBottom = "#2BB265", outline = true, note = "gem TR crown" },
+		{ type = "tri", h = 6.5, cx = 50.5, cy = 21, dir = "down", gradTop = "#54CF83", gradBottom = "#14904F", outline = true, note = "gem TR pavilion" },
+		{ type = "rect", x = 42, y = 40, w = 12, h = 6.5, r = 1.5, gradTop = "#7FE79C", gradBottom = "#2BB265", outline = true, note = "gem BR crown" },
+		{ type = "tri", h = 6, cx = 48, cy = 46.5, dir = "down", gradTop = "#54CF83", gradBottom = "#14904F", outline = true, note = "gem BR pavilion" },
+		-- Hero crystal, drawn AFTER the satellites so it owns the middle
+		{ type = "tri", h = 12, cx = 25, cy = 23, dir = "up", gradTop = "#A8F5A0", gradBottom = "#4FD07A", outline = true, note = "crystal apex" },
+		{ type = "rect", x = 13, y = 22, w = 24, h = 26, r = 1.5, gradTop = "#6DEB8E", gradBottom = "#23A85E", outline = true, note = "crystal body" },
+		{ type = "tri", h = 12, cx = 25, cy = 47, dir = "down", gradTop = "#3FC978", gradBottom = "#158F4C", outline = true, note = "crystal base" },
+		-- Facets, no keyline. The bright band starts INSIDE the apex triangle and
+		-- runs the body's full height, which is what makes the point read as lit
+		-- rather than as a separate triangle stuck on top.
+		{ type = "rect", x = 13.5, y = 22.5, w = 6.5, h = 25, r = 1, gradTop = "#46CE80", gradBottom = "#17904E", outline = false, note = "facet left" },
+		{ type = "rect", x = 30, y = 22.5, w = 6.5, h = 25, r = 1, gradTop = "#3AC275", gradBottom = "#0F7A44", outline = false, note = "facet right" },
+		{ type = "rect", x = 21.5, y = 14.5, w = 7, h = 33, r = 1, gradTop = "#EAFFA8", gradBottom = "#74E464", outline = false, note = "facet centre (lit edge)" },
+		{ type = "bar", x1 = 18.5, y1 = 26, x2 = 18.5, y2 = 35, t = 2.6, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+		{ type = "star", cx = 41.5, cy = 5, outerRadius = 4.5, fill = "#FFFFFF", outline = false, note = "sparkle upper" },
+		{ type = "star", cx = 17.5, cy = 54.5, outerRadius = 3.4, fill = "#FFFFFF", outline = false, note = "sparkle lower" },
+	},
+
+	--[[ Plus -- the gem counter's buy button glyph. Both bars carry `outline`,
+	so the shared keyline pass fuses them into ONE chunky outlined plus; giving
+	either one its own UIStroke instead would draw a seam across the join. ]]
+	plus = {
+		{ type = "rect", x = 25, y = 11, w = 14, h = 42, r = 4, gradTop = "#FFFFFF", gradBottom = "#E4EFE6", outline = true, note = "plus vertical" },
+		{ type = "rect", x = 11, y = 25, w = 42, h = 14, r = 4, gradTop = "#FFFFFF", gradBottom = "#E4EFE6", outline = true, note = "plus horizontal" },
+	},
+
+	--[[ ================= DAILY WHEEL PRIZE MARKS (2026-08-19) =================
+	Three drawings the wheel needed and the kit did not have: a crown, a bolt and
+	a chest. The other three wedges reuse what is already here -- `coin` for the
+	cash prize, `charm` (the four-leaf clover) for the luck boost, and `emerald`
+	for the emeralds -- because a second drawing of the same object is a second
+	thing to keep in step, and these three were the only real gaps.
+
+	WHY THEY ARE HERE AND NOT IN IconForge, which already has a crown, a bolt and
+	a crate: those are 3D MODELS rendered in ViewportFrames, and a viewport draws
+	at its own pixel size with NO anti-aliasing. At the ~54px these render at on a
+	wedge chip, a multi-part model is coloured mush with the ink pass showing
+	through every seam -- which is exactly why the wheel's 3D icons were pulled
+	after three rounds of "the pictures still look bad", and why the wheel went
+	back to emoji. Drawn from Frames instead, the same artwork is sharp at any
+	size. IconForge's versions stay where they are for surfaces big enough to
+	earn them (the loot crate's own reveal chest is one).
+
+	SILHOUETTES FIRST. All six wedge marks have to be told apart at a glance on a
+	spinning wheel, so no two share an outline: pointed crown, round-lobed clover,
+	disc, banded box, zigzag, upright stone.
+	========================================================================= ]]
+
+	-- PRO SPINNER, the title wedge. A crown reads as RANK instantly, where the
+	-- hanging name-plate it replaced read as a blank card with two dashes on it.
+	-- `tri` is right-isoceles -- base is always twice the height -- so the points
+	-- are broad rather than spiky; that is the chunky cartoon crown anyway.
+	crown = {
+		-- Points first and BASES OVERLAPPING, so the keyline pass fuses them into one
+		-- silhouette. Spaced apart they would each get their own outline and the
+		-- crown would read as three separate triangles balanced on a bar.
+		-- THE POINTS CARRY THE READ, so they take far more of the height than feels
+		-- right on paper. The first pass gave them 9 units over a 23-unit band and it
+		-- came out as a low wall with three bumps on it -- a battlement, not a crown.
+		-- At roughly 45% of the total height it reads as headwear. Their bases sit
+		-- INSIDE the lip below, so the two masses fuse under the keyline pass.
+		{ type = "tri", cx = 16, cy = 38, h = 13, dir = "up", gradTop = "#FFE066", gradBottom = "#E8930F", outline = true, note = "left point" },
+		{ type = "tri", cx = 48, cy = 38, h = 13, dir = "up", gradTop = "#FFE066", gradBottom = "#E8930F", outline = true, note = "right point" },
+		{ type = "tri", cx = 32, cy = 38, h = 20, dir = "up", gradTop = "#FFE87A", gradBottom = "#E8930F", outline = true, note = "centre point, tallest" },
+		{ type = "rect", x = 7, y = 34, w = 50, h = 8, r = 3, gradTop = "#FFE87A", gradBottom = "#F0A81A", outline = true, note = "band lip -- covers where the points meet it" },
+		{ type = "rect", x = 10, y = 41, w = 44, h = 13, r = 4, gradTop = "#FFC531", gradBottom = "#D98A0E", outline = true, note = "band" },
+		{ type = "circle", cx = 21, cy = 47.5, radius = 3.2, fill = "#E23A2C", outline = false, note = "jewel" },
+		{ type = "circle", cx = 32, cy = 47.5, radius = 3.8, fill = "#3AA7E8", outline = false, note = "jewel" },
+		{ type = "circle", cx = 43, cy = 47.5, radius = 3.2, fill = "#E23A2C", outline = false, note = "jewel" },
+		{ type = "bar", x1 = 15, y1 = 37.5, x2 = 24, y2 = 37.5, t = 3, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+	},
+
+	-- POWER BOOST. A bolt, not the flexed arm this wedge used to carry: at chip
+	-- size an arm is an unreadable skin-coloured blob.
+	bolt = {
+		-- THE KINK IS ITS OWN SHAPE, and it has to be. Two parallel strokes that meet
+		-- only at a corner leave a gap for the keyline pass to show ink through, and
+		-- the bolt reads as two gold sticks lying near each other -- the same failure
+		-- IconForge's bolt documents at length. This block bridges the horizontal jog
+		-- between them, and the jog is the whole reason a zigzag reads as lightning.
+		-- DRAWN AS A Z, in three connected segments, after two passes built it as two
+		-- PARALLEL strokes with a bridging block and both failed the same way: a pair
+		-- of capsules laid on the same diagonal fuse into one fat gold bar, and no
+		-- amount of tuning the thickness or the sideways offset rescued it (t13 read
+		-- as a scratch, t16 as a pill). A lateral offset only notches the SILHOUETTE
+		-- edges, and round caps sand those notches away faster than they appear.
+		--
+		-- Three segments make the jog a real limb instead: down-left, hard RIGHT,
+		-- down-left again. That leaves two big empty wedges -- one above the crossbar
+		-- on the right, one below it on the left -- and those voids are what the eye
+		-- actually reads as lightning. Consecutive segments share their endpoints, so
+		-- the round caps land concentric and the three fuse with no seam for the
+		-- keyline pass to show ink through.
+		{ type = "bar", x1 = 42, y1 = 10, x2 = 26, y2 = 30, t = 11, gradTop = "#FFE87A", gradBottom = "#E8930F", outline = true, note = "upper stroke, down-left" },
+		{ type = "bar", x1 = 26, y1 = 30, x2 = 42, y2 = 34, t = 11, gradTop = "#FFE066", gradBottom = "#E8930F", outline = true, note = "the crossbar -- the jog that makes it a bolt" },
+		{ type = "bar", x1 = 42, y1 = 34, x2 = 24, y2 = 56, t = 11, gradTop = "#FFD84D", gradBottom = "#D98A0E", outline = true, note = "lower stroke, down-left again" },
+		{ type = "bar", x1 = 38, y1 = 15, x2 = 31, y2 = 24, t = 3, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+	},
+
+	-- THE 1% LOOT CRATE. Deliberately a banded CHEST rather than a gift box: the
+	-- jackpot wants weight, and a bow reads as the daily calendar's present. Same
+	-- wood-and-gold palette as the chest that opens in the crate's own ceremony,
+	-- so the wedge and the thing it pays out are recognisably one object.
+	crate = {
+		-- The lid is a heavily rounded rect whose bottom rounding is squared off by
+		-- the lip drawn over it -- that pairing is what says "domed lid" rather than
+		-- "capsule", with no curve primitive needed.
+		{ type = "rect", x = 8, y = 13, w = 48, h = 24, r = 11, gradTop = "#C9924F", gradBottom = "#8E5A2C", outline = true, note = "lid dome" },
+		{ type = "rect", x = 6, y = 29, w = 52, h = 9, r = 2, gradTop = "#A9743C", gradBottom = "#7A4A20", outline = true, note = "lid lip" },
+		{ type = "rect", x = 8, y = 36, w = 48, h = 22, r = 3, gradTop = "#C9924F", gradBottom = "#8E5A2C", outline = true, note = "body" },
+		-- Bands start at y18, INSIDE the dome's corner arc: run to the top of the lid
+		-- and they poke out past the curve at both shoulders.
+		{ type = "rect", x = 15, y = 18, w = 7, h = 40, r = 1.5, gradTop = "#FFE066", gradBottom = "#E8930F", outline = true, note = "band left" },
+		{ type = "rect", x = 42, y = 18, w = 7, h = 40, r = 1.5, gradTop = "#FFE066", gradBottom = "#E8930F", outline = true, note = "band right" },
+		-- after the bands, so the rail reads as one unbroken foot
+		{ type = "rect", x = 8, y = 53, w = 48, h = 6, r = 2, gradTop = "#FFE066", gradBottom = "#E8930F", outline = true, note = "foot rail" },
+		{ type = "rect", x = 27, y = 31, w = 10, h = 13, r = 2, gradTop = "#FFE87A", gradBottom = "#E8930F", strokeColor = "#16170F", strokeWidth = 2.5, outline = true, note = "clasp" },
+		{ type = "circle", cx = 32, cy = 38.5, radius = 2.1, fill = "#16170F", outline = false, note = "keyhole" },
+		{ type = "bar", x1 = 25, y1 = 21, x2 = 33, y2 = 18.5, t = 3, fill = "#FFFFFF", opacity = 0.45, outline = false, note = "gloss" },
 	},
 
 	--[[ Egg -- the Eggs Shop header mark, transcribed from the egg-shop handoff's
@@ -234,6 +371,45 @@ IconArt.SHAPES = {
 		{ type = "circle", cx = 24, cy = 34, radius = 4, gradTop = "#A6EE72", gradBottom = "#3E9E22", strokeColor = "#16170F", strokeWidth = 2.5, outline = false, note = "spot" },
 		{ type = "circle", cx = 39, cy = 41, radius = 6, gradTop = "#A6EE72", gradBottom = "#3E9E22", strokeColor = "#16170F", strokeWidth = 2.5, outline = false, note = "spot" },
 		{ type = "bar", x1 = 23, y1 = 13, x2 = 31.5, y2 = 6.5, t = 4, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+	},
+
+	--[[ Backpack CATEGORY marks -- pet / charm / tag. Like the keys below, no kit
+	SVG exists for any of these; they are drawn to a game need in the same
+	vocabulary. The Backpack's tab column shows them at 34px, which is small, so
+	each one is a single flat silhouette with no interior detail below ~4 units --
+	at that size the emerald icon's kind of layering turns to mush. Distinct
+	SILHOUETTES again rather than three recolours: round-lobed paw, four-lobed
+	clover, hard-cornered plate. ]]
+	pet = {
+		-- Toes before the pad: the pad is the larger mass and reads better
+		-- overlapping them than being overlapped.
+		{ type = "circle", cx = 13, cy = 28, radius = 6.5, gradTop = "#FFD1A0", gradBottom = "#E89A4C", outline = true, note = "toe outer left" },
+		{ type = "circle", cx = 25.5, cy = 17.5, radius = 7, gradTop = "#FFD1A0", gradBottom = "#E89A4C", outline = true, note = "toe inner left" },
+		{ type = "circle", cx = 38.5, cy = 17.5, radius = 7, gradTop = "#FFD1A0", gradBottom = "#E89A4C", outline = true, note = "toe inner right" },
+		{ type = "circle", cx = 51, cy = 28, radius = 6.5, gradTop = "#FFD1A0", gradBottom = "#E89A4C", outline = true, note = "toe outer right" },
+		{ type = "rect", x = 18, y = 31, w = 28, h = 24, r = 12, gradTop = "#FFC078", gradBottom = "#D97F2E", outline = true, note = "pad" },
+		{ type = "bar", x1 = 24, y1 = 38, x2 = 30, y2 = 36, t = 3.5, fill = "#FFFFFF", opacity = 0.45, outline = false, note = "gloss" },
+	},
+
+	charm = {
+		-- Stem first so the leaves cover where it meets them.
+		{ type = "bar", x1 = 32, y1 = 38, x2 = 36, y2 = 59, t = 5, fill = "#2E7D32", outline = true, note = "stem" },
+		{ type = "circle", cx = 22, cy = 19, radius = 11.5, gradTop = "#9CF08A", gradBottom = "#37A03F", outline = true, note = "leaf NW" },
+		{ type = "circle", cx = 42, cy = 19, radius = 11.5, gradTop = "#9CF08A", gradBottom = "#37A03F", outline = true, note = "leaf NE" },
+		{ type = "circle", cx = 22, cy = 38, radius = 11.5, gradTop = "#8BE479", gradBottom = "#2E8F36", outline = true, note = "leaf SW" },
+		{ type = "circle", cx = 42, cy = 38, radius = 11.5, gradTop = "#8BE479", gradBottom = "#2E8F36", outline = true, note = "leaf SE" },
+		{ type = "bar", x1 = 16, y1 = 14, x2 = 22, y2 = 11, t = 3.5, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+	},
+
+	tag = {
+		-- A name PLATE rather than the usual angled price tag: these are the
+		-- name-plate titles that hang over a player's head, and a plate squares up
+		-- to the tile instead of leaving two empty corners on the diagonal.
+		{ type = "rect", x = 8, y = 20, w = 48, h = 28, r = 8, gradTop = "#9FE2FF", gradBottom = "#3D9BD4", outline = true, note = "plate" },
+		{ type = "circle", cx = 17.5, cy = 34, radius = 4, fill = "#3F4038", outline = false, note = "punch hole" },
+		{ type = "bar", x1 = 27, y1 = 29.5, x2 = 48, y2 = 29.5, t = 4.5, fill = "#1C4C6B", outline = false, note = "name line" },
+		{ type = "bar", x1 = 27, y1 = 39, x2 = 41, y2 = 39, t = 4.5, fill = "#1C4C6B", outline = false, note = "name line short" },
+		{ type = "bar", x1 = 14, y1 = 25, x2 = 22, y2 = 25, t = 3, fill = "#FFFFFF", opacity = 0.45, outline = false, note = "gloss" },
 	},
 
 	--[[ The two quest KEYS, for the Backpack's Keys tab. No kit SVG exists for
@@ -270,18 +446,52 @@ IconArt.SHAPES = {
 	},
 
 	--[[ Rebirth -- no kit SVG exists (the 7th rail button is ours, not the
-	handoff's), so like the quest keys it is drawn to a game need in the kit's
-	own vocabulary: a purple refresh arc with a chevron arrowhead curling over
-	the gold kit star (pass/coin's exact golds) -- the star, reborn. Purple is
-	RebirthClient's tile hue pair, so the button matches the panel it opens.
-	A broken recycle RING is not drawable here: the arch renderer has no rot
-	support (see drawShape), so the arc is a single top sweep instead. ]]
+	handoff's), so it is drawn to a game need in the kit's own vocabulary.
+
+	2026-08-06, to a user reference: the two-arrow cycle ring everyone already
+	reads as "rebirth" -- a magenta arc over the top, an ice-white one under it,
+	each ending in a chunky arrowhead so the eye follows it clockwise. This
+	replaced a purple arc curling over a gold star, which was fine but did not
+	say "reset" at a glance and shared the pass icon's star.
+
+	The old note here said a broken recycle ring was not drawable. It is now:
+	`ring` (a stroked circle, clipped to an arc) and `tri` (an arrowhead) were
+	added to the renderer for exactly this, and both are general -- the next
+	icon that needs an arc or a pointer does not have to fake one out of bars. ]]
 	rebirth = {
-		{ type = "arch", x1 = 12, x2 = 52, yTop = 7, yBottom = 27, t = 7, fill = "#9A2ED6", outline = true, note = "cycle arc" },
-		{ type = "bar", x1 = 46.5, y1 = 30, x2 = 52, y2 = 37, t = 5.5, fill = "#9A2ED6", outline = true, note = "arrowhead left leg" },
-		{ type = "bar", x1 = 57.5, y1 = 30, x2 = 52, y2 = 37, t = 5.5, fill = "#9A2ED6", outline = true, note = "arrowhead right leg" },
-		{ type = "star", cx = 32, cy = 41, outerRadius = 11.5, gradTop = "#FFE066", gradBottom = "#E8930F", outline = true, note = "the star, reborn" },
-		{ type = "bar", x1 = 19, y1 = 10.5, x2 = 27, y2 = 7.5, t = 4, fill = "#FFFFFF", opacity = 0.5, outline = false, note = "gloss" },
+		-- ONE ARC, NOT TWO (2026-08-07, user: "the rebirth icon looks kinda funky").
+		--
+		-- The previous pair of EQUAL arcs split the circle across the horizontal
+		-- midline -- magenta on top, ice underneath -- and at rail size that
+		-- silhouette reads as a POKEBALL, not as anything rotational. The two
+		-- arrowheads meant to sell the rotation were 9 units on a 64 grid and were
+		-- the first thing to disappear in the downscale, leaving just the two-tone
+		-- ball. Splitting a circle in half is the problem, however the halves are
+		-- coloured; the fix is to stop splitting it.
+		--
+		-- Now: ONE continuous magenta band of 270 degrees with a single big ice
+		-- arrowhead. A whole quadrant of missing ring is a shape no ball has, so it
+		-- reads as a cycle at any size, and one head at twice the visual weight
+		-- survives where two small ones did not.
+		--
+		-- Two `ring` pieces rather than one because `clip` is an AXIS-ALIGNED RECT
+		-- and cannot cut an L-shape on its own. Both carry the same fill, so they
+		-- meet at 6 o'clock and read as one unbroken arc:
+		--   left half        12 o'clock -> 9 -> 6
+		--   bottom-right      6 o'clock -> 3
+		-- leaving the gap in the top-right quadrant, 3 o'clock round to 12.
+		{ type = "ring", cx = 32, cy = 32, radius = 20, t = 9, fill = "#FF4FA6",
+		  clip = { 2, 2, 32, 62 }, outline = true, note = "arc: left half" },
+		{ type = "ring", cx = 32, cy = 32, radius = 20, t = 9, fill = "#FF4FA6",
+		  clip = { 32, 32, 62, 62 }, outline = true, note = "arc: bottom-right quadrant" },
+		-- Sits ON the 12 o'clock cut end and points INTO the gap, so the eye runs
+		-- round the band and off the end clockwise. Ice-white keeps the magenta+ice
+		-- identity the plate colour was picked against, and puts the one high
+		-- contrast detail exactly where the motion reads.
+		{ type = "tri", cx = 32, cy = 12, h = 9, dir = "right", fill = "#EAF6FF",
+		  outline = true, note = "arrowhead" },
+		{ type = "bar", x1 = 15, y1 = 23, x2 = 21, y2 = 17, t = 3, fill = "#FFFFFF",
+		  opacity = 0.5, outline = false, note = "gloss" },
 	},
 
 	settings = {
@@ -449,6 +659,58 @@ local function drawShape(root: GuiObject, scale: number, sh, e: number, dark: bo
 			st.Parent = ring
 			host, ox, oy = saveHost, saveOx, saveOy
 		end
+
+	elseif kind == "ring" then
+		-- A circular band, same trick as `arch`: a transparent rounded frame
+		-- carrying a UIStroke. UIStroke draws entirely OUTSIDE the frame, so the
+		-- frame is inset by half the band to land the band centred on `radius`.
+		-- A `clip` on the shape cuts the ring down to an arc.
+		local t = sh.t + 2 * e
+		local r = sh.radius - t * 0.5
+		if r > 0 then
+			local f = Instance.new("Frame")
+			f.BorderSizePixel = 0
+			f.BackgroundTransparency = 1
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Position = UDim2.fromOffset(px(sh.cx) - ox, px(sh.cy) - oy)
+			f.Size = UDim2.fromOffset(len(r * 2), len(r * 2))
+			f.ZIndex = z
+			f.Parent = host
+			corner(f, len(r))
+			local st = Instance.new("UIStroke")
+			st.Color = dark and KEYLINE or Color3.fromHex(sh.fill or "#FFFFFF")
+			st.Thickness = math.max(len(t), 1)
+			st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			st.LineJoinMode = Enum.LineJoinMode.Round
+			st.Parent = f
+		end
+
+	elseif kind == "tri" then
+		-- No polygon primitive in Roblox GUI. A square turned 45 degrees has its
+		-- corners at up/down/left/right; clip away the half behind the apex and
+		-- what is left is a right-isoceles triangle -- the kit's arrowhead.
+		-- Expanding for the keyline pass: the flat base grows with the clip
+		-- window, and offsetting the two 45-degree edges outward by e pushes the
+		-- apex out by e*sqrt(2).
+		local SQRT2 = 1.4142135623730951
+		local h = sh.h + e * SQRT2
+		local cx, cy = sh.cx, sh.cy
+		local x1, y1, x2, y2
+		local dir = sh.dir or "up"
+		if dir == "down" then
+			x1, y1, x2, y2 = cx - h, cy - e, cx + h, cy + h
+		elseif dir == "up" then
+			x1, y1, x2, y2 = cx - h, cy - h, cx + h, cy + e
+		elseif dir == "right" then
+			x1, y1, x2, y2 = cx - e, cy - h, cx + h, cy + h
+		else -- "left"
+			x1, y1, x2, y2 = cx - h, cy - h, cx + e, cy + h
+		end
+		local saveHost, saveOx, saveOy = host, ox, oy
+		openClip(x1, y1, x2, y2)
+		local f = place(cx, cy, h * SQRT2, h * SQRT2, 45)
+		paint(f, sh, dark, scale)
+		host, ox, oy = saveHost, saveOx, saveOy
 
 	elseif kind == "star" then
 		-- No polygon primitive in Roblox GUI, so the star is a glyph. The keyline

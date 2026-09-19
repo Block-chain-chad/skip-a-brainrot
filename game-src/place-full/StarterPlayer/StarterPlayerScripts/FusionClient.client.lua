@@ -175,12 +175,35 @@ local scrim = Instance.new("Frame")
 scrim.Name = "OfferConfirm"
 scrim.Size = UDim2.fromScale(1, 1)
 scrim.BackgroundColor3 = CF.ink
-scrim.BackgroundTransparency = 0.35
+scrim.BackgroundTransparency = 1
 scrim.BorderSizePixel = 0
 scrim.Visible = false
+scrim.Active = true -- swallow clicks outside the confirm box; the wash is gone, the modality stays
 scrim.ZIndex = 40
 scrim.Parent = frame
 UITheme.corner(scrim, 18)
+
+-- Blur-never-dim: while the burn confirm is up, the WORLD blurs instead of the
+-- old dark wash. Driven off EFFECTIVE visibility (scrim AND its parent panel)
+-- because SideRail's single-open closes FusionFrame by writing frame.Visible
+-- directly -- a setter called only from this file's show/hide sites would
+-- strand the blur on. Instant create/destroy ONLY -- NEVER tween a BlurEffect
+-- (TweenService silently no-ops on non-GuiObjects in this place).
+local function syncFusionBlur()
+	local Lighting = game:GetService("Lighting")
+	local existing = Lighting:FindFirstChild("FusionBlur")
+	local on = frame.Visible and scrim.Visible
+	if on and not existing then
+		local blur = Instance.new("BlurEffect")
+		blur.Name = "FusionBlur"
+		blur.Size = 10
+		blur.Parent = Lighting
+	elseif not on and existing then
+		existing:Destroy()
+	end
+end
+scrim:GetPropertyChangedSignal("Visible"):Connect(syncFusionBlur)
+frame:GetPropertyChangedSignal("Visible"):Connect(syncFusionBlur)
 
 local box = Instance.new("Frame")
 box.AnchorPoint = Vector2.new(0.5, 0.5)

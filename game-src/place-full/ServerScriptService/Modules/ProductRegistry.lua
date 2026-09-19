@@ -1,7 +1,8 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PDM = require(script.Parent.PlayerDataManager)
-local DarrelService = require(script.Parent.DarrelService)
+local EmeraldService = require(script.Parent.EmeraldService)
 
 local M = {}
 local PRODUCTS = {}  -- [productId] = { Type, Amount }
@@ -13,9 +14,15 @@ function M.Register(productId, def)
 end
 
 local function grant(player, data, def)
-	if def.Type == "Darrels" then
-		DarrelService.Award(player, def.Amount, "robux:" .. def.Amount)
-		return true
+	-- General hook: a product can carry its own Grant(player, data) -> bool. Used by
+	-- StealService (Type="Steal") so ProductRegistry never has to require it back --
+	-- the same non-throw-after-mutation contract as the Emeralds branch applies.
+	if def.Grant then return def.Grant(player, data) == true end
+	if def.Type == "Emeralds" then
+		-- Award returns false (never throws post-mutation) on invalid amounts. A
+		-- false must NOT reach the ReceiptLog: once a PurchaseId is logged, the
+		-- dedupe branch answers PurchaseGranted forever with nothing credited.
+		return EmeraldService.Award(player, def.Amount, "robux:" .. tostring(def.Amount)) == true
 	end
 	return false
 end
@@ -46,13 +53,21 @@ function M.ProcessReceipt(info)
 		warn("[ProductRegistry] unknown product id " .. tostring(info.ProductId))
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if not grant(player, data, def) then return Enum.ProductPurchaseDecision.NotProcessedYet end
+	-- pcall is defense-in-depth only: grant implementations must never throw
+	-- AFTER mutating data, because a caught failure returns NotProcessedYet on
+	-- the assumption nothing was granted. EmeraldService.Award upholds this by
+	-- pcall'ing its own post-mutation notify path.
+	local ok, granted = pcall(grant, player, data, def)
+	if not ok then
+		warn("[ProductRegistry] grant threw for product " .. tostring(info.ProductId) .. ": " .. tostring(granted))
+	end
+	if not ok or granted ~= true then return Enum.ProductPurchaseDecision.NotProcessedYet end
 	table.insert(data.ReceiptLog, key)
 	if #data.ReceiptLog > 50 then table.remove(data.ReceiptLog, 1) end
 	local saved = PDM.Save(player)
 	if not saved then
 		-- Grant + log are in-memory only. If this session never saves, both the
-		-- darrels AND the log entry vanish together -- a Roblox retry next session
+		-- emeralds AND the log entry vanish together -- a Roblox retry next session
 		-- re-grants correctly. So NotProcessedYet is safe AND self-consistent.
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
@@ -64,12 +79,45 @@ function M.Init()
 	-- purchasables via M.Register, never a second assignment.
 	MarketplaceService.ProcessReceipt = M.ProcessReceipt
 
-	-- Darrel packs (user creates dev products on roblox.com, then replaces these zeros):
-	local PACK_IDS = { 0, 0, 0, 0 }           -- <- fill with real dev product ids
-	local PACK_AMOUNTS = { 80, 180, 400, 1000 }
-	for i, id in ipairs(PACK_IDS) do
-		M.Register(id, { Type = "Darrels", Amount = PACK_AMOUNTS[i] })
+	-- Emerald packs. The catalog moved to ReplicatedStorage.Modules.EmeraldPackConfig
+	-- so the shop can render prices and amounts from the SAME rows that get
+	-- registered here -- see that file for how to create the products.
+	--
+	-- A pack whose ProductId is still 0 is skipped outright rather than registered
+	-- under id 0: Register would otherwise stack all four unconfigured packs on one
+	-- bogus key, and the last one written would win for any receipt that ever
+	-- arrived carrying it.
+	local EmeraldPackConfig = require(ReplicatedStorage.Modules.EmeraldPackConfig)
+	local live = 0
+	for _, pack in ipairs(EmeraldPackConfig.List) do
+		if EmeraldPackConfig.IsLive(pack) then
+			M.Register(pack.ProductId, { Type = "Emeralds", Amount = pack.Amount })
+			live += 1
+		end
 	end
+	-- The daily wheel's paid spin. Grant runs the SAME WheelHandler.TrySpin path the
+	-- free daily and the in-world prompt use, with `paid` set -- so a bought spin
+	-- cannot roll from a different table, skip a payout, or diverge from the free one
+	-- as the wheel is retuned. It also does not stamp LastSpinAt, so buying a spin
+	-- never burns the free daily the player still had.
+	--
+	-- Required lazily, inside Grant: ProductRegistry is required at server boot and
+	-- WheelHandler pulls in SeasonPassHandler, so a top-level require here would widen
+	-- the boot-time module graph for something only needed when a receipt arrives.
+	local WheelConfig = require(ReplicatedStorage.Modules.WheelConfig)
+	local wheelLive = WheelConfig.IsPaidSpinLive()
+	if wheelLive then
+		M.Register(WheelConfig.PAID_SPIN.ProductId, {
+			Type = "WheelSpin",
+			Grant = function(player, _data)
+				return require(script.Parent.WheelHandler).TrySpin(player, true) == true
+			end,
+		})
+	end
+
+	print(("ProductRegistry online (%d/%d emerald packs live, paid wheel spin %s)")
+		:format(live, #EmeraldPackConfig.List,
+			wheelLive and ("live @ R$" .. WheelConfig.PAID_SPIN.RobuxPrice) or "NOT CREATED (ProductId 0)"))
 end
 
 return M

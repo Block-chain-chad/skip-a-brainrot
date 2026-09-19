@@ -133,7 +133,7 @@ local QUALITY_SET = { Low = true, Medium = true, High = true }
 -- label on the window). Only the two redeem-feedback inks stay local -- they
 -- are semantic status colours with no token, re-pointed from the cream-era
 -- pair to the guide's accent green/red bottom stops.
-local MSG_GREEN = Color3.fromHex("#4FB42E") -- redeem success -- guide accent green (was #3fae1f, tuned for cream)
+local MSG_GREEN = Color3.fromHex("#2E8A1C") -- redeem success -- PS99 cool: darker green for contrast on the light body (was #4FB42E)
 local MSG_RED = Color3.fromHex("#D83E3E") -- redeem failure -- guide accent red (was #A8140F, the kit red gradient's bottom stop)
 
 ----------------------------------------------------------- GRAPHICS: client-local Lighting toggles, nil-guarded
@@ -187,6 +187,27 @@ local function applyHideOwnBanners(on)
 	end
 end
 
+----------------------------------------------------------- REAL SEAM 2b/2c: cinematic prefs -> CatchCinematic (Sequencer/Config)
+-- Same bridge shape as REAL SEAM 1/2 above: a client-local Instance Attribute,
+-- read at the moment it matters rather than pushed through a bespoke remote.
+-- CatchCinematic.Sequencer reads CinematicReducedMotion at the START of every
+-- run (mid-run changes take effect on the NEXT catch, same "read at time of
+-- use" contract skipReveal already keeps); Config.qualityFor reads
+-- CinematicLowQuality on every run too. Task 8 brief: one Reduced Motion row
+-- plus a second Low Quality Cinematics row (cheap while already in here -- the
+-- plan's quality tier needed a non-touch opt-in).
+local function applyCinematicReducedMotion(on)
+	if player then
+		player:SetAttribute("CinematicReducedMotion", on == true)
+	end
+end
+
+local function applyCinematicLowQuality(on)
+	if player then
+		player:SetAttribute("CinematicLowQuality", on == true)
+	end
+end
+
 ----------------------------------------------------------- REAL SEAM 3: skipReveal -> CatchRevealClient / ClientMain
 -- Per-rarity catch-animation skip (user request 2026-08-04, v2 -- "just
 -- skip the actual catch animation... for whatever rarity they desire"):
@@ -210,7 +231,7 @@ end
 -- visit Settings. `applied` also seeds the panel's own controls on first
 -- Build (see below), and `onAppliedChanged` (assigned inside Build once the
 -- widgets exist) keeps them in sync if a payload lands again afterward.
-local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, skipReveal = {} }
+local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, cinematicReducedMotion = false, cinematicLowQuality = false, skipReveal = {} }
 local onAppliedChanged = nil
 
 local function applySettings(s)
@@ -236,6 +257,14 @@ local function applySettings(s)
 	if typeof(s.hideOwnBanners) == "boolean" then
 		applied.hideOwnBanners = s.hideOwnBanners
 		applyHideOwnBanners(applied.hideOwnBanners)
+	end
+	if typeof(s.cinematicReducedMotion) == "boolean" then
+		applied.cinematicReducedMotion = s.cinematicReducedMotion
+		applyCinematicReducedMotion(applied.cinematicReducedMotion)
+	end
+	if typeof(s.cinematicLowQuality) == "boolean" then
+		applied.cinematicLowQuality = s.cinematicLowQuality
+		applyCinematicLowQuality(applied.cinematicLowQuality)
 	end
 	if typeof(s.skipReveal) == "table" then
 		applied.skipReveal = s.skipReveal
@@ -269,422 +298,187 @@ task.spawn(function()
 end)
 
 ----------------------------------------------------------- Build
+-- 2026-08-09 HUD upgrade (design_handoff_hud_upgrade): the whole view is the
+-- sheet's PanelChrome now -- shell 1000x1090 (body scrolls), SLATE header,
+-- white rows on the light body ground, section headings OUTSIDE the rows
+-- (30px shout on the ground, never grey-on-grey), slider knobs that overhang
+-- their tracks, toggles whose word sits INSIDE the track opposite the knob,
+-- and rarity chips that wear their own tier ramp when ON. ALL wiring --
+-- saves, seams, applySettings, redeem, the blur watchers -- is preserved:
+-- every control still calls the same apply* + fireSave paths.
+local UIKitTop = modules:WaitForChild("UIKit")
+local PC = require(UIKitTop:WaitForChild("PanelChrome"))
+local UIB = require(UIKitTop:WaitForChild("Builders")) -- UI.touchMin for the chip row
+local S = require(UIKitTop:WaitForChild("SpecTheme"))
+
+-- RarityConfig tier names -> the sheet's chip vocabulary + ramps
+local SHORT = { Common = "COM", Uncommon = "UNC", Rare = "RARE", Epic = "EPIC",
+	Legendary = "LEG", Mythic = "MYTH", Secret = "SEC", God = "GOD" }
+
 function SettingsPanel.Build(ctx)
-	local T = ctx.Tokens
-	local UI = ctx.Builders
+	local ROW_RADIUS = 24
+	local ROW_PAD_X = 22
+	local SLIDER_ROW_H = 104
+	local SEGMENT_ROW_H = 92
+	local TOGGLE_ROW_H = 92
+	local CHIPS_ROW_H = 152
+	local FOOTER_H = 92
 
-	-- STYLE REPLACEMENT REPAIR (2026-08-04): see the note in PassPanel. This
-	-- panel's two survivors sit in code Build does NOT reach (the redeem-code
-	-- result handler), so it built fine and would have crashed later, in the
-	-- player's hands, instead of at open time -- the worse failure. Re-declared
-	-- as their guide successors.
-	local CARD_BORDER = T.color.outline
-	local BODY_INK = T.color.white
-
-	----------------------------------------------------------- geometry (kit README §3.3, exact where tokenised)
-	local PANEL_W = T.size.panelWidth.settings -- 700
-	local HEADER_H = T.size.headerHeight -- 92
-	local BODY_TOP = HEADER_H + 12
-	local BODY_INNER_W = PANEL_W - T.pad.panel * 2 -- 668
-
-	local SECTION_HEADER_H = 24
-	local SLIDER_ROW_H = 54 -- kit "Slider row height 54"
-	local SEGMENT_ROW_H = 54 -- kit "three equal buttons height 54"
-	local TOGGLE_ROW_H = 52 -- kit "Toggle row height 52"
-	local SKIPREV_ROW_H = 86 -- label line + 8 rarity chips (no kit spec; two-line row)
-	local FOOTER_H = 58 -- kit "Redeem Code... height 58"
-	local GAP = T.pad.gapTight -- 8, kit "Body padding 16, gap 8"
-	local ITEM_COUNT = 10 -- 3 section headers + 2 sliders + 1 segmented + 2 toggles + 1 rarity row + 1 footer
-	local BODY_CONTENT_H = (SECTION_HEADER_H + SLIDER_ROW_H * 2) -- AUDIO
-		+ (SECTION_HEADER_H + SEGMENT_ROW_H) -- GRAPHICS
-		+ (SECTION_HEADER_H + TOGGLE_ROW_H * 2 + SKIPREV_ROW_H) -- GAMEPLAY
-		+ FOOTER_H
-		+ GAP * (ITEM_COUNT - 1)
-	local BODY_H = T.pad.panel * 2 + BODY_CONTENT_H
-	local GROUP_H = BODY_TOP + BODY_H
-
-	----------------------------------------------------------- root
-	local wrapper = Instance.new("Frame")
-	wrapper.Name = "SettingsPanel"
-	wrapper.Size = UDim2.fromScale(1, 1)
-	wrapper.BackgroundTransparency = 1
-	wrapper.ZIndex = 10
-
-	local panelCol = Instance.new("Frame")
-	panelCol.Name = "PanelColumn"
-	panelCol.AnchorPoint = Vector2.new(0.5, 0.5)
-	panelCol.Position = UDim2.fromScale(0.5, 0.5)
-	panelCol.Size = UDim2.fromOffset(PANEL_W, GROUP_H)
-	panelCol.BackgroundTransparency = 1
-	panelCol.ZIndex = 10
-	panelCol.Parent = wrapper
-
-	----------------------------------------------------------- header (common shell, README §3 -- kit gold shell, guide RED since the style replacement)
-	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "gold", T.radius.panel, T.stroke.panel)
-	header.Name = "Header"
-	header.Position = UDim2.fromOffset(0, 0)
-	header.ZIndex = 12
-	-- style replacement (2026-08-04, Pet-Sim guide): per-panel accents are
-	-- dead. §3.3 never gave Settings a colour of its own; 1d/1e invented one
-	-- (neutral orange #ffb02e -> #ff7d00) and the guide takes it back -- EVERY
-	-- panel wears the same red bar (#F96B57 -> #C84535 = T.gradient.header).
-	-- The "gold" seed above stays exactly as it was: UI.surface just needs a
-	-- T.gradient key to construct with, and the shell's corner/gloss/shadow/
-	-- stroke are all colour-independent, so this remains a single in-place
-	-- gradient swap on the surface's OWN UIGradient -- nothing is added.
-	local headerGrad = header:FindFirstChildOfClass("UIGradient")
-	if headerGrad then
-		headerGrad.Color = T.gradient.header
-	end
-	UI.gloss(header, T.radius.panel)
-	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
-
-	local headerIcon = UI.artSlot(header, UDim2.fromOffset(62, 62), T.icons.settings)
-	headerIcon.Name = "SectionIcon"
-	headerIcon.AnchorPoint = Vector2.new(0, 0.5)
-	headerIcon.Position = UDim2.new(0, 12, 0.5, 0)
-	headerIcon.ZIndex = header.ZIndex + 1
-
-	local headerTitle = UI.label(header, "Settings", "panelTitle", T.color.white)
-	headerTitle.Name = "Title"
-	headerTitle.AnchorPoint = Vector2.new(0, 0.5)
-	headerTitle.Position = UDim2.new(0, 12 + 62 + 14, 0.5, 0)
-	headerTitle.ZIndex = header.ZIndex + 2
-
-	local closeBtn = UI.button(header, "X", "red", UDim2.fromOffset(T.size.closeButton.X, T.size.closeButton.Y), "buttonL")
-	closeBtn.Name = "CloseButton"
-	closeBtn.AnchorPoint = Vector2.new(1, 0.5)
-	closeBtn.Position = UDim2.new(1, -12, 0.5, 0)
-	closeBtn.ZIndex = header.ZIndex + 2
-	closeBtn.MouseButton1Click:Connect(function()
+	local shell = PC.shell({
+		name = "SettingsPanel",
+		title = "SETTINGS",
+		key = "settings",
+		icon = S.Art.settings, -- PS99 restyle: rail sticker in the header
+		size = S.ShellFor.settings,
+		scroll = true,
+	})
+	shell.close.Activated:Connect(function()
 		ctx.closePanel()
 	end)
+	local wrapper = shell.root
+	local body = shell.body
+	local z = shell.z
 
-	----------------------------------------------------------- body (common shell, README §3 -- the guide's light-gray WINDOW since the style replacement)
-	-- UI.panel bundled THREE things -- the kit "panel" surface, its hardShadow
-	-- and a baked-in 16px UIPadding -- so opting out of it (1d/1e did, to get a
-	-- non-panel body colour) means recreating all three explicitly, which is
-	-- why they are spelled out below. The padding is EXACTLY T.pad.panel (16)
-	-- per side, NOT DailyPanel's panelWide (18): BODY_H above is
-	-- `T.pad.panel * 2 + BODY_CONTENT_H` and BODY_INNER_W is
-	-- `PANEL_W - T.pad.panel * 2`, so a copied 18 would overflow the 10-item
-	-- list stack by 4px and desync every row's width math.
-	-- style replacement (2026-08-04, Pet-Sim guide): kind "cream" -> "window".
-	-- Zero visual delta at the call site -- the shared Tokens pass repointed
-	-- cream at the window gray and kept it as a legacy alias -- this is purely
-	-- the honest name for what the surface now is (#D6D6D6 -> #A9A9A9).
-	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
-	body.Name = "Body"
-	body.Position = UDim2.fromOffset(0, BODY_TOP)
-	body.ZIndex = 12
-	UI.hardShadow(body, T.shadowOffset.panel, T.radius.panel)
-	local bodyPad = Instance.new("UIPadding")
-	bodyPad.PaddingTop = UDim.new(0, T.pad.panel)
-	bodyPad.PaddingBottom = UDim.new(0, T.pad.panel)
-	bodyPad.PaddingLeft = UDim.new(0, T.pad.panel)
-	bodyPad.PaddingRight = UDim.new(0, T.pad.panel)
-	bodyPad.Parent = body
-
-	local bodyList = Instance.new("UIListLayout")
-	bodyList.FillDirection = Enum.FillDirection.Vertical
-	bodyList.SortOrder = Enum.SortOrder.LayoutOrder
-	bodyList.Padding = UDim.new(0, GAP)
-	bodyList.Parent = body
-
-	----------------------------------------------------------- shared list-slot helper
-	-- HardShadow-in-UIListLayout trap (see GoalsPanel/PassPanel reports):
-	-- UI.hardShadow / UI.button both parent a shadow sibling to the VISUAL
-	-- element's OWN parent, not to any wrapper -- if that parent is
-	-- `body` itself (list-managed), the shadow becomes an extra, untracked
-	-- list item and throws off the vertical stack. Every row below is built
-	-- inside its own non-list-managed "slot" Frame (the actual list item),
-	-- exactly like every other panel in this family does.
 	local order = 0
-	local function listSlot(h)
-		order += 1
-		local slot = Instance.new("Frame")
-		slot.Name = "Slot" .. order
-		slot.LayoutOrder = order
-		slot.Size = UDim2.new(1, 0, 0, h)
-		slot.BackgroundTransparency = 1
-		slot.ZIndex = 14
-		slot.Parent = body
-		return slot
-	end
+	local function nextOrder() order += 1 return order end
 
-	local function sectionHeader(text)
-		local slot = listSlot(SECTION_HEADER_H)
-		-- style replacement (2026-08-04, Pet-Sim guide): WHITE. History here is
-		-- gold (kit, tuned for the old dark panel) -> #4a3416 ink (1d/1e, for
-		-- cream) -> white. These three words are the one bit of card-less text
-		-- that still wants a light fill: they sit on the light-gray window, so
-		-- the cardLabel ink stroke does the legibility work, and white-inside-
-		-- #202020 is exactly the guide's all-caps section treatment. (The other
-		-- on-window label, the redeem message, goes the other way -- see it.)
-		local l = UI.label(slot, text, "cardLabel", T.color.white)
-		l.Name = "SectionHeader"
-		l.Size = UDim2.new(1, 0, 1, 0)
-		l.AutomaticSize = Enum.AutomaticSize.None
-		l.TextXAlignment = Enum.TextXAlignment.Left
-		-- kit wants 18/stroke3; cardLabel is 20/stroke3 (closest tokenised
-		-- style, same class of kit-vs-Builders gap other panels document) --
-		-- only TextSize is overridden, the stroke already matches exactly.
-		l.TextSize = 18
-		l.ZIndex = 15
-	end
-
-	----------------------------------------------------------- row cards: NO recolour helper any more (style replacement 2026-08-04, Pet-Sim guide)
-	-- 1d/1e carried a `whiteCard(card)` helper that the three row builders
-	-- each called: it DESTROYED the row surface's UIGradient (exposing
-	-- Builders' flat white base underneath) and repainted the surface's own
-	-- UIStroke #e5d3ac. Both halves are now wrong, and both are simply gone
-	-- rather than re-pointed -- the guide's card IS a dark slot (#4A4A4A ->
-	-- #363636), which is precisely what T.gradient.row became in the shared
-	-- Tokens pass, and UI.stroke already paints T.color.outline (#202020).
-	-- So each row below is a bare `UI.surface(..., "row", ...)` that inherits
-	-- the whole look: one gradient, ONE stroke (never a second UI.stroke call
-	-- on top), no post-hoc repaint pass to keep in sync. Controls ON the
-	-- cards -- tracks, knobs, switches, the 8 rarity chips -- are untouched;
-	-- they were always kit-coloured and read against a dark card by design.
-
-	----------------------------------------------------------- FIX F4 shared drag-end watcher
-	-- (2026-07-30 fix wave) track.InputEnded (used inside buildSliderRow below)
-	-- only fires while the release happens over the track itself -- releasing
-	-- off-track (drag the knob out past the row's edge, then let go) never
-	-- fires it, leaving that row's local `dragging` stuck true and the slider
-	-- visually "stuck" to the mouse/touch forever after. ONE shared
-	-- UserInputService.InputEnded connection (preferred over a connection per
-	-- row -- a global-service connection per row would leak across Build()
-	-- calls with nothing to unwind) watches for the release everywhere; each
-	-- row registers/unregisters its own end-drag closure in
-	-- `activeDragEnders` for exactly as long as it's the one being dragged.
-	-- Disconnected via the panel wrapper's Destroying -- `wrapper` is this
-	-- module's one root Instance (per its own header comment, "this module
-	-- never sets its own Parent"), created above.
-	local activeDragEnders = {} -- row key -> function() ends that row's drag + fires the save
-	local uisInputEndedConn = UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
-		for _, endDrag in pairs(activeDragEnders) do
-			endDrag()
-		end
-	end)
-	wrapper.Destroying:Connect(function()
-		uisInputEndedConn:Disconnect()
-	end)
-
-	----------------------------------------------------------- slider row (AUDIO)
-	local function buildSliderRow(labelText, key, initialValue)
-		local slot = listSlot(SLIDER_ROW_H)
-		-- style replacement (2026-08-04, Pet-Sim guide): plain dark row slot,
-		-- no recolour call after it. The literal 3 that 1d/1e hardcoded here
-		-- (to soften the tan border away from T.stroke.control's then-4) goes
-		-- back to the token -- the shared pass retuned control to 3, so this is
-		-- the same pixel today but tracks the token from here on. The card
-		-- still gets no hardShadow: `slot` isn't list-managed so a drop
-		-- couldn't disturb the stack, the guide just doesn't shadow rows (the
-		-- knob keeps ITS shadow -- that's a control, not chrome).
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
-		card.Name = "SliderRow_" .. key
-		card.ZIndex = 15
-
-		local ROW_PAD_X = 14 -- kit gives no explicit slider-row padding; spacing-scale token, same class of ad hoc gap other panels document
+	-- every row is a white plate on the body ground (sheet, Settings)
+	local function rowCard(h)
+		local card = PC.plate({
+			name = "Row" .. nextOrder(),
+			size = UDim2.new(1, 0, 0, h),
+			colors = { S.Surface.RowTop, S.Surface.RowBottom },
+			radius = ROW_RADIUS,
+			outline = 6,
+			zIndex = z + 2,
+			parent = body,
+			gloss = false,
+		})
+		card.LayoutOrder = order
 		local pad = Instance.new("UIPadding")
 		pad.PaddingLeft = UDim.new(0, ROW_PAD_X)
 		pad.PaddingRight = UDim.new(0, ROW_PAD_X)
 		pad.Parent = card
+		return card
+	end
 
-		local CONTENT_W = BODY_INNER_W - ROW_PAD_X * 2
-		local LABEL_W, VALUE_W, INNER_GAP = 150, 56, T.pad.gap -- kit "label column 150" / "value column 56"
-		local TRACK_W = CONTENT_W - LABEL_W - VALUE_W - INNER_GAP * 2
+	local function sectionHeader(text)
+		PC.sectionHead({
+			text = text, parent = body, layoutOrder = nextOrder(),
+			zIndex = z + 2, size = 30,
+		})
+	end
 
-		local label = UI.label(card, labelText, "cardLabel", T.color.white) -- style replacement (2026-08-04): white again -- the card is a dark slot now
-		label.Name = "Label"
-		label.AnchorPoint = Vector2.new(0, 0.5)
-		label.Position = UDim2.new(0, 0, 0.5, 0)
-		label.Size = UDim2.new(0, LABEL_W, 0, 24)
-		label.AutomaticSize = Enum.AutomaticSize.None
-		label.TextXAlignment = Enum.TextXAlignment.Left
-		label.ZIndex = 16
+	----------------------------------------------------------- slider row (AUDIO)
+	-- 104 tall: label / 38 track with green fill / 52 gold knob overhanging /
+	-- 32px value, 96 wide, right-aligned. Save fires as a TRAILING save 0.6s
+	-- after the last movement (SettingsService drops saves within 0.5s of the
+	-- last one, and a drag is a burst); live SoundKit preview on every step.
+	local function buildSliderRow(labelText, key, initialValue)
+		local card = rowCard(SLIDER_ROW_H)
 
-		local track, fill = UI.track(card, UDim2.new(0, TRACK_W, 0, 26), "green", T.radius.pill)
-		track.Name = "Track"
-		track.AnchorPoint = Vector2.new(0, 0.5)
-		track.Position = UDim2.new(0, LABEL_W + INNER_GAP, 0.5, 0)
-		track.ZIndex = 16
+		local LABEL_W, VALUE_W, INNER_GAP = 200, 96, 20
 
-		-- Knob is parented to `card`, NOT `track` -- UI.track sets
-		-- ClipsDescendants=true on the track (for the fill's rounded-corner
-		-- mask), so a knob living inside it would get visually clipped in
-		-- half at both 0% and 100% (it's meant to overlap the track's rounded
-		-- ends, per the capture). Positioned in card-local offset space
-		-- instead, computed from the SAME track geometry.
-		local knob = Instance.new("Frame")
-		knob.Name = "Knob"
-		knob.AnchorPoint = Vector2.new(0.5, 0.5)
-		knob.Size = UDim2.fromOffset(34, 34) -- kit "knob 34x34 circle"
-		knob.BackgroundColor3 = T.color.white
-		knob.BorderSizePixel = 0
-		knob.ZIndex = 17
-		knob.Parent = card
-		UI.corner(knob, 17)
-		UI.gradient(knob, T.gradient.knob) -- kit "#FFF0A8->#FFC531"
-		UI.stroke(knob, T.stroke.control)
-		UI.hardShadow(knob, 3, 17) -- kit "hard shadow 0 3" -- knob's parent (`card`) isn't list-managed, so no wrapper trap here
+		PC.read({
+			name = "Label",
+			text = labelText,
+			size = 28,
+			frameSize = UDim2.new(0, LABEL_W, 0, 34),
+			position = UDim2.new(0, 0, 0.5, 0),
+			anchor = Vector2.new(0, 0.5),
+			zIndex = z + 3,
+			parent = card,
+		})
 
-		local valueLabel = UI.label(card, "0%", "cardLabel", T.color.white) -- style replacement (2026-08-04): white on the dark row slot, matching Label above
-		valueLabel.Name = "Value"
-		valueLabel.AnchorPoint = Vector2.new(1, 0.5)
-		valueLabel.Position = UDim2.new(1, 0, 0.5, 0)
-		valueLabel.Size = UDim2.new(0, VALUE_W, 0, 24)
-		valueLabel.AutomaticSize = Enum.AutomaticSize.None
-		valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-		valueLabel.ZIndex = 16
+		local valueLabel = PC.read({
+			name = "Value",
+			text = "0%",
+			size = 32,
+			align = Enum.TextXAlignment.Right,
+			frameSize = UDim2.new(0, VALUE_W, 0, 34),
+			position = UDim2.new(1, 0, 0.5, 0),
+			anchor = Vector2.new(1, 0.5),
+			zIndex = z + 3,
+			parent = card,
+		})
 
-		local dragging = false
-		local pct = math.clamp(initialValue or 0, 0, 1)
-
-		local function render()
-			UI.setFill(fill, pct, false)
-			knob.Position = UDim2.new(0, LABEL_W + INNER_GAP + pct * TRACK_W, 0.5, 0)
-			valueLabel.Text = tostring(math.floor(pct * 100 + 0.5)) .. "%"
-		end
-		render()
-
-		local function updateFromInput(input)
-			local size = track.AbsoluteSize.X
-			if size <= 0 then
-				return
-			end
-			local rel = (input.Position.X - track.AbsolutePosition.X) / size
-			pct = math.clamp(rel, 0, 1)
-			render()
-			SoundKit.SetCategoryVolume(key, pct) -- live preview during drag/click
+		local saveToken = 0
+		local function queueSave()
+			saveToken += 1
+			local my = saveToken
+			task.delay(0.6, function()
+				if my ~= saveToken then return end
+				fireSave({ [key] = applied[key] })
+			end)
 		end
 
-		-- Click-to-set + drag, per kit §3.3 ("Click-to-set on the track; drag =
-		-- same math on InputChanged"): InputBegan both starts the drag AND
-		-- previews the click position; InputEnded fires the save even with
-		-- zero movement (a plain click). endDrag is shared between the on-track
-		-- InputEnded below and the module-level shared UIS.InputEnded watcher
-		-- (FIX F4) that catches an off-track release this row's own track would
-		-- otherwise never see.
-		local function endDrag()
-			if not dragging then
-				return
-			end
-			dragging = false
-			activeDragEnders[key] = nil
-			fireSave({ [key] = pct })
-		end
+		local slider = PC.slider({
+			size = UDim2.new(1, -(LABEL_W + VALUE_W + INNER_GAP * 2), 0, 60),
+			position = UDim2.new(0, LABEL_W + INNER_GAP, 0.5, 0),
+			anchor = Vector2.new(0, 0.5),
+			value = initialValue,
+			zIndex = z + 3,
+			parent = card,
+			onChanged = function(v)
+				applied[key] = v
+				valueLabel.Text = tostring(math.floor(v * 100 + 0.5)) .. "%"
+				SoundKit.SetCategoryVolume(key, v) -- live preview during drag
+				queueSave()
+			end,
+		})
+		valueLabel.Text = tostring(math.floor((initialValue or 0) * 100 + 0.5)) .. "%"
 
-		track.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				dragging = true
-				activeDragEnders[key] = endDrag
-				updateFromInput(input)
+		-- a drag on the track must not also scroll the body
+		slider.track.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch then
+				body.ScrollingEnabled = false
 			end
 		end)
-		track.InputChanged:Connect(function(input)
-			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-				updateFromInput(input)
-			end
-		end)
-		track.InputEnded:Connect(function(input)
-			if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-				endDrag()
+		UserInputService.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch then
+				body.ScrollingEnabled = true
 			end
 		end)
 
 		return {
 			setValue = function(v)
-				if dragging then
+				if slider.isDragging() then
 					return -- don't fight a live drag with a server echo
 				end
-				pct = math.clamp(v or 0, 0, 1)
-				render()
+				slider.set(v or 0)
+				valueLabel.Text = tostring(math.floor((v or 0) * 100 + 0.5)) .. "%"
 			end,
 		}
 	end
 
 	----------------------------------------------------------- segmented quality row (GRAPHICS)
 	local function buildSegmentedRow()
-		local slot = listSlot(SEGMENT_ROW_H)
-		local SEG_GAP = T.pad.gapTight -- 8; kit gives no explicit segment gap
-		local segW = (BODY_INNER_W - SEG_GAP * 2) / 3
+		local holderSlot = Instance.new("Frame")
+		holderSlot.Name = "QualitySlot"
+		holderSlot.LayoutOrder = nextOrder()
+		holderSlot.Size = UDim2.new(1, 0, 0, SEGMENT_ROW_H)
+		holderSlot.BackgroundTransparency = 1
+		holderSlot.ZIndex = z + 2
+		holderSlot.Parent = body
 
-		local buttons, rings, glows = {}, {}, {}
-		for i, q in ipairs(QUALITY_OPTIONS) do
-			-- kit-token gap (same class Task 6/7 already logged, deferred): UI.button
-			-- hardcodes T.radius.control (16), kit wants 14 here -- not fixed, per
-			-- the already-deferred "Builders radius-param follow-up".
-			local btn = UI.button(slot, q, "tab", UDim2.fromOffset(segW, SEGMENT_ROW_H), "buttonM")
-			btn.Name = "Quality" .. q
-			btn.Position = UDim2.fromOffset((i - 1) * (segW + SEG_GAP), 0)
-			btn.ZIndex = 15
-			buttons[q] = btn
-
-			-- glow (kit "+ 12px glow"): one soft rounded-rect halo, 12px outset
-			-- each side, behind the button.
-			local glow = Instance.new("Frame")
-			glow.Name = "Glow"
-			glow.AnchorPoint = Vector2.new(0.5, 0.5)
-			glow.Position = UDim2.fromScale(0.5, 0.5)
-			glow.Size = UDim2.new(1, 24, 1, 24)
-			glow.BackgroundColor3 = T.color.activeGlow
-			glow.BackgroundTransparency = 0.72
-			glow.BorderSizePixel = 0
-			glow.Visible = false
-			glow.ZIndex = btn.ZIndex - 1
-			glow.Parent = btn
-			UI.corner(glow, T.radius.control + 12)
-			glows[q] = glow
-
-			-- active ring: kit "4 px #FFD84D ring inset -4 (radius 16)" -- same
-			-- static-selection convention GoalsPanel's own tab ring uses.
-			local ring = Instance.new("Frame")
-			ring.Name = "ActiveRing"
-			ring.Size = UDim2.new(1, 8, 1, 8)
-			ring.Position = UDim2.fromOffset(-4, -4)
-			ring.BackgroundTransparency = 1
-			ring.Visible = false
-			ring.ZIndex = btn.ZIndex + 3
-			ring.Parent = btn
-			UI.corner(ring, 16)
-			local ringStroke = Instance.new("UIStroke")
-			ringStroke.Thickness = 4
-			ringStroke.Color = T.color.activeRing
-			ringStroke.Parent = ring
-			rings[q] = ring
-		end
-
-		local current = "Medium"
-		local function render()
-			for q in pairs(buttons) do
-				rings[q].Visible = (q == current)
-				glows[q].Visible = (q == current)
-			end
-		end
-		render()
-
-		for q, btn in pairs(buttons) do
-			btn.MouseButton1Click:Connect(function()
-				if current == q then
-					return
-				end
-				current = q
-				render()
-				applyQuality(current) -- immediate client-local preview
-				fireSave({ quality = current })
-			end)
-		end
+		local seg = PC.segmented({
+			options = QUALITY_OPTIONS,
+			selected = 2,
+			size = UDim2.new(1, 0, 1, 0),
+			zIndex = z + 2,
+			parent = holderSlot,
+			onChanged = function(_, opt)
+				applyQuality(opt) -- immediate client-local preview
+				fireSave({ quality = opt })
+			end,
+		})
 
 		return {
 			setValue = function(q)
-				if QUALITY_SET[q] and q ~= current then
-					current = q
-					render()
+				for idx, opt in ipairs(QUALITY_OPTIONS) do
+					if opt == q then seg.set(idx) end
 				end
 			end,
 		}
@@ -692,192 +486,66 @@ function SettingsPanel.Build(ctx)
 
 	----------------------------------------------------------- toggle row (GAMEPLAY)
 	local function buildToggleRow(labelText, initialOn, onToggle)
-		local slot = listSlot(TOGGLE_ROW_H)
-		-- style replacement (2026-08-04, Pet-Sim guide): dark row slot, fully
-		-- inherited, no recolour call -- see buildSliderRow's note for the
-		-- strokeW/hardShadow reasoning. The switch keeps its full kit look.
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
-		card.Name = "ToggleRow"
-		card.ZIndex = 15
+		local card = rowCard(TOGGLE_ROW_H)
 
-		local ROW_PAD_X = 14
-		local pad = Instance.new("UIPadding")
-		pad.PaddingLeft = UDim.new(0, ROW_PAD_X)
-		pad.PaddingRight = UDim.new(0, ROW_PAD_X)
-		pad.Parent = card
+		PC.read({
+			name = "Label",
+			text = labelText,
+			size = 28,
+			frameSize = UDim2.new(1, -(S.Chrome.ToggleSize.X + 20), 0, 34),
+			position = UDim2.new(0, 0, 0.5, 0),
+			anchor = Vector2.new(0, 0.5),
+			zIndex = z + 3,
+			parent = card,
+		})
 
-		local SWITCH_W, SWITCH_H = 86, 38 -- kit "switch 86x38"
-
-		local label = UI.label(card, labelText, "cardLabel", T.color.white) -- style replacement (2026-08-04): white again -- the card is a dark slot now
-		label.Name = "Label"
-		label.AnchorPoint = Vector2.new(0, 0.5)
-		label.Position = UDim2.new(0, 0, 0.5, 0)
-		label.Size = UDim2.new(1, -(SWITCH_W + T.pad.gap), 0, 24)
-		label.AutomaticSize = Enum.AutomaticSize.None
-		label.TextXAlignment = Enum.TextXAlignment.Left
-		label.ZIndex = 16
-
-		local switch = Instance.new("TextButton")
-		switch.Name = "Switch"
-		switch.Text = ""
-		switch.AutoButtonColor = false
-		switch.AnchorPoint = Vector2.new(1, 0.5)
-		switch.Position = UDim2.new(1, 0, 0.5, 0)
-		switch.Size = UDim2.fromOffset(SWITCH_W, SWITCH_H)
-		switch.BackgroundColor3 = T.color.white
-		switch.BorderSizePixel = 0
-		switch.ZIndex = 16
-		switch.Parent = card
-		UI.corner(switch, T.radius.pill)
-		local switchGradient = Instance.new("UIGradient")
-		switchGradient.Rotation = 90
-		switchGradient.Parent = switch
-		UI.stroke(switch, T.stroke.control)
-
-		-- OFF inset shadow (kit "OFF... with inset shadow") -- same trick
-		-- UI.track uses for its own inset shadow; only shown in the OFF state.
-		local inset = Instance.new("Frame")
-		inset.Name = "InsetShadow"
-		inset.Size = UDim2.new(1, 0, 0, 4)
-		inset.BackgroundColor3 = Color3.new(0, 0, 0)
-		inset.BackgroundTransparency = 0.55
-		inset.BorderSizePixel = 0
-		inset.ZIndex = switch.ZIndex + 1
-		inset.Parent = switch
-		UI.corner(inset, T.radius.pill)
-
-		-- "ON"/"OFF" chip label. FontFace, never the legacy .Font property with
-		-- a Font-struct value (T.font.* are Font structs, not Enum.Font -- the
-		-- exact crash class Task 8/9 logged and fixed elsewhere in this family).
-		local switchLabel = Instance.new("TextLabel")
-		switchLabel.Name = "StateLabel"
-		switchLabel.BackgroundTransparency = 1
-		switchLabel.Size = UDim2.new(0, 40, 1, 0)
-		switchLabel.FontFace = T.font.display
-		switchLabel.TextSize = T.text.chip[1]
-		switchLabel.RichText = false
-		switchLabel.TextYAlignment = Enum.TextYAlignment.Center
-		switchLabel.ZIndex = switch.ZIndex + 2
-		switchLabel.Parent = switch
-		local switchLabelStroke = Instance.new("UIStroke")
-		switchLabelStroke.Thickness = T.text.chip[2]
-		switchLabelStroke.Color = T.color.outline
-		switchLabelStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-		switchLabelStroke.LineJoinMode = Enum.LineJoinMode.Round
-		switchLabelStroke.Parent = switchLabel
-
-		local knob = Instance.new("Frame")
-		knob.Name = "Knob"
-		knob.AnchorPoint = Vector2.new(0.5, 0.5)
-		knob.Size = UDim2.fromOffset(36, 36) -- kit "36 px white knob" (ON); OFF reuses the same size, colour only differs
-		knob.BackgroundColor3 = T.color.white
-		knob.BorderSizePixel = 0
-		knob.ZIndex = switch.ZIndex + 2
-		knob.Parent = switch
-		UI.corner(knob, 18)
-		local knobGradient = Instance.new("UIGradient")
-		knobGradient.Rotation = 90
-		knobGradient.Parent = knob
-		UI.stroke(knob, T.stroke.hairline)
-
-		-- kit-token gap (same class GoalsPanel's own header-plate colours
-		-- document): no T.gradient entry matches these two OFF-state pairs.
-		local OFF_TOP, OFF_BOT = T.hex("#5A6748"), T.hex("#3A452C")
-		local KNOB_OFF_TOP, KNOB_OFF_BOT = T.hex("#C9CCC2"), T.hex("#9AA28E")
-
-		local on = initialOn == true
-		local function render()
-			inset.Visible = not on
-			if on then
-				switchGradient.Color = T.gradient.green
-				knobGradient.Color = ColorSequence.new(T.color.white)
-				knob.AnchorPoint = Vector2.new(1, 0.5)
-				knob.Position = UDim2.new(1, -1, 0.5, 0)
-				switchLabel.Text = "ON"
-				switchLabel.TextColor3 = T.color.white
-				switchLabel.AnchorPoint = Vector2.new(0, 0.5)
-				switchLabel.Position = UDim2.new(0, 11, 0.5, 0)
-				switchLabel.TextXAlignment = Enum.TextXAlignment.Left
-			else
-				switchGradient.Color = ColorSequence.new(OFF_TOP, OFF_BOT)
-				knobGradient.Color = ColorSequence.new(KNOB_OFF_TOP, KNOB_OFF_BOT)
-				knob.AnchorPoint = Vector2.new(0, 0.5)
-				knob.Position = UDim2.new(0, 1, 0.5, 0)
-				switchLabel.Text = "OFF"
-				switchLabel.TextColor3 = T.color.textMuted
-				switchLabel.AnchorPoint = Vector2.new(1, 0.5)
-				switchLabel.Position = UDim2.new(1, -11, 0.5, 0)
-				switchLabel.TextXAlignment = Enum.TextXAlignment.Right
-			end
-		end
-		render()
-
-		switch.MouseButton1Click:Connect(function()
-			on = not on
-			render()
-			if onToggle then
-				onToggle(on)
-			end
-		end)
+		local toggle = PC.toggle({
+			position = UDim2.new(1, 0, 0.5, 0),
+			anchor = Vector2.new(1, 0.5),
+			on = initialOn,
+			zIndex = z + 3,
+			parent = card,
+			onChanged = onToggle,
+		})
 
 		return {
 			setValue = function(v)
-				on = v == true
-				render()
+				toggle.set(v == true, true)
 			end,
 		}
 	end
 
 	----------------------------------------------------------- skip-catch-animation row (GAMEPLAY): 8 per-rarity chips
-	-- A filled chip = that rarity's Pull ceremony is skipped (the fast text
-	-- card shows instead). Chips wear their tier colour when ON and the
-	-- toggle family's OFF greens when not, so the row reads with the same
-	-- vocabulary as the switches above it.
+	-- A chip wearing its tier ramp = that rarity's Pull ceremony is skipped.
+	-- OFF = the neutral plate, so the row reads with the same vocabulary as
+	-- the toggles above it. COM through GOD legible without reading (sheet).
 	local function buildSkipRevealRow()
-		local slot = listSlot(SKIPREV_ROW_H)
-		-- style replacement (2026-08-04, Pet-Sim guide): dark row slot, fully
-		-- inherited, no recolour call -- see buildSliderRow's note. All 8 chips
-		-- keep their tier/OFF looks: those are rarity DATA, not chrome.
-		local card = UI.surface(slot, UDim2.new(1, 0, 1, 0), "row", T.radius.inner, T.stroke.control)
-		card.Name = "SkipRevealRow"
-		card.ZIndex = 15
+		local card = rowCard(CHIPS_ROW_H)
 
-		local ROW_PAD_X = 14
-		local pad = Instance.new("UIPadding")
-		pad.PaddingLeft = UDim.new(0, ROW_PAD_X)
-		pad.PaddingRight = UDim.new(0, ROW_PAD_X)
-		pad.Parent = card
-
-		local label = UI.label(card, "Skip Catch Animation", "cardLabel", T.color.white) -- style replacement (2026-08-04): white again -- the card is a dark slot now
-		label.Name = "Label"
-		label.Position = UDim2.new(0, 0, 0, 8)
-		label.Size = UDim2.new(1, 0, 0, 22)
-		label.AutomaticSize = Enum.AutomaticSize.None
-		label.TextXAlignment = Enum.TextXAlignment.Left
-		label.ZIndex = 16
+		PC.read({
+			name = "Label",
+			text = "Skip Catch Animation",
+			size = 28,
+			frameSize = UDim2.new(1, 0, 0, 34),
+			position = UDim2.new(0, 0, 0, 12),
+			zIndex = z + 3,
+			parent = card,
+		})
 
 		local chipRow = Instance.new("Frame")
 		chipRow.Name = "Chips"
 		chipRow.BackgroundTransparency = 1
-		chipRow.Position = UDim2.new(0, 0, 0, 36)
-		chipRow.Size = UDim2.new(1, 0, 0, 40)
-		chipRow.ZIndex = 16
+		chipRow.Position = UDim2.new(0, 0, 0, 62)
+		chipRow.Size = UDim2.new(1, 0, 0, S.Chrome.ChipHeight)
+		chipRow.ZIndex = z + 3
 		chipRow.Parent = card
 		local chipList = Instance.new("UIListLayout")
 		chipList.FillDirection = Enum.FillDirection.Horizontal
 		chipList.SortOrder = Enum.SortOrder.LayoutOrder
-		chipList.Padding = UDim.new(0, 6)
+		chipList.Padding = UDim.new(0, 9)
 		chipList.Parent = chipRow
 
-		local CHIP_W = math.floor((BODY_INNER_W - ROW_PAD_X * 2 - 6 * (#RarityConfig - 1)) / #RarityConfig)
-		local SHORT = { Common = "COM", Uncommon = "UNC", Rare = "RARE", Epic = "EPIC",
-			Legendary = "LEG", Mythic = "MYTH", Secret = "SEC", God = "GOD" }
-		local OFF_TOP, OFF_BOT = T.hex("#5A6748"), T.hex("#3A452C")
-
-		-- Trailing save: SettingsService silently drops saves within 0.5s of the
-		-- last one, and chip-picking is exactly the rapid-click case -- so the
-		-- attribute applies instantly per click, and ONE save (the full table)
-		-- fires 0.6s after the last click. Token pattern, newest wins.
+		-- trailing save, one full-table save 0.6s after the last click
 		local saveToken = 0
 		local function queueSave()
 			saveToken += 1
@@ -895,14 +563,16 @@ function SettingsPanel.Build(ctx)
 			local c = chips[tierName]
 			if not c then return end
 			local on = applied.skipReveal[tierName] == true
-			if on then
-				c.gradient.Color = ColorSequence.new(c.color, c.color:Lerp(Color3.new(0, 0, 0), 0.35))
-				c.label.TextColor3 = T.color.white
-			else
-				c.gradient.Color = ColorSequence.new(OFF_TOP, OFF_BOT)
-				c.label.TextColor3 = T.color.textMuted
+			local ramp = on and (S.Rarity[SHORT[tierName]] or S.Rarity.COM) or S.Action.Neutral
+			c.gradient.Color = ColorSequence.new(ramp[1], ramp[2])
+			c.label.TextTransparency = on and 0 or 0.25
+			-- pale Neutral (PS99): the OFF plate is light, so the bubble word flips to
+			-- dark ink with a white stroke; ON tier ramps keep the white shout + dark stroke
+			c.label.TextColor3 = on and Color3.new(1, 1, 1) or S.Surface.ReadInk
+			local wordStroke = c.label:FindFirstChildOfClass("UIStroke")
+			if wordStroke then
+				wordStroke.Color = on and S.Outline or Color3.new(1, 1, 1)
 			end
-			c.inset.Visible = not on
 		end
 
 		for i, tier in ipairs(RarityConfig) do
@@ -911,49 +581,51 @@ function SettingsPanel.Build(ctx)
 			chip.Text = ""
 			chip.AutoButtonColor = false
 			chip.LayoutOrder = i
-			chip.Size = UDim2.fromOffset(CHIP_W, 34)
-			chip.BackgroundColor3 = T.color.white
+			chip.Size = UDim2.new(1 / #RarityConfig, -math.ceil(9 * (#RarityConfig - 1) / #RarityConfig), 0, S.Chrome.ChipHeight)
+			chip.BackgroundColor3 = S.Action.Neutral[1]
 			chip.BorderSizePixel = 0
-			chip.ZIndex = 17
+			chip.ZIndex = z + 4
 			chip.Parent = chipRow
-			UI.corner(chip, T.radius.control)
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, S.Chrome.ChipRadius)
+			corner.Parent = chip
+			local edge = Instance.new("UIStroke")
+			edge.Thickness = 4
+			edge.Color = S.Outline
+			edge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			edge.LineJoinMode = Enum.LineJoinMode.Round
+			edge.Parent = chip
 			local grad = Instance.new("UIGradient")
 			grad.Rotation = 90
+			grad.Color = ColorSequence.new(S.Action.Neutral[1], S.Action.Neutral[2])
 			grad.Parent = chip
-			UI.stroke(chip, T.stroke.hairline)
+			-- TOUCH FLOOR (2026-08-25). These rendered 53x33 on a phone-classed
+			-- client -- under the 44px minimum, and they are the ONLY controls in
+			-- this row, so there is nothing else to hit. The row has to make room:
+			-- the chip grows, then its holder and the card behind it grow by exactly
+			-- the same amount, or taller chips spill over the setting below. All
+			-- eight chips solve to the same size, so the writes are idempotent.
+			UIB.touchMin(chip, 44, function(c)
+				local grown = c.Size.Y.Offset
+				local extra = grown - S.Chrome.ChipHeight
+				if extra > 0.5 then
+					chipRow.Size = UDim2.new(1, 0, 0, grown)
+					card.Size = UDim2.new(card.Size.X.Scale, card.Size.X.Offset, 0, CHIPS_ROW_H + extra)
+				end
+			end)
 
-			local inset = Instance.new("Frame")
-			inset.Name = "InsetShadow"
-			inset.Size = UDim2.new(1, 0, 0, 3)
-			inset.BackgroundColor3 = Color3.new(0, 0, 0)
-			inset.BackgroundTransparency = 0.55
-			inset.BorderSizePixel = 0
-			inset.ZIndex = 18
-			inset.Parent = chip
-			UI.corner(inset, T.radius.control)
+			local word = PC.shout({
+				name = "Word",
+				text = SHORT[tier.Name] or string.upper(tier.Name),
+				size = S.TextSize.Chip,
+				zIndex = z + 5,
+				parent = chip,
+				scaled = true,
+			})
+			word.Size = UDim2.new(1, -6, 0.7, 0)
+			word.Position = UDim2.new(0, 3, 0.15, 0)
 
-			local chipLabel = Instance.new("TextLabel")
-			chipLabel.Name = "Word"
-			chipLabel.BackgroundTransparency = 1
-			chipLabel.Size = UDim2.new(1, -6, 1, 0)
-			chipLabel.Position = UDim2.new(0, 3, 0, 0)
-			chipLabel.FontFace = T.font.display
-			chipLabel.TextScaled = true
-			chipLabel.RichText = false
-			chipLabel.Text = SHORT[tier.Name] or string.upper(tier.Name)
-			chipLabel.ZIndex = 19
-			chipLabel.Parent = chip
-			local cap = Instance.new("UITextSizeConstraint")
-			cap.MaxTextSize = T.text.chip[1]
-			cap.Parent = chipLabel
-			local ink = Instance.new("UIStroke")
-			ink.Thickness = T.text.chip[2]
-			ink.Color = T.color.outline
-			ink.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-			ink.LineJoinMode = Enum.LineJoinMode.Round
-			ink.Parent = chipLabel
-
-			chips[tier.Name] = { gradient = grad, label = chipLabel, inset = inset, color = tier.Color }
+			chips[tier.Name] = { gradient = grad, label = word }
 			paintChip(tier.Name)
 
 			chip.MouseButton1Click:Connect(function()
@@ -973,77 +645,89 @@ function SettingsPanel.Build(ctx)
 
 	----------------------------------------------------------- footer: Redeem Code (Reset Data intentionally absent -- see module header)
 	local function buildFooter()
-		local slot = listSlot(FOOTER_H)
-		local btn = UI.button(slot, "Redeem Code", "blue", UDim2.new(1, 0, 1, 0), "buttonM")
-		btn.Name = "RedeemCodeButton"
-		btn.ZIndex = 15
+		local slot = Instance.new("Frame")
+		slot.Name = "RedeemSlot"
+		slot.LayoutOrder = nextOrder()
+		slot.Size = UDim2.new(1, 0, 0, FOOTER_H)
+		slot.BackgroundTransparency = 1
+		slot.ZIndex = z + 2
+		slot.Parent = body
 
-		-- Inline input row (kit: "opening an inline TextBox row"), hidden until
-		-- the button is pressed. Reuses this SAME slot rather than growing the
-		-- panel -- the button hides while the row is open, so the footer never
-		-- changes height and nothing above it has to relayout.
+		local btn = PC.pill({
+			name = "RedeemCodeButton",
+			text = "REDEEM CODE",
+			colors = S.Action.Neutral,
+			size = UDim2.new(1, 0, 1, 0),
+			zIndex = z + 3,
+			parent = slot,
+		})
+
 		local inputRow = Instance.new("Frame")
 		inputRow.Name = "RedeemInputRow"
 		inputRow.Size = UDim2.new(1, 0, 1, 0)
 		inputRow.BackgroundTransparency = 1
 		inputRow.Visible = false
-		inputRow.ZIndex = 15
+		inputRow.ZIndex = z + 3
 		inputRow.Parent = slot
 
-		local GO_W = 84
-		local BOX_W = BODY_INNER_W - GO_W - T.pad.gapTight
-
+		local GO_W = 130
 		local box = Instance.new("TextBox")
 		box.Name = "CodeBox"
-		box.Size = UDim2.new(0, BOX_W, 1, 0)
-		box.BackgroundColor3 = T.color.white
+		box.Size = UDim2.new(1, -(GO_W + 14), 1, 0)
+		box.BackgroundColor3 = S.Surface.RowTop
 		box.BorderSizePixel = 0
 		box.Text = ""
 		box.PlaceholderText = "Enter code\u{2026}"
-		box.PlaceholderColor3 = T.color.textMuted
-		box.TextColor3 = T.color.white
-		box.FontFace = T.font.ui -- FontFace, not .Font (Font-struct crash class -- see Switch label comment above)
-		box.TextSize = 16
+		box.PlaceholderColor3 = S.Surface.ReadSub
+		box.TextColor3 = S.Surface.ReadInk
+		box.Font = S.Font.Read
+		box.TextSize = 26
 		box.ClearTextOnFocus = false
 		box.TextXAlignment = Enum.TextXAlignment.Left
-		box.ZIndex = 15
+		box.ZIndex = z + 3
+		box:SetAttribute("NoPolish", true)
 		box.Parent = inputRow
-		UI.corner(box, T.radius.inner)
-		UI.gradient(box, T.gradient.track)
-		UI.stroke(box, T.stroke.control)
+		local bc = Instance.new("UICorner")
+		bc.CornerRadius = UDim.new(0, ROW_RADIUS)
+		bc.Parent = box
+		local bs = Instance.new("UIStroke")
+		bs.Thickness = 6
+		bs.Color = S.Outline
+		bs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		bs.LineJoinMode = Enum.LineJoinMode.Round
+		bs.Parent = box
 		local boxPad = Instance.new("UIPadding")
-		boxPad.PaddingLeft = UDim.new(0, 12)
-		boxPad.PaddingRight = UDim.new(0, 12)
+		boxPad.PaddingLeft = UDim.new(0, 18)
+		boxPad.PaddingRight = UDim.new(0, 18)
 		boxPad.Parent = box
 
-		local goBtn = UI.button(inputRow, "GO", "green", UDim2.fromOffset(GO_W, FOOTER_H), "buttonM")
-		goBtn.Name = "GoButton"
-		goBtn.Position = UDim2.fromOffset(BOX_W + T.pad.gapTight, 0)
-		goBtn.ZIndex = 15
+		local goBtn = PC.pill({
+			name = "GoButton",
+			text = "GO",
+			colors = S.Action.Go,
+			size = UDim2.fromOffset(GO_W, FOOTER_H),
+			position = UDim2.new(1, 0, 0, 0),
+			anchor = Vector2.new(1, 0),
+			zIndex = z + 3,
+			parent = inputRow,
+		})
 
-		-- style replacement (2026-08-04, Pet-Sim guide): msg floats on the
-		-- transparent inputRow, i.e. directly on the light-gray WINDOW and not
-		-- on any card -- so it is the ONE label in this panel that stays dark,
-		-- and it uses the token minted for exactly that case
-		-- (T.color.textOnWindow) rather than 1d/1e's cream ink or the kit's
-		-- textMuted, which was a dark-panel pick to begin with.
-		local msg = UI.label(inputRow, "", "meta", T.color.textOnWindow)
-		msg.Name = "Message"
-		msg.AnchorPoint = Vector2.new(0, 1)
-		msg.Position = UDim2.new(0, 2, 0, -4)
-		msg.Size = UDim2.new(1, -4, 0, 16)
-		msg.AutomaticSize = Enum.AutomaticSize.None
-		msg.TextXAlignment = Enum.TextXAlignment.Left
-		msg.ZIndex = 16
+		local msg = PC.read({
+			name = "Message",
+			text = "",
+			size = 22,
+			frameSize = UDim2.new(1, -4, 0, 24),
+			position = UDim2.new(0, 2, 0, -26),
+			zIndex = z + 3,
+			parent = slot,
+		})
 
-		btn.MouseButton1Click:Connect(function()
+		btn.Activated:Connect(function()
 			btn.Visible = false
 			inputRow.Visible = true
 		end)
 
 		-- REAL, existing remote -- see module header REDEEM CODE DEVIATION.
-		-- Nothing new was created server-side; this fires the SAME RemoteEvent
-		-- the legacy DailyRewardClient's own REDEEM box already uses.
 		local function submit()
 			local code = box.Text
 			if typeof(code) ~= "string" or #code:gsub("%s+", "") == 0 then
@@ -1051,7 +735,7 @@ function SettingsPanel.Build(ctx)
 			end
 			remotes.RedeemCode:FireServer(code)
 		end
-		goBtn.MouseButton1Click:Connect(submit)
+		goBtn.Activated:Connect(submit)
 		box.FocusLost:Connect(function(enterPressed)
 			if enterPressed then
 				submit()
@@ -1063,12 +747,6 @@ function SettingsPanel.Build(ctx)
 				return
 			end
 			msg.Text = r.Message
-			-- style replacement (2026-08-04, Pet-Sim guide): third pass on this
-			-- one line. Kit shipped light-on-dark picks (claimRing #7CE04A /
-			-- salmon #FF8A7A), 1d/1e darkened them for cream, and the guide's
-			-- own accent green/red bottoms now hold the middle ground the
-			-- light-gray window needs. Colours ONLY -- the Success/Message
-			-- handling and the box clear below are untouched.
 			msg.TextColor3 = r.Success == true and MSG_GREEN or MSG_RED
 			if r.Success == true then
 				box.Text = ""
@@ -1096,11 +774,21 @@ function SettingsPanel.Build(ctx)
 		applyHideOwnBanners(on)
 		fireSave({ hideOwnBanners = on })
 	end)
+	local reducedMotionCtl = buildToggleRow("Reduced Motion (Cinematics)", applied.cinematicReducedMotion, function(on)
+		applied.cinematicReducedMotion = on
+		applyCinematicReducedMotion(on)
+		fireSave({ cinematicReducedMotion = on })
+	end)
+	local lowQualityCtl = buildToggleRow("Low Quality Cinematics", applied.cinematicLowQuality, function(on)
+		applied.cinematicLowQuality = on
+		applyCinematicLowQuality(on)
+		fireSave({ cinematicLowQuality = on })
+	end)
 	local skipRevealCtl = buildSkipRevealRow()
 
 	buildFooter()
 
-	----------------------------------------------------------- kit README §5 client state shape -- kept in sync for parity with every other panel's own ctx.state.<id> writes, even though nothing else currently reads it
+	----------------------------------------------------------- kit README §5 client state shape
 	local function syncState()
 		if ctx.state and ctx.state.settings then
 			ctx.state.settings.music = applied.music
@@ -1109,33 +797,32 @@ function SettingsPanel.Build(ctx)
 			ctx.state.settings.toggles = ctx.state.settings.toggles or {}
 			ctx.state.settings.toggles.fastSpin = applied.fastSpin
 			ctx.state.settings.toggles.hideOwnBanners = applied.hideOwnBanners
+			ctx.state.settings.toggles.cinematicReducedMotion = applied.cinematicReducedMotion
+			ctx.state.settings.toggles.cinematicLowQuality = applied.cinematicLowQuality
 			ctx.state.settings.toggles.skipReveal = applied.skipReveal
 		end
 	end
 	syncState()
 
-	----------------------------------------------------------- re-sync every control if a settings payload lands again after Build (e.g. loaded late, or a re-push)
+	----------------------------------------------------------- re-sync every control if a settings payload lands again after Build
 	onAppliedChanged = function()
 		musicCtl.setValue(applied.music)
 		sfxCtl.setValue(applied.sfx)
 		qualityCtl.setValue(applied.quality)
 		fastSpinCtl.setValue(applied.fastSpin)
 		hideBannersCtl.setValue(applied.hideOwnBanners)
+		reducedMotionCtl.setValue(applied.cinematicReducedMotion)
+		lowQualityCtl.setValue(applied.cinematicLowQuality)
 		skipRevealCtl.setValue()
 		syncState()
 	end
 
-	----------------------------------------------------------- backdrop blur (1d/1e sweep 2026-08-04: dim + blur behind the panel)
-	-- Same per-panel BlurEffect recipe as DailyPanel: the shell owns the dim
-	-- scrim, the blur is per-panel, created/destroyed on Visible. The NAME is
-	-- unique per panel -- setBlur create/destroys by name in Lighting, so a
-	-- shared name would let one panel's close destroy another's live blur.
-	-- Size is SET, never tweened (BlurEffect.Size is not on the proven tween
-	-- whitelist here). Lighting is already imported at module top for
-	-- applyQuality; this block only ever touches its OWN named BlurEffect, so
-	-- it cannot interact with the Bloom/SunRays lookups (different classes).
+	----------------------------------------------------------- backdrop blur (unchanged recipe; see pre-restyle history)
 	local BLUR_NAME = "SettingsPanelBlur"
 	local function setBlur(on: boolean)
+		-- centralised 2026-08-17: GameHUDClient owns the one shared HUDPanelBlur
+		-- (blur-never-dim); a second per-panel BlurEffect only stacked on top
+		do return end
 		local existing = Lighting:FindFirstChild(BLUR_NAME)
 		if on and not existing then
 			local blur = Instance.new("BlurEffect")
@@ -1147,20 +834,12 @@ function SettingsPanel.Build(ctx)
 		end
 	end
 
-	-- Settings has no per-open refresh, countdown or motion to drive, so this
-	-- watcher is minimal AND NEW (the panel previously had no Visible watcher
-	-- at all) -- view-only, additive; the closeBtn/Destroying wiring above is
-	-- untouched.
 	wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
 		setBlur(wrapper.Visible)
 	end)
 
-	-- Belt-and-braces (same review catch DailyPanel carries): any path that
-	-- hides the HOST while this wrapper stays Visible (legacy single-open
-	-- force-closes, future shell changes) must still kill the global
-	-- BlurEffect -- it post-processes the whole screen regardless of GUI
-	-- visibility. Restore it when the host returns and we're still the
-	-- visible panel.
+	-- any path that hides the HOST while this wrapper stays Visible must
+	-- still kill the global BlurEffect; restore it when the host returns
 	ctx.host:GetPropertyChangedSignal("Visible"):Connect(function()
 		if not ctx.host.Visible then
 			setBlur(false)

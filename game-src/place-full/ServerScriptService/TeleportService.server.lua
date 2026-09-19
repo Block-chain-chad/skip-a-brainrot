@@ -18,13 +18,15 @@ local THROW_POS = Vector3.new(0, 6, 22)
 local SHOPS_POS = Vector3.new(0, 9.53, -260) -- middle of the lodge interior (on PlazaFloor, among the stalls)
 local TRADE_POS = Vector3.new(8000, 2004.6, 7818) -- arrival deck south of the island (cove rebuild 2026-08-09); player lands off-island and walks in over the causeway
 local HUB_POS = Vector3.new(24, 6, -16) -- back in the hub, just west of the trade portal
--- The Frozen Tundra: snowfield at (-8000, 2000, -8000), surface y = 2002, reached from
--- the locked portal on the dungeon's south wall. BoundsGuard has a matching "Tundra"
--- region -- without it a player would be rubber-banded back to spawn about half a
--- second after arriving.
--- Centre of the arrival disc. It used to be -8000, which is now the mouth of the shop's
--- tunnel -- arriving players would have materialised in the doorway.
-local TUNDRA_POS = Vector3.new(-8000, 2006, -7975)
+-- The Frozen Tundra: surface y = 2002, reached from the locked portal on the dungeon's
+-- south wall. BoundsGuard has a matching "Tundra" region -- without it a player would be
+-- rubber-banded back to spawn about half a second after arriving.
+-- WORLD 2 BLOCKOUT (2026-09-19, docs/WORLD2-MASTERPLAN.md §3): players arrive INSIDE the
+-- Cellar Pass tunnel in the cliff at the town's south corner, a few steps from its mouth,
+-- facing out toward the Frostgate overlook; the way home (TundraReturnPortal) is behind
+-- them. The look leans toward +X so the first frame holds the camps, the lake and the peak.
+local TUNDRA_POS = Vector3.new(-8272, 2034, -8335)
+local TUNDRA_LOOK = Vector3.new(0.35, 0, 0.94).Unit
 local DUNGEON_POS = Vector3.new(-146, -19, 62) -- dungeon floor, a few studs north of the portal
 -- The Lush Gardens: World 3, an underground realm at (8000, 1000, -8000), reached
 -- from the root-and-stone gate standing in the valley meadow at (160, 4, 60).
@@ -53,8 +55,9 @@ local NAV = {
 	Tundra = {
 		-- on the ice dock, facing up the lake past the SKIP HERE sign
 		Throw = { pos = Vector3.new(-8000, 2004, -7800), look = FORWARD },
-		-- middle of the ice hall, facing the back counters the same way the lodge does
-		Shops = { pos = Vector3.new(-8000, 2005, -8090), look = TO_SHOPS },
+		-- inside the Warmhouse (the market hall in the south cliff), facing the back
+		-- counters the same way the lodge does
+		Shops = { pos = Vector3.new(-8000, 2005, -8305), look = TO_SHOPS },
 	},
 }
 
@@ -84,11 +87,40 @@ end
 -- nothing else.
 local STREAM_WAIT = 3
 
+-- ===== THE CURTAIN =====================================================
+-- An 8,000-stud hop pages a whole world in around the player. Until that lands the
+-- client renders terrain popping and sliding into place, which is what "the terrain
+-- starts shifting around while the world is loading" is. The curtain goes up BEFORE
+-- the streaming request (which yields), and only comes down once the character has
+-- actually been placed -- so none of it is ever on screen.
+--
+-- Made here rather than authored into the Remotes folder, matching PlotBoardHandler
+-- and IceFishingEvent.
+local fadeRemote = remotes:FindFirstChild("TeleportFade")
+if not fadeRemote then
+	fadeRemote = Instance.new("RemoteEvent")
+	fadeRemote.Name = "TeleportFade"
+	fadeRemote.Parent = remotes
+end
+-- Long enough for the client to actually paint the curtain before we start yielding.
+-- Matches the client's fade-in tween.
+local CURTAIN_IN = 0.22
+-- Only WORLD hops get a curtain. The plot button, the dock and the shop nav are all
+-- short hops inside one world with nothing to stream, and curtaining those would put
+-- a black screen in front of routine movement.
+local CURTAIN_MIN_DIST = 400
+
 local function teleportCharacter(player, pos, lookDir)
 	local character = player.Character
 	if not character then return end
 	local hrp = character:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
+
+	local far = (hrp.Position - pos).Magnitude >= CURTAIN_MIN_DIST
+	if far then
+		fadeRemote:FireClient(player, { Phase = "Out" })
+		task.wait(CURTAIN_IN)
+	end
 
 	pcall(function()
 		player:RequestStreamAroundAsync(pos, STREAM_WAIT)
@@ -97,13 +129,18 @@ local function teleportCharacter(player, pos, lookDir)
 	-- Re-check: the yield above means the character can have died, respawned or
 	-- the player left while we waited.
 	character = player.Character
-	if not character or character ~= hrp.Parent then return end
+	if not character or character ~= hrp.Parent then
+		-- never strand the curtain on screen if the hop fell through
+		if far then fadeRemote:FireClient(player, { Phase = "In" }) end
+		return
+	end
 
 	character:PivotTo(CFrame.lookAt(pos, pos + lookDir))
 	-- Carried momentum survives a PivotTo, so a player who was sprinting or
 	-- falling arrives still moving and skids off the pad.
 	hrp.AssemblyLinearVelocity = Vector3.zero
 	hrp.AssemblyAngularVelocity = Vector3.zero
+	if far then fadeRemote:FireClient(player, { Phase = "In" }) end
 end
 
 -- Base-less player: drop them onto the first open plot. Touching it claims the base
@@ -198,7 +235,7 @@ end)
 local portalDests = {
 	Trade = { pos = TRADE_POS, look = FORWARD },
 	Hub = { pos = HUB_POS, look = TO_HUB },
-	Tundra = { pos = TUNDRA_POS, look = FORWARD },
+	Tundra = { pos = TUNDRA_POS, look = TUNDRA_LOOK },
 	Dungeon = { pos = DUNGEON_POS, look = FORWARD },
 	-- facing -Z, up the gorge toward the hub
 	Gardens = { pos = GARDENS_POS, look = Vector3.new(0, 0, -1) },
@@ -213,29 +250,63 @@ local portalDests = {
 -- jump below and nothing changes. Fill it in once the Place exists and the portals
 -- become real teleports with no other edit.
 local MAIN_PLACE_ID = 78783087742939
-local TUNDRA_PLACE_ID = 0
 
--- Resolved per place, so ONE script is correct in both.
---
--- WHY BOTH PLACES CONTAIN BOTH WORLDS. 22 scripts reach for valley-only objects and 5
--- of them use a bare WaitForChild -- ClientMain waits on ShopStall at line ~423, so in a
--- tundra-only place the core client would hang there and never finish initialising.
--- Rather than guard 22 files (and every future one), the tundra Place is a full copy of
--- this one. The valley geometry simply goes unvisited there.
---
--- That leaves one hazard: the valley is still physically present on a tundra server, so
--- every portal that leads INTO the valley has to become a cross-place teleport, or the
--- population quietly splits across two copies of the same world.
-local PLACE_IDS = {}
-if TUNDRA_PLACE_ID > 0 then
-	if game.PlaceId == MAIN_PLACE_ID then
-		PLACE_IDS.Tundra = TUNDRA_PLACE_ID          -- leaving for World 2
-	elseif game.PlaceId == TUNDRA_PLACE_ID then
-		-- On a tundra server EVERY valley-bound portal goes home to the main place.
-		PLACE_IDS.Dungeon = MAIN_PLACE_ID
-		PLACE_IDS.Hub = MAIN_PLACE_ID
-		PLACE_IDS.Trade = MAIN_PLACE_ID
+-- EVERY WORLD ITS OWN PLACE (2026-08-09, owner direction). One entry per
+-- world that runs on its own place in this universe. 0 = "not split out
+-- yet": that world keeps the in-place jump and nothing changes. Fill in a
+-- real PlaceId (the EXPERIENCE OWNER creates the place -- Creator Hub >
+-- this experience > Places > Add, then publish this same map into it) and
+-- every route to and from that world becomes a real teleport with no other
+-- edit. Keys are portal Dest names (portalDests above).
+local WORLD_PLACE_IDS = {
+	Tundra = 0,   -- World 2, the Frozen Tundra
+	Trade = 0,    -- Skipper's Cove, the trading island
+	Gardens = 0,  -- World 3, the Lush Gardens (0 = not split out; entry is the Depths shaft)
+}
+
+-- Which world THIS server is. nil = the main place (the valley).
+-- The satellite places are FULL COPIES of this map -- 22 scripts reach for
+-- valley-only objects and 5 use a bare WaitForChild (ClientMain waits on
+-- ShopStall ~line 423), so a world-only place would hang the core client.
+-- The other worlds' geometry simply goes unvisited on each copy.
+local HERE_DEST = nil
+for destName, placeId in pairs(WORLD_PLACE_IDS) do
+	if placeId > 0 and game.PlaceId == placeId then
+		HERE_DEST = destName
+		break
 	end
+end
+
+-- Routing for THIS server: which portal Dests leave for another place?
+--  * Main place: every split-out world's own Dest.
+--  * Satellite: every OTHER split-out world directly, and every remaining
+--    Dest (Hub, Dungeon, unsplit worlds...) goes home to the main place --
+--    those areas are physically present on this copy too, but letting
+--    players into them would quietly split the population across copies.
+--    Only this server's own world stays a local jump.
+local PLACE_IDS = {}
+for destName, placeId in pairs(WORLD_PLACE_IDS) do
+	if placeId > 0 and destName ~= HERE_DEST then
+		PLACE_IDS[destName] = placeId
+	end
+end
+if HERE_DEST then
+	for destName in pairs(portalDests) do
+		if destName ~= HERE_DEST and not PLACE_IDS[destName] then
+			PLACE_IDS[destName] = MAIN_PLACE_ID
+		end
+	end
+	PLACE_IDS[HERE_DEST] = nil
+end
+
+-- The refusal toast. Declared BEFORE sendToPlace on purpose: it used to sit
+-- below it, where sendToPlace's `notify(...)` compiled as a GLOBAL lookup of
+-- a name that was only ever a later local -- so the first FAILED cross-place
+-- teleport would have thrown "attempt to call a nil value" instead of
+-- toasting. Latent only while the place ids were all 0.
+local function notify(player, message)
+	local r = remotes:FindFirstChild("PurchaseResult")
+	if r then r:FireClient(player, { Success = false, Message = message }) end
 end
 
 local teleporting = {}   -- [player] = true; a second touch must not fire a second teleport
@@ -284,13 +355,63 @@ end)
 --
 -- Declared as attributes on the part rather than a table in here, so adding a locked
 -- portal later is a build-time change with no script edit.
-local function notify(player, message)
-	local r = remotes:FindFirstChild("PurchaseResult")
-	if r then r:FireClient(player, { Success = false, Message = message }) end
-end
+-- (notify itself now lives above sendToPlace -- see the note there.)
 
 -- Returns true if the player may pass. Consumes the key on the unlocking trip.
+-- Puts a refused player somewhere safe. A portal at the bottom of a pit they have
+-- already fallen into cannot just say no -- see RefuseX on the Gardens shaft.
+local function refuseTo(player, touchPart)
+	local rx = touchPart:GetAttribute("RefuseX")
+	if not rx then return end
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	char:PivotTo(CFrame.new(rx,
+		touchPart:GetAttribute("RefuseY") or (touchPart.Position.Y + 12),
+		touchPart:GetAttribute("RefuseZ") or touchPart.Position.Z))
+	hrp.AssemblyLinearVelocity = Vector3.zero
+end
+
 local function passesLock(player, touchPart)
+	-- COMING SOON, checked before every other lock. A world can be finished in the
+	-- place file and still not be open, and that is not something a player can pay,
+	-- earn or quest past. The switch is WorldTravelConfig's ComingSoon flag -- the
+	-- SAME one the Worlds board reads -- so the board and the walk-through door can
+	-- never disagree about whether somewhere is open.
+	local destName = touchPart:GetAttribute("Dest")
+	if destName and WorldTravelConfig.IsDestComingSoon(destName) then
+		notify(player, touchPart:GetAttribute("ComingSoonMessage")
+			or ("\u{1F6A7} %s -- coming soon!"):format(touchPart:GetAttribute("PlaceName") or "That way"))
+		refuseTo(player, touchPart)
+		return false
+	end
+	-- A portal may demand a PROFILE FLAG instead of a payment. The way down to the Gardens
+	-- is EARNED by finishing Elder Tung's drill, and no number of Gianluca's keys is a
+	-- substitute -- so this is checked BEFORE RequiresKey and never charges anyone. A part
+	-- carrying both would have to satisfy the flag first and then still pay.
+	local needFlag = touchPart:GetAttribute("RequiresFlag")
+	if needFlag then
+		local d = PlayerDataManager.Get(player)
+		if not (d and d[needFlag]) then
+			notify(player, touchPart:GetAttribute("LockedMessage") or "\u{1F512} That way is sealed.")
+			-- A refused portal can sit at the bottom of a hole the player has already
+			-- fallen into -- the Lush Gardens pit does. Refusing alone would leave them
+			-- stuck down there, so a portal may name somewhere to put them back.
+			local rx = touchPart:GetAttribute("RefuseX")
+			if rx then
+				local char = player.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					char:PivotTo(CFrame.new(rx,
+						touchPart:GetAttribute("RefuseY") or (touchPart.Position.Y + 12),
+						touchPart:GetAttribute("RefuseZ") or touchPart.Position.Z))
+					hrp.AssemblyLinearVelocity = Vector3.zero
+				end
+			end
+			return false
+		end
+	end
+
 	local cost = touchPart:GetAttribute("RequiresKey")
 	if not cost or cost <= 0 then return true end
 
@@ -330,6 +451,14 @@ travelToWorld = function(player, id)
 	local ok, why = WorldTravelService.CanTravel(player, id)
 	if not ok then
 		notify(player, why or "You cannot travel there yet.")
+		return
+	end
+
+	-- A split-out world lives on another server: the Worlds tab leaves through
+	-- the same door the walk-through portal does.
+	local placeId = PLACE_IDS[dest.Dest]
+	if placeId and placeId > 0 then
+		sendToPlace(player, placeId, dest.Dest)
 		return
 	end
 
@@ -398,10 +527,53 @@ task.spawn(function()
 	end)
 end)
 
+--=================== CROSS-PLACE ARRIVALS ===================--
+-- sendToPlace stamps TeleportData = { fromPlace, dest }, and nothing was
+-- reading it: an arriving player would have spawned at this copy's default
+-- SpawnLocation -- which is the VALLEY spawn on every copy of this map.
+-- Land them on the same arrival point the in-place portal uses instead.
+--
+-- On a satellite place, EVERY spawn (including respawns, and plain joins
+-- from the app) routes into this server's own world -- the rest of the map
+-- is a closed copy here (see the population-split note above).
+local pendingArrival = {} -- [player] = portal dest name, consumed on first spawn
+
+local function onCharacter(player)
+	local destName = pendingArrival[player]
+	pendingArrival[player] = nil
+	if not destName then destName = HERE_DEST end -- satellites: every spawn
+	local target = destName and portalDests[destName]
+	if not target then return end -- main place, plain join: default spawn is right
+	task.wait(0.2) -- let the spawn settle before pivoting
+	teleportCharacter(player, target.pos, target.look)
+	refreshTravelBoard(player)
+end
+
+Players.PlayerAdded:Connect(function(player)
+	local join = player:GetJoinData()
+	local td = join and join.TeleportData
+	if typeof(td) == "table" and typeof(td.dest) == "string" and portalDests[td.dest] then
+		pendingArrival[player] = td.dest
+	end
+	player.CharacterAdded:Connect(function()
+		task.spawn(onCharacter, player)
+	end)
+	if player.Character then task.spawn(onCharacter, player) end
+end)
+
 Players.PlayerRemoving:Connect(function(player)
 	lastPortalUse[player] = nil
 	teleporting[player] = nil
+	pendingArrival[player] = nil
 end)
 
-print(("TeleportService online (place %d; cross-place portals %s)")
-	:format(game.PlaceId, TUNDRA_PLACE_ID > 0 and "ENABLED" or "off -- TUNDRA_PLACE_ID not set"))
+do
+	local split = {}
+	for destName, placeId in pairs(WORLD_PLACE_IDS) do
+		if placeId > 0 then table.insert(split, destName) end
+	end
+	table.sort(split)
+	print(("TeleportService online (place %d, serving %s; split-out worlds: %s)")
+		:format(game.PlaceId, HERE_DEST or "Valley/main",
+			#split > 0 and table.concat(split, ", ") or "none -- WORLD_PLACE_IDS not set"))
+end

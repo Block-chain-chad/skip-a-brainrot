@@ -43,16 +43,22 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- moved in lockstep with UIKit.Tokens' T.font (see its header; changing one
 -- without the other is a silent no-op). Ink follows the sheet's #071323.
 local FONT       = Enum.Font.FredokaOne
--- 2026-08-13 LEMONPOP: the DEFAULT ground is now the lemon-cream window, so
--- the default text treatment flips from "white + ink stroke" to the theme's
--- dark UNSTROKED ink (LemonPop rule: dark ink on light surfaces, stroked
--- white type only on dark/saturated ones). Dark surfaces opt IN via the
--- PolishOnDark attribute -- honoured on the label or any ancestor, exactly
--- like NoPolish -- which UIKit.Builders sets centrally on row/track/tab
--- surfaces and action buttons. NoPolish still bypasses everything.
+-- 2026-08-14 READABILITY REVERT (owner: "change all text to white so its
+-- readable, right now its hard to read things"). The 2026-08-13 LemonPop pass
+-- flipped the default from "white + ink stroke" to dark UNSTROKED ink on the
+-- assumption that dark ink on a lemon-cream ground carries itself. In practice
+-- it did not -- and because that branch also DESTROYED every contextual stroke,
+-- there was no outline left to rescue it.
+--
+-- The rule is back to what this module's header always described: white fill +
+-- dark outline on EVERY unexempted label, which is legible on light cream, on
+-- the dark rows, and on the red headers alike -- one treatment, no per-surface
+-- bookkeeping. PolishOnDark is no longer read here -- UIKit.Builders may go on
+-- setting it harmlessly, but there is only ONE treatment now, so the reader was
+-- deleted rather than left as dead code. NoPolish still bypasses everything, so
+-- colour-coded text (rarity tiers, emoji) is untouched.
 local WHITE      = Color3.fromRGB(255, 255, 255)
-local INKTEXT    = Color3.fromRGB(51, 38, 26)  -- LemonPop textOnWindow #33261A, the default fill
-local INK        = Color3.fromRGB(36, 31, 20)  -- LemonPop outline #241F14 (was slate #071323), strokes PolishOnDark text
+local INK        = Color3.fromRGB(49, 61, 79)  -- PS99 cool navy #313D4F (was LemonPop #241F14); strokes every polished label -- moves in lockstep with UIKit.Tokens outline
 local STROKE_TAG = "UIPolishStroke"
 
 local function isText(o)
@@ -64,17 +70,6 @@ local function optedOut(o)
 	local node = o
 	while node and node ~= playerGui do
 		if node:GetAttribute("NoPolish") then return true end
-		node = node.Parent
-	end
-	return false
-end
-
--- LemonPop: honours PolishOnDark the same way -- a dark surface tags itself
--- once and every label inside it inherits the on-dark treatment
-local function onDark(o)
-	local node = o
-	while node and node ~= playerGui do
-		if node:GetAttribute("PolishOnDark") then return true end
 		node = node.Parent
 	end
 	return false
@@ -110,37 +105,82 @@ local function foreignTextStroke(o)
 	return nil
 end
 
+-- EMOJI TEST (kept from the original floor). A 4-byte UTF-8 lead byte is every
+-- modern emoji (U+1F300 and up), while the 3-byte bullets and middots that
+-- ordinary labels are full of still pass through. A UIStroke on a colour glyph
+-- renders as a smear, so an emoji label is never recoloured or outlined.
+local function hasEmoji(s)
+	return typeof(s) == "string" and s:find("[\240-\244]") ~= nil
+end
+
 local function apply(o)
-	if optedOut(o) then return end
+	local exempt = optedOut(o)
 
-	local dark = onDark(o)
-	local want = if dark then WHITE else INKTEXT
+	-- READABILITY FLOOR (2026-08-14, same owner note as the revert above).
+	-- NoPolish still means "do not restyle me" -- an exempt label keeps its own
+	-- font, size and colour. What it must NOT mean any more is "stay
+	-- unreadable": a survey of the live UI found 48 opted-out labels sitting at
+	-- LemonPop's dark inks (#33261A, #7A6A52, #4A2E00...) on light cream cards
+	-- with no outline at all -- 39 of them in the egg shop alone. So an exempt
+	-- label whose fill is DARK gets the same white + ink outline as everything
+	-- else, and an exempt label that is already light is left completely alone
+	-- (that is what protects deliberately colour-coded text: rarity tiers and
+	-- the like are bright, so they never reach this branch).
+	--
+	-- EMOJI ARE SKIPPED OUTRIGHT. PassPanel tags its glyphs NoPolish with the
+	-- note "emoji must not be recoloured/outlined", and it is right -- a stroke
+	-- on a colour glyph renders as a smear. The test is a 4-byte UTF-8 lead
+	-- byte (\240-\244), which is every modern emoji (U+1F300 and up) while
+	-- still letting through the 3-byte bullets and middots that ordinary
+	-- labels are full of.
+	-- 2026-08-16 PS99 RESTYLE: the readability floor above is RETIRED -- exempt
+	-- means exempt again. The floor existed because LemonPop's dark inks sat
+	-- strokeless on mid-value cream/gold grounds; the PS99 theme's light
+	-- surfaces are true white/near-white, where solid dark ink (#33414F) is the
+	-- MOST readable treatment -- and force-whitening it would white-out every
+	-- deliberate dark label on the new white panels. Unexempted labels keep the
+	-- white + ink-stroke bubble treatment for dark rows and saturated fills.
+	--
+	-- 2026-08-21 THE FLOOR IS BACK (owner: "the text in the bag is grey again
+	-- make it white like i told u too earlier"). Retiring it turned `exempt` into
+	-- a hard return, and the BAG is the panel that shows why that was wrong:
+	-- BackpackPanel opts 47 labels out for the express purpose of keeping muted
+	-- ink on its pale grounds (its own comment: "NoPolish so UIPolish cannot force
+	-- it back to white"), so every one of them went grey the moment this returned
+	-- early. No amount of editing that panel fixes it while this line stands.
+	--
+	-- The 08-16 objection was correct as far as it went -- a blanket whitening
+	-- also wipes deliberate colour-coded dark text -- so the floor returns with the
+	-- guard it never had: SATURATION, not value alone. A neutral ink is chrome and
+	-- gets rescued; a saturated fill is somebody's colour CODE and is left alone.
+	--   whiten  #7C8CA0 S.23  #33414F S.35  #5D6B7A S.24  #8B93A8 S.17  #6B7689 S.22
+	--   keep    #3E8E1F S.78  #06301B S.88  #3A2A05 S.91  #E0424F S.71  #12060C S.67
+	-- Measured off the live bag, those two groups sit either side of a 0.35 -> 0.67
+	-- gap, so the 0.50 line is nowhere near anything it has to judge. The V < 0.75
+	-- half keeps already-light text (textMutedOnDark #DCE6F2, plain white) untouched:
+	-- it needs no rescue, and restroking it would only add weight.
+	--
+	-- An exempt label that DOES fall through keeps its own font and size -- it gets
+	-- the white fill and the ink outline, nothing else. That is the whole point of
+	-- the escape hatch surviving alongside the floor.
+	if exempt then
+		if hasEmoji(o.Text) then return end
+		local _, sat, val = o.TextColor3:ToHSV()
+		if sat >= 0.50 or val >= 0.75 then return end
+	end
 
-	if o.Font ~= FONT then o.Font = FONT end
-	if o.TextColor3 ~= want then o.TextColor3 = want end
+	-- every polished label is white now, on any ground -- the outline below is
+	-- what makes that safe (see the READABILITY REVERT note at the top)
+	if not exempt and o.Font ~= FONT then o.Font = FONT end
+	if o.TextColor3 ~= WHITE then o.TextColor3 = WHITE end
 
 	-- the legacy TextStroke* pair renders muddier than a UIStroke; retire it
 	if o.TextStrokeTransparency ~= 1 then o.TextStrokeTransparency = 1 end
 
-	if o:IsA("TextBox") then
-		-- LemonPop: boxes sit on light wells, placeholder = warm taupe (was lavender #E1DEEB)
-		local ph = Color3.fromRGB(167, 154, 124)
+	if not exempt and o:IsA("TextBox") then
+		-- PS99: boxes sit on light wells, placeholder = cool grey-blue (was warm taupe #A79A7C)
+		local ph = Color3.fromRGB(169, 182, 198)
 		if o.PlaceholderColor3 ~= ph then o.PlaceholderColor3 = ph end
-	end
-
-	-- LemonPop: dark ink on a light ground carries itself -- NO outline. Only
-	-- PolishOnDark labels (white type on dark/saturated grounds) keep the
-	-- stroked bubble treatment below. Every contextual stroke goes, not just
-	-- our own: an unexempted label just had its fill forced to dark ink, so a
-	-- leftover glyph outline (UI.label mints one per style spec) would render
-	-- dark-on-dark fuzz. Deliberate outlined text belongs under NoPolish.
-	if not dark then
-		for _, k in ipairs(o:GetChildren()) do
-			if k:IsA("UIStroke") and k.ApplyStrokeMode ~= Enum.ApplyStrokeMode.Border then
-				k:Destroy()
-			end
-		end
-		return
 	end
 
 	-- ONE outline per label. This used to check only for "UIStyleStrokeText",
@@ -155,6 +195,25 @@ local function apply(o)
 	-- to suit their panel, so leave it be and take ours back out.
 	local foreign = foreignTextStroke(o)
 	if foreign then
+		-- AN OUTLINE THE COLOUR OF THE FILL IS NOT AN OUTLINE (2026-08-21).
+		-- The PS99 tiles draw dark ink with a WHITE HALO -- exactly right for dark
+		-- type, and completely useless the moment the floor above turns that type
+		-- white. Restoring the floor without this left 66 labels as white glyphs
+		-- with a white halo on a white panel: the bag's header counter and every
+		-- pet tile name, invisible rather than merely low-contrast, and a contrast
+		-- audit still PASSES them because it can see an outline is present.
+		--
+		-- Whoever drew first still owns the outline -- the one-stroke-per-label rule
+		-- below is untouched. We correct only its COLOUR, and only when it has
+		-- stopped separating the glyphs from anything: light stroke under light fill.
+		local _, fillSat, fillVal = o.TextColor3:ToHSV()
+		local _, strokeSat, strokeVal = foreign.Color:ToHSV()
+		if fillVal >= 0.9 and fillSat < 0.2
+			and strokeVal >= 0.75 and strokeSat < 0.5
+			and foreign.Color ~= INK
+		then
+			foreign.Color = INK
+		end
 		local mine = o:FindFirstChild(STROKE_TAG)
 		if mine then mine:Destroy() end
 	else
@@ -195,6 +254,17 @@ playerGui.DescendantAdded:Connect(function(d)
 		-- configure across a yield
 		task.defer(function()
 			if d.Parent then apply(d) end
+		end)
+	elseif d:IsA("UIStroke") and d.Parent and isText(d.Parent) then
+		-- A STROKE ARRIVING AFTER ITS LABEL is the normal order here: panels do
+		-- Instance.new("TextLabel") first and hang the outline off it a few lines
+		-- later, which is AFTER both passes above have already run. Nothing in the
+		-- property watchers fires for a new child, so without this the fill-coloured
+		-- halo correction in apply() would simply never see the stroke it exists to
+		-- fix -- and it would fail silently, on exactly the tiles that need it.
+		local label = d.Parent
+		task.defer(function()
+			if label.Parent and d.Parent == label then apply(label) end
 		end)
 	end
 end)

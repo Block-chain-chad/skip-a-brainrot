@@ -2,6 +2,24 @@
 -- DailyPanel: Daily Rewards panel -- a GameHUDPanels consumer module
 -- (StarterPlayer.StarterPlayerScripts.GameHUDPanels.DailyPanel).
 --
+-- 2026-08-18 PS99 RE-SHELL (last legacy panel standing -- and the one that
+-- AUTO-OPENS at join): the legacy header band (UI.surface "header" + in-band
+-- red close) and the UI.surface "window" body are RETIRED for the ONE
+-- PanelChrome shell every other GameHUD panel wears -- white rounded shell,
+-- NO header band, bubble title straddling the top border, tilted daily-gift
+-- sticker crossing the corner, pink-red rounded-square close overlapping the
+-- corner, watermark, soft-edged body. Content (timer chip, hint, the 7 day
+-- cards, claim wiring, coin-fly, countdown, blur watchers) is MOUNTED
+-- UNCHANGED into shell.body -- only coordinates and ZIndex are rebased
+-- (content floor = shell.z + 2, above the shell's watermark at z+1; card
+-- furniture stays card-relative). shell.root carries NoPolish, so every
+-- label below now keeps its AUTHORED ink -- the retuned day-card state
+-- palette finally renders as written instead of UIPolish's forced white,
+-- the same treatment every other shell panel gets (Builders' luminance gate
+-- still strokes light fills). Phone pass: day number 17->20, reward label
+-- 14->16, TODAY tag 12->13, MEGA lettering 14->16 -- content polish only,
+-- no layout restructuring. ZERO wiring/remote/data changes.
+--
 -- 2026-08-04 STYLE REPLACEMENT (user's "Roblox Simulator UI Style Guide",
 -- Pet-Sim inspired) -- supersedes the 1d/1e cream chrome below. THREE colour
 -- decisions, nothing structural:
@@ -58,7 +76,7 @@
 --       (a) once at join, ~1s after the player's profile loads (Init.onJoin)
 --       (b) once per successful claim (see DailyClaim below)
 --     Payload: { Claimable: boolean, Streak: number, NextDay: number,
---       Rewards: {number}, FreezeAvailable: boolean, JustClaimed: number?,
+--       Rewards: {RewardDef}, FreezeAvailable: boolean, JustClaimed: RewardDef?,
 --       UsedFreeze: boolean? }
 --       Streak = the real, UNCAPPED consecutive-day counter (data.DailyStreak).
 --       NextDay = streakDayFor(...) result, ALWAYS in [1, #Rewards] -- the
@@ -66,8 +84,13 @@
 --         or, once claimed, the day that WAS just claimed (Claimable=false;
 --         the server does NOT advance NextDay on claim -- see the CLAIMED/
 --         TODAY/LOCKED note below).
---       Rewards = DAILY_REWARDS verbatim, a 30-ENTRY escalating table,
---         milestone spikes on cycle days 7/14/21/30.
+--       Rewards = DailyRewardConfig.Days verbatim: SEVEN TYPED rewards, not the
+--         old 30 cash numbers. Each is { Kind = "Cash"|"Emeralds"|"Boost"|"Tag"|
+--         "Egg", ... } and is rendered through DailyRewardConfig.Describe, so a
+--         card cannot advertise something the server does not pay. JustClaimed
+--         is the reward TABLE now and is only ever tested for truthiness here.
+--         Everything below sizes off #Rewards, so the week being 7 long makes
+--         the rolling window exactly one page and wrapDay a no-op.
 --   remotes.DailyClaim  -- RemoteEvent, client -> server, FireServer() with
 --     NO ARGUMENTS (verbatim: `remotes.DailyClaim:FireServer()`). Server
 --     validates LastClaimDay and, on success, re-sends DailyState with the
@@ -125,19 +148,25 @@ local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
 local GuiService = game:GetService("GuiService") -- FIX F6: GetGuiInset() compensation for the fly-to-pill coin, see playClaimResolveMotion
 
+-- The week itself: what each day pays AND how a card describes it. Shared with
+-- the server, which grants from the same table.
+local DailyRewardConfig = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("DailyRewardConfig"))
+-- Egg rewards pose the real MODEL and the emerald has its own drawn vector icon --
+-- both exactly as PassPanel does it, so the two reward surfaces match.
+local BrainrotThumb = require(ReplicatedStorage.Modules.BrainrotThumb)
+local okIconArt, IconArt = pcall(function()
+	return require(ReplicatedStorage.Modules.UIKit.IconArt)
+end)
+if not okIconArt then IconArt = nil end
+
+-- PS99 shell (2026-08-18): the shared white chrome + its theme constants
+local PC = require(ReplicatedStorage.Modules.UIKit.PanelChrome)
+local S = require(ReplicatedStorage.Modules.UIKit.SpecTheme)
+
 local DailyPanel = { Id = "daily" }
 
-local function shortCash(n: number): string
-	n = math.floor(n or 0)
-	if n >= 1e9 then
-		return string.format("$%.1fB", n / 1e9)
-	elseif n >= 1e6 then
-		return string.format("$%.1fM", n / 1e6)
-	elseif n >= 1e3 then
-		return string.format("$%.0fK", n / 1e3)
-	end
-	return "$" .. tostring(n)
-end
+-- (the cash abbreviator that used to live here is gone: rewards are typed now and
+-- DailyRewardConfig.Describe formats every kind, cash included)
 
 local function formatHMS(totalSeconds: number): string
 	totalSeconds = math.max(0, math.floor(totalSeconds))
@@ -167,19 +196,19 @@ local MILESTONES = { [7] = true, [14] = true, [21] = true, [30] = true }
 -- Read TODAY_TOP/TODAY_BOT as GOLD, not as the retired cream -- they are
 -- cream-adjacent by accident of the gold wash, and they stay.
 local CLAIMED_BG = Color3.fromHex("#e9f7e4")
-local CLAIMED_BORDER = Color3.fromHex("#bfe3b1")
+local CLAIMED_BORDER = Color3.fromHex("#9CCB8E") -- darkened so claimed cards keep a visible border on the white PS99 body
 local CLAIMED_TEXT = Color3.fromHex("#6da35e")
 local TODAY_TOP = Color3.fromHex("#fff8dc") -- TODAY gold wash (identity), NOT chrome cream
 local TODAY_BOT = Color3.fromHex("#ffe9a8") -- ditto
 local TODAY_TEXT = Color3.fromHex("#8a6410") -- ink on the gold card, stays dark for legibility
 local TODAY_GLOW = Color3.fromHex("#ffd23e")
-local LOCKED_BG = Color3.fromHex("#eae4f2")
-local LOCKED_BORDER = Color3.fromHex("#cfc4dd")
+local LOCKED_BG = Color3.fromHex("#E4E9F1") -- cool locked fill; the old lilac dissolved into the white PS99 body
+local LOCKED_BORDER = Color3.fromHex("#B9C4D4") -- cool locked border to match
 local LOCKED_TEXT = Color3.fromHex("#8d81a3")
 local LOCK_BADGE = Color3.fromHex("#5c5470")
 local MEGA_TEXT = Color3.fromHex("#8f2fe0")
 local TAG_PINK = Color3.fromHex("#ff3d7a")
-local TIMER_BG = Color3.fromHex("#281608") -- dark timer pill; already reads as the guide's dark family
+local TIMER_BG = Color3.fromHex("#2A3543") -- dark timer pill; PS99 cool navy (row dark family), was the warm brown
 local TIMER_GOLD = Color3.fromHex("#ffd23e")
 local CHECK_GREEN = Color3.fromHex("#3fae1f")
 
@@ -201,22 +230,25 @@ function DailyPanel.Build(ctx)
 	local T = ctx.Tokens
 	local UI = ctx.Builders
 
-	----------------------------------------------------------- geometry
+	----------------------------------------------------------- geometry (PS99 shell box)
+	local C = S.Chrome
 	local PANEL_W = T.size.panelWidth.daily -- 800 (mock 1e; was 900 pre-restyle)
-	local HEADER_H = T.size.headerHeight -- 92
-	local BODY_TOP = HEADER_H + 12
-	local BODY_PAD = T.pad.panelWide -- 18
+	local BODY_PAD = C.BodyPadding -- 22: the shell body's OWN UIPadding (was T.pad.panelWide 18)
 	local TIMER_ROW_H = 44 -- mock's centred timer-pill line (was the streak row)
 	local ROW_GAP = T.pad.gap -- 12
 	local CARD_H = T.size.dayCard -- 196
 	local CARD_GAP = 10 -- mock 1e "gap 10" (was T.pad.gap 12)
 	local BODY_CONTENT_H = TIMER_ROW_H + ROW_GAP + CARD_H
-	local BODY_H = BODY_PAD * 2 + BODY_CONTENT_H
-	local GROUP_H = BODY_TOP + BODY_H
+	local BODY_H = BODY_PAD * 2 + BODY_CONTENT_H -- 296: exactly wraps the two content rows
+	-- the shell's vertical furniture on top of that: 18 ShellPadding top+bottom,
+	-- 112 header band, 16 header->body gap (all S.Chrome) -- 460 total, well
+	-- under GameHUDClient's 700 fit-height floor, so the host fit is unchanged
+	local SHELL_H = C.ShellPadding * 2 + C.HeaderHeight + C.RowGap + BODY_H
 
 	-- mock 1e: normal cards flex evenly, the milestone card is wider (118 vs
 	-- 84 at reference scale = 1.40; the pre-restyle 1.45 is kept -- same read)
-	local BODY_INNER_W = PANEL_W - BODY_PAD * 2
+	-- inner width loses the shell padding AND the body padding now
+	local BODY_INNER_W = PANEL_W - C.ShellPadding * 2 - BODY_PAD * 2 -- 720
 	local USABLE_CARDS_W = BODY_INNER_W - CARD_GAP * 6
 	local FLEX_UNITS = 6 + 1.45
 	local UNIT_W = USABLE_CARDS_W / FLEX_UNITS
@@ -224,7 +256,7 @@ function DailyPanel.Build(ctx)
 	local CARD_W_GRAND = UNIT_W * 1.45
 
 	----------------------------------------------------------- module-local state (server-confirmed only)
-	local state = { Streak = 0, NextDay = 1, Rewards = {} :: { number }, Claimable = false, FreezeAvailable = false }
+	local state = { Streak = 0, NextDay = 1, Rewards = {} :: { any }, Claimable = false, FreezeAvailable = false }
 	local cardFrames: { [number]: Frame } = {} -- rewardIdx -> currently-rendered card Frame, rebuilt every render()
 	local claimMotionGen = 0
 	-- Every live instance a claim-resolve motion has created (scrim/check/
@@ -233,68 +265,32 @@ function DailyPanel.Build(ctx)
 	-- coin is parented to the ScreenGui, OUTSIDE wrapper's hierarchy).
 	local motionInstancesByGen: { [number]: { Instance } } = {}
 
-	----------------------------------------------------------- root
-	local wrapper = Instance.new("Frame")
-	wrapper.Name = "DailyPanel"
-	wrapper.Size = UDim2.fromScale(1, 1)
-	wrapper.BackgroundTransparency = 1
-	wrapper.ZIndex = 10
-
-	local panelCol = Instance.new("Frame")
-	panelCol.Name = "PanelColumn"
-	panelCol.AnchorPoint = Vector2.new(0.5, 0.5)
-	panelCol.Position = UDim2.fromScale(0.5, 0.5)
-	panelCol.Size = UDim2.fromOffset(PANEL_W, GROUP_H)
-	panelCol.BackgroundTransparency = 1
-	panelCol.ZIndex = 10
-	panelCol.Parent = wrapper
-
-	----------------------------------------------------------- header (kit family shell, guide red)
-	-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide): the 1e purple bar is
-	-- retired for the guide's one red header. "header" is a real surface kind
-	-- (T.gradient.header) so the old build-as-"gold"-then-recolour-the-
-	-- UIGradient-in-place dance goes with it -- UI.surface lays down the single
-	-- gradient and the single ink stroke, nothing left to patch afterwards.
-	local header = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, HEADER_H), "header", T.radius.panel, T.stroke.panel)
-	header.Name = "Header"
-	header.Position = UDim2.fromOffset(0, 0)
-	header.ZIndex = 12
-	UI.gloss(header, T.radius.panel)
-	UI.hardShadow(header, T.shadowOffset.panel, T.radius.panel)
-
-	local headerIcon = UI.artSlot(header, UDim2.fromOffset(62, 62), T.icons.daily)
-	headerIcon.Name = "SectionIcon"
-	headerIcon.AnchorPoint = Vector2.new(0, 0.5)
-	headerIcon.Position = UDim2.new(0, 12, 0.5, 0)
-	headerIcon.ZIndex = header.ZIndex + 2
-
-	local headerTitle = UI.label(header, "DAILY REWARDS", "panelTitle", T.color.white)
-	headerTitle.Name = "Title"
-	headerTitle.AnchorPoint = Vector2.new(0, 0.5)
-	headerTitle.Position = UDim2.new(0, 12 + 62 + 14, 0.5, 0)
-	headerTitle.ZIndex = header.ZIndex + 2
-
-	local closeBtn = UI.button(header, "X", "red", UDim2.fromOffset(T.size.closeButton.X, T.size.closeButton.Y), "buttonL")
-	closeBtn.Name = "CloseButton"
-	closeBtn.AnchorPoint = Vector2.new(1, 0.5)
-	closeBtn.Position = UDim2.new(1, -12, 0.5, 0)
-	closeBtn.ZIndex = header.ZIndex + 2
-
-	----------------------------------------------------------- body (guide window gray)
-	-- STYLE REPLACEMENT (2026-08-04, Pet-Sim guide): kind "cream" -> "window".
-	-- "cream" still resolves (legacy alias pointing at the same window gray),
-	-- but the honest name is what ships -- nothing on this surface is cream.
-	local body = UI.surface(panelCol, UDim2.fromOffset(PANEL_W, BODY_H), "window", T.radius.panel, T.stroke.panel)
-	body.Name = "Body"
-	body.Position = UDim2.fromOffset(0, BODY_TOP)
-	body.ZIndex = 12
-	UI.hardShadow(body, T.shadowOffset.panel, T.radius.panel)
-	local bodyPad = Instance.new("UIPadding")
-	bodyPad.PaddingTop = UDim.new(0, BODY_PAD)
-	bodyPad.PaddingBottom = UDim.new(0, BODY_PAD)
-	bodyPad.PaddingLeft = UDim.new(0, BODY_PAD)
-	bodyPad.PaddingRight = UDim.new(0, BODY_PAD)
-	bodyPad.Parent = body
+	----------------------------------------------------------- shell (PS99 white chrome)
+	-- ONE PC.shell replaces the legacy header band + window body. key "daily"
+	-- is the openPanel id; S.TitleInk.daily (gift orange) is registered in
+	-- SpecTheme as this panel's title identity so a keyed title resolves
+	-- orange, never the default cyan (the current shell letters large-panel
+	-- titles white per the field study -- the identity rides the sticker).
+	-- No ShellFor entry for daily, so the box is passed explicitly: 800 wide
+	-- to match T.size.panelWidth.daily -- the host fit is untouched.
+	local shell = PC.shell({
+		name = "DailyPanel",
+		title = "DAILY REWARDS",
+		key = "daily",
+		icon = T.icons.daily, -- the rail's daily gift asset (UIKit.Tokens)
+		size = Vector2.new(PANEL_W, SHELL_H),
+		scroll = false, -- one fixed card row; nothing scrolls
+		listLayout = false, -- content is hand-positioned, not a list
+	})
+	-- openPanel treats the returned Frame as opaque (Visible toggling + the
+	-- RestPosition glide work on any Frame) -- shell.root is that Frame now,
+	-- and every Visible watcher below rides this alias unchanged.
+	local wrapper = shell.root
+	local body = shell.body -- carries the shell's own BodyPadding UIPadding
+	-- Content z floor: the shell's watermark draws at shell.z+1 over the body
+	-- fill, so content starts at shell.z+2 -- the same convention the other
+	-- shell consumers use. Card furniture stays card-relative below it.
+	local Z_CONTENT = shell.z + 2
 
 	----------------------------------------------------------- timer row (mock 1e: centred dark pill; streak hint keeps its user-decided slot on the right)
 	local timerRow = Instance.new("Frame")
@@ -302,7 +298,7 @@ function DailyPanel.Build(ctx)
 	timerRow.Position = UDim2.fromOffset(0, 0)
 	timerRow.Size = UDim2.new(1, 0, 0, TIMER_ROW_H)
 	timerRow.BackgroundTransparency = 1
-	timerRow.ZIndex = 14
+	timerRow.ZIndex = Z_CONTENT
 	timerRow.Parent = body
 
 	local TIMER_W, TIMER_H = 280, 40
@@ -312,15 +308,15 @@ function DailyPanel.Build(ctx)
 	timerChip.Position = UDim2.new(0.5, 0, 0.5, 0)
 	timerChip.Size = UDim2.fromOffset(TIMER_W, TIMER_H)
 	timerChip.BackgroundColor3 = TIMER_BG
-	timerChip.BackgroundTransparency = 0.1 -- mock rgba(40,22,8,.9); static, never tweened
+	timerChip.BackgroundTransparency = 0.1 -- .9 alpha from the mock; static, never tweened (colour is now the PS99 navy TIMER_BG)
 	timerChip.BorderSizePixel = 0
-	timerChip.ZIndex = 14
+	timerChip.ZIndex = Z_CONTENT
 	timerChip.Parent = timerRow
 	UI.corner(timerChip, T.radius.pill)
 	local timerStroke = Instance.new("UIStroke")
 	timerStroke.Thickness = 2.5
-	timerStroke.Color = Color3.fromRGB(255, 255, 255)
-	timerStroke.Transparency = 0.1 -- mock 2.5px white(.9) ring
+	timerStroke.Color = Color3.fromHex("313D4F")
+	timerStroke.Transparency = 0.1 -- 2.5px outline-navy(.9) ring; the mock's white ring was white-on-white on the PS99 body
 	timerStroke.Parent = timerChip
 
 	local timerLabel = UI.label(timerChip, "NEXT REWARD IN", "meta", T.color.white)
@@ -331,7 +327,7 @@ function DailyPanel.Build(ctx)
 	timerLabel.AutomaticSize = Enum.AutomaticSize.None
 	timerLabel.TextXAlignment = Enum.TextXAlignment.Left
 	timerLabel.TextTransparency = 0.25 -- mock white-75%
-	timerLabel.ZIndex = 15
+	timerLabel.ZIndex = Z_CONTENT + 1
 
 	local timerValue = UI.label(timerChip, "00:00:00", "cardLabel", TIMER_GOLD)
 	timerValue.Name = "TimerValue"
@@ -340,14 +336,14 @@ function DailyPanel.Build(ctx)
 	timerValue.Size = UDim2.fromOffset(100, 22)
 	timerValue.AutomaticSize = Enum.AutomaticSize.None
 	timerValue.TextXAlignment = Enum.TextXAlignment.Right
-	timerValue.ZIndex = 15
+	timerValue.ZIndex = Z_CONTENT + 1
 
 	-- USER DECISION (task 11), kept through the restyle: the raw uncapped
 	-- streak count, right-aligned in this row. STYLE REPLACEMENT (2026-08-04,
 	-- Pet-Sim guide): T.color.textOnWindow, was the hardcoded cream-ink
 	-- #4a3416. This is the ONE label in the panel sitting directly on the body
 	-- surface, so it stays DARK -- the guide's white-on-dark rule is for text
-	-- on the dark slots, and white here would dissolve into the window gray.
+	-- on the dark slots, and white here would dissolve into the white PS99 body.
 	local hintLabel = UI.label(timerRow, "", "meta", T.color.textOnWindow)
 	hintLabel.Name = "HintLabel"
 	hintLabel.AnchorPoint = Vector2.new(1, 0.5)
@@ -355,7 +351,7 @@ function DailyPanel.Build(ctx)
 	hintLabel.Size = UDim2.fromOffset(220, 20)
 	hintLabel.AutomaticSize = Enum.AutomaticSize.None
 	hintLabel.TextXAlignment = Enum.TextXAlignment.Right
-	hintLabel.ZIndex = 15
+	hintLabel.ZIndex = Z_CONTENT + 1
 
 	----------------------------------------------------------- cards row
 	local cardsRow = Instance.new("Frame")
@@ -363,7 +359,7 @@ function DailyPanel.Build(ctx)
 	cardsRow.Position = UDim2.fromOffset(0, TIMER_ROW_H + ROW_GAP)
 	cardsRow.Size = UDim2.new(1, 0, 0, CARD_H)
 	cardsRow.BackgroundTransparency = 1
-	cardsRow.ZIndex = 14
+	cardsRow.ZIndex = Z_CONTENT
 	cardsRow.Parent = body
 
 	local cardsList = Instance.new("UIListLayout")
@@ -434,7 +430,7 @@ function DailyPanel.Build(ctx)
 		word.Size = UDim2.fromScale(1, 1)
 		word.AutomaticSize = Enum.AutomaticSize.None
 		word.TextXAlignment = Enum.TextXAlignment.Center
-		word.TextSize = 12
+		word.TextSize = 13 -- phone pass 2026-08-18: was 12, the one sub-14 label on the card
 		word.ZIndex = tag.ZIndex + 1
 	end
 
@@ -448,9 +444,24 @@ function DailyPanel.Build(ctx)
 		pill.AnchorPoint = Vector2.new(0.5, 1)
 		pill.Position = UDim2.new(0.5, 0, 1, 16)
 		pill.ZIndex = card.ZIndex + 6
-		TweenService:Create(pill,
-			TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-			{ Size = UDim2.new(1, -8, 0, 47) }):Play()
+		-- ...but 44 there is DESIGN px, and this panel renders under a UIScale, so
+		-- the pill measured 42x33 ON SCREEN on a phone-classed client -- under the
+		-- minimum on both axes, on the one button the whole panel exists for.
+		-- UI.touchMin grows it until it lands on 44 for real (no-op off touch).
+		--
+		-- The pulse must START from whatever size that settles on: written against
+		-- the authored 44/47 it would drag the pill straight back down and undo the
+		-- floor on its first cycle. It is cancelled and re-made on each solve, so a
+		-- rotation re-fits it too (one cycle may run at the old size in between).
+		local pulse: Tween? = nil
+		UI.touchMin(pill, 44, function(p)
+			if pulse then pulse:Cancel() end
+			local grown = p.Size
+			pulse = TweenService:Create(p,
+				TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ Size = UDim2.new(grown.X.Scale, grown.X.Offset + 8, grown.Y.Scale, grown.Y.Offset + 3) })
+			pulse:Play()
+		end)
 		-- The ONE DailyClaim:FireServer call site in this module, fired with
 		-- NO ARGUMENTS. No local state mutation -- the card only re-renders
 		-- CLAIMED once the server pushes a fresh DailyState.
@@ -478,7 +489,7 @@ function DailyPanel.Build(ctx)
 			halo.BackgroundColor3 = TODAY_GLOW
 			halo.BackgroundTransparency = 0.45
 			halo.BorderSizePixel = 0
-			halo.ZIndex = 14
+			halo.ZIndex = Z_CONTENT
 			halo.Parent = slot
 			UI.corner(halo, T.radius.control + 4)
 		end
@@ -489,7 +500,7 @@ function DailyPanel.Build(ctx)
 		card.Position = UDim2.new(0.5, 0, 0.5, 0)
 		card.Size = UDim2.fromOffset(w, CARD_H)
 		card.BorderSizePixel = 0
-		card.ZIndex = 15
+		card.ZIndex = Z_CONTENT + 1
 		card.Parent = slot
 		UI.corner(card, T.radius.control)
 
@@ -531,27 +542,106 @@ function DailyPanel.Build(ctx)
 		dayLabel.Size = UDim2.new(1, 0, 0, 24)
 		dayLabel.AutomaticSize = Enum.AutomaticSize.None
 		dayLabel.TextXAlignment = Enum.TextXAlignment.Center
+		dayLabel.TextSize = 20 -- phone pass 2026-08-18: cardLabel's 17 was the row's muddiest read at the 677px fit
 		dayLabel.ZIndex = card.ZIndex + 2
 
-		-- coin art (kit icon, not emoji); dimmed for claimed/locked per mock.
-		-- UI.artSlot returns the ImageLabel ITSELF, not a container.
-		local art = UI.artSlot(card, UDim2.new(1, 0, 1, -(24 + 6 + 20 + 6)), T.icons.coin)
-		art.Name = "ArtSlot"
-		art.Position = UDim2.new(0, 0, 0, 24 + 6)
-		art.ZIndex = card.ZIndex + 1
-		if isClaimed then
-			art.ImageTransparency = 0.5
-		elseif not isToday and not isGrand then
-			art.ImageTransparency = 0.55
+		-- REWARD ART + LABEL, both driven by the shared week config so a card can
+		-- never advertise something the server does not pay.
+		--
+		-- Four ways to dress a card, tried in order of how specific the art is: a
+		-- posed egg MODEL, the emerald's drawn vector icon, an uploaded kit PNG, and
+		-- finally an emoji for the kinds with no art at all. Which reward takes
+		-- which is decided in DailyRewardConfig.Describe -- see its note.
+		local look = DailyRewardConfig.Describe(state.Rewards[rewardIdx])
+		local ART_SIZE = UDim2.new(1, 0, 1, -(24 + 6 + 20 + 6))
+		local ART_Y = 24 + 6
+		-- dimmed for claimed/locked per mock
+		local dim = isClaimed and 0.5 or ((not isToday and not isGrand) and 0.55 or 0)
+
+		local placed = false
+
+		-- 1. THE REAL EGG, posed in a viewport -- the same helper the pass uses, so
+		-- day 7 shows the thing it is actually promising rather than an emoji.
+		if look.Model then
+			local master = BrainrotThumb.eggMaster(look.Model)
+			if master then
+				local vp = BrainrotThumb.addMaster(card, master, {
+					size = ART_SIZE,
+					position = UDim2.new(0, 0, 0, ART_Y),
+					zIndex = card.ZIndex + 1,
+				})
+				if vp then
+					vp.Name = "ArtEgg"
+					placed = true
+				end
+			end
 		end
 
-		local rewardLabel = UI.label(card, shortCash(state.Rewards[rewardIdx] or 0), "chip", textColor)
+		-- 2. THE EMERALD's drawn icon. IconArt.draw BAKES its shapes to the pixel size
+		-- it is handed, so it needs a fixed-size host, not a scaling one. A
+		-- CanvasGroup carries the claimed/locked dim: the art is a tree of frames and
+		-- strokes, and GroupTransparency fades the lot in one property.
+		if not placed and look.Draw and IconArt and IconArt.has(look.Draw) then
+			-- Two frames, because the two requirements fight: the art needs a FIXED
+			-- pixel box (draw bakes to it), but it has to sit centred in an art area
+			-- that is sized in SCALE. So an outer frame takes the art area's bounds and
+			-- the fixed box is centred inside it -- top-aligning it instead left the
+			-- icon riding high with a gap under it.
+			local area = Instance.new("Frame")
+			area.Name = "ArtDrawn"
+			area.Position = UDim2.new(0, 0, 0, ART_Y)
+			area.Size = ART_SIZE
+			area.BackgroundTransparency = 1
+			area.ZIndex = card.ZIndex + 1
+			area.Parent = card
+
+			local box = 88
+			local host = Instance.new("CanvasGroup")
+			host.Name = "Art"
+			host.AnchorPoint = Vector2.new(0.5, 0.5)
+			host.Position = UDim2.fromScale(0.5, 0.5)
+			host.Size = UDim2.fromOffset(box, box)
+			host.BackgroundTransparency = 1
+			host.GroupTransparency = dim
+			host.ZIndex = area.ZIndex
+			host.Parent = area
+			IconArt.draw(host, look.Draw, box, host.ZIndex + 1)
+			placed = true
+		end
+
+		-- 3. an uploaded kit PNG
+		if not placed and look.Icon and T.icons[look.Icon] then
+			-- UI.artSlot returns the ImageLabel ITSELF, not a container.
+			local art = UI.artSlot(card, ART_SIZE, T.icons[look.Icon])
+			art.Name = "ArtSlot"
+			art.Position = UDim2.new(0, 0, 0, ART_Y)
+			art.ZIndex = card.ZIndex + 1
+			art.ImageTransparency = dim
+			placed = true
+		end
+
+		-- 4. emoji, the last resort
+		if not placed then
+			local glyph = UI.label(card, look.Glyph or "\u{2753}", "panelTitle", textColor)
+			glyph.Name = "ArtGlyph"
+			glyph.Position = UDim2.new(0, 0, 0, ART_Y)
+			glyph.Size = ART_SIZE
+			glyph.AutomaticSize = Enum.AutomaticSize.None
+			glyph.TextXAlignment = Enum.TextXAlignment.Center
+			glyph.TextYAlignment = Enum.TextYAlignment.Center
+			glyph.TextScaled = true
+			glyph.TextTransparency = dim
+			glyph.ZIndex = card.ZIndex + 1
+		end
+
+		local rewardLabel = UI.label(card, look.Text, "chip", textColor)
 		rewardLabel.Name = "RewardLabel"
 		rewardLabel.AnchorPoint = Vector2.new(0, 1)
 		rewardLabel.Position = UDim2.new(0, 0, 1, 0)
 		rewardLabel.Size = UDim2.new(1, 0, 0, 20)
 		rewardLabel.AutomaticSize = Enum.AutomaticSize.None
 		rewardLabel.TextXAlignment = Enum.TextXAlignment.Center
+		rewardLabel.TextSize = 16 -- phone pass 2026-08-18: up from chip's 14
 		rewardLabel.ZIndex = card.ZIndex + 2
 
 		cardFrames[rewardIdx] = card
@@ -570,10 +660,14 @@ function DailyPanel.Build(ctx)
 
 		if isGrand then
 			-- mock day-7 MEGA GIFT: rainbow border (shared-Heartbeat ring) +
-			-- purple lettering; the gift art replaces the coin. Ring rides the
-			-- slot (unpadded, same bounds) per the furniture note above.
+			-- purple lettering. Ring rides the slot (unpadded, same bounds) per the
+			-- furniture note above.
+			--
+			-- The generic gift icon that used to be forced on here is GONE: day 7
+			-- pays eggs and the card already wears the egg glyph from Describe(),
+			-- which says what you actually get. Forcing it also crashed outright
+			-- once rewards became typed -- a glyph card has no ImageLabel to assign.
 			UI.rainbowRing(slot, T.radius.control + 2)
-			art.Image = T.icons.daily
 			local mega = UI.label(card, "MEGA GIFT", "chip", MEGA_TEXT)
 			mega.Name = "MegaLabel"
 			mega.AnchorPoint = Vector2.new(0.5, 1)
@@ -581,6 +675,7 @@ function DailyPanel.Build(ctx)
 			mega.Size = UDim2.new(1, 0, 0, 18)
 			mega.AutomaticSize = Enum.AutomaticSize.None
 			mega.TextXAlignment = Enum.TextXAlignment.Center
+			mega.TextSize = 16 -- phone pass 2026-08-18: matches rewardLabel's bump
 			mega.ZIndex = card.ZIndex + 2
 			-- a milestone that is ALSO the claimable TODAY: the breathing CLAIM
 			-- pill owns the card's foot -- hide the lettering rather than let
@@ -616,7 +711,7 @@ function DailyPanel.Build(ctx)
 			slot.LayoutOrder = i
 			slot.Size = UDim2.fromOffset(isGrand and CARD_W_GRAND or CARD_W_NORMAL, CARD_H)
 			slot.BackgroundTransparency = 1
-			slot.ZIndex = 15
+			slot.ZIndex = Z_CONTENT
 			slot.Parent = cardsRow
 
 			buildDayCard(slot, slotDay, rewardIdx, isGrand)
@@ -647,7 +742,7 @@ function DailyPanel.Build(ctx)
 		local scrim = Instance.new("Frame")
 		scrim.Name = "ClaimMotionScrim"
 		scrim.Size = UDim2.fromScale(1, 1)
-		scrim.BackgroundColor3 = Color3.fromRGB(10, 14, 6)
+		scrim.BackgroundColor3 = Color3.fromRGB(10, 18, 32) -- cool near-black scrim (was the warm green-black)
 		scrim.BackgroundTransparency = 1
 		scrim.BorderSizePixel = 0
 		scrim.ZIndex = card.ZIndex + 10
@@ -795,6 +890,9 @@ function DailyPanel.Build(ctx)
 	-- tweened -- BlurEffect.Size is not on the proven tween whitelist here.
 	local BLUR_NAME = "DailyPanelBlur"
 	local function setBlur(on: boolean)
+		-- centralised 2026-08-17: GameHUDClient owns the one shared HUDPanelBlur
+		-- (blur-never-dim); a second per-panel BlurEffect only stacked on top
+		do return end
 		local existing = Lighting:FindFirstChild(BLUR_NAME)
 		if on and not existing then
 			local blur = Instance.new("BlurEffect")
@@ -807,7 +905,9 @@ function DailyPanel.Build(ctx)
 	end
 
 	----------------------------------------------------------- wiring
-	closeBtn.MouseButton1Click:Connect(function()
+	-- the shell's close (pink-red rounded square overlapping the corner).
+	-- Activated, not MouseButton1Click -- it covers touch and gamepad too.
+	shell.close.Activated:Connect(function()
 		ctx.closePanel()
 	end)
 

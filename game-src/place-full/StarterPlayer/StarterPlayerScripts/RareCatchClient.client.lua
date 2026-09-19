@@ -56,92 +56,106 @@ local function playCatch(tierName, scale)
 		end
 	end
 end
--- Mutations with their OWN voice, instead of the generic sting pitched up.
--- These are the top three rungs of the 12-rung ladder and all are vanishingly
--- rare, so each is worth hearing as something completely different:
---   Angel    r12, 0.018% per catch  -> choir
---   Demon    r11, 0.070% per catch  -> deep growl
---   Glitched r10, fusion-only       -> digital glitch
+-- Every mutation has its OWN voice now (phase 2 of the mutation-visuals
+-- handoff, 2026-08-13) -- the generic `mutation` sting only survives as the
+-- fallback for anything unmapped. All ids are existing, load-verified kit
+-- sounds; the two new cue names (aurora/celestial) reuse the weather beds
+-- those mutations drop from, which is the association the moment wants.
 local MUTATION_SOUND = {
-	Angel    = "angel",
-	Demon    = "demon",
-	Glitched = "glitched",
+	Angel    = "angel",       -- choir
+	Demon    = "demon",       -- deep growl
+	Glitched = "glitched",    -- digital glitch
+	Wet      = "splash",      -- the skip tap
+	Sandy    = "eggCrumble",  -- dry grit
+	Electric = "catchRare",   -- magic zap
+	Frozen   = "catchSecret", -- icy shatter
+	Aurora   = "aurora",      -- airy swells (the event's own bed)
+	Celestial = "celestial",  -- deep synth swell (ditto)
+	Golden   = "cash",        -- coin ching, per the spec
+	Diamond  = "catchSparkle",-- crystal twinkle
+	Rainbow  = "catchEpic",   -- eerie chime (nearest to a rising arpeggio in the kit)
 }
 SoundKit.preload()
-local UITheme = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("UITheme"))
-local P = UITheme.Palette
-local CF = UITheme.Camp
+local Platform = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Platform"))
+
+-- House feedback grammar (PS99 chrome): passive info is NAKED bubble text.
+-- The old plated cream card (UITheme.campPanel + accent bar + sunburst tile)
+-- sat top-centre at y=58 and covered the SKIP HERE world marker and the
+-- player-nameplate band, so the plate is gone entirely -- three stacked
+-- text lines now:
+--   1  rarity word, tier-coloured, dark-navy contextual stroke
+--   2  catch name, white, same stroke
+--   3  "skipped up by ..." byline, muted silver, smaller
+local INK = Color3.fromRGB(49, 61, 79)      -- #313D4F contextual stroke
+local WHITE = Color3.fromRGB(255, 255, 255)
+local MUTED = Color3.fromRGB(147, 161, 180) -- #93A1B4 quiet/idle silver
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "RareCatchUI"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 8
+-- UIPolish force-whitens any unexempted label; the tier line (tier colour)
+-- and byline (muted silver) must keep their own colours, so opt the whole
+-- surface out once at the root (UIPolish honours NoPolish on any ancestor).
+gui:SetAttribute("NoPolish", true)
 gui.Parent = player:WaitForChild("PlayerGui")
 
-local HIDDEN_POS = UDim2.new(0.5, 0, 0, -64)
-local SHOWN_POS = UDim2.new(0.5, 0, 0, 58)
+-- Shown position hugs the top edge, well above the centre-screen band where
+-- the SKIP HERE marker and nameplates live. On touch devices Roblox draws
+-- chrome around the top-centre, so the stack sits a little further below
+-- the inset there. Recomputed on every device/viewport change; the tween
+-- goal tables in showNext read these at call time, so trigger/queue/timing
+-- behaviour is untouched.
+local hiddenPos = UDim2.new(0.5, 0, 0, -96)
+local shownPos = UDim2.new(0.5, 0, 0, 6)
+Platform.Watch(function()
+	shownPos = UDim2.new(0.5, 0, 0, Platform.IsTouch and 38 or 6)
+end)
 
+-- transparent container: only the text renders, so even when the banner is
+-- up, the world behind it stays readable
 local banner = Instance.new("Frame")
 banner.Name = "Banner"
 banner.AnchorPoint = Vector2.new(0.5, 0)
-banner.Position = HIDDEN_POS
-banner.Size = UDim2.new(0, 640, 0, 56)
-banner.BackgroundColor3 = P.white
-banner.BorderSizePixel = 0
+banner.Position = hiddenPos
+banner.Size = UDim2.new(1, -32, 0, 78)
+banner.BackgroundTransparency = 1
 banner.Visible = false
 banner.Parent = gui
-UITheme.campPanel(banner)
-UITheme.corner(banner, 14)
 
--- accent bar: showNext still retints BackgroundColor3 with the caught tier's colour;
--- the white->grey gradient turns that one colour into the campfire two-tone.
-local accent = Instance.new("Frame")
-accent.Size = UDim2.new(0, 8, 1, -16)
-accent.Position = UDim2.new(0, 10, 0, 8)
-accent.BorderSizePixel = 0
-accent.ZIndex = 2
-accent.Parent = banner
-UITheme.corner(accent, 4)
-UITheme.gradient(accent, Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 150, 150), 90)
-UITheme.ink(accent, 2)
+local listLayout = Instance.new("UIListLayout")
+listLayout.FillDirection = Enum.FillDirection.Vertical
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Padding = UDim.new(0, 2)
+listLayout.Parent = banner
 
--- sunburst icon tile; the rays are retinted with the tier colour in showNext
-local icon = Instance.new("Frame")
-icon.Name = "Icon"
-icon.AnchorPoint = Vector2.new(0, 0.5)
-icon.Position = UDim2.new(0, 28, 0.5, 0)
-icon.Size = UDim2.fromOffset(40, 40)
-icon.BackgroundColor3 = P.white
-icon.BorderSizePixel = 0
-icon.ClipsDescendants = true
-icon.ZIndex = 2
-icon.Parent = banner
-UITheme.corner(icon, 10)
-local burst = UITheme.sunburst(icon, CF.amber1, 12)
-UITheme.ink(icon, 2.5)
+-- one naked bubble-text line: FredokaOne + dark-navy Contextual stroke on
+-- the glyphs, zero plate behind it
+local function bubbleLine(name, order, height, textSize, color, strokeThickness)
+	local l = Instance.new("TextLabel")
+	l.Name = name
+	l.LayoutOrder = order
+	l.BackgroundTransparency = 1
+	l.Size = UDim2.new(1, 0, 0, height)
+	l.Font = Enum.Font.FredokaOne
+	l.TextSize = textSize
+	l.TextColor3 = color
+	l.TextXAlignment = Enum.TextXAlignment.Center
+	l.TextTruncate = Enum.TextTruncate.AtEnd
+	local s = Instance.new("UIStroke")
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+	s.LineJoinMode = Enum.LineJoinMode.Round
+	s.Color = INK
+	s.Thickness = strokeThickness
+	s.Parent = l
+	l.Parent = banner
+	return l
+end
 
-local star = Instance.new("TextLabel")
-star.Name = "Star"
-star.Size = UDim2.fromScale(1, 1)
-star.BackgroundTransparency = 1
-star.Font = Enum.Font.FredokaOne
-star.TextSize = 24
-star.Text = "\u{1F31F}"
-star.ZIndex = icon.ZIndex + 2
-star.Parent = icon
-
-local label = Instance.new("TextLabel")
-label.BackgroundTransparency = 1
-label.Size = UDim2.new(1, -104, 1, 0)
-label.Position = UDim2.new(0, 82, 0, 0)
-label.Font = Enum.Font.FredokaOne
-label.TextSize = 19
-label.TextColor3 = CF.cream
-label.TextXAlignment = Enum.TextXAlignment.Center
-label.TextTruncate = Enum.TextTruncate.AtEnd
-label.ZIndex = 2
-label.Parent = banner
-UITheme.inkText(label, 2.8)
+local tierLine = bubbleLine("Tier", 1, 30, 26, WHITE, 3) -- retinted per catch in showNext
+local nameLine = bubbleLine("Name", 2, 24, 20, WHITE, 2.6)
+local byLine = bubbleLine("By", 3, 18, 15, MUTED, 2)
 
 local queue = {}
 local showing = false
@@ -155,11 +169,10 @@ local function showNext()
 	showing = true
 
 	local mutPrefix = (item.mutation and item.mutation ~= "" and item.mutation ~= "None") and (item.mutation .. " ") or ""
-	label.Text = ("%s skipped up a %s%s (%s)!"):format(item.playerName, mutPrefix, item.brainrotName, item.tierName)
-	accent.BackgroundColor3 = item.color
-	for _, ray in ipairs(burst:GetChildren()) do
-		if ray.Name == "Ray" then ray.BackgroundColor3 = item.color end
-	end
+	tierLine.Text = string.upper(item.tierName)
+	tierLine.TextColor3 = item.color -- the tier's own colour carries the rarity read
+	nameLine.Text = mutPrefix .. item.brainrotName
+	byLine.Text = ("skipped up by %s!"):format(item.playerName)
 
 	-- Audio for the catch. Broadcast to EVERY player, so someone else's find is
 	-- near-silent while yours is merely audible.
@@ -189,10 +202,10 @@ local function showNext()
 	end
 
 	banner.Visible = true
-	banner.Position = HIDDEN_POS
-	TweenService:Create(banner, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = SHOWN_POS }):Play()
+	banner.Position = hiddenPos
+	TweenService:Create(banner, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = shownPos }):Play()
 	task.delay(4.5, function()
-		local tw = TweenService:Create(banner, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = HIDDEN_POS })
+		local tw = TweenService:Create(banner, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = hiddenPos })
 		tw:Play()
 		tw.Completed:Wait()
 		banner.Visible = false

@@ -53,41 +53,55 @@ T.hex = hex
 -- white/gold stroked type -- see the NEW textMutedOnDark / textAccentOnDark
 -- split tokens, and note row/track flip back to DARK (warm) grounds.
 -- ============================================================================
+-- ============================================================================
+-- 2026-08-16 STYLE REPLACEMENT -- "PS99 white chrome" (user reference: Pet
+-- Simulator 99). Cool WHITE light surfaces, cool NAVY dark surfaces, one
+-- accent blue. Warm lemon hexes recorded inline ("was") for walk-back.
+-- Dark surfaces (row/track) KEEP their dark luminance -- only the hue cools --
+-- so every OnDark ink keeps working. Gold/green/red/blue/purple/gem families
+-- KEEP: they are content identity, not chrome.
+-- ============================================================================
 T.color = {
-	outline        = hex("#241F14"), -- LemonPop warm near-black (was slate #071323)
+	outline        = hex("#313D4F"), -- PS99 cool navy (was LemonPop #241F14)
 	innerKeyline   = hex("#FFFFFF"),
 
-	panelTop       = hex("#FFFBE2"), -- (was #DCE6F0)
-	panelBottom    = hex("#FFD977"), -- (was #C9D6E4)
-	subPanelTop    = hex("#FFF6CF"), -- (was #FFFFFF)
-	subPanelBottom = hex("#F7C95C"), -- (was #E4EDF7)
-	rowTop         = hex("#4A4030"), -- DARK FLIP: currency pills / buy strips (was white card #FFFFFF)
-	rowBottom      = hex("#302A1F"), -- (was #E4EDF7)
-	tabTop         = hex("#C2A878"), -- (was #8FA2B6)
-	tabBottom      = hex("#8A7350"), -- (was #5A6E82)
-	trackTop       = hex("#302A1F"), -- (was #2A3B4F)
-	trackBottom    = hex("#3D3527"), -- (was #22303F)
-	slotTop        = hex("#FFFFFF"), -- art wells stay light so renders read (was #F2F7FC)
-	slotBottom     = hex("#FFF4D9"), -- (was #DCE6F0)
-	headerTop      = hex("#FF6B5C"), -- the ONE red surface per panel (was slate #5B7086)
-	headerBottom   = hex("#D8342C"), -- (was #28394E)
+	panelTop       = hex("#FFFFFF"), -- (was lemon #FFFBE2)
+	panelBottom    = hex("#EFF3F9"), -- (was gold #FFD977)
+	subPanelTop    = hex("#F8FAFD"), -- (was #FFF6CF)
+	subPanelBottom = hex("#E9EFF6"), -- (was #F7C95C)
+	rowTop         = hex("#3A4656"), -- stays DARK, hue cools: currency pills / buy strips (was warm #4A4030)
+	rowBottom      = hex("#2A3543"), -- (was #302A1F)
+	tabTop         = hex("#6E829A"), -- mid-dark grey-blue: white tab text must keep reading (was tan #C2A878)
+	tabBottom      = hex("#4C5F76"), -- (was #8A7350)
+	trackTop       = hex("#2E3A4C"), -- (was #302A1F)
+	trackBottom    = hex("#232E3E"), -- (was #3D3527)
+	slotTop        = hex("#FFFFFF"), -- art wells stay light so renders read
+	slotBottom     = hex("#EEF2F8"), -- (was ivory #FFF4D9)
+	headerTop      = hex("#42536B"), -- legacy header band goes cool navy; white titles stay legible (was red #FF6B5C)
+	headerBottom   = hex("#2E3B4F"), -- (was #D8342C)
 
 	white          = hex("#FFFFFF"),
-	textMuted      = hex("#7A6A52"), -- LIGHT surfaces ONLY (was #4D6480; dark surfaces take textMutedOnDark)
-	textMutedOnDark = hex("#E8DCBE"), -- NEW 2026-08-13: muted text on row/track/dark pills
-	textAccent     = hex("#C2410C"), -- LIGHT surfaces ONLY (was #E8930F; dark surfaces take textAccentOnDark)
-	textAccentOnDark = hex("#FFD84D"), -- NEW 2026-08-13: values on dark surfaces
-	textOnLight    = hex("#33261A"), -- dark ink, NO text stroke on light surfaces (was #12283D)
-	textOnWindow   = hex("#33261A"), -- explicit alias for the above (was #12283D)
+	textMuted      = hex("#7C8CA0"), -- LIGHT surfaces ONLY (was warm #7A6A52; dark surfaces take textMutedOnDark)
+	textMutedOnDark = hex("#DCE6F2"), -- muted text on row/track/dark pills (was warm #E8DCBE)
+	textAccent     = hex("#2589D6"), -- LIGHT surfaces ONLY (was rust #C2410C; dark surfaces take textAccentOnDark)
+	-- SOFT-currency values on dark surfaces. 2026-08-19 gold purge: gold is REAL MONEY
+	-- ONLY (SpecTheme.Action.Robux), so cash and emerald numbers can no longer wear it --
+	-- that is what made a $ price and a Robux price look like the same kind of thing in
+	-- nine places (Booth prices/counts, Trade cash box, Backpack sell chip, Egg Shop
+	-- receipt + drain bar, Index chip, Pass milestone, HUD coin pill). Cash-green family,
+	-- lightened to read on the #2E3A4C tracks (~9:1) and #3A4656 rows (~8:1). Was #FFD84D.
+	textAccentOnDark = hex("#A9F58A"),
+	textOnLight    = hex("#33414F"), -- dark ink, NO text stroke on light surfaces (was warm #33261A)
+	textOnWindow   = hex("#33414F"), -- explicit alias for the above
 	textOnGoldCard = hex("#3A2A05"),
 	textOnGoldChrome = hex("#5A4A12"),
-	textDisabled   = hex("#A79A7C"), -- warm taupe (was #8FA2B6)
-	textClaimed    = hex("#9C8F6E"), -- (was #6DA35E)
+	textDisabled   = hex("#A9B6C6"), -- cool grey-blue (was taupe #A79A7C)
+	textClaimed    = hex("#93A1B2"), -- (was #9C8F6E)
 
 	claimRing      = hex("#7CE04A"),
-	activeRing     = hex("#FFD84D"),
-	activeGlow     = hex("#FFE87A"), -- v2 NEW: nav rail active-state radial glow (README 3.7 "rgba(255,232,122,.75)") -- distinct from activeRing (#FFD84D), which other panels' tab/segment rings still use
-	scrollThumb    = hex("#C2A878"), -- tab tan (was sage #9FAE8B)
+	activeRing     = hex("#29C5FF"), -- 2026-08-17 gold purge: SELECTION is sky, not gold -- gold means real money only (was #FFD84D; every tab ring, selected-card ring and BEST tag reads this token)
+	activeGlow     = hex("#63DE43"), -- 2026-08-17 gold purge: active/claim GLOW is the act green (was gold FFE87A; GameHUDClient's rail halo + claim halo both draw this family now -- the rail uses its local GLOW_GREEN of the same hex)
+	scrollThumb    = hex("#B9C6D6"), -- cool grey-blue (was tab tan #C2A878)
 
 	rarityCommon   = hex("#C9CCC2"),
 	rarityRare     = hex("#3FA9F5"),
@@ -96,8 +110,8 @@ T.color = {
 }
 
 -- Modal scrim: BackgroundColor3 = scrim, BackgroundTransparency = scrimAlpha
-T.scrim = hex("#0A0E06")
-T.scrimAlpha = 0.50
+T.scrim = hex("#0A1220") -- cool navy-black (was olive-black #0A0E06)
+T.scrimAlpha = 0.45
 
 ------------------------------------------------------------------- gradients
 T.gradient = {
@@ -109,31 +123,31 @@ T.gradient = {
 	blue      = seq({ { pos = 0, hex = "#56B7FF" }, { pos = 1, hex = "#2E81D8" } }), -- guide blue
 	gem       = seq({ { pos = 0, hex = "#D98BFF" }, { pos = 0.52, hex = "#A93FE6" }, { pos = 1, hex = "#7A1CB8" } }),
 
-	-- LemonPop 2026-08-13: lemon-cream body, warm dark rows, red header
-	-- (was spec sweep 2026-08-10: light body, white cards, slate header --
-	-- panel #DCE6F0->#C9D6E4, subPanel/row #FFFFFF->#E4EDF7, tab #8FA2B6->#5A6E82,
-	-- track #2A3B4F->#22303F, slot #F2F7FC->#DCE6F0, header #5B7086->#28394E)
-	panel     = seq({ { pos = 0, hex = "#FFFBE2" }, { pos = 1, hex = "#FFD977" } }),
-	subPanel  = seq({ { pos = 0, hex = "#FFF6CF" }, { pos = 1, hex = "#F7C95C" } }),
-	row       = seq({ { pos = 0, hex = "#4A4030" }, { pos = 1, hex = "#302A1F" } }),
-	tab       = seq({ { pos = 0, hex = "#C2A878" }, { pos = 1, hex = "#8A7350" } }),
-	track     = seq({ { pos = 0, hex = "#302A1F" }, { pos = 1, hex = "#3D3527" } }),
-	slot      = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#FFF4D9" } }),
-	header    = seq({ { pos = 0, hex = "#FF6B5C" }, { pos = 1, hex = "#D8342C" } }),
-	window    = seq({ { pos = 0, hex = "#FFFBE2" }, { pos = 1, hex = "#FFD977" } }),
+	-- PS99 2026-08-16: white light surfaces, cool navy darks (was LemonPop
+	-- lemon-cream body / warm dark rows / red header -- panel #FFFBE2->#FFD977,
+	-- subPanel #FFF6CF->#F7C95C, row #4A4030->#302A1F, tab #C2A878->#8A7350,
+	-- track #302A1F->#3D3527, slot #FFFFFF->#FFF4D9, header #FF6B5C->#D8342C)
+	panel     = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#EFF3F9" } }),
+	subPanel  = seq({ { pos = 0, hex = "#F8FAFD" }, { pos = 1, hex = "#E9EFF6" } }),
+	row       = seq({ { pos = 0, hex = "#3A4656" }, { pos = 1, hex = "#2A3543" } }),
+	tab       = seq({ { pos = 0, hex = "#6E829A" }, { pos = 1, hex = "#4C5F76" } }),
+	track     = seq({ { pos = 0, hex = "#2E3A4C" }, { pos = 1, hex = "#232E3E" } }),
+	slot      = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#EEF2F8" } }),
+	header    = seq({ { pos = 0, hex = "#42536B" }, { pos = 1, hex = "#2E3B4F" } }),
+	window    = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#EFF3F9" } }),
 
-	freeCard  = seq({ { pos = 0, hex = "#FFFDEE" }, { pos = 0.55, hex = "#F5E7C0" }, { pos = 1, hex = "#D9BC82" } }), -- LemonPop (was gray-whites #F7F7F1/#DEDED4/#B2B4A8)
+	freeCard  = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 0.55, hex = "#F2F5F9" }, { pos = 1, hex = "#DDE4EC" } }), -- PS99 cool whites (was LemonPop #FFFDEE/#F5E7C0/#D9BC82)
 	-- LEGACY ALIAS. Was the 1d/1e cream body (#FFF9EC -> #FFEDCD); now points
 	-- at the guide's window gray so any surface still asking for "cream"
 	-- inherits the new style instead of standing out as the last cream panel
 	-- in the game. New code should ask for "window".
-	cream     = seq({ { pos = 0, hex = "#FFFBE2" }, { pos = 1, hex = "#FFD977" } }), -- LemonPop: tracks window (was #DCE6F0 -> #C9D6E4)
+	cream     = seq({ { pos = 0, hex = "#FFFFFF" }, { pos = 1, hex = "#EFF3F9" } }), -- PS99: tracks window (legacy alias, e.g. IndexPanel body)
 	passCard  = seq({ { pos = 0, hex = "#FFE066" }, { pos = 0.55, hex = "#F7B62C" }, { pos = 1, hex = "#D8860E" } }),
-	lockBadge = seq({ { pos = 0, hex = "#FFF6DC" }, { pos = 1, hex = "#D8C494" } }), -- LemonPop (was #F2F2EC -> #C2C4B8)
+	lockBadge = seq({ { pos = 0, hex = "#F4F7FB" }, { pos = 1, hex = "#C9D3DF" } }), -- PS99 (was LemonPop #FFF6DC -> #D8C494)
 	knob      = seq({ { pos = 0, hex = "#FFF0A8" }, { pos = 1, hex = "#FFC531" } }),
-	disabled  = seq({ { pos = 0, hex = "#8A7C5E" }, { pos = 1, hex = "#5C5138" } }), -- LemonPop warm taupe (was slate #4A5B6E -> #2A3B4F)
-	ownedCta  = seq({ { pos = 0, hex = "#A98F5C" }, { pos = 1, hex = "#6E5A34" } }), -- LemonPop (was olive #8FA378 -> #54643C)
-	freeLabel = seq({ { pos = 0, hex = "#B89B5E" }, { pos = 1, hex = "#7C6438" } }), -- LemonPop (was olive #7A8A66 -> #55643F)
+	disabled  = seq({ { pos = 0, hex = "#93A1B4" }, { pos = 1, hex = "#66788E" } }), -- PS99 grey-blue (was taupe #8A7C5E -> #5C5138)
+	ownedCta  = seq({ { pos = 0, hex = "#8FA0B5" }, { pos = 1, hex = "#5D7089" } }), -- PS99 (was #A98F5C -> #6E5A34)
+	freeLabel = seq({ { pos = 0, hex = "#93A5BB" }, { pos = 1, hex = "#5F7288" } }), -- PS99 (was #B89B5E -> #7C6438)
 	passLabel = seq({ { pos = 0, hex = "#FFD84D" }, { pos = 1, hex = "#E0912A" } }),
 }
 
@@ -199,10 +213,20 @@ T.size = {
 	-- worlds = 1080 (2026-08-09 HUD upgrade, design_handoff_hud_upgrade): the
 	-- first panel on the sheet's PanelChrome shell, authored in the sheet's own
 	-- 1920-canvas px and fitted via the paired panelHeight entry below.
-	panelWidth    = { pass = 960, backpack = 1080, settings = 1000, daily = 800, index = 940, goals = 1140, eggs = 940, charms = 1120, worlds = 1080, shop = 1180 },
+	-- sell = 1180/830 (2026-08-20 final fix wave, Finding 4): SellPanel's
+	-- PanelChrome.shell({key="shop"}) call builds a 1180x830 root
+	-- (SpecTheme.ShellFor.shop -- there is no dedicated "sell" ShellFor entry,
+	-- see that module's own comment), but openPanel resolves screenName as
+	-- ID_TO_SCREEN["sell"] or "sell" -> "sell" itself (ID_TO_SCREEN has no
+	-- "sell" mapping either). With no "sell" key here every downstream fit
+	-- clamp (desktop sheet rule, viewport-overflow guard, top-clearance
+	-- slide) fell back to the 960x700 floor against an 1180x830 box -- the
+	-- panel rendered ~19% oversized. These two entries just have to match
+	-- SpecTheme.ShellFor.shop exactly.
+	panelWidth    = { pass = 960, backpack = 1080, settings = 1000, daily = 800, index = 940, goals = 1140, eggs = 940, charms = 1120, worlds = 1080, shop = 1180, sell = 1180 },
 	-- Per-panel fit HEIGHT for spec-shell panels (2026-08-09 HUD upgrade).
 	-- A panel with no entry keeps GameHUDClient's 700 floor exactly.
-	panelHeight   = { worlds = 660, shop = 830, goals = 800, settings = 1090, backpack = 720 },
+	panelHeight   = { worlds = 660, shop = 830, goals = 800, settings = 1090, backpack = 720, sell = 830 },
 	panelRightGutter = 132, -- reserves the nav rail
 }
 
@@ -238,7 +262,7 @@ T.text = {
 T.tween = {
 	hover      = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 	press      = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-	panelOpen  = TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	panelOpen  = TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), -- PS99: bouncier (was 0.18)
 	panelClose = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 	scrim      = TweenInfo.new(0.15, Enum.EasingStyle.Linear),
 	pop        = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out),

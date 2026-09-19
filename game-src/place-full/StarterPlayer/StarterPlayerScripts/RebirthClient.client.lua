@@ -13,6 +13,7 @@
 -- disarm-on-close rule (any Visible=false must tear the confirm down).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GuiService = game:GetService("GuiService") -- for the topbar inset; see drawableY below
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -51,6 +52,7 @@ local shell = PC.shell({
 	name = "RebirthPanel",
 	title = "REBIRTH",
 	key = "rebirth",
+	icon = S.Art.rebirth, -- PS99 restyle: rail sticker in the header
 	size = S.ShellFor.rebirth,
 	scroll = false,
 	listLayout = false,
@@ -66,15 +68,61 @@ local z = shell.z
 panel.Visible = false
 SideRail.registerPanel(panel)   -- only one rail panel open at a time
 
+-- THE TOPBAR IS NOT DRAWABLE, AND THIS ScreenGui DOES NOT IGNORE IT
+-- (2026-08-25, measured). `gui` above is created with the default
+-- IgnoreGuiInset = false, so the box it can actually paint into is vp.Y MINUS
+-- GuiService's inset -- 518 on a 576-tall viewport, not 576. Every fit below
+-- divided by vp.Y, overstating the available height by exactly the inset, and
+-- the 740-tall rebirth shell rendered 550 into that 518 box: clipped 16px off
+-- the TOP and 16px off the BOTTOM at once, with the top 10px of the CLOSE
+-- button off screen entirely (captured -- the header sticker and the X are
+-- visibly cut, and the REBIRTH button is cut at the foot). Projected forward it
+-- is worse where it matters: ~50px of overflow on a landscape handset.
+--
+-- Read from the ScreenGui's own flag rather than hardcoding the subtraction, so
+-- flipping IgnoreGuiInset later cannot silently reintroduce this.
+local function drawableY(vp: Vector2): number
+	return math.max(vp.Y - (gui.IgnoreGuiInset and 0 or GuiService:GetGuiInset().Y), 1)
+end
+
+-- RE-FIT ON THE TOPBAR, NOT JUST ON THE DEVICE (2026-08-25). Correcting the
+-- arithmetic above changed nothing on its own, which is the interesting part:
+-- `GuiService:GetGuiInset()` returns ZERO until the topbar has initialised, and
+-- Platform.Watch fires on device-class changes only. So the fit ran once, early,
+-- with an inset of 0, computed the full-height scale, and never ran again when
+-- the real 58px inset arrived. The maths was right and the ANSWER WAS STALE.
+-- Anything reading the inset has to re-read it -- bind the topbar and the
+-- viewport too (rotation on a handset moves both).
+local function watchFit(fn: () -> ())
+	Platform.Watch(fn)
+	GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(fn)
+	local function bindCamera()
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(fn)
+		end
+	end
+	bindCamera()
+	-- the camera instance itself is replaced on some respawn/teleport paths, and
+	-- a signal bound to the old one is dead
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		bindCamera()
+		fn()
+	end)
+end
+
 -- this legacy surface lives in its own ScreenGui, outside GameHUD's fitted
 -- host, so it carries its own viewport fit
 local pScale = Instance.new("UIScale")
 pScale.Parent = panel
-Platform.Watch(function()
+watchFit(function()
 	-- FitPanel pins desktop to the canvas fit, which can overflow a short
 	-- window with a 740-tall shell -- clamp to the real viewport too
-	local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
-	local hard = math.min(vp.X / S.ShellFor.rebirth.X, vp.Y / S.ShellFor.rebirth.Y) * 0.98
+	-- Platform.Viewport, not the raw camera (2026-08-26): the same number live, but
+	-- the camera cannot be driven by a device preview, so this clamp was always
+	-- evaluated against the Studio window and never bound in testing.
+	local vp = Platform.Viewport
+	local hard = math.min(vp.X / S.ShellFor.rebirth.X, drawableY(vp) / S.ShellFor.rebirth.Y) * 0.98
 	pScale.Scale = math.min(Platform.FitPanel(S.ShellFor.rebirth.X, S.ShellFor.rebirth.Y), hard)
 end)
 
@@ -98,13 +146,21 @@ local stripIcon = PC.plate({
 	size = UDim2.fromOffset(72, 72),
 	position = UDim2.new(0, 16, 0.5, 0),
 	anchor = Vector2.new(0, 0.5),
-	colors = S.Action.Gold,
+	colors = S.Action.Violet, -- gold = real money ONLY; rebirth identity is violet
 	radius = 20,
 	outline = 5,
 	zIndex = z + 3,
 	parent = strip,
 })
-PC.shout({ text = "\u{2B50}", size = 40, zIndex = z + 4, parent = stripIcon, scaled = true })
+-- PS99 sticker treatment: the star outgrows its tile (plates don't clip)
+-- and wears the rail's tilt; lone icon takes the rail's -6.
+local stripGlyph = PC.shout({
+	text = "\u{2B50}", size = 56, zIndex = z + 4, parent = stripIcon, scaled = true,
+	frameSize = UDim2.fromScale(1.35, 1.35),
+	position = UDim2.fromScale(0.5, 0.5),
+	anchor = Vector2.new(0.5, 0.5),
+})
+stripGlyph.Rotation = -6
 PC.shout({
 	name = "StripTitle", text = "REBIRTHS", size = 24,
 	align = Enum.TextXAlignment.Left,
@@ -154,7 +210,15 @@ local function statCard(idx, ramp, glyph, keyText, subText)
 		zIndex = z + 3,
 		parent = card,
 	})
-	PC.shout({ text = glyph, size = 44, zIndex = z + 4, parent = tileF, scaled = true })
+	-- PS99 sticker treatment: glyph bigger than its tile, alternating tilt
+	-- per card (even idx -6, odd +5), same language as the nav rail.
+	local glyphLabel = PC.shout({
+		text = glyph, size = 60, zIndex = z + 4, parent = tileF, scaled = true,
+		frameSize = UDim2.fromScale(1.35, 1.35),
+		position = UDim2.fromScale(0.5, 0.5),
+		anchor = Vector2.new(0.5, 0.5),
+	})
+	glyphLabel.Rotation = if idx % 2 == 0 then -6 else 5
 	PC.shout({
 		name = "Key", text = keyText, size = 24,
 		frameSize = UDim2.new(1, 0, 0, 26),
@@ -210,7 +274,7 @@ local bang = PC.plate({
 PC.shout({ text = "!", size = 30, zIndex = z + 4, parent = bang })
 local warnLabel = PC.read({
 	name = "Copy",
-	text = "Resets your cash & rocks (back to Pebble) \u{2014} brainrots stay",
+	text = "Resets your cash \u{2014} rocks and brainrots stay",
 	size = 26,
 	color = Color3.fromHex("4A2E00"),
 	frameSize = UDim2.new(1, -84, 1, 0),
@@ -244,7 +308,10 @@ dialogScrim.Name = "RebirthConfirmScrim"
 dialogScrim.Text = ""
 dialogScrim.AutoButtonColor = false
 dialogScrim.BackgroundColor3 = Color3.new(0, 0, 0)
-dialogScrim.BackgroundTransparency = 0.55
+-- blur-never-dim (PS99 grammar): the scrim keeps its click-to-cancel job but
+-- never paints -- the dark backdrop is RebirthConfirmBlur, driven from
+-- setConfirmOpen below.
+dialogScrim.BackgroundTransparency = 1
 dialogScrim.BorderSizePixel = 0
 dialogScrim.Size = UDim2.fromScale(1, 1)
 dialogScrim.Visible = false
@@ -267,9 +334,12 @@ dialog:SetAttribute("NoPolish", true)
 dialog.Active = true -- sink clicks: only the scrim OUTSIDE the dialog cancels
 local dScale = Instance.new("UIScale")
 dScale.Parent = dialog
-Platform.Watch(function()
-	local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
-	dScale.Scale = math.min(Platform.FitPanel(640, 320), (vp.X / 640) * 0.9, (vp.Y / 320) * 0.9)
+watchFit(function()
+	-- same inset blindness as the shell fit above: this dialog paints into the
+	-- same inset-respecting ScreenGui, so it gets the same drawable height
+	-- Platform.Viewport, not the raw camera (2026-08-26) -- see the shell fit above.
+	local vp = Platform.Viewport
+	dScale.Scale = math.min(Platform.FitPanel(640, 320), (vp.X / 640) * 0.9, (drawableY(vp) / 320) * 0.9)
 end)
 
 PC.shout({
@@ -280,7 +350,7 @@ PC.shout({
 })
 PC.shout({
 	name = "DialogCopy",
-	text = "\u{1F525} WIPES YOUR CASH & ROCKS \u{2014} BRAINROTS STAY \u{1F525}",
+	text = "\u{1F525} WIPES YOUR CASH \u{2014} ROCKS & BRAINROTS STAY \u{1F525}",
 	size = 24,
 	color = S.Action.Warn[2],
 	frameSize = UDim2.new(1, -60, 0, 40),
@@ -309,8 +379,27 @@ local confirmBtn = PC.pill({
 	parent = dialog,
 })
 
+-- Instant per-surface backdrop blur, cloned from GameHUDClient's HUDPanelBlur
+-- recipe (GameHUDClient ~327-339): create at Size 10 on open, :Destroy() on
+-- close. NEVER tween a BlurEffect property -- TweenService silently no-ops on
+-- non-GuiObjects in this place. Two UNIQUE names so this legacy surface can
+-- never fight the shared HUDPanelBlur or its own second layer.
+local function setRebirthBlur(name, on)
+	local Lighting = game:GetService("Lighting")
+	local existing = Lighting:FindFirstChild(name)
+	if on and not existing then
+		local blur = Instance.new("BlurEffect")
+		blur.Name = name
+		blur.Size = 10
+		blur.Parent = Lighting
+	elseif not on and existing then
+		existing:Destroy()
+	end
+end
+
 local function setConfirmOpen(open)
 	dialogScrim.Visible = open
+	setRebirthBlur("RebirthConfirmBlur", open)
 end
 
 ---------------------------------------------------------------- state + paint
@@ -368,6 +457,12 @@ panel:GetPropertyChangedSignal("Visible"):Connect(function()
 	if not panel.Visible then
 		setConfirmOpen(false)
 	end
+	-- blur-never-dim: the legacy shell opens OUTSIDE GameHUDClient's
+	-- openPanel/setPanelBlur path (its rail click toggles raw Visible and
+	-- returns), so it never had a backdrop. Every open/close path -- rail
+	-- click, legacy tile, close X, ESC, SideRail single-open force-hide --
+	-- lands on this signal, exactly like the confirm teardown above.
+	setRebirthBlur("RebirthPanelBlur", panel.Visible)
 end)
 
 rebirthBtn.Activated:Connect(function()

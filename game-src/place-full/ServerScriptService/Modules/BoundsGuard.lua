@@ -18,18 +18,31 @@ local Players = game:GetService("Players")
 
 local M = {}
 
--- THE PLAYABLE WORLD IS TWO SEPARATE PLACES. The trading island is 8000 studs away at
+-- THE PLAYABLE WORLD IS FOUR SEPARATE PLACES. The trading island is 8000 studs away at
 -- Y ~2010 and players legitimately teleport there (TeleportService.TRADE_POS is
--- 8000, 2006, 7905). If you ever edit this table, keep BOTH regions -- dropping the
--- island would rubber-band every trading player straight back to the valley the moment
--- they arrived, which would look like the trade portal being broken.
+-- 8000, 2006, 7905); the Frozen Tundra is another 8000 out the opposite way
+-- (TeleportService.TUNDRA_POS is -8000, 2006, -8000), reached from the locked dungeon portal.
+-- If you ever edit this table, keep ALL FOUR regions -- dropping one would rubber-band
+-- every player who went there straight back to the valley the moment they arrived,
+-- which would look like that portal being broken.
 --
 -- Measured extents these are derived from:
 --   ValleyBarrier  X -295..300   Y  -80..400   Z -430..1030
 --   TradingWorld   X 7336..8749  Y 1973..2047  Z 7411..8686
+--   FrozenTundra   snowfield is 440x440 at (-8000, 2000, -8000), surface y 2002; left DELIBERATELY
+--                  oversized so the island can be built out without touching this file.
+--                  It DID need touching once: the frozen sea was extended north to -6800 so a
+--                  full-power skip has the same ~930 studs the hub lake gives, and the ice out
+--                  there is walkable, so the region's Z now reaches -6700.
 local REGIONS = {
 	{ Name = "Valley",  Min = Vector3.new(-325, -140, -460),  Max = Vector3.new(330, 460, 1060) },
 	{ Name = "Trading", Min = Vector3.new(7300, 1930, 7375),  Max = Vector3.new(8790, 2110, 8725) },
+	{ Name = "Tundra",  Min = Vector3.new(-8600, 1850, -8600), Max = Vector3.new(-7400, 2250, -6700) },
+	-- The Lush Gardens (World 3): an enclosed cavern centred on (8000, 1000, -8000),
+	-- 2960 studs square. Its floor dips to about y 960 in the river and the cathedral
+	-- spire reaches y 1676, so the box is deliberately tall -- a player climbing the
+	-- hill or swimming the Silverwend must stay inside it.
+	{ Name = "Gardens", Min = Vector3.new(6440, 900, -9560),  Max = Vector3.new(9560, 1900, -6440) },
 }
 
 local INTERVAL = 0.25   -- how often each player is checked

@@ -22,6 +22,7 @@ local T = require(UIKit:WaitForChild("Tokens"))
 local UI = require(UIKit:WaitForChild("Builders"))
 local Thumb = require(Modules:WaitForChild("BrainrotThumb"))
 local formatNumber = require(Modules:WaitForChild("NumberFormat")).Short
+local SideRail = require(Modules:WaitForChild("SideRail")) -- single-open coordination
 
 local infoByName = {}
 for _, entry in ipairs(BrainrotConfig) do infoByName[entry.Name] = entry end
@@ -34,7 +35,7 @@ end
 -- "1.5k" / "2m" style price entry, because prices here run into the millions
 local SUFFIX = { k = 1e3, m = 1e6, b = 1e9, t = 1e12 }
 local function parsePrice(text)
-	text = string.gsub(string.lower(text or ""), "[%s,$]", "")
+	text = string.gsub(string.lower(text or ""), "[%s,%$]", "")
 	local num, suffix = string.match(text, "^(%d+%.?%d*)(%a?)$")
 	if not num then return nil end
 	local mult = suffix == "" and 1 or SUFFIX[suffix]
@@ -75,7 +76,7 @@ local scrim = Instance.new("Frame")
 scrim.Name = "Scrim"
 scrim.Size = UDim2.fromScale(1, 1)
 scrim.BackgroundColor3 = T.scrim
-scrim.BackgroundTransparency = T.scrimAlpha
+scrim.BackgroundTransparency = 1 -- PS99 blur-never-dim (2026-08-17): BoothBlur (see refreshScrim) carries the separation; frame kept as the refreshScrim choke handle
 scrim.BorderSizePixel = 0
 scrim.Visible = false
 scrim.ZIndex = 1
@@ -92,18 +93,10 @@ root.Parent = gui
 
 local canvasScale = Instance.new("UIScale")
 canvasScale.Parent = root
-local function fit()
-	local camera = workspace.CurrentCamera
-	if not camera then return end
-	local vp = camera.ViewportSize
-	canvasScale.Scale = math.min(vp.X / T.size.canvas.X, vp.Y / T.size.canvas.Y)
-end
-fit()
-do
-	local camera = workspace.CurrentCamera
-	if camera then camera:GetPropertyChangedSignal("ViewportSize"):Connect(fit) end
-end
-task.delay(1, fit)
+-- 2026-08-05 cross-platform: same maths, routed through Modules.Platform so
+-- it also re-fires on rotation and on a device change. See TradeClient.
+local Platform = require(ReplicatedStorage.Modules:WaitForChild("Platform"))
+Platform.Bind(canvasScale, T.size.canvas.X, T.size.canvas.Y)
 
 -- ===== toast (UIKit row pill, top centre) =====
 local toastFrame = UI.surface(root, UDim2.fromOffset(460, 54), "row", T.radius.control, T.stroke.control)
@@ -141,6 +134,23 @@ local standSearch, pickerSearch = "", ""
 local standSort, pickerSort = "PRICE", "NAME"   -- stand: PRICE/NAME · picker: NAME/RARITY/VALUE
 local PANEL_W, PANEL_H = 940, 566
 
+-- PS99 blur-never-dim (2026-08-17): booth screens separate from the world with
+-- a backdrop blur, cloned from GameHUDClient's HUDPanelBlur recipe under a
+-- UNIQUE name so cross-script destroys can't collide. Instant on/off -- NEVER
+-- tween a BlurEffect (TweenService silently no-ops on non-GuiObjects here).
+local function setBoothBlur(on)
+	local Lighting = game:GetService("Lighting")
+	local existing = Lighting:FindFirstChild("BoothBlur")
+	if on and not existing then
+		local blur = Instance.new("BlurEffect")
+		blur.Name = "BoothBlur"
+		blur.Size = 10
+		blur.Parent = Lighting
+	elseif not on and existing then
+		existing:Destroy()
+	end
+end
+
 local function refreshScrim()
 	local anyOpen = false
 	for _, f in ipairs(root:GetChildren()) do
@@ -149,6 +159,7 @@ local function refreshScrim()
 		end
 	end
 	scrim.Visible = anyOpen
+	setBoothBlur(anyOpen)
 end
 
 -- panel scaffold: an invisible SHELL (the visibility handle) holding the panel
@@ -183,7 +194,7 @@ local function makeTextBox(parent, size, placeholder)
 	box.Position = UDim2.fromOffset(10, 0)
 	box.Text = ""
 	box.PlaceholderText = placeholder
-	box.PlaceholderColor3 = T.color.textMuted
+	box.PlaceholderColor3 = T.color.textMutedOnDark
 	box.TextColor3 = T.color.white
 	box.FontFace = T.font.ui
 	box.TextSize = 18
@@ -250,7 +261,7 @@ local INNER_W = PANEL_W - 2 * T.pad.panel
 
 local standSearchShell, standSearchBox = makeTextBox(standPanel, UDim2.fromOffset(280, 50), "Search here...")
 standSearchShell.Position = UDim2.fromOffset(300, 6)
-local standSortBtn = UI.button(standPanel, "PRICE", "gold", UDim2.fromOffset(160, 50), "buttonM")
+local standSortBtn = UI.button(standPanel, "PRICE", "blue", UDim2.fromOffset(160, 50), "buttonM")
 standSortBtn.Position = UDim2.fromOffset(596, 6)
 
 local standBody = UI.surface(standPanel, UDim2.fromOffset(INNER_W, 358), "subPanel", T.radius.inner, T.stroke.control)
@@ -286,7 +297,7 @@ local pickerShell, pickerPanel, pickerTitle, pickerClose = makePanel("PickerPane
 
 local pickerSearchShell, pickerSearchBox = makeTextBox(pickerPanel, UDim2.fromOffset(250, 50), "Search here...")
 pickerSearchShell.Position = UDim2.fromOffset(330, 6)
-local pickerSortBtn = UI.button(pickerPanel, "NAME", "gold", UDim2.fromOffset(160, 50), "buttonM")
+local pickerSortBtn = UI.button(pickerPanel, "NAME", "blue", UDim2.fromOffset(160, 50), "buttonM")
 pickerSortBtn.Position = UDim2.fromOffset(596, 6)
 
 -- left tab column, GaG style (one live category today; pets arrive with the
@@ -360,7 +371,7 @@ detailMeta.TextXAlignment = Enum.TextXAlignment.Center
 detailMeta.ZIndex = detail.ZIndex + 1
 local priceShell, priceBox = makeTextBox(detail, UDim2.fromOffset(208, 52), "price  (e.g. 2.5k)")
 priceShell.Position = UDim2.fromOffset(16, 224)
-priceBox.TextColor3 = T.color.textAccent
+priceBox.TextColor3 = T.color.textAccentOnDark
 local listBtn = UI.button(detail, "LIST IT!", "green", UDim2.fromOffset(208, 56), "buttonL")
 listBtn.Position = UDim2.fromOffset(16, 288)
 
@@ -368,6 +379,15 @@ listBtn.Position = UDim2.fromOffset(16, 288)
 -- PANEL 3: BUY ITEM modal
 -- =====================================================================
 local buyShell, buyPanel, buyTitle, buyClose = makePanel("BuyPanel", 620, 400, "BUY ITEM")
+
+-- SINGLE-OPEN, as one "booth" group: the listing picker opens over the stand and
+-- the buy confirmation over either, so these three must not close each other --
+-- only everything outside the booth. Safe to register (unlike Trade's nearby
+-- list): standShell is only re-opened by an explicit BoothState event carrying
+-- Open=true, never by a polling loop, so nothing here fights the registry.
+SideRail.registerPanel(standShell, "booth")
+SideRail.registerPanel(pickerShell, "booth")
+SideRail.registerPanel(buyShell, "booth")
 buyShell.ZIndex = 20
 local buyCard = UI.surface(buyPanel, UDim2.fromOffset(170, 190), "slot", T.radius.control, T.stroke.control)
 buyCard.Position = UDim2.fromOffset(10, 92)
@@ -380,7 +400,7 @@ buyQuestion.TextXAlignment = Enum.TextXAlignment.Left
 buyQuestion.TextYAlignment = Enum.TextYAlignment.Top
 local buyPriceChip = UI.surface(buyPanel, UDim2.fromOffset(230, 52), "track", T.radius.pill, T.stroke.hairline)
 buyPriceChip.Position = UDim2.fromOffset(206, 216)
-local buyPriceLabel = UI.label(buyPriceChip, "", "value", T.color.textAccent)
+local buyPriceLabel = UI.label(buyPriceChip, "", "value", T.color.textAccentOnDark)
 buyPriceLabel.Size = UDim2.fromScale(1, 1)
 buyPriceLabel.AutomaticSize = Enum.AutomaticSize.None
 buyPriceLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -436,9 +456,7 @@ renderStand = function()
 		end)
 	end
 
-	-- CREATE LISTING tile (or full-stand notice). Wrapped in a holder cell:
-	-- UI.button's HardShadow is a SIBLING frame, and loose in a UIGridLayout it
-	-- becomes its own (LayoutOrder 0) black cell sorted before everything.
+	-- CREATE LISTING tile (or full-stand notice)
 	local slotsLeft = maxListings - #myListings
 	local createCell = Instance.new("Frame")
 	createCell.Name = "CreateCell"
@@ -512,7 +530,6 @@ renderPicker = function()
 
 	for order, item in ipairs(names) do
 		local isSelected = selectedName == item.name
-		-- holder cell for the same HardShadow-vs-UIGridLayout reason as the stand grid
 		local cell = Instance.new("Frame")
 		cell.Name = "Cell"
 		cell.BackgroundTransparency = 1
@@ -538,7 +555,7 @@ renderPicker = function()
 		nameL.TextXAlignment = Enum.TextXAlignment.Center
 		nameL.TextTruncate = Enum.TextTruncate.AtEnd
 		nameL.ZIndex = card.ZIndex + 1
-		local countL = UI.label(card, "x" .. item.count, "cardLabel", T.color.textAccent)
+		local countL = UI.label(card, "x" .. item.count, "cardLabel", T.color.textAccentOnDark)
 		countL.AnchorPoint = Vector2.new(0.5, 0)
 		countL.Position = UDim2.new(0.5, 0, 0, 126)
 		countL.ZIndex = card.ZIndex + 1
@@ -555,7 +572,7 @@ renderPicker = function()
 		detailName.Text = selectedName
 		local info = infoByName[selectedName]
 		local tier = info and tierByName[info.Rarity]
-		detailMeta.Text = (info and info.Rarity or "?") .. "  ·  $" .. formatNumber(info and info.CashPerSecond or 0) .. "/s"
+		detailMeta.Text = (info and info.Rarity or "?") .. "  -  $" .. formatNumber(info and info.CashPerSecond or 0) .. "/s"
 		if tier then detailMeta.TextColor3 = tier.Color end
 	else
 		detailName.Text = "Pick an item"

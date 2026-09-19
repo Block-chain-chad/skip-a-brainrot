@@ -1,7 +1,11 @@
 --[[
 	EggStallIdle.lua
 	Server-side idle animation for the 5 Forest Egg display models on
-	Workspace.GameWorld.EggStall (Shard Egg / Drip Egg / Horned Egg / Rune Egg / Crown Egg).
+	Workspace.GameWorld.EggStall (Mossy Egg / Reedwater Egg / Bramble Egg / Hollow Egg / Heartwood Egg).
+	Re-themed 2026-08-13 with the world1_eggs_all.glb rebuild. Every egg now shares one part
+	vocabulary: shell_body + themed decorations bob together, "sparkle" parts orbit as floaters,
+	and the halo/cross/rainbow rings (24 "_sN" box segments each, pre-tilted in the model) spin
+	about Y with tilt 0 -- the baked-in tilt makes the yaw spin read as a precession wobble.
 ]]
 
 local Workspace = game:GetService("Workspace")
@@ -13,45 +17,62 @@ local BOB_AMP = 0.1
 local PROXIMITY_RANGE = 60
 local PROXIMITY_CHECK_EVERY = 10
 
+-- ringSpecs pair with ring GROUPS sorted alphabetically by group key, so the order is
+-- always: cross_ring, halo_ring, rainbow_ring (whichever of those the egg has).
 local EGG_CONFIG = {
-	["Shard Egg"] = {
-		bodyFamilies = {shell_body = true, stripe = true, stud = true},
-		floatFamilyOrder = {"shard", "stud"},
+	["Mossy Egg"] = {
+		bodyFamilies = {shell_body = true, moss = true, fleck = true, pebble = true, stem = true, leaf = true, aura_shell = true, ray = true},
+		ringFamilies = {halo_ring = true},
+		ringSpecs = {
+			{period = 10, tilt = 0, dir = 1},
+		},
+		floatFamilyOrder = {"sparkle"},
 		floatCount = 3,
 		bobPeriod = 4.0,
 	},
-	["Drip Egg"] = {
-		bodyFamilies = {shell_body = true, drip = true, tape = true},
-		floatFamilyOrder = {"shard", "stud"},
+	["Reedwater Egg"] = {
+		bodyFamilies = {shell_body = true, submerged = true, waterline = true, droplet = true, reed_stalk = true, cattail = true, pad = true, aura_shell = true, ray = true},
+		ringFamilies = {halo_ring = true},
+		ringSpecs = {
+			{period = 11, tilt = 0, dir = -1},
+		},
+		floatFamilyOrder = {"sparkle"},
 		floatCount = 4,
 		bobPeriod = 4.6,
 	},
-	["Horned Egg"] = {
-		bodyFamilies = {shell_body = true, stripe = true, spike = true, horn = true},
-		floatFamilyOrder = {"shard", "stud"},
+	["Bramble Egg"] = {
+		bodyFamilies = {shell_body = true, seam_bead = true, vine_seg = true, thorn = true, chip = true, moth = true, moth_wing = true, aura_shell = true, ray = true},
+		ringFamilies = {cross_ring = true, halo_ring = true},
+		ringSpecs = {
+			{period = 12, tilt = 0, dir = -1},
+			{period = 9, tilt = 0, dir = 1},
+		},
+		floatFamilyOrder = {"sparkle"},
 		floatCount = 4,
 		bobPeriod = 5.2,
 	},
-	["Rune Egg"] = {
-		bodyFamilies = {shell_body = true, stripe = true, rune_ring = true, rune_bar = true, shard = true},
-		ringFamilies = {ring = true},
+	["Hollow Egg"] = {
+		bodyFamilies = {shell_body = true, wisp = true, vein = true, shard = true, frost_crown = true, aura_shell = true, ray = true},
+		ringFamilies = {cross_ring = true, halo_ring = true, rainbow_ring = true},
 		ringSpecs = {
-			{period = 10, tilt = 22, dir = 1},
+			{period = 12, tilt = 0, dir = -1},
+			{period = 9, tilt = 0, dir = 1},
+			{period = 16, tilt = 0, dir = 1},
 		},
+		floatFamilyOrder = {"sparkle"},
+		floatCount = 4,
 		bobPeriod = 3.8,
 	},
-	["Crown Egg"] = {
-		bodyFamilies = {shell_body = true, cap = true, cap_drip = true, stripe = true, rune_ring = true, rune_bar = true, shard = true},
-		ringFamilies = {ring = true},
+	["Heartwood Egg"] = {
+		bodyFamilies = {shell_body = true, grain = true, seam_bead = true, plate = true, root = true, antler = true, antler_tip = true, aura_shell = true, ray = true},
+		ringFamilies = {cross_ring = true, halo_ring = true, rainbow_ring = true},
 		ringSpecs = {
-			{period = 9, tilt = 22, dir = 1},
-			{period = 12, tilt = 22, dir = -1},
+			{period = 10, tilt = 0, dir = -1},
+			{period = 8, tilt = 0, dir = 1},
+			{period = 14, tilt = 0, dir = -1},
 		},
-		crownAssemblyFamilies = {crown_ring = true, crown_point = true, crown_tip = true, halo_ring = true, link = true},
-		crownHover = 0.35,
-		crownBobAmp = 0.1,
-		crownBobPeriod = 8,
-		crownYawPeriod = 14,
+		floatFamilyOrder = {"sparkle"},
+		floatCount = 5,
 		bobPeriod = 5.0,
 	},
 }

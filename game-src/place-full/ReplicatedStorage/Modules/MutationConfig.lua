@@ -2,7 +2,12 @@
 -- Shared by ThrowHandler (roll), IncomeLoop (multiplier), FusionHandler (ladder)
 -- and the client (display).
 --
--- ============================ FUSION-ONLY MUTATIONS ============================
+-- ===================== RAINBOW & GLITCHED: NOW CATCHABLE =======================
+-- UPDATE 2026-08-22 (owner's call): the fusion system is being retired, so Rainbow
+-- and Glitched are CATCHABLE from an ordinary throw in ANY lake at a rare rate --
+-- see their entries in Mutations.List below (FusionOnly removed, Chance set). The
+-- historical fusion-only rationale is kept below for context but no longer applies.
+-- ============================ (was) FUSION-ONLY ================================
 -- Rainbow and Glitched are the two most desirable mutations in the game, and as
 -- of this change they do NOT drop from a throw at all. `FusionOnly = true` makes
 -- Roll() skip them. The only way to get one is to climb the fusion ladder in
@@ -48,17 +53,21 @@ local Mutations = {}
 -- Rarity ladder, weakest to strongest (Rarity = position in that order):
 --   1 Gold  2 Diamond  3 Wet  4 Sandy  5 Rainbow  6 Electric
 --   7 Frozen  8 Aurora  9 Celestial  10 Glitched  11 Demon  12 Angel
--- The four base variants sit at 1/2/5/10, so their original multipliers
--- (2/5/15/50) are untouched and the event variants interpolate between them.
+-- The four "base" variants sit at ladder slots 1/2/5/10. Golden/Diamond are the
+-- common base drops; Rainbow (5) and Glitched (10) are catchable anywhere at a rare
+-- rate (2026-08-22). Base mults are now 2/5/12/31; event variants interpolate between
+-- these on the ladder. (High tier was trimmed 2026-08-22: Rainbow 15->12, Glitched
+-- 50->31, and the event variants down with them.)
 Mutations.List = {
 	{ Name = "Golden",   Rarity = 1,  Mult = 2,  Chance = 0.135,  Color = Color3.fromRGB(255, 215, 60) },
 	{ Name = "Diamond",  Rarity = 2,  Mult = 5,  Chance = 0.055,  Color = Color3.fromRGB(120, 230, 255) },
-	-- FUSION-ONLY (see the block at the top). Roll() skips any entry flagged
-	-- FusionOnly, and Chance is pinned to 0 as a second line of defence so that
-	-- code which walks List and forgets the flag still cannot hand one out.
-	-- Their natural rates used to be Rainbow 1.45% and Glitched 0.25% per catch.
-	{ Name = "Rainbow",  Rarity = 5,  Mult = 15, Chance = 0, FusionOnly = true, Color = Color3.fromRGB(255, 120, 220) },
-	{ Name = "Glitched", Rarity = 10, Mult = 50, Chance = 0, FusionOnly = true, Color = Color3.fromRGB(150, 255, 130) },
+	-- CATCHABLE ANYWHERE (2026-08-22): Rainbow and Glitched now drop from an ordinary
+	-- throw in any lake at a rare rate -- no weather, no fusion required (fusion retired).
+	-- They are the two rarest BASE drops (Rainbow rarer than Diamond, Glitched rarest of
+	-- all), so a big catch can happen anywhere. Mults trimmed with the rest of the high
+	-- tier (Rainbow 15->12, Glitched 50->31).
+	{ Name = "Rainbow",  Rarity = 5,  Mult = 12, Chance = 0.0145, Color = Color3.fromRGB(255, 120, 220) },
+	{ Name = "Glitched", Rarity = 10, Mult = 31, Chance = 0.0025, Color = Color3.fromRGB(150, 255, 130) },
 }
 
 -- Event-exclusive mutations: each can only roll while its own weather event is
@@ -78,12 +87,12 @@ Mutations.List = {
 Mutations.Events = {
 	["Fog"]           = { Name = "Wet",       Rarity = 3,  Mult = 7,  Chance = 0.211, Color = Color3.fromRGB(90, 170, 255) },   -- eff 3.50%
 	["Sandstorm"]     = { Name = "Sandy",     Rarity = 4,  Mult = 10, Chance = 0.166, Color = Color3.fromRGB(214, 176, 112) },  -- eff 2.30%
-	["Thunderstorm"]  = { Name = "Electric",  Rarity = 6,  Mult = 20, Chance = 0.060, Color = Color3.fromRGB(255, 240, 100) },  -- eff 0.70%
-	["Blizzard"]      = { Name = "Frozen",    Rarity = 7,  Mult = 26, Chance = 0.063, Color = Color3.fromRGB(172, 236, 255) },  -- eff 0.52%
-	["Aurora"]        = { Name = "Aurora",    Rarity = 8,  Mult = 33, Chance = 0.066, Color = Color3.fromRGB(120, 255, 190) },  -- eff 0.40%
-	["Shooting Star"] = { Name = "Celestial", Rarity = 9,  Mult = 41, Chance = 0.084, Color = Color3.fromRGB(198, 210, 255) },  -- eff 0.32%
-	["Blood Moon"]    = { Name = "Demon",     Rarity = 11, Mult = 70, Chance = 0.051, Color = Color3.fromRGB(220, 48, 48) },    -- eff 0.070%
-	["Golden Hour"]   = { Name = "Angel",     Rarity = 12, Mult = 95, Chance = 0.032, Color = Color3.fromRGB(255, 242, 190) },  -- eff 0.018%
+	["Thunderstorm"]  = { Name = "Electric",  Rarity = 6,  Mult = 14, Chance = 0.060, Color = Color3.fromRGB(255, 240, 100) },  -- eff 0.70%
+	["Blizzard"]      = { Name = "Frozen",    Rarity = 7,  Mult = 17, Chance = 0.063, Color = Color3.fromRGB(172, 236, 255) },  -- eff 0.52%
+	["Aurora"]        = { Name = "Aurora",    Rarity = 8,  Mult = 21, Chance = 0.066, Color = Color3.fromRGB(120, 255, 190) },  -- eff 0.40%
+	["Shooting Star"] = { Name = "Celestial", Rarity = 9,  Mult = 26, Chance = 0.084, Color = Color3.fromRGB(198, 210, 255) },  -- eff 0.32%
+	["Blood Moon"]    = { Name = "Demon",     Rarity = 11, Mult = 36, Chance = 0.051, Color = Color3.fromRGB(220, 48, 48) },    -- eff 0.070%
+	["Golden Hour"]   = { Name = "Angel",     Rarity = 12, Mult = 42, Chance = 0.032, Color = Color3.fromRGB(255, 242, 190) },  -- eff 0.018%
 }
 
 Mutations.ByName = {}
@@ -100,10 +109,10 @@ end
 -- eventName (the live weather event) gives that event's own mutation first
 -- refusal at its exact listed chance -- boost is NOT applied there, since those
 -- odds are already tuned per event and would otherwise double-dip.
--- Entries flagged FusionOnly are skipped entirely: they contribute nothing to
--- the cumulative total, so Golden and Diamond keep their exact absolute odds
--- (no silent re-normalisation) and the leftover probability becomes "no
--- mutation" -- which is the point, that headroom is what fusion now sells.
+-- The `if not m.FusionOnly` guard below is now vacuous (no List entry sets it
+-- anymore -- Rainbow/Glitched became catchable 2026-08-22) but is kept as a cheap
+-- safety net. Each base variant contributes its absolute Chance to the cumulative
+-- total; the leftover probability is "no mutation".
 function Mutations.Roll(boost, eventName)
 	local ev = eventName and Mutations.Events[eventName]
 	if ev and math.random() < ev.Chance then

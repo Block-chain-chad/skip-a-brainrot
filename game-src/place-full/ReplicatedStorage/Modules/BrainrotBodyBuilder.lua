@@ -75,15 +75,35 @@ end
 
 -- Single part factory so the Anchored/CanCollide contract cannot be missed on
 -- any of the ~200 part placements below.
--- Studded top faces are the genre's whole texture -- every reference brainrot
--- is visibly built out of BRICKS. Balls and cylinders can't show studs, so they
--- stay smooth; blocks and wedges wear them.
+-- SURFACE IS A FLAG, not a decision baked into ~200 call sites. Studs are the
+-- closest thing we have to the reference look until the authored StudTile
+-- MaterialVariant exists. Flip STUD_TOPS to false the day it lands -- and note
+-- its ColorMap MUST be near-white/neutral: a colour-carrying ColorMap overrides
+-- every flat authored colour and kills the two-colour rule (verified 2026-08-26
+-- with an AI-generated variant that turned grey stone near-black).
+local STUD_TOPS = false
+
+-- The studded surface, assigned PER PART rather than through Material Manager's
+-- place-wide "Set as Override" -- this must touch brainrots only, never the
+-- world. Covers all six faces, which SurfaceType.Studs never could (top face
+-- only, and only 9 of ~165 parts cleared its size gate). Set to "" to opt out.
+local BODY_VARIANT = "StudSquare"
+
+-- Rule #1 of the style doc: "rounded, never sharp -- sharp 90 degree corners are
+-- what make attempts look cheap." Blocks are built from a beveled cube MeshPart
+-- instead of a Part. Wedges/balls/cylinders are unaffected. Delete the child
+-- named BevelCube to fall back to plain Parts with no other change.
+-- NOTE: never write RenderFidelity on these -- it is a Plugin-tier property that
+-- THROWS on a real client even though Studio allows it.
+local BEVEL = nil -- was script:FindFirstChild("BevelCube"); see note above
 local function P(model, partName, class, size, cf, color, material)
 	local part
 	if class == "Wedge" then
 		part = Instance.new("WedgePart")
 	elseif class == "CornerWedge" then
 		part = Instance.new("CornerWedgePart")
+	elseif class == "Block" and BEVEL then
+		part = BEVEL:Clone()
 	else
 		part = Instance.new("Part")
 		part.Shape = Enum.PartType[class]
@@ -93,9 +113,19 @@ local function P(model, partName, class, size, cf, color, material)
 	part.CFrame = cf
 	part.Color = color
 	part.Material = material or Enum.Material.Plastic
+	part.MaterialVariant = BODY_VARIANT
 	part.Anchored = true
 	part.CanCollide = false
-	if class == "Block" and size.X > 0.5 and size.Z > 0.5 then
+	-- PERF (2026-08-24): these bodies are decorative clusters -- up to 16 per plot,
+	-- ~22 parts each. Per-part real-time shadows were the dominant GPU cost near a
+	-- full camp; CanQuery/CanTouch put every part in the raycast broadphase and touch
+	-- registry for no reason (bodies are anchored, non-colliding, and selected via
+	-- distance-based ProximityPrompts, never raycasts). Revert: restore
+	-- ServerStorage.AuditBackups.BrainrotBodyBuilder_pre_perfflags.
+	part.CastShadow = false
+	part.CanQuery = false
+	part.CanTouch = false
+	if STUD_TOPS and class == "Block" and size.X > 0.5 and size.Z > 0.5 then
 		part.TopSurface = Enum.SurfaceType.Studs
 	else
 		part.TopSurface = Enum.SurfaceType.Smooth
@@ -110,8 +140,11 @@ end
 -- every body colour gets pushed toward full saturation on the way in. Hue is
 -- untouched -- a mortadella stays pink, it just stops being beige.
 local function candy(c, satFloor, valFloor)
-	local h, s, v = c:ToHSV()
-	return Color3.fromHSV(h, math.max(s, satFloor or 0.62), math.max(v, valFloor or 0.82))
+	-- 2026-08-26 style redo: AUTHORED HEX WINS. The saturation/value floors made
+	-- every dark or desaturated colour unreachable -- #22303A rendered as #4F9BD1
+	-- sky blue and #877E6E as #D1A24F orange -- which blocked the "two or three
+	-- flat colours" rule outright. Kept as a no-op so the call sites stay put.
+	return c
 end
 
 -- Roblox cylinders lie along X natively; AXIS_ROT stands them up (Y) or rolls
@@ -550,12 +583,12 @@ end
 local function bodyOrb(model, c, variant, accent)
 	-- Secrets-only body: SmoothPlastic core, Neon ring/chunks, shimmer allowed
 	-- on ring and chunks ONLY (eyes stay plain — palette rule).
-	local core = P(model, "Core", "Ball", Vector3.new(2.2, 2.2, 2.2), CFrame.new(0, 1.6, 0), c, Enum.Material.SmoothPlastic)
-	local ring = Cyl(model, "Ring", 3.3, 0.12, CFrame.new(0, 1.6, 0) * CFrame.Angles(math.rad(18), 0, 0), "Y", accent, Enum.Material.Neon)
+	local core = P(model, "Core", "Ball", Vector3.new(2.2, 2.2, 2.2), CFrame.new(0, 1.6, 0), c)
+	local ring = Cyl(model, "Ring", 3.3, 0.12, CFrame.new(0, 1.6, 0) * CFrame.Angles(math.rad(18), 0, 0), "Y", accent)
 	ring.Transparency = 0.1
-	P(model, "Chunk", "Ball", Vector3.new(0.5, 0.5, 0.5), CFrame.new(1.5, 2, -0.9), accent, Enum.Material.Neon)
-	P(model, "Chunk", "Ball", Vector3.new(0.35, 0.35, 0.35), CFrame.new(-1.45, 1.15, 0.7), accent, Enum.Material.Neon)
-	P(model, "Chunk", "Ball", Vector3.new(0.3, 0.3, 0.3), CFrame.new(0.75, 2.55, 0.95), accent, Enum.Material.Neon)
+	P(model, "Chunk", "Ball", Vector3.new(0.5, 0.5, 0.5), CFrame.new(1.5, 2, -0.9), accent)
+	P(model, "Chunk", "Ball", Vector3.new(0.35, 0.35, 0.35), CFrame.new(-1.45, 1.15, 0.7), accent)
+	P(model, "Chunk", "Ball", Vector3.new(0.3, 0.3, 0.3), CFrame.new(0.75, 2.55, 0.95), accent)
 	return {
 		primary = core,
 		face = faceFrame(Vector3.new(0, 1.85, -1.03), Vector3.new(0, 0.22, -0.97)),
@@ -617,10 +650,13 @@ local BODIES = {
 -- silhouette thumbnails) can find them without tags.
 --------------------------------------------------------------------------------
 
--- EYES ARE THE CHARACTER. Every reference brainrot leads with enormous white
--- eyes -- roughly a third of the body each -- with a black pupil and a white
--- shine dot. The old 0.34 sclera was a pinprick that read as "abstract object";
--- these are 0.78 and sit proud of the surface so they catch light.
+-- EYES ARE THE CHARACTER, and on an OBJECT-brainrot (castle, coffee pot, cart)
+-- they are the entire joke -- the style doc's "exaggerate the one feature that
+-- identifies it" applies to the eyes, not despite them. 2026-08-26: they stay
+-- enormous but are now flat rectangles rather than a ball/ball/shine stack, so
+-- they sit flush in a box-built body instead of bulging out of it. 3 parts per
+-- eye became 2. Sclera/Pupil names are load-bearing -- ghost transparency and
+-- the silhouette thumbnails find them by name.
 local function addEyes(model, faceCF, s, opts)
 	opts = opts or {}
 	local scleraD = (opts.sclera or 0.66) * s
@@ -633,14 +669,13 @@ local function addEyes(model, faceCF, s, opts)
 	local riseY = scleraD * 0.42
 	for _, side in ipairs({ -1, 1 }) do
 		local shift = (side < 0 and opts.shiftL or opts.shiftR) or Vector2.new(0, 0)
-		local eyeCF = faceCF * CFrame.new(side * gap, riseY, -scleraD * 0.3)
-		P(model, "Sclera", "Ball", Vector3.new(scleraD, scleraD * 1.08, scleraD), eyeCF, WHITE, Enum.Material.SmoothPlastic)
-		P(model, "Pupil", "Ball", Vector3.new(pupilD, pupilD, pupilD),
-			eyeCF * CFrame.new(shift.X * s, shift.Y * s, -scleraD * 0.4), BLACK, Enum.Material.SmoothPlastic)
-		-- the shine dot is what makes a bead read as an EYE rather than a hole
-		P(model, "Shine", "Ball", Vector3.new(pupilD * 0.42, pupilD * 0.42, pupilD * 0.42),
-			eyeCF * CFrame.new(shift.X * s - scleraD * 0.16, shift.Y * s + scleraD * 0.17, -scleraD * 0.5),
-			WHITE, Enum.Material.SmoothPlastic)
+		local eyeCF = faceCF * CFrame.new(side * gap, riseY, 0)
+		-- slab back face flush with the body, pupil overlapping its front face
+		-- so there is no seam to z-fight at any scale.
+		P(model, "Sclera", "Block", Vector3.new(scleraD, scleraD * 1.08, scleraD * 0.22),
+			eyeCF * CFrame.new(0, 0, -scleraD * 0.11), WHITE)
+		P(model, "Pupil", "Block", Vector3.new(pupilD, pupilD, scleraD * 0.12),
+			eyeCF * CFrame.new(shift.X * s, shift.Y * s, -scleraD * 0.24), BLACK)
 	end
 end
 
@@ -732,7 +767,7 @@ end
 
 ACCESSORIES.hat = function(model, a, accent, variant)
 	if hasToken(variant, "hex") then
-		Cyl(model, "Bolt", 0.85, 0.35, CFrame.new(a.top + Vector3.new(0, 0.18, 0)), "Y", STEEL, Enum.Material.Metal)
+		Cyl(model, "Bolt", 0.85, 0.35, CFrame.new(a.top + Vector3.new(0, 0.18, 0)), "Y", STEEL)
 		return
 	end
 	local hatCF = CFrame.new(a.top) * CFrame.Angles(0, 0, math.rad(8))
@@ -742,12 +777,12 @@ ACCESSORIES.hat = function(model, a, accent, variant)
 end
 
 ACCESSORIES.crown = function(model, a, accent, variant)
-	Cyl(model, "CrownBand", 1, 0.28, CFrame.new(a.top + Vector3.new(0, 0.14, 0)), "Y", GOLD, Enum.Material.Metal)
+	Cyl(model, "CrownBand", 1, 0.28, CFrame.new(a.top + Vector3.new(0, 0.14, 0)), "Y", GOLD)
 	for _, off in ipairs({
 		Vector3.new(0.36, 0.31, 0), Vector3.new(-0.36, 0.31, 0),
 		Vector3.new(0, 0.31, 0.36), Vector3.new(0, 0.31, -0.36),
 	}) do
-		P(model, "CrownTip", "Ball", Vector3.new(0.14, 0.14, 0.14), CFrame.new(a.top + off), GOLD, Enum.Material.Metal)
+		P(model, "CrownTip", "Ball", Vector3.new(0.14, 0.14, 0.14), CFrame.new(a.top + off), GOLD)
 	end
 end
 
@@ -809,13 +844,13 @@ end
 ACCESSORIES.utensil = function(model, a, accent, variant)
 	-- Rolled 30 deg outward at the right arm per contract.
 	local toolCF = CFrame.new(a.rightArm + Vector3.new(0.15, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(-30))
-	Cyl(model, "UtensilHandle", 0.14, 1.2, toolCF, "Y", STEEL, Enum.Material.Metal)
+	Cyl(model, "UtensilHandle", 0.14, 1.2, toolCF, "Y", STEEL)
 	if hasToken(variant, "spoon") then
-		P(model, "SpoonBowl", "Ball", Vector3.new(0.5, 0.15, 0.35), toolCF * CFrame.new(0, 0.68, 0), STEEL, Enum.Material.Metal)
+		P(model, "SpoonBowl", "Ball", Vector3.new(0.5, 0.15, 0.35), toolCF * CFrame.new(0, 0.68, 0), STEEL)
 	else
-		P(model, "ForkHead", "Block", Vector3.new(0.42, 0.3, 0.07), toolCF * CFrame.new(0, 0.7, 0), STEEL, Enum.Material.Metal)
+		P(model, "ForkHead", "Block", Vector3.new(0.42, 0.3, 0.07), toolCF * CFrame.new(0, 0.7, 0), STEEL)
 		for _, x in ipairs({ -0.14, 0, 0.14 }) do
-			P(model, "ForkTine", "Block", Vector3.new(0.07, 0.35, 0.06), toolCF * CFrame.new(x, 0.98, 0), STEEL, Enum.Material.Metal)
+			P(model, "ForkTine", "Block", Vector3.new(0.07, 0.35, 0.06), toolCF * CFrame.new(x, 0.98, 0), STEEL)
 		end
 	end
 end
@@ -846,8 +881,8 @@ ACCESSORIES.cape = function(model, a, accent, variant)
 	-- Negative X tilt kicks the bottom hem out behind the body.
 	P(model, "Cape", "Block", Vector3.new(1.4, 1.6, 0.07),
 		CFrame.new(pin) * CFrame.Angles(math.rad(-12), 0, 0) * CFrame.new(0, -0.78, 0), accent)
-	P(model, "Clasp", "Ball", Vector3.new(0.12, 0.12, 0.12), CFrame.new(pin + Vector3.new(-0.45, 0.02, -0.12)), GOLD, Enum.Material.Metal)
-	P(model, "Clasp", "Ball", Vector3.new(0.12, 0.12, 0.12), CFrame.new(pin + Vector3.new(0.45, 0.02, -0.12)), GOLD, Enum.Material.Metal)
+	P(model, "Clasp", "Ball", Vector3.new(0.12, 0.12, 0.12), CFrame.new(pin + Vector3.new(-0.45, 0.02, -0.12)), GOLD)
+	P(model, "Clasp", "Ball", Vector3.new(0.12, 0.12, 0.12), CFrame.new(pin + Vector3.new(0.45, 0.02, -0.12)), GOLD)
 end
 
 ACCESSORIES["spring-legs"] = function(model, a, accent, variant, bodyColor)
@@ -908,9 +943,9 @@ ACCESSORIES.antenna = function(model, a, accent, variant)
 	for _, side in ipairs(sides) do
 		-- -side*20 about Z splays each stalk's top outward.
 		local antCF = CFrame.new(a.top + Vector3.new(side * 0.14, 0.28, 0)) * CFrame.Angles(0, 0, -side * math.rad(20))
-		Cyl(model, "Antenna", 0.06, 0.6, antCF, "Y", stalkColor, needle and Enum.Material.Metal or nil)
+		Cyl(model, "Antenna", 0.06, 0.6, antCF, "Y", stalkColor, nil)
 		P(model, "AntennaTip", "Ball", Vector3.new(tipD, tipD, tipD), antCF * CFrame.new(0, 0.36, 0),
-			glow and accent or stalkColor, glow and Enum.Material.Neon or nil)
+			glow and accent or stalkColor, nil)
 	end
 end
 
@@ -934,7 +969,7 @@ ACCESSORIES.flame = function(model, a, accent, variant)
 	local base = hasToken(variant, "rear") and a.rearPos or a.top
 	for i = 1, 3 do
 		local d = dias[i] * scale
-		P(model, "Flame", "Ball", Vector3.new(d, d, d), CFrame.new(base + offsets[i] * scale), Color3.fromHex(colors[i]), Enum.Material.Neon)
+		P(model, "Flame", "Ball", Vector3.new(d, d, d), CFrame.new(base + offsets[i] * scale), Color3.fromHex(colors[i]))
 	end
 end
 
@@ -947,7 +982,7 @@ ACCESSORIES["halo-ring"] = function(model, a, accent, variant)
 	if cosmic then
 		cf = cf * CFrame.Angles(math.rad(15), 0, 0)
 	end
-	Cyl(model, "Halo", dia, 0.07, cf, "Y", accent, Enum.Material.Neon)
+	Cyl(model, "Halo", dia, 0.07, cf, "Y", accent)
 end
 
 --------------------------------------------------------------------------------
@@ -961,7 +996,7 @@ local LIMB = Color3.fromRGB(38, 34, 42)
 local NO_LEGS = { boat = true, cart = true, orb = true }
 local NO_ARMS = { orb = true }
 
-local function addLimbs(model, anchors, bodyKey)
+local function addLimbs(model, anchors, bodyKey, bodyColor)
 	-- Bodies build their own colour-matched stubs; those are REPLACED, never
 	-- joined, or the silhouette grows a second pair of everything.
 	for _, d in ipairs(model:GetChildren()) do
@@ -976,12 +1011,17 @@ local function addLimbs(model, anchors, bodyKey)
 		-- what makes a thing look like it is standing rather than sitting on the
 		-- floor. Scaled off the body so a tall tower doesn't get stumps.
 		local hipY = anchors.bottomY
-		local legLen = math.clamp(anchors.halfWidth * 1.35, 0.95, 1.7)
+		-- chunky, but the DAYLIGHT gap under the body still has to survive, and
+		-- the two legs must not add up to the whole body width
+		local legLen = math.clamp(anchors.halfWidth * 1.30, 0.95, 1.7)
+		local legW = math.clamp(anchors.halfWidth * 0.46, 0.40, 0.85)
+		local footH = legW * 0.55
+		local limb = bodyColor or LIMB
 		for _, side in ipairs({ -1, 1 }) do
-			local x = side * math.max(0.26, anchors.halfWidth * 0.4)
-			Cyl(model, "Leg", 0.28, legLen, CFrame.new(x, hipY - legLen * 0.5 + 0.06, 0), "Y", LIMB)
-			P(model, "Foot", "Block", Vector3.new(0.46, 0.24, 0.7),
-				CFrame.new(x, hipY - legLen + 0.06, -0.12), LIMB)
+			local x = side * math.max(legW * 0.85, anchors.halfWidth * 0.46)
+			P(model, "Leg", "Block", Vector3.new(legW, legLen, legW), CFrame.new(x, hipY - legLen * 0.5 + 0.06, 0), limb)
+			P(model, "Foot", "Block", Vector3.new(legW * 1.25, footH, legW * 1.7),
+				CFrame.new(x, hipY - legLen + footH * 0.3, -legW * 0.32), limb)
 		end
 	end
 
@@ -989,13 +1029,21 @@ local function addLimbs(model, anchors, bodyKey)
 		-- Arms HANG (20 degrees off vertical). Sticking them out horizontally
 		-- reads as a T-pose mannequin; the references all let them fall.
 		local armY = anchors.rightArm.Y
-		local armLen = 0.85
+		local armW = math.clamp(anchors.halfWidth * 0.46, 0.40, 0.85)
+		local armLen = math.clamp(anchors.halfWidth * 1.05, 0.85, 1.55)
+		local limb = bodyColor or LIMB
 		for _, side in ipairs({ -1, 1 }) do
-			local x = side * (anchors.halfWidth + 0.1)
-			local tilt = math.rad(-side * 20)
+			-- a real GAP between arm and torso. Body-coloured limbs only read as
+			-- limbs if the SILHOUETTE separates them; flush against the body they
+			-- just become side panels.
+			local x = side * (anchors.halfWidth + armW * 0.72)
+			-- barely off vertical: chunky arms want the reference's stiffness,
+			-- not the old 20 degree rubber-hose swing
+			local tilt = math.rad(-side * 8)
 			local shoulder = CFrame.new(x, armY, 0) * CFrame.Angles(0, 0, tilt)
-			Cyl(model, "Arm", 0.26, armLen, shoulder * CFrame.new(0, -armLen * 0.5, 0), "Y", LIMB)
-			P(model, "Hand", "Ball", Vector3.new(0.32, 0.32, 0.32), shoulder * CFrame.new(0, -armLen, 0), LIMB)
+			P(model, "Arm", "Block", Vector3.new(armW, armLen, armW), shoulder * CFrame.new(0, -armLen * 0.5, 0), limb)
+			P(model, "Hand", "Block", Vector3.new(armW * 1.12, armW * 0.85, armW * 1.12),
+				shoulder * CFrame.new(0, -armLen - armW * 0.2, 0), limb)
 		end
 	end
 end
@@ -1072,7 +1120,7 @@ function M.Build(name, recipe)
 
 	-- limbs BEFORE accessories: spring-legs and wheels replace what this adds,
 	-- and they read the same anchors
-	addLimbs(model, anchors, bodyBase)
+	addLimbs(model, anchors, bodyBase, bodyColor)
 
 	applyAccessory(model, anchors, recipe.Accessory, accent, bodyColor, bodyBase, displayName, "Accessory")
 	applyAccessory(model, anchors, recipe.Accessory2, accent, bodyColor, bodyBase, displayName, "Accessory2")

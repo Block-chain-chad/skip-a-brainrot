@@ -21,6 +21,7 @@ local T = require(UIKit:WaitForChild("Tokens"))
 local UI = require(UIKit:WaitForChild("Builders"))
 local Thumb = require(Modules:WaitForChild("BrainrotThumb"))
 local formatNumber = require(Modules:WaitForChild("NumberFormat")).Short
+local SideRail = require(Modules:WaitForChild("SideRail")) -- single-open coordination
 
 local infoByName = {}
 for _, e in ipairs(BrainrotConfig) do infoByName[e.Name] = e end
@@ -69,7 +70,7 @@ local scrim = Instance.new("Frame")
 scrim.Name = "Scrim"
 scrim.Size = UDim2.fromScale(1, 1)
 scrim.BackgroundColor3 = T.scrim
-scrim.BackgroundTransparency = T.scrimAlpha
+scrim.BackgroundTransparency = 1 -- PS99 blur-never-dim (2026-08-17): TradeBlur (see refreshScrim) carries the separation; frame kept as the refreshScrim choke handle
 scrim.BorderSizePixel = 0
 scrim.Visible = false
 scrim.ZIndex = 1
@@ -85,18 +86,12 @@ root.ZIndex = 2
 root.Parent = gui
 local canvasScale = Instance.new("UIScale")
 canvasScale.Parent = root
-local function fit()
-	local cam = workspace.CurrentCamera
-	if not cam then return end
-	local vp = cam.ViewportSize
-	canvasScale.Scale = math.min(vp.X / T.size.canvas.X, vp.Y / T.size.canvas.Y)
-end
-fit()
-do
-	local cam = workspace.CurrentCamera
-	if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(fit) end
-end
-task.delay(1, fit)
+-- 2026-08-05 cross-platform: identical maths to the inline fit this replaces
+-- (Platform.Fit IS math.min(vp.X/canvas.X, vp.Y/canvas.Y)), but it now also
+-- re-fires on rotation, on a device change, and on the late viewport reading
+-- that the old `task.delay(1, fit)` was covering by hand.
+local Platform = require(ReplicatedStorage.Modules:WaitForChild("Platform"))
+Platform.Bind(canvasScale, T.size.canvas.X, T.size.canvas.Y)
 
 -- ===== toast =====
 local toastFrame = UI.surface(root, UDim2.fromOffset(460, 54), "row", T.radius.control, T.stroke.control)
@@ -140,12 +135,30 @@ local function makeShell(name, w, h, z)
 	return shell, p
 end
 
+-- PS99 blur-never-dim (2026-08-17): trade modals separate from the world with
+-- a backdrop blur, cloned from GameHUDClient's HUDPanelBlur recipe under a
+-- UNIQUE name so cross-script destroys can't collide. Instant on/off -- NEVER
+-- tween a BlurEffect (TweenService silently no-ops on non-GuiObjects here).
+local function setTradeBlur(on)
+	local Lighting = game:GetService("Lighting")
+	local existing = Lighting:FindFirstChild("TradeBlur")
+	if on and not existing then
+		local blur = Instance.new("BlurEffect")
+		blur.Name = "TradeBlur"
+		blur.Size = 10
+		blur.Parent = Lighting
+	elseif not on and existing then
+		existing:Destroy()
+	end
+end
+
 local function refreshScrim()
 	local any = false
 	for _, f in ipairs(root:GetChildren()) do
 		if f:GetAttribute("Modal") and f.Visible then any = true end
 	end
 	scrim.Visible = any
+	setTradeBlur(any)
 end
 
 local function addArt(parent, name, size, position)
@@ -261,9 +274,9 @@ local function playerChip(x)
 	letter.ZIndex = med.ZIndex + 1
 	local nameL = UI.label(chip, "?", "cardLabel")
 	nameL.Position = UDim2.fromOffset(60, 4)
-	local atL = UI.label(chip, "", "meta", T.color.textMuted)
+	local atL = UI.label(chip, "", "meta", T.color.textMutedOnDark)
 	atL.Position = UDim2.fromOffset(60, 30)
-	local cnt = UI.label(chip, "0/12", "value", T.color.textAccent)
+	local cnt = UI.label(chip, "0/12", "value", T.color.textAccentOnDark)
 	cnt.AnchorPoint = Vector2.new(1, 0.5)
 	cnt.Position = UDim2.new(1, -14, 0.5, 0)
 	return { chip = chip, letter = letter, nameL = nameL, atL = atL, cnt = cnt }
@@ -308,15 +321,15 @@ cashBox.Size = UDim2.new(1, -20, 1, 0)
 cashBox.Position = UDim2.fromOffset(10, 0)
 cashBox.Text = ""
 cashBox.PlaceholderText = "cash  (e.g. 10k)"
-cashBox.PlaceholderColor3 = T.color.textMuted
-cashBox.TextColor3 = T.color.textAccent
+cashBox.PlaceholderColor3 = T.color.textMutedOnDark
+cashBox.TextColor3 = T.color.textAccentOnDark
 cashBox.FontFace = T.font.ui
 cashBox.TextSize = 18
 cashBox.TextXAlignment = Enum.TextXAlignment.Left
 cashBox.ClearTextOnFocus = false
 cashBox.ZIndex = cashShellF.ZIndex + 1
 cashBox.Parent = cashShellF
-local setCashBtn = UI.button(tradePanel, "SET CASH", "gold", UDim2.fromOffset(150, 48), "buttonM")
+local setCashBtn = UI.button(tradePanel, "SET CASH", "blue", UDim2.fromOffset(150, 48), "buttonM")
 setCashBtn.Position = UDim2.fromOffset(232, 438)
 local yourCashL = UI.label(tradePanel, "", "value", T.color.textAccent)
 yourCashL.Position = UDim2.fromOffset(398, 448)
@@ -357,7 +370,7 @@ pickSearchBox.Size = UDim2.new(1, -20, 1, 0)
 pickSearchBox.Position = UDim2.fromOffset(10, 0)
 pickSearchBox.Text = ""
 pickSearchBox.PlaceholderText = "Search here..."
-pickSearchBox.PlaceholderColor3 = T.color.textMuted
+pickSearchBox.PlaceholderColor3 = T.color.textMutedOnDark
 pickSearchBox.TextColor3 = T.color.white
 pickSearchBox.FontFace = T.font.ui
 pickSearchBox.TextSize = 18
@@ -365,7 +378,7 @@ pickSearchBox.TextXAlignment = Enum.TextXAlignment.Left
 pickSearchBox.ClearTextOnFocus = false
 pickSearchBox.ZIndex = pickSearchShell.ZIndex + 1
 pickSearchBox.Parent = pickSearchShell
-local pickSortBtn = UI.button(pickPanel, "NAME", "gold", UDim2.fromOffset(150, 48), "buttonM")
+local pickSortBtn = UI.button(pickPanel, "NAME", "blue", UDim2.fromOffset(150, 48), "buttonM")
 pickSortBtn.Position = UDim2.fromOffset(292, 70)
 local pickBody = UI.surface(pickPanel, UDim2.fromOffset(728, 380), "subPanel", T.radius.inner, T.stroke.control)
 pickBody.Position = UDim2.fromOffset(0, 132)
@@ -396,6 +409,19 @@ local pickSearch, pickSort = "", "NAME"
 
 -- ===== TRADE SUCCESSFUL popup =====
 local doneShell, donePanel = makeShell("DonePanel", 660, 430, 30)
+
+-- SINGLE-OPEN. These four all belong to the "trade" group, so they close every
+-- panel outside trading but never each other -- the picker is opened ON TOP of
+-- the trade window on purpose, and a flat registry would shut the trade down the
+-- moment you went to choose an item.
+--
+-- nearShell is deliberately NOT registered: the 0.3s proximity loop further down
+-- re-asserts it every tick, so force-closing it here would just flip-flop. It
+-- stands down on its own instead -- see SideRail.AnyPanelOpen() at that loop.
+SideRail.registerPanel(reqShell, "trade")
+SideRail.registerPanel(tradeShell, "trade")
+SideRail.registerPanel(pickShell, "trade")
+SideRail.registerPanel(doneShell, "trade")
 doneShell:SetAttribute("Modal", true)
 local doneTitle = UI.label(donePanel, "TRADE SUCCESSFUL", "panelTitle", T.color.textAccent)
 doneTitle.AnchorPoint = Vector2.new(0.5, 0)
@@ -637,7 +663,7 @@ refreshPicker = function()
 		nm.TextXAlignment = Enum.TextXAlignment.Center
 		nm.TextTruncate = Enum.TextTruncate.AtEnd
 		nm.ZIndex = card.ZIndex + 1
-		local ct = UI.label(card, "x" .. item.count, "cardLabel", T.color.textAccent)
+		local ct = UI.label(card, "x" .. item.count, "cardLabel", T.color.textAccentOnDark)
 		ct.AnchorPoint = Vector2.new(0.5, 0)
 		ct.Position = UDim2.new(0.5, 0, 0, 112)
 		ct.ZIndex = card.ZIndex + 1
@@ -763,10 +789,24 @@ cashBox.FocusLost:Connect(function(enter) if enter then submitCash() end end)
 
 -- ===== trading-centre zone + nearby players =====
 local tradeZone
+-- TradingCenter is a Folder and TradeZone is a bare Part ~8000 studs from spawn, so
+-- StreamingEnabled removes and RECREATES it on every visit to the island. Capturing it
+-- once (the old WaitForChild) left a dead reference after the first round trip, and
+-- warned "Infinite yield" for every player who never travelled there. Re-bind on each
+-- arrival instead -- same rule the World-2 client scripts follow.
 task.spawn(function()
 	local gw = Workspace:WaitForChild("GameWorld")
 	local tc = gw:WaitForChild("TradingCenter")
-	tradeZone = tc:WaitForChild("TradeZone")
+	local function bind(child)
+		if child.Name == "TradeZone" and child:IsA("BasePart") then
+			tradeZone = child
+		end
+	end
+	for _, c in ipairs(tc:GetChildren()) do bind(c) end
+	tc.ChildAdded:Connect(bind)
+	tc.ChildRemoved:Connect(function(child)
+		if child == tradeZone then tradeZone = nil end
+	end)
 end)
 local function characterInZone(character)
 	if not tradeZone then return false end
@@ -780,7 +820,12 @@ local lastNearbyKey = nil
 task.spawn(function()
 	while true do
 		task.wait(0.3)
-		local show = characterInZone(player.Character) and not tradeShell.Visible
+		-- ...and not while any panel is open. This list hugs the screen and would
+		-- otherwise sit on top of an open backpack or shop; it cannot be registered
+		-- for single-open because this very loop would re-open it a tick later.
+		local show = characterInZone(player.Character)
+			and not tradeShell.Visible
+			and not SideRail.AnyPanelOpen()
 		nearShell.Visible = show
 		if show then
 			local others = {}

@@ -1,3 +1,10 @@
+-- SUPERSEDED 2026-08-07 and DISABLED. The modern surface is
+-- GameHUDPanels.DailyPanel, opened automatically at join by GameHUDClient's
+-- join sequence; the Daily rail tile is gone. GameHUDClient already retires
+-- this script's DailyUI ScreenGui at runtime, but the script itself kept
+-- listening to DailyState and threw on every push once daily rewards became
+-- TYPED tables (it formats them as plain numbers). Kept, disabled, for the
+-- promo-code box in case that is wanted back somewhere.
 -- DailyRewardClient: the Daily button + 30-day login calendar panel + promo code box.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

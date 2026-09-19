@@ -4,19 +4,41 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local PlayerDataManager = require(ServerScriptService.Modules.PlayerDataManager)
 local BrainrotConfig = require(ReplicatedStorage.Modules.BrainrotConfig)
+-- indexes EVERY world's roster, not just the valley's -- see cashPerSecondByName
+local WorldProgression = require(ReplicatedStorage.Modules.WorldProgression)
 local Mutations = require(ReplicatedStorage.Modules.MutationConfig)
+-- Size is a second, independent mutation axis: it MULTIPLIES on top of the colour
+-- mutation rather than replacing it, so a Golden Massive earns 2 x 8.
+local Sizes = require(ReplicatedStorage.Modules.SizeConfig)
 local RebirthConfig = require(ReplicatedStorage.Modules.RebirthConfig)
 local UpgradeConfig = require(ReplicatedStorage.Modules.UpgradeConfig)
-local DarrelService = require(ServerScriptService.Modules.DarrelService)
+local EmeraldService = require(ServerScriptService.Modules.EmeraldService)
 local PetHandler = require(ServerScriptService.Modules.PetHandler)
+-- Robux pass cash multiplier (2x Cash, VIP). Requires only GamepassConfig, no cycle.
+local GamepassService = require(ServerScriptService.Modules.GamepassService)
 
+-- EVERY WORLD (fixed 2026-08-07). Built from BrainrotConfig alone, this priced all 30
+-- tundra-exclusive brainrots at nil -> `or 0` -> they earned NOTHING per second, however
+-- rare or Massive they were. Valley first so a shared name keeps its World 1 price.
 local cashPerSecondByName = {}
 for _, entry in ipairs(BrainrotConfig) do
 	cashPerSecondByName[entry.Name] = entry.CashPerSecond
 end
+for _, worldName in ipairs(WorldProgression.List()) do
+	local world = WorldProgression.Resolve(worldName)
+	for _, e in ipairs((world and world.Pool) or {}) do
+		if cashPerSecondByName[e.Name] == nil then
+			cashPerSecondByName[e.Name] = e.CashPerSecond
+		end
+	end
+end
 
 local remotes = ReplicatedStorage.Remotes
-local WALKUP_COLLECT   = false  -- USER DECISION U1: the campfire is now the collector
+-- WALK OVER A BRAINROT AND IT PAYS OUT. This was switched off once ("the campfire is now
+-- the collector") and is back on by request: the campfire remains the collect-all for the
+-- whole camp, and walking the pads is how you take them one at a time. Deliberately not a
+-- prompt -- a button on every brainrot meant sixteen keypresses to clear a camp.
+local WALKUP_COLLECT   = true
 local CAMPFIRE_RADIUS  = 5.60   -- horizontal studs (cylinder, not sphere) == CampStand radius
 local CAMPFIRE_Y_BAND  = 6.0    -- vertical studs
 local COLLECT_INTERVAL = 2.0    -- seconds between campfire gulps while standing in the fire
@@ -38,11 +60,16 @@ local NumberFormat = require(ReplicatedStorage.Modules.NumberFormat)
 local formatShort = NumberFormat.Short
 local rateText = NumberFormat.Rate
 
--- keep each brainrot billboard showing: name, stored cash, and small cash/sec line
+-- keep each brainrot billboard showing: name, stored cash, and small cash/sec line.
+-- 2026-08-13: mutated brainrots carry a MutationPill ABOVE the name (built by
+-- BrainrotSpawner; HasPill attribute is the layout contract) -- this writer
+-- only touches Main/Rate and offsets them under the pill, so the pill and the
+-- income text never fight over the same pixels.
 local function updateBillboard(model, name, pending, cps)
 	local bg = model:FindFirstChildOfClass("BillboardGui")
 	if not bg then return end
-	bg.Size = UDim2.new(0, 160, 0, 56)
+	local pillOffset = bg:GetAttribute("HasPill") and 24 or 0
+	bg.Size = UDim2.new(0, 160, 0, 56 + pillOffset)
 
 	local main = bg:FindFirstChild("Main")
 	if not main then
@@ -51,7 +78,7 @@ local function updateBillboard(model, name, pending, cps)
 	end
 	if main then
 		main.Size = UDim2.new(1, 0, 0, 40)
-		main.Position = UDim2.new(0, 0, 0, 0)
+		main.Position = UDim2.new(0, 0, 0, pillOffset)
 		main.TextScaled = true
 		main.Text = name .. "\n\u{1F4B0} $" .. formatShort(pending)
 	end
@@ -62,13 +89,13 @@ local function updateBillboard(model, name, pending, cps)
 		rate.Name = "Rate"
 		rate.BackgroundTransparency = 1
 		rate.Size = UDim2.new(1, 0, 0, 15)
-		rate.Position = UDim2.new(0, 0, 0, 41)
 		rate.Font = Enum.Font.GothamMedium
 		rate.TextSize = 12
 		rate.TextColor3 = Color3.fromRGB(185, 235, 195)
 		rate.TextStrokeTransparency = 0.3
 		rate.Parent = bg
 	end
+	rate.Position = UDim2.new(0, 0, 0, 41 + pillOffset)
 	rate.Text = rateText(cps)
 end
 
@@ -108,6 +135,18 @@ function IncomeLoop.Init()
 				if data then
 					local rebirthMult = RebirthConfig.IncomeMult(data.Rebirths)
 					local upMult = UpgradeConfig.IncomeMult(data.Upgrades)
+					-- Hoisted to a per-player local: it is the same value for every one of this
+					-- player's brainrots, and it has to reach BOTH the accrual below and the
+					-- billboard rate further down. It previously appeared only in the accrual,
+					-- so every plot sign advertised a cash/sec that was lower than what the
+					-- brainrot was actually paying -- by the whole pet multiplier.
+					local petMult = PetHandler.IncomeMult(player)
+					-- Robux passes (2x Cash, VIP). Wired 2026-08-09: GamepassService has
+					-- exposed CashMult since it shipped and nothing multiplied by it, so
+					-- those passes took money and changed nothing. Hoisted for the same
+					-- reason petMult above is -- it has to reach the billboard rate too, or
+					-- every plot sign advertises less than the brainrot actually pays.
+					local passMult = GamepassService.CashMult(player)
 					local plot = PlayerDataManager.GetPlot(player)
 					local pads = plot and plot:FindFirstChild("Pads")
 					local char = player.Character
@@ -116,7 +155,7 @@ function IncomeLoop.Init()
 					-- accumulate pending for every placed brainrot
 					for _, e in ipairs(data.Brainrots) do
 						if e.PadIndex then
-							e.Pending = (e.Pending or 0) + (cashPerSecondByName[e.Name] or 0) * Mutations.Mult(e.Mutation) * rebirthMult * upMult * PetHandler.IncomeMult(player) * dt
+							e.Pending = (e.Pending or 0) + (cashPerSecondByName[e.Name] or 0) * Mutations.Mult(e.Mutation) * Sizes.Mult(e.Size) * rebirthMult * upMult * petMult * passMult * dt
 						end
 					end
 
@@ -125,24 +164,35 @@ function IncomeLoop.Init()
 						if e.PadIndex then entryByPad[e.PadIndex] = e end
 					end
 
-					-- billboards + per-brainrot walk-up collect
+					-- BILLBOARDS ON EVERY CAMP, not just the one the owner is standing in. A player
+					-- holds a camp per world and both render the same collection, so refreshing
+					-- only the near one left the other frozen at whatever it last showed -- two
+					-- camps quoting different takings for the same brainrot, and anyone visiting
+					-- the camp you were away from reading a number that never moved.
+					--
+					-- The walk-up collect stays scoped to the camp you are actually at: it is a
+					-- proximity check, and the mirror is 8000 studs away.
 					local collected = 0
-					if pads then
-						for _, model in ipairs(pads:GetChildren()) do
-							local pi = model:GetAttribute("PadIndex")
-							-- Models as well as Parts: BrainrotSpawner clones an authored Model when
-							-- one exists, and a BasePart-only gate would silently freeze its billboard
-							-- at $0 while the brainrot kept earning.
-							if pi and (model:IsA("BasePart") or model:IsA("Model")) then
-								local e = entryByPad[pi]
-								if e then
-									local cps = (cashPerSecondByName[e.Name] or 0) * Mutations.Mult(e.Mutation) * rebirthMult * upMult
-									local dispName = e.Mutation and (e.Mutation .. " " .. e.Name) or e.Name
-									updateBillboard(model, dispName, e.Pending, cps)
-									local mPos = model:IsA("BasePart") and model.Position or model:GetPivot().Position
-									if WALKUP_COLLECT and hrp and e.Pending >= 1 and (mPos - hrp.Position).Magnitude <= BRAINROT_RANGE then
-										collected += math.floor(e.Pending)
-										e.Pending = e.Pending - math.floor(e.Pending)
+					for _, ownedPlot in ipairs(PlayerDataManager.GetPlots(player)) do
+						local ownedPads = ownedPlot:FindFirstChild("Pads")
+						local isHere = ownedPlot == plot
+						if ownedPads then
+							for _, model in ipairs(ownedPads:GetChildren()) do
+								local pi = model:GetAttribute("PadIndex")
+								-- Models as well as Parts: BrainrotSpawner clones an authored Model when
+								-- one exists, and a BasePart-only gate would silently freeze its billboard
+								-- at $0 while the brainrot kept earning.
+								if pi and (model:IsA("BasePart") or model:IsA("Model")) then
+									local e = entryByPad[pi]
+									if e then
+										local cps = (cashPerSecondByName[e.Name] or 0) * Mutations.Mult(e.Mutation) * Sizes.Mult(e.Size) * rebirthMult * upMult * petMult * passMult
+										local dispName = Sizes.Label(e.Mutation, e.Size, e.Name)
+										updateBillboard(model, dispName, e.Pending, cps)
+										local mPos = model:IsA("BasePart") and model.Position or model:GetPivot().Position
+										if isHere and WALKUP_COLLECT and hrp and e.Pending >= 1 and (mPos - hrp.Position).Magnitude <= BRAINROT_RANGE then
+											collected += math.floor(e.Pending)
+											e.Pending = e.Pending - math.floor(e.Pending)
+										end
 									end
 								end
 							end
@@ -152,6 +202,9 @@ function IncomeLoop.Init()
 						PlayerDataManager.AddEarnings(player, collected, data)
 						PlayerDataManager.SyncLeaderstat(player)
 						remotes.CashTick:FireClient(player, data.Cash)
+						-- counts toward Emerald's collect quests exactly as a campfire gulp does,
+						-- or walking the pads would quietly be the worse way to play
+						EmeraldService.Notify(player, "Collect", collected)
 					end
 
 					-- campfire bank: publish the hoard, gulp it when the owner stands in the fire
@@ -178,13 +231,22 @@ function IncomeLoop.Init()
 						local now = os.clock()
 						local fresh = onFire and not cs.inside
 						local got = 0
-						if onFire and total >= 1 and (fresh or (now - cs.lastCollect) >= COLLECT_INTERVAL) then
+						-- AUTO COLLECT (Robux pass), wired 2026-08-09 -- nothing read this flag
+						-- before, so the pass would have taken Robux and done nothing.
+						--
+						-- It banks through the SAME collectAll the campfire uses, on the same
+						-- interval, so quest progress, lifetime-earnings tracking and the
+						-- floating "+$" cue all behave exactly as they do on foot. The only
+						-- thing the pass removes is the walk back.
+						local autoCollect = GamepassService.HasFlag(player, "AutoCollect")
+						if (onFire or autoCollect) and total >= 1
+							and (fresh or (now - cs.lastCollect) >= COLLECT_INTERVAL) then
 							got = collectAll(player) or 0
 							cs.lastCollect = now
 						end
 
 						if got > 0 then
-							DarrelService.Notify(player, "Collect", got)
+							EmeraldService.Notify(player, "Collect", got)
 							total = math.max(total - got, 0)
 							cs.accum += got
 							if fresh or (now - cs.last) >= CUE_COOLDOWN then
