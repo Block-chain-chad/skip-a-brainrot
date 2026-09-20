@@ -39,6 +39,7 @@ Extension convention (as `place-full`): `.lua` ModuleScript · `.client.lua` Loc
     python -m npc_kit.lint                   # compile + syntax subset + forbidden APIs + data cross-refs
     python -m pytest npc_kit/tests -q        # 42 tests: rig math, motion signs, forge builds, budget, driver, inert client, NPC forge profile
     python -m npc_kit.build                  # bake the standard body (tools/out/npc_body_standard, git-ignored) + render docs/npc/previews
+    python -m npc_kit.v2.study               # V2 character art study (shells on the same skeleton; study data only, no Lua change) -> docs/npc/previews/v2
 
 ## Install order (Phase 3, gated — see docs/npc/phase2.5/H-phase3-execution-plan.md)
 

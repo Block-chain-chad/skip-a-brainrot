@@ -116,10 +116,11 @@ def scene_from_model(H, model, segment_meshes: dict[str, F.SegmentResult] | None
 
 # ===== rasteriser ==============================================================
 def render(tris: list[Tri], width: int, height: int, cam_dir, px_per_stud: float | None = None,
-           center=None, ground_y: float | None = None, light=None, bg=SKY):
+           center=None, ground_y: float | None = None, light=None, bg=SKY, return_depth: bool = False):
     """Orthographic camera looking along -cam_dir (cam_dir = scene -> camera)."""
     if not tris:
-        return Image.new("RGB", (width, height), bg)
+        im = Image.new("RGB", (width, height), bg)
+        return (im, np.full((height, width), np.inf)) if return_depth else im
     d = np.array(cam_dir, dtype=float); d /= np.linalg.norm(d)
     f = -d
     r = np.cross(f, [0, 1, 0]); r /= np.linalg.norm(r)
@@ -174,7 +175,8 @@ def render(tris: list[Tri], width: int, height: int, cam_dir, px_per_stud: float
             mask = inside & (depth < sub)
             sub[mask] = depth[mask]
             img[y0:y1 + 1, x0:x1 + 1][mask] = cols[i]
-    return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8))
+    out = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8))
+    return (out, zbuf) if return_depth else out
 
 
 # ===== reference figure ========================================================
