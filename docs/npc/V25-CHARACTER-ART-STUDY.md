@@ -1,7 +1,7 @@
 # NPC-01 — Global NPC V2.5 Visual Study + Gianluca V2.5 (old veteran)
 
 **Lane:** NPC-01 · **Branch:** `npc-01-character-overhaul` · 2026-09-19
-**Status:** visual study for approval. Art direction is **not** frozen. No Studio access, no live NPC, no Elder Tung, no World 3, no mass production, nothing pushed or merged. The approved technical framework (SR-Rig, Motor6D skeleton, NpcForge, NpcLife, LOD, procedural animation, modular face states, data-driven recipes, attachments/props, the three tiers) is untouched — every Lua module under `game-src/npc-kit/` is byte-identical to Step 0.
+**Status:** **APPROVED 2026-09-19** — D-16…D-22 locked in [V25-APPROVAL-RECORD.md](V25-APPROVAL-RECORD.md); the visual study is frozen here (no further offline versions). Next: the dedicated post-delta-sync Studio window, in the order recorded there. No Studio access, no live NPC, no Elder Tung, no World 3, no mass production, nothing pushed or merged. The approved technical framework (SR-Rig, Motor6D skeleton, NpcForge, NpcLife, LOD, procedural animation, modular face states, data-driven recipes, attachments/props, the three tiers) is untouched — every Lua module under `game-src/npc-kit/` is byte-identical to Step 0.
 
 Supersedes the V2 study's Gianluca (young ranger — wrong canon). The V2 kit stays in the repo only for the comparison sheet.
 
