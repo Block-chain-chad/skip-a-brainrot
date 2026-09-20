@@ -393,17 +393,62 @@ local panel = PC.plate({
 	gloss = false,
 })
 panel.Visible = false
+-- UI-02 (2026-09-19): THIS CARD SIZES ITSELF, so it carries its own UIScale.
+-- PlatformClient.fitPanels has two branches: a panel with no scale of its own is
+-- fitted AND, on a touch screen, GROWN into the space (measured here: x1.16 to x1.35
+-- across the phone and tablet profiles), while a panel that already carries one is
+-- only ever rescued from an actual overflow, never grown. The grow branch is what
+-- put this flyout's title row back off the top of a phone screen after its height
+-- budget was fixed below -- the budget is in real pixels and the growth silently
+-- multiplied them. Declaring our own scale (first UIScale child: the engine applies
+-- only the first, and fitPanels writes its correction through it) hands the sizing
+-- back to the Watch below, which measures the screen honestly.
+local ownScale = Instance.new("UIScale")
+ownScale.Name = "LuckScale"
+ownScale.Scale = 1
+ownScale.Parent = panel
+
 -- single-open: the luck breakdown is a panel like any other, so opening the
 -- backpack (or anything else) puts it away, and vice versa
 require(modules:WaitForChild("SideRail")).registerPanel(panel)
 
 -- a phone has ~370px of height: the card never exceeds the screen, and the
 -- scrolling list inside it does the rest
-Platform.Watch(function()
+--
+-- UI-02 (2026-09-19): the flyout is anchored BOTTOM-right and lifted LIFT px clear
+-- of the chip, so its height budget has to leave room for that lift AND for the
+-- topbar -- `vp.Y - 60` left neither. Measured before this fix on the 1530x576
+-- Studio window: panel top -76, i.e. the whole title row -- the "YOUR LUCK" title,
+-- the xN headline and the close button with them -- rendered off the top of the
+-- screen, so the flyout could not be dismissed by its own X. By the same arithmetic
+-- (top = vp.Y - ins.Top - LIFT - h) it also loses that row on a 1280x720 laptop and
+-- on every phone profile in Platform.TEST_SIZES, where the 118px lift eats a third
+-- of the screen. Height and lift now both come out of what the screen actually has,
+-- and the X offset is clamped the same way so a narrow (portrait) screen cannot
+-- push the card off the left edge instead. The list inside scrolls, so a shorter
+-- card shows fewer rows rather than losing any.
+local LIFT, EDGE = 118, 12
+local function fitFlyout()
 	local vp = Platform.Viewport
-	local h = math.min(PANEL_H, math.max(240, vp.Y - 60))
-	panel.Size = UDim2.fromOffset(if Platform.IsPhone then math.min(PANEL_W, vp.X - 40) else PANEL_W, h)
-end)
+	local ins = Platform.Insets()
+	-- the band fitPanels measures against too: everything below the topbar
+	local usable = math.max(160, vp.Y - ins.Top)
+	local w = if Platform.IsPhone then math.min(PANEL_W, vp.X - 40) else PANEL_W
+	-- the lift gives way first: on a short screen the card is worth more than the gap
+	local lift = math.min(LIFT, math.max(EDGE, usable - 240 - EDGE))
+	local minH = math.min(240, math.max(120, usable - 2 * EDGE))
+	local h = math.clamp(usable - lift - EDGE, minH, PANEL_H)
+	panel.Size = UDim2.fromOffset(w, h)
+	panel.Position = UDim2.new(1, -math.clamp(310, EDGE, math.max(EDGE, vp.X - w - EDGE)), 1, -lift)
+end
+Platform.Watch(fitFlyout)
+-- ...AND when the topbar inset arrives. GuiService:GetGuiInset() answers 0 until the
+-- topbar has initialised, and Platform.Watch fires on device-class / viewport changes
+-- only -- so the first fit of a session was computed against a 58px-taller screen than
+-- the real one and the card came out 446 tall instead of 388, which put the title row
+-- back off the top until something else moved. Re-fit when the inset lands (and it is
+-- idempotent, so a repeat costs nothing).
+game:GetService("GuiService"):GetPropertyChangedSignal("TopbarInset"):Connect(fitFlyout)
 
 ----------------------------------------------------------------- title row
 local TITLE_H = 56
