@@ -1,0 +1,1166 @@
+{
+  "profile": {
+    "id": "P2",
+    "label": "P2 \u2014 recommended: 3.1 heads, short shins, thick forearms",
+    "height": 5.435,
+    "heads": 3.16,
+    "headOffset": 1.575,
+    "shoulderSpan": 3.8,
+    "head": [
+      1.72,
+      1.72,
+      1.58
+    ],
+    "upperTorso": [
+      2.1,
+      1.25,
+      1.1
+    ],
+    "lowerArm": [
+      0.82,
+      0.85,
+      0.82
+    ],
+    "hand": [
+      0.9,
+      0.62,
+      0.88
+    ],
+    "lowerLeg": [
+      0.78,
+      0.8,
+      0.78
+    ],
+    "foot": [
+      0.85,
+      0.5,
+      1.2
+    ],
+    "notes": "Head +11%, lower leg -6%, forearm thicker than the upper arm, hands 0.90 wide, boots 1.2 long."
+  },
+  "budgets": {
+    "Villager_T1": {
+      "id": "Villager_T1",
+      "tier": 1,
+      "baseParts": 26,
+      "welds": 3,
+      "motor6d": 22,
+      "bespokeMeshes": 0,
+      "reusableMeshes": 18,
+      "skeletonMeshes": 7,
+      "triangles": 2192,
+      "trianglesByOwnership": {
+        "skeleton": 640,
+        "reusable": 1552,
+        "specific": 0
+      }
+    },
+    "Merchant_T2": {
+      "id": "Merchant_T2",
+      "tier": 2,
+      "baseParts": 35,
+      "welds": 12,
+      "motor6d": 22,
+      "bespokeMeshes": 0,
+      "reusableMeshes": 25,
+      "skeletonMeshes": 8,
+      "triangles": 2676,
+      "trianglesByOwnership": {
+        "skeleton": 728,
+        "reusable": 1948,
+        "specific": 0
+      }
+    },
+    "Gianluca_V25": {
+      "id": "Gianluca_V25",
+      "tier": 3,
+      "baseParts": 43,
+      "welds": 20,
+      "motor6d": 22,
+      "bespokeMeshes": 7,
+      "reusableMeshes": 30,
+      "skeletonMeshes": 4,
+      "triangles": 4188,
+      "trianglesByOwnership": {
+        "skeleton": 376,
+        "reusable": 3152,
+        "specific": 660
+      }
+    }
+  },
+  "v2Young": {
+    "id": "Gianluca_V2",
+    "tier": 3,
+    "baseParts": 37,
+    "welds": 14,
+    "motor6d": 22,
+    "bespokeMeshes": 3,
+    "reusableMeshes": 26,
+    "skeletonMeshes": 6,
+    "triangles": 3468,
+    "trianglesByOwnership": {
+      "skeleton": 560,
+      "reusable": 2468,
+      "specific": 440
+    }
+  },
+  "v1": {
+    "rows": {
+      "blockout allowance": [
+        1,
+        0
+      ],
+      "baseParts": [
+        41,
+        49
+      ],
+      "descendants": [
+        101,
+        132
+      ],
+      "emitters": [
+        0,
+        2
+      ],
+      "lights": [
+        0,
+        1
+      ],
+      "neon": [
+        0,
+        1
+      ],
+      "motor6d": [
+        22,
+        22
+      ],
+      "welds": [
+        17,
+        18
+      ],
+      "attachments": [
+        16,
+        18
+      ],
+      "bespokeMeshes": [
+        0,
+        3
+      ],
+      "trianglesEstimated": [
+        2860,
+        9000
+      ],
+      "scripts": [
+        0,
+        0
+      ],
+      "humanoids": [
+        0,
+        0
+      ],
+      "constraints": [
+        0,
+        0
+      ],
+      "highlights": [
+        0,
+        0
+      ],
+      "unions": [
+        0,
+        0
+      ],
+      "canQuery": [
+        0,
+        0
+      ],
+      "canTouch": [
+        0,
+        0
+      ],
+      "canCollide": [
+        1,
+        1
+      ],
+      "orphans": [
+        0,
+        0
+      ]
+    },
+    "bodyTriangles": 2860
+  },
+  "glb": {
+    "Villager_T1": {
+      "glb": "out\\npc_v25_study\\Villager_T1.glb",
+      "nodes": 25,
+      "bytes": 260832
+    },
+    "Merchant_T2": {
+      "glb": "out\\npc_v25_study\\Merchant_T2.glb",
+      "nodes": 33,
+      "bytes": 320972
+    },
+    "Gianluca_V25": {
+      "glb": "out\\npc_v25_study\\Gianluca_V25.glb",
+      "nodes": 41,
+      "bytes": 492472
+    }
+  },
+  "pieces": {
+    "Villager_T1": [
+      {
+        "name": "Head",
+        "bone": "Head",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 160
+      },
+      {
+        "name": "UpperTorso",
+        "bone": "UpperTorso",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "LowerTorso",
+        "bone": "LowerTorso",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 80
+      },
+      {
+        "name": "RightUpperArm",
+        "bone": "RightUpperArm",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 100
+      },
+      {
+        "name": "RightLowerArm",
+        "bone": "RightLowerArm",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "RightHand",
+        "bone": "RightHand",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 112
+      },
+      {
+        "name": "RightUpperLeg",
+        "bone": "RightUpperLeg",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "RightLowerLeg",
+        "bone": "RightLowerLeg",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "RightFoot",
+        "bone": "RightFoot",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 128
+      },
+      {
+        "name": "LeftUpperArm",
+        "bone": "LeftUpperArm",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 100
+      },
+      {
+        "name": "LeftLowerArm",
+        "bone": "LeftLowerArm",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "LeftHand",
+        "bone": "LeftHand",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 112
+      },
+      {
+        "name": "LeftUpperLeg",
+        "bone": "LeftUpperLeg",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "LeftLowerLeg",
+        "bone": "LeftLowerLeg",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "LeftFoot",
+        "bone": "LeftFoot",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 128
+      },
+      {
+        "name": "EyeR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 64
+      },
+      {
+        "name": "PupilR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "BrowR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 32
+      },
+      {
+        "name": "EyeL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 64
+      },
+      {
+        "name": "PupilL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "BrowL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 32
+      },
+      {
+        "name": "Mouth",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "Hair",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "hair",
+        "tris": 256
+      },
+      {
+        "name": "Belt",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 24
+      },
+      {
+        "name": "Rock",
+        "bone": "RightHand",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "prop",
+        "tris": 64
+      }
+    ],
+    "Merchant_T2": [
+      {
+        "name": "Head",
+        "bone": "Head",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 168
+      },
+      {
+        "name": "UpperTorso",
+        "bone": "UpperTorso",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "LowerTorso",
+        "bone": "LowerTorso",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 80
+      },
+      {
+        "name": "RightUpperArm",
+        "bone": "RightUpperArm",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 140
+      },
+      {
+        "name": "RightLowerArm",
+        "bone": "RightLowerArm",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "RightHand",
+        "bone": "RightHand",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 112
+      },
+      {
+        "name": "RightUpperLeg",
+        "bone": "RightUpperLeg",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "RightLowerLeg",
+        "bone": "RightLowerLeg",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "RightFoot",
+        "bone": "RightFoot",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 128
+      },
+      {
+        "name": "LeftUpperArm",
+        "bone": "LeftUpperArm",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 140
+      },
+      {
+        "name": "LeftLowerArm",
+        "bone": "LeftLowerArm",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "LeftHand",
+        "bone": "LeftHand",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 112
+      },
+      {
+        "name": "LeftUpperLeg",
+        "bone": "LeftUpperLeg",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "LeftLowerLeg",
+        "bone": "LeftLowerLeg",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "LeftFoot",
+        "bone": "LeftFoot",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 128
+      },
+      {
+        "name": "LeftCuff",
+        "bone": "LeftLowerArm",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 20
+      },
+      {
+        "name": "EyeR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 64
+      },
+      {
+        "name": "PupilR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "BrowR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 32
+      },
+      {
+        "name": "EyeL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 64
+      },
+      {
+        "name": "PupilL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "BrowL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 32
+      },
+      {
+        "name": "Mouth",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "Moustache",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "hair",
+        "tris": 32
+      },
+      {
+        "name": "Hair",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "hair",
+        "tris": 192
+      },
+      {
+        "name": "Cap",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "hat",
+        "tris": 112
+      },
+      {
+        "name": "Neckerchief",
+        "bone": "UpperTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 80
+      },
+      {
+        "name": "ApronBib",
+        "bone": "UpperTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 36
+      },
+      {
+        "name": "ApronSkirt",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 16
+      },
+      {
+        "name": "Belt",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 24
+      },
+      {
+        "name": "SatchelStrap",
+        "bone": "UpperTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 28
+      },
+      {
+        "name": "Satchel",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 80
+      },
+      {
+        "name": "CoinSack",
+        "bone": "LeftHand",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "prop",
+        "tris": 120
+      }
+    ],
+    "Gianluca_V25": [
+      {
+        "name": "Head",
+        "bone": "Head",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 168
+      },
+      {
+        "name": "UpperTorso",
+        "bone": "UpperTorso",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "LowerTorso",
+        "bone": "LowerTorso",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "outfit",
+        "tris": 80
+      },
+      {
+        "name": "RightUpperArm",
+        "bone": "RightUpperArm",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 100
+      },
+      {
+        "name": "RightLowerArm",
+        "bone": "RightLowerArm",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "RightHand",
+        "bone": "RightHand",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 128
+      },
+      {
+        "name": "RightUpperLeg",
+        "bone": "RightUpperLeg",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "RightLowerLeg",
+        "bone": "RightLowerLeg",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 160
+      },
+      {
+        "name": "RightFoot",
+        "bone": "RightFoot",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 144
+      },
+      {
+        "name": "LeftUpperArm",
+        "bone": "LeftUpperArm",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 100
+      },
+      {
+        "name": "LeftLowerArm",
+        "bone": "LeftLowerArm",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 120
+      },
+      {
+        "name": "LeftHand",
+        "bone": "LeftHand",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 128
+      },
+      {
+        "name": "LeftUpperLeg",
+        "bone": "LeftUpperLeg",
+        "slot": true,
+        "ownership": "skeleton",
+        "category": "body",
+        "tris": 64
+      },
+      {
+        "name": "LeftLowerLeg",
+        "bone": "LeftLowerLeg",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 160
+      },
+      {
+        "name": "LeftFoot",
+        "bone": "LeftFoot",
+        "slot": true,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 144
+      },
+      {
+        "name": "EyeR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 64
+      },
+      {
+        "name": "PupilR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "BrowR",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 36
+      },
+      {
+        "name": "EyeL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 64
+      },
+      {
+        "name": "PupilL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "BrowL",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 36
+      },
+      {
+        "name": "Mouth",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "face",
+        "tris": 40
+      },
+      {
+        "name": "AgeLines",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "hair",
+        "tris": 184
+      },
+      {
+        "name": "Beard",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "hair",
+        "tris": 176
+      },
+      {
+        "name": "Hair",
+        "bone": "Head",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "hair",
+        "tris": 272
+      },
+      {
+        "name": "HoodDown",
+        "bone": "UpperTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 208
+      },
+      {
+        "name": "Scarf",
+        "bone": "UpperTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 192
+      },
+      {
+        "name": "Clasp",
+        "bone": "UpperTorso",
+        "slot": false,
+        "ownership": "specific",
+        "category": "accessory",
+        "tris": 44
+      },
+      {
+        "name": "TunicFront",
+        "bone": "UpperTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 20
+      },
+      {
+        "name": "CoatSkirts",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 76
+      },
+      {
+        "name": "Belt",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 24
+      },
+      {
+        "name": "Buckle",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 48
+      },
+      {
+        "name": "Pouch",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "accessory",
+        "tris": 80
+      },
+      {
+        "name": "ChimCollar",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "specific",
+        "category": "accessory",
+        "tris": 144
+      },
+      {
+        "name": "Bell",
+        "bone": "LowerTorso",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "prop",
+        "tris": 112
+      },
+      {
+        "name": "ShoulderPlate",
+        "bone": "UpperTorso",
+        "slot": false,
+        "ownership": "specific",
+        "category": "outfit",
+        "tris": 178
+      },
+      {
+        "name": "LeftPatch",
+        "bone": "LeftUpperArm",
+        "slot": false,
+        "ownership": "reusable",
+        "category": "outfit",
+        "tris": 16
+      },
+      {
+        "name": "Spear",
+        "bone": "RightHand",
+        "slot": false,
+        "ownership": "specific",
+        "category": "prop",
+        "tris": 78
+      },
+      {
+        "name": "SpearGrip",
+        "bone": "RightHand",
+        "slot": false,
+        "ownership": "specific",
+        "category": "prop",
+        "tris": 80
+      },
+      {
+        "name": "SpearHead",
+        "bone": "RightHand",
+        "slot": false,
+        "ownership": "specific",
+        "category": "prop",
+        "tris": 72
+      },
+      {
+        "name": "SpearCloth",
+        "bone": "RightHand",
+        "slot": false,
+        "ownership": "specific",
+        "category": "prop",
+        "tris": 64
+      }
+    ]
+  },
+  "beats": {
+    "idle \u2014 resting on the staff": {
+      "expression": "serious",
+      "rest": {
+        "Waist": {
+          "bend": 9,
+          "turn": 4,
+          "tilt": 3
+        },
+        "Neck": {
+          "bend": 4,
+          "turn": -8,
+          "tilt": 4
+        },
+        "RightShoulder": {
+          "swing": 40,
+          "spread": 12
+        },
+        "RightElbow": {
+          "swing": 34
+        },
+        "LeftShoulder": {
+          "spread": 9,
+          "swing": -12
+        },
+        "LeftElbow": {
+          "swing": 22
+        },
+        "RightHip": {
+          "spread": 2
+        },
+        "LeftHip": {
+          "spread": 9
+        },
+        "LeftKnee": {
+          "swing": 10
+        }
+      }
+    },
+    "idle \u2014 weight shift, slow look": {
+      "expression": "neutral",
+      "rest": {
+        "Waist": {
+          "bend": 8,
+          "turn": -5,
+          "tilt": -1
+        },
+        "Neck": {
+          "bend": 2,
+          "turn": 24,
+          "tilt": -3
+        },
+        "RightShoulder": {
+          "swing": 40,
+          "spread": 12
+        },
+        "RightElbow": {
+          "swing": 34
+        },
+        "LeftShoulder": {
+          "spread": 9,
+          "swing": -12
+        },
+        "LeftElbow": {
+          "swing": 22
+        },
+        "RightHip": {
+          "spread": 7
+        },
+        "LeftHip": {
+          "spread": 4
+        },
+        "LeftKnee": {
+          "swing": 3
+        },
+        "RightKnee": {
+          "swing": 6
+        }
+      }
+    },
+    "talking \u2014 restrained point": {
+      "expression": "serious",
+      "rest": {
+        "Waist": {
+          "bend": 9,
+          "turn": 4,
+          "tilt": 3
+        },
+        "Neck": {
+          "bend": 1,
+          "turn": 4,
+          "tilt": 2
+        },
+        "RightShoulder": {
+          "swing": 40,
+          "spread": 12
+        },
+        "RightElbow": {
+          "swing": 34
+        },
+        "LeftShoulder": {
+          "swing": 46,
+          "spread": 14
+        },
+        "LeftElbow": {
+          "swing": 72
+        },
+        "RightHip": {
+          "spread": 2
+        },
+        "LeftHip": {
+          "spread": 9
+        },
+        "LeftKnee": {
+          "swing": 10
+        }
+      }
+    },
+    "war reaction \u2014 stiffen, grip, look away": {
+      "expression": "tired",
+      "rest": {
+        "Waist": {
+          "bend": 3,
+          "turn": 2,
+          "tilt": 1
+        },
+        "Neck": {
+          "bend": 7,
+          "turn": 32,
+          "tilt": -5
+        },
+        "RightShoulder": {
+          "swing": 40,
+          "spread": 12
+        },
+        "RightElbow": {
+          "swing": 42
+        },
+        "LeftShoulder": {
+          "swing": -18,
+          "spread": 7
+        },
+        "LeftElbow": {
+          "swing": 28
+        },
+        "RightHip": {
+          "spread": 2
+        },
+        "LeftHip": {
+          "spread": 9
+        },
+        "LeftKnee": {
+          "swing": 10
+        }
+      }
+    }
+  }
+}

@@ -128,8 +128,8 @@ def sheet_tier_ladder(profile: P.BodyProfile, cast: list[C.Character]) -> Image.
     R.overlay_skeleton(im, P.skeleton_points(profile, bones), P.SKELETON_EDGES, PANEL[0], PANEL[1], R.VIEWS["left 3/4"], PPS, CENTRE)
     panels = [R.label(im, "skeleton + body kit")]
     for ch in cast:
-        panels.append(panel(ch.world_meshes(), "left 3/4", text=f"Tier {ch.tier}"))
-    sils = [R.silhouette(ch.world_meshes(), PANEL[0], PANEL[1], "front", PPS, CENTRE) for ch in cast]
+        panels.append(panel(ch.world_meshes(), "left 3/4", pps=54, centre=(0, 3.1, 0), text=f"Tier {ch.tier}"))
+    sils = [R.silhouette(ch.world_meshes(), PANEL[0], PANEL[1], "front", 54, (0, 3.1, 0)) for ch in cast]
     body = R.stack([R.hstack(panels), R.hstack([Image.new("RGB", PANEL, R.SKY)] + sils)])
     cap = ("The same 15-bone skeleton under all three. Tier 1 shows the common kit; Tier 2 hides it under reusable shells; "
            "Tier 3 adds character-specific meshes and asymmetry. Bottom row: front silhouettes — each tier should be identifiable in solid black.")

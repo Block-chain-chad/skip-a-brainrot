@@ -1,7 +1,7 @@
 # NPC-01 — V2 Character Art Study (visual study only)
 
 **Lane:** NPC-01 · **Branch:** `npc-01-character-overhaul` · 2026-09-19
-**Status:** study for approval. **Nothing is frozen.** No Studio access, no live NPC, no change to the approved Step 0 framework (SR-Rig, Motor6D, NpcForge, NpcLife, LOD, face-state interface, animation axes, budgets, recipes, attachments). Nothing pushed or merged.
+**Status:** superseded for Gianluca by [V25-CHARACTER-ART-STUDY.md](V25-CHARACTER-ART-STUDY.md) (canon: he is an old veteran; the young-ranger design here is kept only for the comparison sheet). The construction rules, P2 proportions and tier ladder carry forward. **Nothing is frozen.** No Studio access, no live NPC, no change to the approved Step 0 framework (SR-Rig, Motor6D, NpcForge, NpcLife, LOD, face-state interface, animation axes, budgets, recipes, attachments). Nothing pushed or merged.
 
 **Why:** the Step 0 prototype read as *a generic low-poly Roblox NPC wearing accessories*. This study keeps the system and changes the skin: the rig becomes an underlying skeleton, and every visible mesh on a Tier 2/3 character is an authored low-poly shell. D-11 (v1.1 proportions) is **not** applied — see the F sheet for why.
 
