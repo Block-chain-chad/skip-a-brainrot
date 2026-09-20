@@ -386,7 +386,7 @@ def boots(profile: P.BodyProfile, side: str, color: RGB = (66, 46, 30), oversize
         parts.append(L.tube(prof, [(y, 1.26 * o, 1.24 * o), (y + 0.08, 1.27 * o, 1.25 * o)], color, cap_bottom=False, cap_top=False))
     fw, fh, fd = profile.size(f"{side}Foot")
     foot = P.foot_mesh((fw * 1.18 * o, fh * 1.10, fd * 1.10), color, f"{side}Foot", toe_drop=0.30)
-    heel = L.rounded_box((fw * 1.0 * o, fh * 0.45, fd * 0.32), n=6, p=5, r_bottom=0.03, r_top=0.03, color=color).translated(0, -fh * 0.28, fd * 0.36)
+    heel = L.rounded_box((fw * 1.0 * o, fh * 0.45, fd * 0.32), n=6, p=5, r_bottom=0.03, r_top=0.03, color=color).translated(0, -fh * 0.55 + fh * 0.225, fd * 0.36)   # heel bottom on the sole plane
     toe = L.tube(L.superellipse(8, fw / 2 * 1.16 * o, fh / 2 * 0.9, 3.2), [(0, 1, 1), (0.10, 1, 1)], color, cap_bottom=False, cap_top=False) \
         .rotated(rx=90).translated(0, -fh * 0.02, -fd * 0.22)
     return [Piece(f"{side}LowerLeg", f"{side}LowerLeg", L.merge(parts, color, f"{side}LowerLeg"), "reusable", True, "outfit"),

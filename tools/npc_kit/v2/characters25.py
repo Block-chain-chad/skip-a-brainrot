@@ -88,6 +88,7 @@ VETERAN_REST = {
     "RightShoulder": {"swing": 40, "spread": 12}, "RightElbow": {"swing": 34},      # hand resting high on the staff
     "LeftShoulder": {"spread": 9, "swing": -12}, "LeftElbow": {"swing": 22},        # the plated arm hangs back
     "RightHip": {"spread": 2}, "LeftHip": {"spread": 9}, "LeftKnee": {"swing": 10},  # weight on the staff-side leg
+    "LeftAnkle": {"swing": -10, "spread": -9},                  # sole stays flat on the ground
 }
 
 BEATS = {

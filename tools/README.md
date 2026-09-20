@@ -17,6 +17,8 @@ Design rules and budgets: ../docs/brainrot-build-standard.md. Pipeline: ../docs/
     python -m npc_kit.build        # forge NPC profile: bakes the SR-Rig body to out/npc_body_standard (Import 3D batch) and renders ../docs/npc/previews
     python -m npc_kit.v2.study     # V2 character art study: low-poly shells on the SR-Rig skeleton -> ../docs/npc/previews/v2 (+ out/npc_v2_study/*.glb)
     python -m npc_kit.v2.study25   # V2.5 study: tiers + old-veteran Gianluca -> ../docs/npc/previews/v25 (+ out/npc_v25_study/*.glb)
+    python -m npc_kit.v2.export_kit   # regenerate NpcShells/Gianluca_V25.lua + the Import 3D batch out/npc_v25_kit/Gianluca_V25.glb (41 nodes)
+    python -m npc_kit.v2.forge_check  # port fidelity: NpcForge build vs the study render -> ../docs/npc/previews/v25/v25-K-forge-vs-study.png
 
 `npc_kit/forge_npc.py` is the forge's NPC profile (pitch 0.05, sizes read from NpcRigSpec.lua, forge bake()/write_glb unchanged); `npc_kit/preview.py` is the harness-side renderer.
 

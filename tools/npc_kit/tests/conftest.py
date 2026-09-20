@@ -8,10 +8,11 @@ def H():
     return Harness()
 
 
-def build_gianluca(H, **opts):
+def build_gianluca(H, recipe="Gianluca_v1", **opts):
+    """The Step 0 prototype (cube face, blockout overlays) unless a recipe is named; V2.5 tests build "Gianluca"."""
     forge = H.forge()
     o = H.table(blockout=True, **opts)
-    model, report = forge.Build("Gianluca", o)
+    model, report = forge.Build(recipe, o)
     assert model is not None, f"Gianluca failed the budget: {rows(report)}"
     return model, report
 

@@ -13,7 +13,7 @@
 -- reaches Studio. Luau accepts everything here unchanged.
 
 local NpcRigSpec = {}
-NpcRigSpec.Version = 1
+NpcRigSpec.Version = 2
 
 local function V(x, y, z) return Vector3.new(x, y, z) end
 
@@ -145,11 +145,157 @@ local function buildBodyType(id)
 	return { id = id, parts = parts, joints = joints }
 end
 
+-- ===== PROFILES (V2.5, D-22) ===================================================
+-- A profile is a PARAMETER table the skeleton is built from bottom-up (feet on y = 0,
+-- legs set the hip height, torso stacks on the hips, head on the neck; the HRP stays
+-- at HrpHeight so the MerchantDialog portrait line keeps working). p2 is the default
+-- human BodyProfile; a recipe's bodyOverrides scales the parameters per character
+-- (height, headScale, shoulderWidth, torsoMass, limbThickness, legLength) before the
+-- build, so one rig system yields many body shapes. Numbers = the approved study P2.
+NpcRigSpec.Profiles = {
+	p2 = {
+		head = V(1.72, 1.72, 1.58), ut = V(2.10, 1.25, 1.10), lt = V(1.85, 0.70, 1.00),
+		ua = V(0.80, 0.92, 0.80), la = V(0.82, 0.85, 0.82), hand = V(0.90, 0.62, 0.88),
+		ul = V(0.85, 1.00, 0.85), ll = V(0.78, 0.80, 0.78), foot = V(0.85, 0.50, 1.20),
+		legX = 0.52, armGap = 0.05, shoulderDrop = 0.16, footForward = 0.12, neckGap = 0.16,
+	},
+}
+NpcRigSpec.OverrideKeys = { "height", "headScale", "shoulderWidth", "torsoMass", "limbThickness", "legLength" }
+
+local function scaleV(v, sx, sy, sz) return V(v.X * sx, v.Y * sy, v.Z * sz) end
+
+-- Apply multiplier overrides (1 = as authored) to a copy of the profile parameters.
+local function overrideParams(src, ov)
+	ov = ov or {}
+	local h = ov.height or 1            -- every vertical dimension
+	local hs = ov.headScale or 1
+	local sw = ov.shoulderWidth or 1    -- upper torso width (the arms follow the torso edge)
+	local tm = ov.torsoMass or 1        -- torso width + depth
+	local lt = ov.limbThickness or 1    -- limb / hand / foot width + depth
+	local ll = ov.legLength or 1
+	local p = {}
+	p.head = scaleV(src.head, hs, hs * h, hs)
+	p.ut = scaleV(src.ut, sw * tm, h, tm)
+	p.lt = scaleV(src.lt, tm, h, tm)
+	p.ua = scaleV(src.ua, lt, h, lt)
+	p.la = scaleV(src.la, lt, h, lt)
+	p.hand = scaleV(src.hand, lt, h, lt)
+	p.ul = scaleV(src.ul, lt, h * ll, lt)
+	p.ll = scaleV(src.ll, lt, h * ll, lt)
+	p.foot = scaleV(src.foot, lt, h, lt)
+	p.legX = src.legX * math.sqrt(tm)
+	p.armGap = src.armGap
+	p.shoulderDrop = src.shoulderDrop * h
+	p.footForward = src.footForward
+	p.neckGap = src.neckGap * h
+	return p
+end
+
+-- Build a body-type table from parameters (the same stacking as the study's make_profile).
+function NpcRigSpec.BuildProfile(id, params)
+	local q = params
+	local hrpY = NpcRigSpec.Root.HrpHeight
+	local parts, joints = {}, {}
+	local function part(name, size, x, y, z, shadow)
+		parts[#parts + 1] = { name = name, size = size, offset = V(x, y - hrpY, z), shadow = shadow or false }
+	end
+	local pivots = {}
+	local function pivot(name, x, y, z) pivots[name] = V(x, y - hrpY, z) end
+	-- legs
+	local ankle = q.foot.Y * 0.75
+	local llBottom = ankle - 0.10
+	local knee = llBottom + q.ll.Y - 0.05
+	local ulBottom = knee - 0.08
+	local hip = ulBottom + q.ul.Y - 0.08
+	for _, side in ipairs({ { "Right", 1 }, { "Left", -1 } }) do
+		local x = side[2] * q.legX
+		part(side[1] .. "Foot", q.foot, x, q.foot.Y / 2, -q.footForward)
+		part(side[1] .. "LowerLeg", q.ll, x, llBottom + q.ll.Y / 2, 0)
+		part(side[1] .. "UpperLeg", q.ul, x, ulBottom + q.ul.Y / 2, 0)
+		pivot(side[1] .. "Ankle", x, ankle, 0)
+		pivot(side[1] .. "Knee", x, knee, 0)
+		pivot(side[1] .. "Hip", x, hip, 0)
+	end
+	-- torso
+	local ltBottom = hip - 0.10
+	local waist = ltBottom + q.lt.Y - 0.03
+	local utBottom = waist - 0.07
+	local neck = utBottom + q.ut.Y - 0.06
+	part("LowerTorso", q.lt, 0, ltBottom + q.lt.Y / 2, 0, true)
+	part("UpperTorso", q.ut, 0, utBottom + q.ut.Y / 2, 0, true)
+	pivot("Root", 0, hrpY, 0)
+	pivot("Waist", 0, waist, 0)
+	pivot("Neck", 0, neck, 0)
+	-- head (a short visible neck under it)
+	local headBottom = neck + q.neckGap
+	part("Head", q.head, 0, headBottom + q.head.Y / 2, 0, true)
+	-- arms
+	local utTop = utBottom + q.ut.Y
+	local shoulderY = utTop - q.shoulderDrop
+	for _, side in ipairs({ { "Right", 1 }, { "Left", -1 } }) do
+		local sx = side[2]
+		local ax = sx * (q.ut.X / 2 + q.ua.X / 2 + q.armGap)
+		local uaTop = shoulderY + 0.14
+		local elbow = uaTop - q.ua.Y + 0.06
+		local laTop = elbow + 0.06
+		local wrist = laTop - q.la.Y + 0.05
+		local handTop = wrist + 0.05
+		part(side[1] .. "UpperArm", q.ua, ax, uaTop - q.ua.Y / 2, 0)
+		part(side[1] .. "LowerArm", q.la, ax, laTop - q.la.Y / 2, 0)
+		part(side[1] .. "Hand", q.hand, ax, handTop - q.hand.Y / 2, 0)
+		pivot(side[1] .. "Shoulder", sx * q.ut.X / 2, shoulderY, 0)
+		pivot(side[1] .. "Elbow", ax, elbow, 0)
+		pivot(side[1] .. "Wrist", ax, wrist, 0)
+	end
+	-- joints in the standard order (parent before child), same names / part pairs as v1
+	for _, j in ipairs(STANDARD_JOINTS) do
+		joints[#joints + 1] = { name = j.name, part0 = j.part0, part1 = j.part1, pivot = pivots[j.name] }
+		if j.mirror then
+			joints[#joints + 1] = { name = j.mirror, part0 = j.part0:gsub("^Right", "Left"), part1 = j.part1:gsub("^Right", "Left"), pivot = pivots[j.mirror] }
+		end
+	end
+	-- the parts list in v1 order (torso, head, then limbs right/left) for stable iteration
+	local order = { "LowerTorso", "UpperTorso", "Head", "RightUpperArm", "LeftUpperArm", "RightLowerArm", "LeftLowerArm", "RightHand", "LeftHand",
+		"RightUpperLeg", "LeftUpperLeg", "RightLowerLeg", "LeftLowerLeg", "RightFoot", "LeftFoot" }
+	local byName = {}
+	for _, p in ipairs(parts) do byName[p.name] = p end
+	local ordered = {}
+	for _, n in ipairs(order) do ordered[#ordered + 1] = byName[n] end
+	local head = byName.Head
+	return { id = id, parts = ordered, joints = joints, profile = true,
+		headOffset = head.offset.Y, height = hrpY + head.offset.Y + head.size.Y / 2 }
+end
+
 NpcRigSpec.BodyTypes = {
 	standard = buildBodyType("standard"),
 	stout = buildBodyType("stout"),
 	slight = buildBodyType("slight"),
+	p2 = NpcRigSpec.BuildProfile("p2", overrideParams(NpcRigSpec.Profiles.p2, nil)),
 }
+NpcRigSpec.DefaultBodyType = "p2"
+
+-- Resolve(bodyTypeId, overrides) -> a body-type table. Overrides only apply to
+-- profile-built types; the v1 literal types ignore them (and say so in .note).
+function NpcRigSpec.Resolve(bodyTypeId, overrides)
+	bodyTypeId = bodyTypeId or NpcRigSpec.DefaultBodyType
+	local base = NpcRigSpec.BodyTypes[bodyTypeId]
+	assert(base, "NpcRigSpec: unknown body type " .. tostring(bodyTypeId))
+	local any = false
+	for _, k in ipairs(NpcRigSpec.OverrideKeys) do
+		if overrides and overrides[k] and overrides[k] ~= 1 then any = true end
+	end
+	if not any then return base end
+	local params = NpcRigSpec.Profiles[bodyTypeId]
+	if not params then
+		local copy = {}
+		for k, v in pairs(base) do copy[k] = v end
+		copy.note = "bodyOverrides ignored: " .. bodyTypeId .. " is not a profile-built body type"
+		return copy
+	end
+	local bt = NpcRigSpec.BuildProfile(bodyTypeId, overrideParams(params, overrides))
+	bt.overrides = overrides
+	return bt
+end
 
 -- Lookups the driver uses: joint class + side for the semantic axes (doc C1).
 NpcRigSpec.JointClass = {}
@@ -174,24 +320,37 @@ function NpcRigSpec.ClassifyCreatureJoint(name)
 	return "limb", side
 end
 
-function NpcRigSpec.PartByName(bodyTypeId, partName)
-	local bt = NpcRigSpec.BodyTypes[bodyTypeId]
-	if not bt then return nil end
+-- Body-type argument: an id ("standard", "p2") or a resolved table (NpcRigSpec.Resolve).
+local function bodyTypeOf(x)
+	if type(x) == "table" then return x end
+	local bt = NpcRigSpec.BodyTypes[x or NpcRigSpec.DefaultBodyType]
+	assert(bt, "NpcRigSpec: unknown body type " .. tostring(x))
+	return bt
+end
+NpcRigSpec.BodyTypeOf = bodyTypeOf
+
+function NpcRigSpec.PartByName(bodyType, partName)
+	local bt = bodyTypeOf(bodyType)
 	for _, p in ipairs(bt.parts) do if p.name == partName then return p end end
 	return nil
 end
 
 -- C0/C1 for a joint: pivot expressed in each part's own space. Part0 may be
--- the HRP (centre = origin).
-function NpcRigSpec.JointFrames(bodyTypeId, jointName)
-	local bt = NpcRigSpec.BodyTypes[bodyTypeId]
-	assert(bt, "NpcRigSpec: unknown body type " .. tostring(bodyTypeId))
+-- the HRP (centre = origin). centres (optional) maps a part name to the extra
+-- offset of its MeshPart centre from the bone origin (a shell mesh is centred on
+-- its own bounding box by the importer), so the frames stay pinned to the pivot.
+function NpcRigSpec.JointFrames(bodyType, jointName, centres)
+	local bt = bodyTypeOf(bodyType)
+	centres = centres or {}
+	local zero = V(0, 0, 0)
 	for _, j in ipairs(bt.joints) do
 		if j.name == jointName then
-			local c0centre = (j.part0 == "HumanoidRootPart") and V(0, 0, 0) or NpcRigSpec.PartByName(bodyTypeId, j.part0).offset
-			local c1centre = NpcRigSpec.PartByName(bodyTypeId, j.part1).offset
-			local c0 = CFrame.new(j.pivot.X - c0centre.X, j.pivot.Y - c0centre.Y, j.pivot.Z - c0centre.Z)
-			local c1 = CFrame.new(j.pivot.X - c1centre.X, j.pivot.Y - c1centre.Y, j.pivot.Z - c1centre.Z)
+			local c0centre = (j.part0 == "HumanoidRootPart") and zero or NpcRigSpec.PartByName(bt, j.part0).offset
+			local c1centre = NpcRigSpec.PartByName(bt, j.part1).offset
+			local e0 = centres[j.part0] or zero
+			local e1 = centres[j.part1] or zero
+			local c0 = CFrame.new(j.pivot.X - c0centre.X - e0.X, j.pivot.Y - c0centre.Y - e0.Y, j.pivot.Z - c0centre.Z - e0.Z)
+			local c1 = CFrame.new(j.pivot.X - c1centre.X - e1.X, j.pivot.Y - c1centre.Y - e1.Y, j.pivot.Z - c1centre.Z - e1.Z)
 			return c0, c1, j
 		end
 	end
@@ -199,9 +358,16 @@ function NpcRigSpec.JointFrames(bodyTypeId, jointName)
 end
 
 -- Total standing height, for budgets and the portrait check.
-function NpcRigSpec.Height(bodyTypeId)
-	local head = NpcRigSpec.PartByName(bodyTypeId or "standard", "Head")
+function NpcRigSpec.Height(bodyType)
+	local head = NpcRigSpec.PartByName(bodyTypeOf(bodyType or "standard"), "Head")
 	return NpcRigSpec.Root.HrpHeight + head.offset.Y + head.size.Y / 2
+end
+
+-- Head centre above the HRP (the portrait line): 1.45 on the v1 types, the profile's own on p2.
+function NpcRigSpec.HeadOffset(bodyType)
+	local bt = bodyTypeOf(bodyType or "standard")
+	if bt.headOffset then return bt.headOffset end
+	return NpcRigSpec.Root.HeadOffset
 end
 
 return NpcRigSpec

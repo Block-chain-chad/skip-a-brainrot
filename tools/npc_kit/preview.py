@@ -82,9 +82,12 @@ def _color(c3):
     return np.array([c3.R * 255, c3.G * 255, c3.B * 255], dtype=float)
 
 
-def scene_from_model(H, model, segment_meshes: dict[str, F.SegmentResult] | None = None, only=None, tint=None) -> list[Tri]:
+def scene_from_model(H, model, segment_meshes: dict[str, F.SegmentResult] | None = None, only=None, tint=None,
+                     shell_meshes: dict | None = None) -> list[Tri]:
     """Triangles for every visible BasePart of a harness-built model. MeshParts use
-    the baked segment mesh (scaled to the part's Size); Parts use their Shape."""
+    the baked segment mesh (scaled to the part's Size); Parts use their Shape.
+    shell_meshes: V2.5 pieces.json (name -> {positions (centred), indices, size}) for a
+    shell build -- the geometry Import 3D would have given the MeshPart, scaled to its Size."""
     out = []
     for d in H.descendants(model):
         if not d.IsA(d, "BasePart") or d.Transparency >= 1:
@@ -94,7 +97,13 @@ def scene_from_model(H, model, segment_meshes: dict[str, F.SegmentResult] | None
         M, p = _cf_to_np(d.CFrame)
         size = (d.Size.X, d.Size.Y, d.Size.Z)
         seg = d.Name.replace("Left", "").replace("Right", "")
-        if d.ClassName == "MeshPart" and segment_meshes and seg in segment_meshes:
+        if d.ClassName == "MeshPart" and shell_meshes and d.Name in shell_meshes:
+            sm = shell_meshes[d.Name]
+            base = np.array(sm["size"], dtype=float)
+            scale = np.array([size[i] / base[i] if base[i] > 1e-9 else 1.0 for i in range(3)])
+            v = np.array(sm["positions"], dtype=float) * scale
+            idx = np.array(sm["indices"], dtype=int).reshape(-1, 3)
+        elif d.ClassName == "MeshPart" and segment_meshes and seg in segment_meshes:
             r = segment_meshes[seg]
             scale = np.array([size[i] / r.bbox_size[i] for i in range(3)])
             v = np.array(r.mesh.positions, dtype=float) * scale

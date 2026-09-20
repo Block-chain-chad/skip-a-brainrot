@@ -35,11 +35,13 @@ SCRIPTS = {
     "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca.lua"),
     "ReplicatedStorage/Modules/NpcKit/NpcCharacters/VeteranBombardiro": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcCharacters/VeteranBombardiro.lua"),
     "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Villager_Valley_01": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Villager_Valley_01.lua"),
+    "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca_v1": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca_v1.lua"),
+    "ReplicatedStorage/Modules/NpcKit/NpcShells/Gianluca_V25": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcShells/Gianluca_V25.lua"),
     "ServerStorage/NpcForge": ("ModuleScript", "ServerStorage/NpcForge.lua"),
     "ServerStorage/NpcBudget": ("ModuleScript", "ServerStorage/NpcBudget.lua"),
     "StarterPlayer/StarterPlayerScripts/NpcLifeClient": ("LocalScript", "StarterPlayer/StarterPlayerScripts/NpcLifeClient.client.lua"),
 }
-FOLDERS = ["ReplicatedStorage/Modules", "ReplicatedStorage/Modules/NpcKit", "ReplicatedStorage/Modules/NpcKit/NpcCharacters"]
+FOLDERS = ["ReplicatedStorage/Modules", "ReplicatedStorage/Modules/NpcKit", "ReplicatedStorage/Modules/NpcKit/NpcCharacters", "ReplicatedStorage/Modules/NpcKit/NpcShells"]
 
 
 def all_lua_files() -> list[Path]:
@@ -169,7 +171,23 @@ class Harness:
             LodProfiles=self.require("ReplicatedStorage/Modules/NpcKit/NpcLodProfiles"),
             Motion=self.require("ReplicatedStorage/Modules/NpcKit/NpcMotion"),
             Characters=self._get("ReplicatedStorage/Modules/NpcKit/NpcCharacters"),
+            Shells=self._get("ReplicatedStorage/Modules/NpcKit/NpcShells"),
         )
+
+    def import_root_for_shells(self, shells_id: str, name: str | None = None):
+        """What File > Import 3D would park for a shell batch: one MeshPart per manifest piece,
+        named <batch>__<piece>, sized by the manifest, carrying its triangle estimate."""
+        I = self.stub.Instance
+        man = self.require(f"ReplicatedStorage/Modules/NpcKit/NpcShells/{shells_id}")
+        root = I.new("Model"); root.Name = name or f"npc_{shells_id}"
+        for i in range(1, len(man.pieces) + 1):
+            piece = man.pieces[i]
+            p = I.new("MeshPart"); p.Name = f"{man.batch}__{piece.name}"
+            p.Size = piece.size
+            p.SetAttribute(p, "Tris", piece.tris)
+            p.Parent = root
+        root.Parent = self.stub.services.Workspace
+        return root
 
     def forge(self):
         f = self.require("ServerStorage/NpcForge")

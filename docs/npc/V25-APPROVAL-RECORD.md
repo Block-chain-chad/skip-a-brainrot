@@ -31,7 +31,7 @@
 | 2. verify Gianluca's live contracts | Step 2 (E-2: `GameWorld.StupidGianluca › HumanoidRootPart › TalkPrompt`, GianlucaClient, scenery) | read-only |
 | 3. verify portrait/dialogue framing | Step 5 (E-18: MerchantDialog `HRP + 0.5×HRP.Size.Y`, span 4.6, fov 26 — V2.5 head centre is +1.58 above the HRP vs v1's +1.45) | read-only + Play proxy |
 | — | **STOP 1** — findings report; owner approves the Edit-mode writes for the staging build (import + staging folders + kit modules). The V2.5 shells are Import 3D meshes, so this approval must now cover the GLB import that E-15 excluded from the inspection scope. | gate |
-| 4. build Gianluca V2.5 in an isolated Studio staging area | Step 7 (`ServerStorage.NpcStaging`, never `GameWorld`) | Edit-mode write, gated by STOP 1(c) |
+| 4. build Gianluca V2.5 in an isolated Studio staging area | Step 7 (`ServerStorage.NpcStaging`, never `GameWorld`): File › Import 3D of `Gianluca_V25.glb` (41 nodes) → install the kit modules → `NpcForge.Build("Gianluca", { importRoot = <the import> })` | Edit-mode write, gated by STOP 1(c) |
 | 5. apply real Roblox materials/lighting | Step 7 (material/colour pass from the recipe palette; lighting checked in the staging scene) | Edit |
 | 6. test procedural idle/talk animations | Step 8 (driver installed inert, staged body tagged; `Veteran` pack, `warMemory` reaction) | Play |
 | 7. inspect at gameplay camera distance · 8. inspect portrait close-up | Step 9 (captures at ~40 / ~20 studs; MerchantDialog portrait) | Play |
@@ -41,18 +41,18 @@
 
 Standing rules through the window: do not replace Gianluca automatically; do not touch Elder Tung; do not begin the global rollout.
 
-## Disk-side prerequisites the window depends on (NOT started — frozen; need an explicit go)
+## Disk-side prerequisites the window depends on — DONE 2026-09-19 (owner: "ok to continue"), still no Studio
 
-Step 4 cannot assemble V2.5 with the kit as it stands: `NpcForge` today builds the Step 0 voxel body + blockout accessories. Before the window, or else inside it, the kit needs:
+The kit now assembles Gianluca V2.5 from data; `python -m npc_kit.v2.forge_check` renders the NpcForge build next to the approved study at a silhouette overlap of 0.9998 / 0.9998 / 1.000 (front / ¾ / back) — [v25-K-forge-vs-study.png](previews/v25/v25-K-forge-vs-study.png). Budget from `NpcBudget`: 43 parts / 19 welds / 22 Motor6D / 7 bespoke / 4,188 tris, PASS against the Tier 3 caps. What each item became:
 
-1. `NpcRigSpec`: `BodyTypes.p2` from the study's P2 numbers, plus the D-22 override resolver (height, head scale, shoulder width, torso mass, limb thickness, leg length; posture = the existing `restPose`).
-2. `NpcLibrary`: `kind = "shell"` entries with a `slot` bone, and the V2.5 pieces (hair styles, beard/moustache, age lines, hood down, shoulder plate, clasp, sleeve patch, belt bell, four-part spear) — bespoke ones flagged.
-3. `NpcForge.AssembleHuman`: take each bone's MeshPart from the import root by node name (`<recipe>__<piece>`), weld the rest by their `Bone`, grip the spear at `RightGripAttachment` with the planted offset; sizes/pivots from the profile, never from mesh bounds.
-4. `NpcFaceConfig`: the eight states as C0 offsets/scales on the seven driven parts. Brow lift/tilt, eye height scale and iris scale map directly; the mouth stays one part — smile = the curved mesh, worried/angry = the same mesh rotated 180°, shocked = scaled to a short tall blob, neutral/serious = flattened by scale. Lids are geometry on the Head mesh; the lash line rides with the Brow part (no new Motor6D).
-5. `NpcMotionConfig`: pack `Veteran` and the `warMemory` reaction keyed by dialogue tags through the existing `NpcLife` dialogue hook (numbers in the study §4).
-6. `NpcCharacters/Gianluca.lua`: `tier = 3`, `face = "serious"`, V2.5 hair/beard/outfit/prop ids, the veteran `restPose`; root name, prompt and dialogue contracts unchanged.
-7. Harness tests for the assembly (slot coverage, welds, budget vs Tier 3, portrait line) and a lint pass.
+1. `NpcRigSpec` v2 — `Profiles.p2` (the study numbers) built bottom-up by `BuildProfile`; `BodyTypes.p2` is the default; `Resolve(bodyType, overrides)` applies `height / headScale / shoulderWidth / torsoMass / limbThickness / legLength` multipliers (posture rides on `restPose`); `JointFrames` takes per-bone mesh centres so pivots stay put under bbox-centred MeshParts; `HeadOffset(bodyType)` gives the portrait line (p2: +1.575).
+2. Shell manifests instead of library entries — `NpcShells/Gianluca_V25.lua` is **generated** by `tools/npc_kit/v2/export_kit.py` from the study character: 41 pieces (bone, slot flag, bbox-centre offset in bone space, size, tris, colour, bespoke) plus the Import 3D batch `tools/out/npc_v25_kit/Gianluca_V25.glb` (41 nodes named `Gianluca_V25__<piece>`; regenerate before the window — `tools/out` is git-ignored). A test asserts the checked-in manifest equals a fresh export.
+3. `NpcForge` v2 — a recipe with `shells` assembles every bone from the manifest's slot piece (the imported MeshPart by node name, or a box without an import root), welds the rest by bone, builds the mesh face on `FaceJoint`s with `RestC0 / RestSize / Side` attributes, grips the spear pieces on the right hand (`Planted`), scales meshes and offsets per bone when `bodyOverrides` change the profile, and never stacks family/theme default overlays on a shell. Attributes added: `NpcShells`, `NpcHeadOffset`, `NpcBodyOverrides`.
+4. `NpcFaceConfig` v2 — `Resolve(exprId, rests)`; the eight V2.5 states in relative scales (`neutral happy worried angry suspicious tired shocked serious`); the mouth stays one part (the exported mesh is a mild smile, `rotZ = 180` makes the frown, `scaleY 2.4` the shocked O); legacy names alias on mesh faces; blink and talk scale from the rest sizes.
+5. `NpcMotionConfig` v2 — pack `Veteran` (slow breathe, weight onto the staff side, `slowLook`, `shoulderRoll`, restrained `pointRestrained` / `dismissWave` / `gazeLock` when talking, greet `nodGreet`) and `reactions.warMemory` (straighten, freeze 1.5 s, tighten the grip, look away 30°, face `tired` for 3 s). `NpcLife` plays a reaction when a lane sets the root's **`NpcReaction`** attribute (consumed and cleared) — the same attribute discipline as `NpcFace`.
+6. `NpcCharacters/Gianluca.lua` — V2.5: `tier = 3`, `shells = "Gianluca_V25"`, `bodyType = "p2"`, `face = "serious"`, veteran `restPose`, `pack = "Veteran"`; `rootName`, `contracts` untouched. The Step 0 recipe survives as `Gianluca_v1` for the comparison renders and regression tests.
+7. Tests: 11 new (`tests/test_forge_v25.py`) — 72 pass in total; lint OK.
 
 ## Order of events
 
-NPC-01 stays frozen → Duck + Pete finish → delta sync → combined QA → the owner opens the dedicated NPC-01 Studio window (and says whether the prerequisites above are done before it or inside it) → the sequence above → STOP 3.
+NPC-01 stays frozen (kit ready on disk) → Duck + Pete finish → delta sync → combined QA → the owner opens the dedicated NPC-01 Studio window → the sequence above → STOP 3.

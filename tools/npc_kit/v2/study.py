@@ -182,7 +182,7 @@ def legacy_gianlucas(H: Harness):
     root = import_root(H, results)
     seg = {r.name: r for r in results}
     forge = H.forge()
-    gia, _ = forge.Build("Gianluca", H.table(importRoot=root))
+    gia, _ = forge.Build("Gianluca_v1", H.table(importRoot=root))
     gia.Parent = H.stub.services.Workspace
     variant = chunky_variant(H)
     shapes = dict(F.SHAPES)
@@ -190,7 +190,7 @@ def legacy_gianlucas(H: Harness):
     res11 = F.build_segments(H, variant, shapes=shapes)
     root11 = import_root(H, res11, name=f"npc_body_{variant}")
     seg11 = {r.name: r for r in res11}
-    grec = H.require("ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca")
+    grec = H.require("ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca_v1")
     g11 = H.lua.eval("function(r) local t = {} for k, v in pairs(r) do t[k] = v end return t end")(grec)
     g11["bodyType"] = variant; g11["id"] = "Gianluca_v11"; g11["rootName"] = "Gianluca_v11"
     gia11, _ = forge.Build(g11, H.table(importRoot=root11))

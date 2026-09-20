@@ -398,7 +398,7 @@ def boots(profile: P.BodyProfile, side: str, color: RGB = (74, 50, 30), cuff: fl
     shaft = L.tube(prof, levels, color, f"{side}LowerLeg")
     fw, fh, fd = profile.size(f"{side}Foot")
     foot = P.foot_mesh((fw * 1.18 * o, fh * 1.10, fd * 1.10), color, f"{side}Foot", toe_drop=0.30)
-    heel = L.rounded_box((fw * 1.0 * o, fh * 0.45, fd * 0.32), n=6, p=5, r_bottom=0.03, r_top=0.03, color=color).translated(0, -fh * 0.28, fd * 0.36)
+    heel = L.rounded_box((fw * 1.0 * o, fh * 0.45, fd * 0.32), n=6, p=5, r_bottom=0.03, r_top=0.03, color=color).translated(0, -fh * 0.55 + fh * 0.225, fd * 0.36)   # heel bottom on the sole plane
     return [Piece(f"{side}LowerLeg", f"{side}LowerLeg", shaft, "reusable", True, "outfit"),
             Piece(f"{side}Foot", f"{side}Foot", L.merge([foot, heel], color, f"{side}Foot"), "reusable", True, "outfit")]
 

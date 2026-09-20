@@ -1,61 +1,50 @@
--- NpcCharacters.Gianluca -- Prototype A recipe (Phase 2.5 doc A).
--- Data only. NpcForge.Build("Gianluca") turns this into the model; nothing
--- here is code. The root name is the live code contract (GianlucaClient waits
--- for GameWorld.StupidGianluca > HumanoidRootPart > TalkPrompt); the prompt
--- itself is never created here -- it is MOVED at the gated live swap.
+-- NpcCharacters.Gianluca -- V2.5 recipe (approved 2026-09-19: D-16..D-22).
+-- OLD VETERAN: fought alongside Elder Tung; ranger / survivor. Data only.
+-- NpcForge.Build("Gianluca") assembles him from the generated shell manifest
+-- (NpcShells.Gianluca_V25: every visible mesh, the face parts, the props) on the
+-- p2 BodyProfile; nothing here is code. The root name is the live code contract
+-- (GianlucaClient waits for GameWorld.StupidGianluca > HumanoidRootPart > TalkPrompt);
+-- the prompt itself is never created here -- it is MOVED at the gated live swap.
 
 return {
 	id = "Gianluca",
 	rootName = "StupidGianluca",
-	tier = 2,
+	tier = 3,                    -- D-20: a story character (Elder Tung history); Tier 3 budget
 	world = "Valley",
 	kind = "human",
 
-	bodyType = "standard",
+	-- the visible character: one generated manifest = body shells + face + hair/beard + gear + spear
+	shells = "Gianluca_V25",
+	bodyType = "p2",             -- D-22 default profile; per-character shape tweaks go in bodyOverrides
+	bodyOverrides = {},          -- e.g. { height = 0.97, limbThickness = 1.05, posture = { Waist = { bend = 10 } } }
 	scale = 1.0,
 	family = "ranger",
-	colors = {
-		hair = Color3.fromRGB(92, 58, 36),
-		accent = Color3.fromRGB(168, 58, 86),     -- berry scarf
-		hat = Color3.fromRGB(108, 160, 80),       -- leaf
-		walnut = Color3.fromRGB(74, 50, 30),
-		metal = Color3.fromRGB(196, 150, 72),     -- brass buckle + bell
+	colors = {                   -- the manifest carries every piece colour; these stay for the legacy roles
+		hair = Color3.fromRGB(182, 178, 170),
+		accent = Color3.fromRGB(150, 84, 96),
+		walnut = Color3.fromRGB(70, 52, 34),
+		metal = Color3.fromRGB(150, 122, 70),
 	},
-	face = "worried",
+	face = "serious",            -- default state; the war beat goes "tired" (NpcMotionConfig.Packs.Veteran.reactions)
 
-	hair = "HairTousled",
-	hat = "HatFloppyPinned",
-
-	overlays = {
-		"TunicHem",
-		"CloakYoke",
-		{ id = "ScarfTail", color = "accent" },
-		"ToolBeltCollar",          -- the empty Chim collar: the story in one prop (bespoke)
-		"Bracer",                  -- sided: BracerR + BracerL
-	},
-	props = {
-		{ id = "Cane", grip = "RightHand" },
-		{ id = "Bell", grip = "Cane" },   -- welds onto the cane's knob
-	},
-
-	-- baked into the rest C0 (semantic axes, degrees): always leaning into a search
+	-- veteran posture, baked into the rest C0 (semantic axes, degrees): forward lean over the
+	-- planted spear, torso tipped to the staff side, plated left arm hanging back, weight right
 	restPose = {
-		Waist = { bend = 4 },
-		RightShoulder = { spread = 10 }, LeftShoulder = { spread = 10 },
-		RightElbow = { swing = 6 }, LeftElbow = { swing = 6 },
+		Waist = { bend = 9, turn = 4, tilt = 3 },
+		Neck = { bend = 4, turn = -8, tilt = 4 },
+		RightShoulder = { swing = 40, spread = 12 }, RightElbow = { swing = 34 },
+		LeftShoulder = { swing = -12, spread = 9 }, LeftElbow = { swing = 22 },
+		RightHip = { spread = 2 }, LeftHip = { spread = 9 }, LeftKnee = { swing = 10 },
+		LeftAnkle = { swing = -10, spread = -9 },   -- sole stays flat under the bent knee
 	},
-	collider = true,             -- D-1: Tier 2 talking NPC
+	collider = true,             -- D-1: talking NPC, tight collider in its own group
 
-	pack = "Villager",
+	pack = "Veteran",
 	packOverrides = {
-		["idle.breathe.period"] = 2.9, ["idle.breathe.amp"] = 1.8,
-		["idle.weightShift.amp"] = 4, ["idle.weightShift.period"] = 7, ["idle.weightDip.period"] = 3.5,
-		["idle.look.amp"] = 28, ["idle.look.period"] = 5.0,
-		["gestures.handsOnHips.weight"] = 0,
-		["gestures.adjustCollar.weight"] = 0,
-		["gestures.scratchBrim.weight"] = 2,
-		["gestures.ringBell.weight"] = 3,
-		greet = "ringBell",
+		["idle.breathe.period"] = 3.8, ["idle.breathe.amp"] = 1.2,
+		["idle.weightShift.amp"] = 3, ["idle.weightShift.period"] = 9,
+		["idle.look.amp"] = 18, ["idle.look.period"] = 7.0,
+		greet = "nodGreet",
 	},
 
 	contracts = {

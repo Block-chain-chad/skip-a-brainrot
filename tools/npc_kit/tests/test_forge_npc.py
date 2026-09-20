@@ -82,7 +82,7 @@ def built(H, body):
     root = import_root(H, body)
     forge = H.forge()
     base, rep = forge.Build(base_body_recipe(H), H.table(importRoot=root))
-    gia, grep = forge.Build("Gianluca", H.table(importRoot=root))
+    gia, grep = forge.Build("Gianluca_v1", H.table(importRoot=root))
     assert base is not None and gia is not None
     return base, gia, rep, grep
 

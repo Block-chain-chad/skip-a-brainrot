@@ -14,7 +14,7 @@ def classes(H, model):
 
 def test_gianluca_blockout_matches_manifest(H):
     model, report = build_gianluca(H)
-    assert model.Name == "StupidGianluca"
+    assert model.Name == "Gianluca_v1_Preview"
     c = classes(H, model)
     base_parts = c.get("Part", 0) + c.get("MeshPart", 0)
     # blockout pieces are 2-3 primitives where the mesh build has one; the mesh build must hit <= 38

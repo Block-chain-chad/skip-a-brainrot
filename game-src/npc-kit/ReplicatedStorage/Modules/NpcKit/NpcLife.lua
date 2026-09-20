@@ -102,6 +102,8 @@ function NpcLife:adopt(model)
 		promptShown = false, talking = false, talkingSince = 0, greetPending = false, lastGreet = -1e9,
 		nextTalkGesture = 0, nextBlink = 0, blinkUntil = 0, mouthOpen = false, mouthBurstUntil = 0, mouthRestUntil = 0, nextGaze = 0,
 		lastWritten = {}, frameCounter = 0, dirtyModel = false,
+		headOffset = tonumber(model:GetAttribute("NpcHeadOffset")) or M.RigSpec.Root.HeadOffset,   -- the portrait line of THIS body
+		freezeIdleUntil = 0, faceRestoreAt = 0, faceBefore = nil,                                   -- reaction state (V2.5)
 	}
 	local pivot = pivotOf(model)
 	entry.basePivot = pivot
@@ -157,7 +159,8 @@ function NpcLife:adopt(model)
 	-- face
 	local faceFolder = model:FindFirstChild("Face")
 	if faceFolder then
-		local f = { parts = {}, joints = {}, rest = {}, expr = model:GetAttribute("NpcFace") or M.FaceConfig.Default }
+		local f = { parts = {}, joints = {}, rest = {}, expr = model:GetAttribute("NpcFace") or M.FaceConfig.Default,
+			rests = M.FaceConfig.RestsOf(faceFolder), mesh = faceFolder:GetAttribute("NpcFaceMesh") == true }
 		for _, p in ipairs(faceFolder:GetChildren()) do
 			local j = p:FindFirstChild("FaceJoint")
 			if p:IsA("BasePart") and j then
@@ -190,7 +193,16 @@ function NpcLife:adopt(model)
 			self:_applyFace(e, e.face.expr)
 		end
 	end)
-	self.conns[model] = { faceConn }
+	-- V2.5 reactions: a lane sets NpcReaction = "<id>" (a key of the pack's reactions table);
+	-- the driver plays it once and clears the attribute. Unknown ids are ignored.
+	local reactConn = model:GetAttributeChangedSignal("NpcReaction"):Connect(function()
+		local id = model:GetAttribute("NpcReaction")
+		if id and id ~= "" then
+			self:react(model, id)
+			model:SetAttribute("NpcReaction", "")
+		end
+	end)
+	self.conns[model] = { faceConn, reactConn }
 	return entry
 end
 
@@ -252,7 +264,7 @@ end
 function NpcLife:_applyFace(entry, exprId)
 	local f = entry.face
 	if not f then return end
-	local resolved = self.M.FaceConfig.Resolve(exprId)
+	local resolved = self.M.FaceConfig.Resolve(exprId, f.rests)
 	f.rest = resolved
 	for name, r in pairs(resolved) do
 		local j, p = f.joints[name], f.parts[name]
@@ -415,7 +427,7 @@ function NpcLife:_update(entry, dt, now)
 	end
 	entry.trackWeight = Motion.smooth(entry.trackWeight, wantTrack, dt, TRACK_RAMP / 3)
 	if entry.trackWeight > 0.001 and head and pack.track then
-		local turn, bend = Motion.aimAngles(entry.root.CFrame, entry.root.Position + Vector3.new(0, M.RigSpec.Root.HeadOffset, 0), head)
+		local turn, bend = Motion.aimAngles(entry.root.CFrame, entry.root.Position + Vector3.new(0, entry.headOffset, 0), head)
 		turn = Motion.clamp(turn, -pack.track.maxTurn, pack.track.maxTurn)
 		bend = Motion.clamp(bend, -pack.track.maxBend, pack.track.maxBend)
 		entry.aimTurn = Motion.smooth(entry.aimTurn, turn, dt, pack.track.smooth or 0.25)
@@ -446,12 +458,20 @@ function NpcLife:_update(entry, dt, now)
 		end
 	end
 
+	-- reaction: the face comes back when its hold ends
+	if entry.faceRestoreAt > 0 and now >= entry.faceRestoreAt then
+		entry.faceRestoreAt = 0
+		if entry.face and entry.faceBefore then self:_applyFace(entry, entry.faceBefore) end
+		entry.faceBefore = nil
+	end
+
 	-- pose (rate-limited by the band)
 	if entry.frameCounter % (band.procEvery or 1) == 0 then
 		local acc = {}
 		local t = now
+		local idleFrozen = now < entry.freezeIdleUntil          -- a reaction holds the body still for a beat
 		-- idle layers
-		for _, layer in pairs(pack.idle) do
+		for _, layer in pairs(idleFrozen and {} or pack.idle) do
 			local usable = true
 			if layer.optional then
 				usable = false
@@ -540,10 +560,18 @@ function NpcLife:_face(entry, now, head)
 		entry.nextBlink = now + M.Motion.draw(entry.seed, entry.drawIndex, FC.Blink.every[1], FC.Blink.every[2])
 		entry.blinkUntil = now + FC.Blink.duration
 		for _, n in ipairs({ "EyeL", "EyeR" }) do
-			local p = f.parts[n]; if p then local s = p.Size; p.Size = Vector3.new(s.X, FC.Closed.eyeSizeY, s.Z) end
+			local p, r = f.parts[n], f.rest[n]
+			if p then
+				local s = p.Size
+				if f.mesh and r then p.Size = Vector3.new(s.X, r.size.Y * FC.Closed.eyeScaleY, s.Z) else p.Size = Vector3.new(s.X, FC.Closed.eyeSizeY, s.Z) end
+			end
 		end
 		for _, n in ipairs({ "PupilL", "PupilR" }) do
-			local p = f.parts[n]; if p then p.Size = Vector3.new(FC.Closed.pupilSize, FC.Closed.pupilSize, p.Size.Z) end
+			local p, r = f.parts[n], f.rest[n]
+			if p then
+				if f.mesh and r then p.Size = Vector3.new(r.size.X * FC.Closed.pupilScale, r.size.Y * FC.Closed.pupilScale, p.Size.Z)
+				else p.Size = Vector3.new(FC.Closed.pupilSize, FC.Closed.pupilSize, p.Size.Z) end
+			end
 		end
 	elseif entry.blinkUntil > 0 and now >= entry.blinkUntil then
 		entry.blinkUntil = 0
@@ -584,6 +612,7 @@ function NpcLife:_face(entry, now, head)
 				local a = 0.5 + 0.5 * math.sin(now * hz * math.pi * 2)
 				local lo, hi = FC.Talking.mouthSizeYRange[1], FC.Talking.mouthSizeYRange[2]
 				local rs = f.rest.Mouth.size
+				if f.mesh then lo, hi = rs.Y * FC.Talking.mouthScaleYRange[1], rs.Y * FC.Talking.mouthScaleYRange[2] end
 				mouth.Size = Vector3.new(rs.X * FC.Talking.mouthSizeXScale, lo + (hi - lo) * a, rs.Z)
 				entry.mouthOpen = true
 			elseif entry.mouthOpen then
@@ -651,6 +680,26 @@ function NpcLife:setFace(model, exprId)
 	local e = self.entries[model]
 	if not e or not e.face then return false end
 	self:_applyFace(e, exprId)
+	return true
+end
+
+-- V2.5 reaction interface: play pack.reactions[id] once -- a keyed pose sequence that
+-- interrupts any gesture, may freeze the idle layers for a beat and hold a face state.
+-- Same path as the NpcReaction attribute; exposed for tests and tools.
+function NpcLife:react(model, id)
+	local e = self.entries[model]
+	if not e then return false end
+	local def = e.pack.reactions and e.pack.reactions[id]
+	if not def then return false end
+	local now = self.deps.now()
+	e.gesture = { def = def, name = id, started = now, reaction = true }
+	e.freezeIdleUntil = now + (def.freezeIdle or 0)
+	if def.face and e.face then
+		if not e.faceBefore then e.faceBefore = e.face.expr end
+		self:_applyFace(e, def.face)
+		e.faceRestoreAt = now + (def.holdFace or def.duration or 0)
+	end
+	self.stats.reactions = (self.stats.reactions or 0) + 1
 	return true
 end
 

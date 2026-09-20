@@ -18,7 +18,7 @@
 -- (C0). False for the prototypes; flipping it is the whole migration.
 
 local NpcMotionConfig = {}
-NpcMotionConfig.Version = 1
+NpcMotionConfig.Version = 2
 NpcMotionConfig.USE_TRACKS = false
 
 -- Amplitude ceilings the lint enforces on every pack (degrees).
@@ -119,6 +119,19 @@ G.openHand = { weight = 2, cooldown = { 4, 7 }, duration = 1.4, talk = true, key
 	{ t = 0 }, { t = 0.4, LeftShoulder = { swing = 25, spread = 20 }, LeftElbow = { swing = 70 }, LeftWrist = { twist = 25 } },
 	{ t = 0.95, LeftShoulder = { swing = 25, spread = 20 }, LeftElbow = { swing = 70 }, LeftWrist = { twist = 25 } }, { t = 1.4 } } }
 G.nod = { weight = 1, cooldown = { 3, 5 }, duration = 0.5, talk = true, keys = { { t = 0 }, { t = 0.2, Neck = { bend = 3 } }, { t = 0.5 } } }
+-- veteran (V2.5, Gianluca): restrained, deliberate; the right hand stays on the planted spear
+G.slowLook = { weight = 2, cooldown = { 10, 18 }, duration = 3.2, keys = {
+	{ t = 0 }, { t = 1.0, Neck = { turn = 24, tilt = -3 }, Waist = { turn = -5 } }, { t = 2.4, Neck = { turn = 24, tilt = -3 }, Waist = { turn = -5 } }, { t = 3.2 } } }
+G.shoulderRoll = { weight = 1, cooldown = { 20, 40 }, duration = 1.8, keys = {
+	{ t = 0 }, { t = 0.6, LeftShoulder = { spread = 6, swing = -10 }, Waist = { tilt = -2 } }, { t = 1.2, LeftShoulder = { spread = 6, swing = -10 }, Waist = { tilt = -2 } }, { t = 1.8 } } }
+G.pointRestrained = { weight = 2, cooldown = { 5, 9 }, duration = 1.6, talk = true, keys = {
+	{ t = 0 }, { t = 0.45, LeftShoulder = { swing = 42, spread = 12 }, LeftElbow = { swing = 68 } },
+	{ t = 1.15, LeftShoulder = { swing = 42, spread = 12 }, LeftElbow = { swing = 68 } }, { t = 1.6 } } }
+G.dismissWave = { weight = 1, cooldown = { 8, 14 }, duration = 1.3, talk = true, keys = {
+	{ t = 0 }, { t = 0.35, LeftShoulder = { swing = 20, spread = 26 }, LeftElbow = { swing = 50 }, LeftWrist = { twist = 18 } },
+	{ t = 0.7, LeftShoulder = { swing = 20, spread = 30 }, LeftElbow = { swing = 50 }, LeftWrist = { twist = -18 } }, { t = 1.3 } } }
+G.gazeLock = { weight = 1, cooldown = { 6, 10 }, duration = 2.2, talk = true, keys = {
+	{ t = 0 }, { t = 0.3, Neck = { bend = -2 } }, { t = 1.9, Neck = { bend = -2 } }, { t = 2.2 } } }
 
 NpcMotionConfig.Gestures = G
 
@@ -174,6 +187,28 @@ P.Survivor = {
 	track = { maxTurn = 35, maxBend = 15, smooth = 0.3, promptWeight = 0.6 },
 	talk = { every = { 4, 7 }, gestures = { "emphasis", "openHand" }, nod = { every = { 3, 5 } } },
 	gestureRange = 90,
+}
+-- V2.5 Gianluca: slow breathing, weight onto the staff side, deliberate looks, the hand
+-- resting on the spear (planted -> the hand-sway / weight-shift counters already skip it),
+-- an occasional roll of the plated shoulder (old injury). Talking stays restrained.
+-- REACTIONS are keyed pose sequences a lane triggers through the NpcReaction attribute
+-- (NpcLife plays them once): warMemory = the Elder Tung / war / Bacon Head / old-army
+-- beat -- straighten out of the lean, hold still, tighten the grip, look away, face
+-- "tired", then back to idle. Understated by design.
+P.Veteran = {
+	idle = { breathe = breathe(3.8, 1.2), weightShift = weightShift(9.0, 3.0), weightDip = weightDip(9.0), look = look(7.0, 18), lookTilt = lookTilt(7.0), handSway = handSway() },
+	gestures = pick({ "slowLook", "shoulderRoll", "nodGreet", "pointRestrained", "dismissWave", "gazeLock", "nod" }),
+	greet = "nodGreet",
+	track = { maxTurn = 30, maxBend = 12, smooth = 0.35, promptWeight = 0.7 },
+	talk = { every = { 5, 8 }, gestures = { "pointRestrained", "dismissWave", "gazeLock" }, nod = { every = { 4, 6 } } },
+	gestureRange = 90,
+	reactions = {
+		warMemory = { duration = 4.5, freezeIdle = 1.5, face = "tired", holdFace = 3.0, tags = { "eldertung", "war", "baconhead", "oldarmy" }, keys = {
+			{ t = 0 },
+			{ t = 0.5, Waist = { bend = -6 }, Neck = { turn = 30, bend = 3 }, RightElbow = { swing = 8 }, LeftShoulder = { swing = -6 } },
+			{ t = 3.0, Waist = { bend = -6 }, Neck = { turn = 30, bend = 3 }, RightElbow = { swing = 8 }, LeftShoulder = { swing = -6 } },
+			{ t = 4.5 } } },
+	},
 }
 -- Story brainrots: whole-model breathe + optional head/wing joints, no gestures.
 P.Creature = {

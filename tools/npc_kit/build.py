@@ -171,7 +171,7 @@ def main() -> int:
     base.PivotTo(base, H.stub.CFrame.new(0, 3, 0))
 
     # ----- 3. Gianluca -------------------------------------------------------------
-    gia, grep = forge.Build("Gianluca", H.table(importRoot=root))
+    gia, grep = forge.Build("Gianluca_v1", H.table(importRoot=root))
     assert gia is not None, "Gianluca failed the budget"
     gia.Parent = H.stub.services.Workspace
     gia.PivotTo(gia, H.stub.CFrame.new(0, 3, 0))
@@ -205,7 +205,7 @@ def main() -> int:
         panels.append(P._label(P.render(t, 300, 360, (0.55, 0.22, -1), ground_y=0.0), label))
     P.save(P.hstack(panels), PREVIEWS / "gianluca-layers.png")
     # Gianluca on the v1.1 proposal, side by side with v1
-    grec = H.require("ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca")
+    grec = H.require("ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca_v1")
     g11 = H.lua.eval("function(r) local t = {} for k, v in pairs(r) do t[k] = v end return t end")(grec)
     g11["bodyType"] = variant; g11["id"] = "Gianluca_v11"; g11["rootName"] = "Gianluca_v11"
     gia11, _ = forge.Build(g11, H.table(importRoot=root_v11))
