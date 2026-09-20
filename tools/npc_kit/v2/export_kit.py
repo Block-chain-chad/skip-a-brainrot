@@ -143,8 +143,14 @@ def export(ch: Character) -> dict:
     return {"manifest": man, "glb": glb, "lua": str(SHELLS_DIR / f"{ch.id}.lua")}
 
 
+def study_character() -> Character:
+    """The approved character with the face in its EXPORT rest (no expression baked into the
+    mesh: NpcFaceConfig applies the eight states as deltas at build / run time)."""
+    return C.gianluca_v25(expression="rest")
+
+
 def main() -> int:
-    ch = C.gianluca_v25()
+    ch = study_character()
     res = export(ch)
     m = res["manifest"]
     print(f"{m['id']}: {len(m['pieces'])} pieces, {sum(p['tris'] for p in m['pieces'])} tris, "

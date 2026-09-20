@@ -32,8 +32,9 @@ def silhouette_iou(a: Image.Image, b: Image.Image, bg) -> float:
 
 
 def main() -> int:
-    ch = C.gianluca_v25()
+    ch = X.study_character()
     X.export(ch)                                                   # keep the manifest + pieces.json current
+    shown = C.gianluca_v25()                                       # the study's own 'serious' render for the right-hand column
     pieces = json.loads((X.OUT / f"{ch.id}.pieces.json").read_text())
 
     H = Harness()
@@ -42,7 +43,7 @@ def main() -> int:
     model, report = forge.Build("Gianluca", H.table(importRoot=root))
     assert model is not None, "forge build failed the budget"
     forge_tris = PV.scene_from_model(H, model, shell_meshes=pieces, only=lambda d: d.Name != "Collider")
-    study = ch.world_meshes()
+    study = shown.world_meshes()
 
     c = (0, 3.15, 0)
     pps = 54
@@ -60,7 +61,21 @@ def main() -> int:
            f"front {ious['front']:.3f} · 3/4 {ious['left 3/4']:.3f} · back {ious['back']:.3f}. "
            f"Budget from NpcBudget: {r['baseParts'][0]} parts / {r['welds'][0]} welds / {r['motor6d'][0]} Motor6D / {r['bespokeMeshes'][0]} bespoke / "
            f"{r['trianglesEstimated'][0]:,} tris — {'PASS' if report.budget['pass'] else 'FAIL'} vs Tier 3 caps.")
-    sheet = R.title(R.caption(R.hstack(panels), cap), "K — port fidelity: NpcForge build vs the approved study")
+    # the eight runtime states applied by NpcFaceConfig to the forge-built mesh face (deltas on the neutral export)
+    FC = H.require("ReplicatedStorage/Modules/NpcKit/NpcFaceConfig")
+    head = H.find(model, "Head", False)
+    hp = (head.Position.X, head.Position.Y + 0.2, head.Position.Z)
+    strip = []
+    for state in ("neutral", "happy", "worried", "angry", "suspicious", "tired", "shocked", "serious"):
+        FC.Apply(model, state)
+        tris_head = PV.scene_from_model(H, model, shell_meshes=pieces, only=lambda d: d.Parent.Name in ("Face",) or d.Name in ("Head", "Hair", "Beard", "AgeLines"))
+        im = R.render(tris_head, 190, 190, "front", 88, hp, ground_y=None)
+        strip.append(R.label(im, state, size=12))
+    FC.Apply(model, "serious")
+    faces = R.hstack(strip)
+    R.label(faces, "", (8, 6), 12)
+    cap = cap + " Bottom row: the eight NpcFaceConfig states applied at build time to the forge-built mesh face (C0 offsets + scales on the seven driven parts)."
+    sheet = R.title(R.caption(R.stack([R.hstack(panels), faces]), cap), "K — port fidelity: NpcForge build vs the approved study")
     R.save(sheet, OUT / "v25-K-forge-vs-study.png")
     print(json.dumps({"iou": ious, "budget": {k: r[k][0] for k in ("baseParts", "welds", "motor6d", "bespokeMeshes", "trianglesEstimated")}, "pass": bool(report.budget["pass"])}))
     return 0

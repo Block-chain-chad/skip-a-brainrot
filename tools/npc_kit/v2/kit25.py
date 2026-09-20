@@ -60,6 +60,9 @@ EXPRESSIONS = {
     "serious":    dict(brow=-9, lift=-0.02, curve=-0.015, width=1.05, eye=0.88, iris=1.00),
     # aliases used by the V2 comparison recipe
     "surprised":  dict(brow=2, lift=0.11, curve=0.00, width=0.60, eye=1.15, iris=0.78, mouth_o=True),
+    # the EXPORT rest: no brow tilt or lift, eyes at 1.0, a mild smile the runtime turns into every state
+    # (NpcFaceConfig applies the eight states as deltas on top of this geometry)
+    "rest":       dict(brow=0, lift=0.00, curve=0.035, width=1.0, eye=1.00, iris=1.00),
 }
 
 

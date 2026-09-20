@@ -20,7 +20,7 @@
 ## What is frozen where
 
 - Visual study: `docs/npc/V25-CHARACTER-ART-STUDY.md` + `docs/npc/previews/v25/` (commit `eb0463f`). Study kit: `tools/npc_kit/v2/` (kit25 / characters25 / study25). Import 3D batches regenerate to `tools/out/npc_v25_study/*.glb` (41 nodes for Gianluca).
-- Approved framework: every Lua module under `game-src/npc-kit/` is unchanged since Step 0 (`155c85b`); `game-src/place-full/` mirror untouched; live Gianluca, Elder Tung, World 3, Trading World untouched.
+- Approved framework: unchanged in behaviour and public interfaces; the V2.5 kit port (commit after `a043763`) extended `NpcRigSpec`, `NpcFaceConfig`, `NpcMotionConfig`, `NpcLife`, `NpcForge` and the Gianluca recipe on disk (see the prerequisites section) with the Step 0 tests still green. `game-src/place-full/` mirror untouched; live Gianluca, Elder Tung, World 3, Trading World untouched.
 - Earlier approvals still stand: Phase 1/2/2.5 decisions D-1…D-10, the inspection runbook scope (`docs/npc/studio/INSPECTION-RUNBOOK.md`: read-only Edit-mode checks, E-11/E-18 proxy Play-mode only, **E-15 not approved**, no Edit-mode write/delete/import during inspection), and the Phase 3 STOP gates (`docs/npc/phase2.5/H-phase3-execution-plan.md`).
 
 ## The Studio-window sequence (owner's order, mapped onto the Phase 3 plan)
@@ -43,7 +43,7 @@ Standing rules through the window: do not replace Gianluca automatically; do not
 
 ## Disk-side prerequisites the window depends on — DONE 2026-09-19 (owner: "ok to continue"), still no Studio
 
-The kit now assembles Gianluca V2.5 from data; `python -m npc_kit.v2.forge_check` renders the NpcForge build next to the approved study at a silhouette overlap of 0.9998 / 0.9998 / 1.000 (front / ¾ / back) — [v25-K-forge-vs-study.png](previews/v25/v25-K-forge-vs-study.png). Budget from `NpcBudget`: 43 parts / 19 welds / 22 Motor6D / 7 bespoke / 4,188 tris, PASS against the Tier 3 caps. What each item became:
+The kit now assembles Gianluca V2.5 from data; the face meshes are exported at a neutral rest and `NpcFaceConfig` applies the states as deltas (bottom row of the K sheet). `python -m npc_kit.v2.forge_check` renders the NpcForge build next to the approved study at a silhouette overlap of 0.9998 / 0.9998 / 1.000 (front / ¾ / back) — [v25-K-forge-vs-study.png](previews/v25/v25-K-forge-vs-study.png). Budget from `NpcBudget`: 43 parts / 19 welds / 22 Motor6D / 7 bespoke / 4,188 tris, PASS against the Tier 3 caps. What each item became:
 
 1. `NpcRigSpec` v2 — `Profiles.p2` (the study numbers) built bottom-up by `BuildProfile`; `BodyTypes.p2` is the default; `Resolve(bodyType, overrides)` applies `height / headScale / shoulderWidth / torsoMass / limbThickness / legLength` multipliers (posture rides on `restPose`); `JointFrames` takes per-bone mesh centres so pivots stay put under bbox-centred MeshParts; `HeadOffset(bodyType)` gives the portrait line (p2: +1.575).
 2. Shell manifests instead of library entries — `NpcShells/Gianluca_V25.lua` is **generated** by `tools/npc_kit/v2/export_kit.py` from the study character: 41 pieces (bone, slot flag, bbox-centre offset in bone space, size, tris, colour, bespoke) plus the Import 3D batch `tools/out/npc_v25_kit/Gianluca_V25.glb` (41 nodes named `Gianluca_V25__<piece>`; regenerate before the window — `tools/out` is git-ignored). A test asserts the checked-in manifest equals a fresh export.

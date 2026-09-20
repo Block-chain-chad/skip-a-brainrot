@@ -232,7 +232,7 @@ def test_v25_mesh_face_blink_and_talk_scale_from_the_rest_sizes(H):
 
 # ----- generated data stays in sync with the study --------------------------------------------
 def test_checked_in_manifest_matches_the_study_kit(H):
-    man = X.manifest_for(C25.gianluca_v25())
+    man = X.manifest_for(X.study_character())
     lua = H.require("ReplicatedStorage/Modules/NpcKit/NpcShells/Gianluca_V25")
     assert len(lua.pieces) == len(man["pieces"]) and lua.profile == man["profile"] and lua.headOffset == pytest.approx(man["headOffset"], abs=1e-4)
     for i, want in enumerate(man["pieces"], start=1):
