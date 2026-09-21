@@ -36,6 +36,26 @@ class H(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write("%s\n" % (fmt % args))
 
+    # GET /src/<path under game-src>  serves a mirror file verbatim, so a script written on
+    # disk can be pulled into Studio with one GetAsync instead of being JSON-escaped into
+    # an execute_luau parameter (egg-hatch round, 2026-09-21).
+    def do_GET(self):
+        u = urlparse(self.path)
+        if not u.path.startswith("/src/"):
+            return SimpleHTTPRequestHandler.do_GET(self)
+        rel = u.path[len("/src/"):]
+        path = os.path.abspath(os.path.join(REPO, "game-src", rel))
+        root = os.path.join(REPO, "game-src")
+        if not path.startswith(root + os.sep) or not os.path.isfile(path):
+            self.send_response(404); self.end_headers(); self.wfile.write(b"not found"); return
+        with open(path, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         u = urlparse(self.path)
         if u.path != "/save":
