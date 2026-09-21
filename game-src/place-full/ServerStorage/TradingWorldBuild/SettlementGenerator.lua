@@ -35,7 +35,7 @@ walls, real stair treads, and the six stall-shell families. The currency never a
 ]]
 
 local G = {}
-G.VERSION = 10
+G.VERSION = 14
 G.DETAIL = true
 G.O = Vector3.new(8000, 2002.4, 7818)          -- design origin (ground under TRADE_POS)
 G.ROOT_WORLD = "TradingWorld"
@@ -101,9 +101,13 @@ local function W(x, y, z) return G.O + Vector3.new(x, y, z) end
 local function at(x, y, z) return CFrame.new(W(x, y, z)) end
 
 local counts = { parts = 0 }
+-- decoration nobody walks on or against: collision off (exact names; ground, steps, parapets and props stay solid)
+local DECO = {}
+for _, n in ipairs({ "WindowFrame", "WindowGlass", "Sill", "Shutter", "DoorFrame", "Door", "Lintel", "Post", "FloorBeam", "Stud", "Brace", "JettyBeam", "JettyBracket", "BeamEnd", "Ridge", "Eave", "Chimney", "ChimneyCap", "Dormer", "DormerGlass", "DormerFrame", "Coping", "Parapet", "RoofDeck", "Rail", "Baluster", "Awning", "AwningPost", "AwningBeam", "SideCloth", "BackBoard", "Shelf", "SignBoard", "SignBracket", "SignChain", "Niche", "Jamb", "Hood", "HoodStrut", "Canopy", "CanopyBeam", "Valance", "HoistBeam", "HoistStrut", "HoistRope", "DoorLeaf", "Strap", "Drape", "Hook", "Cage", "Rope", "Net", "Line", "HungCloth", "OpenBeam", "TowerBeam", "TowerStud", "TowerBrace", "TowerWindow", "TowerWindowFrame", "TowerRidge", "CupolaPost", "LanternCage", "OverlookBracket", "PlanterBush", "TreeCanopy", "Quoin", "BargeBoard", "GateSign", "GateSignArm", "RelicEye", "RelicMoss", "KneeBrace", "OuterBrace", "BraceStrap", "LanternArm", "LanternArmBrace", "TieBeam", "Bolt", "Keystone", "StringCourse", "TabletRim", "GateTablet", "GateRidge", "EaveBeam", "Patch", "ColumnCap", "WellBeam", "WellPost", "RowRope", "RackRail", "Tarp" }) do DECO[n] = true end
 local function mk(parent, name, size, cf, color, material, props)
 	local p = Instance.new("Part")
 	p.Name = name
+	if DECO[name] or name:find("Roof") then p.CanCollide = false end
 	p.Size = size
 	p.CFrame = cf
 	p.Anchored = true
@@ -351,7 +355,11 @@ end
 local function window(parent, f, base, u, v, w, h, r, opts)
 	opts = opts or {}
 	faceBox(parent, "WindowFrame", f, base, u, v, 0.12, w + 0.5, h + 0.5, 0.35, opts.frame or TIMBER, M.wood)
-	faceBox(parent, "WindowGlass", f, base, u, v, 0.02, w, h, 0.18, GLASS, M.glass, nil, nil, { Reflectance = 0.14 })
+	if opts.lit then
+		faceBox(parent, "WindowGlass", f, base, u, v, 0.02, w, h, 0.18, C3(255, 206, 146), M.glass, nil, nil, { Reflectance = 0.06, Transparency = 0.3 })
+	else
+		faceBox(parent, "WindowGlass", f, base, u, v, 0.02, w, h, 0.18, GLASS, M.glass, nil, nil, { Reflectance = 0.14 })
+	end
 	faceBox(parent, "Sill", f, base, u, v - h / 2 - 0.15, 0.35, w + 0.9, 0.35, 0.8, opts.sill or STONE2, M.stone2)
 	if opts.shutters then
 		local a = (r() < 0.7) and math.rad(22) or 0
@@ -376,6 +384,95 @@ local function door(parent, f, base, u, r, opts)
 	faceBox(parent, "Door", f, base, u, h / 2, 0.05, w, h, 0.25, opts.color or PLANKDARK, M.plank)
 	faceBox(parent, "DoorStep", f, base, u, -0.05, 0.7, w + 1.2, 0.5, 1.4, STONE2, M.stone2)
 	if opts.lintel ~= false then faceBox(parent, "Lintel", f, base, u, h + 0.55, 0.35, w + 1.4, 0.55, 0.7, TIMBER2, M.wood) end
+end
+
+-- ============================================================ detail kit (Phase 5b) + lanterns (Phase 6)
+-- barge boards along a gable end (the roof edge you see from the street)
+local function bargeBoards(m, name, x1, x2, z1, z2, top, rise, alongZ, ov, atLow)
+	local t = top - 0.25
+	if alongZ then
+		local zEnd = atLow and (z1 - ov - 0.15) or (z2 + ov + 0.15)
+		local xc = (x1 + x2) / 2
+		ramp(m, "BargeBoard", Vector3.new(x1 - ov - 0.3, t, zEnd), Vector3.new(xc, t + rise, zEnd), 0.45, 0.55, TIMBER, M.wood)
+		ramp(m, "BargeBoard", Vector3.new(xc, t + rise, zEnd), Vector3.new(x2 + ov + 0.3, t, zEnd), 0.45, 0.55, TIMBER, M.wood)
+	else
+		local xEnd = atLow and (x1 - ov - 0.15) or (x2 + ov + 0.15)
+		local zc = (z1 + z2) / 2
+		ramp(m, "BargeBoard", Vector3.new(xEnd, t, z1 - ov - 0.3), Vector3.new(xEnd, t + rise, zc), 0.45, 0.55, TIMBER, M.wood)
+		ramp(m, "BargeBoard", Vector3.new(xEnd, t + rise, zc), Vector3.new(xEnd, t, z2 + ov + 0.3), 0.45, 0.55, TIMBER, M.wood)
+	end
+end
+-- limestone quoins up both corners of a face: alternating long and short blocks, never a straight column
+local function quoins(m, f, base, h, r)
+	local y = 0.9
+	local i = 0
+	while y < h - 1.0 do
+		local long = (i % 2 == 0)
+		for _, edge in ipairs({ 0, f.len }) do
+			local w = long and 1.5 or 0.9
+			local u = (edge == 0) and (w / 2 - 0.05) or (f.len - w / 2 + 0.05)
+			faceBox(m, "Quoin", f, base, u, y, 0.08, w, 1.0 + (r() - 0.5) * 0.1, 0.5, LIME, M.stone2)
+		end
+		y += 2.4 + r() * 0.8
+		i += 1
+	end
+end
+-- joist ends showing through a jetty beam
+local function beamEnds(m, f, base, y, o, r)
+	local n = math.max(3, math.floor(f.len / 6))
+	for i = 1, n do
+		local u = f.len * (i - 0.5 + (r() - 0.5) * 0.25) / n
+		faceBox(m, "BeamEnd", f, base, u, y, (-o + 0.6) / 2 - 0.1, 0.55, 0.55, o + 0.3, C3(70, 50, 32), M.wood)
+	end
+end
+-- a hanging trade sign on an iron arm: board perpendicular to the wall, text on both faces
+local function tradeSign(parent, name, text, f, base, u, v)
+	local ax, ay, az = f.pos(u, base + v + 1.05, 2.2)
+	local bx, by, bz = f.pos(u, base + v, 2.6)
+	local arm, board
+	if f.along == "z" then
+		arm = mk(parent, name .. "Arm", Vector3.new(4.6, 0.26, 0.26), at(ax, ay, az), IRON, M.metal, { CanCollide = false })
+		board = mk(parent, name, Vector3.new(4.0, 1.4, 0.26), at(bx, by, bz), SIGN, M.plank, { CanCollide = false })
+		plate(board, text, Enum.NormalId.Front, INK, SIGN, 1, Enum.Font.Antique, 40)
+		plate(board, text, Enum.NormalId.Back, INK, SIGN, 1, Enum.Font.Antique, 40)
+	else
+		arm = mk(parent, name .. "Arm", Vector3.new(0.26, 0.26, 4.6), at(ax, ay, az), IRON, M.metal, { CanCollide = false })
+		board = mk(parent, name, Vector3.new(0.26, 1.4, 4.0), at(bx, by, bz), SIGN, M.plank, { CanCollide = false })
+		plate(board, text, Enum.NormalId.Left, INK, SIGN, 1, Enum.Font.Antique, 40)
+		plate(board, text, Enum.NormalId.Right, INK, SIGN, 1, Enum.Font.Antique, 40)
+	end
+	for _, d in ipairs({ 1.0, 4.2 }) do
+		local cx, cy, cz = f.pos(u, base + v + 0.85, d)
+		mk(parent, name .. "Chain", Vector3.new(0.1, 0.5, 0.1), at(cx, cy, cz), IRON, M.metal, { CanCollide = false })
+	end
+	return board
+end
+-- warm lantern: a lit core in an open iron cage (cap, base, two bars) with one PointLight. kind = "hang" | "post" | "bare"
+local LAMP_WARM = C3(255, 198, 128)
+local function lantern(parent, name, cf, kind, opts)
+	opts = opts or {}
+	local m = model(parent, name)
+	m:SetAttribute("Lantern", true)
+	local core = mk(m, "LanternGlass", Vector3.new(0.8, 1.1, 0.8), cf, opts.glass or C3(255, 196, 118), Enum.Material.Neon, { CanCollide = false })
+	mk(m, "LanternCap", Vector3.new(1.15, 0.24, 1.15), cf * CFrame.new(0, 0.7, 0), IRON, M.metal, { CanCollide = false })
+	mk(m, "LanternBase", Vector3.new(1.0, 0.18, 1.0), cf * CFrame.new(0, -0.65, 0), IRON, M.metal, { CanCollide = false })
+	mk(m, "LanternBar", Vector3.new(0.12, 1.3, 0.12), cf * CFrame.new(0.46, 0, 0.46), IRON, M.metal, { CanCollide = false })
+	mk(m, "LanternBar", Vector3.new(0.12, 1.3, 0.12), cf * CFrame.new(-0.46, 0, -0.46), IRON, M.metal, { CanCollide = false })
+	if kind == "hang" then
+		mk(m, "LanternArm", Vector3.new(0.26, 0.26, opts.arm or 1.6), cf * CFrame.new(0, 1.25, (opts.arm or 1.6) / 2 - 0.2), IRON, M.metal, { CanCollide = false })
+		mk(m, "LanternHook", Vector3.new(0.14, 0.6, 0.14), cf * CFrame.new(0, 1.0, 0), IRON, M.metal, { CanCollide = false })
+	elseif kind == "post" then
+		local h = opts.post or 6.5
+		mk(m, "LanternPost", Vector3.new(0.5, h, 0.5), cf * CFrame.new(0, -h / 2 - 0.7, 0), opts.postColor or TIMBER, opts.postMat or M.wood)
+		mk(m, "LanternArm", Vector3.new(0.26, 0.26, 1.2), cf * CFrame.new(0, 1.15, -0.3), IRON, M.metal, { CanCollide = false })
+	end
+	local light = Instance.new("PointLight")
+	light.Color = opts.color or LAMP_WARM
+	light.Brightness = opts.brightness or 1.5
+	light.Range = opts.range or 18
+	light.Shadows = opts.shadows == true
+	light.Parent = core
+	return m
 end
 
 -- the detailed building
@@ -431,6 +528,7 @@ local function archBuilding(parent, s)
 					local bu = f.len * (i - 0.5 + (r() - 0.5) * 0.3) / n
 					faceBox(m, "JettyBracket", f, base, bu, u.y1 - 0.35 - drop / 2, (-o + 0.2 - 0.3) / 2, 0.6, blen, 0.6, TIMBER, M.wood, nil, nil, nil, pitch)
 				end
+				beamEnds(m, f, base, u.y1 + 0.35, o, r)
 			end
 		end
 	end
@@ -520,9 +618,18 @@ local function archBuilding(parent, s)
 	for _, sd in ipairs(s.sides or {}) do table.insert(faces, { side = sd }) end
 	local floors = s.floors or math.max(1, math.floor(s.h / 9 + 0.5))
 	if s.upper then floors = math.max(floors, math.floor(s.upper.y2 / 9 + 0.5)) end
+	local visible = {}
+	for _, fc in ipairs(faces) do visible[fc.side] = true end
+	if (roof == "gableZ" or roof == "gableX") and s.barge ~= false then
+		local ends = (roof == "gableZ") and { { "S", true }, { "N", false } } or { { "E", true }, { "W", false } }
+		for _, e in ipairs(ends) do
+			if visible[e[1]] then bargeBoards(m, s.name, rx1, rx2, rz1, rz2, top, rise, roof == "gableZ", ov, e[2]) end
+		end
+	end
 	for _, fc in ipairs(faces) do
 		local f = faceOf(s, fc.side)
-		local fU = s.upper and faceOf(s, fc.side, s.upper) or f     -- the jetty plane, where the upper storey really is
+		local fU = s.upper and faceOf(s, fc.side, s.upper) or f
+		if fc.front and (style == "stone" or style == "stoneMixed") and not s.open then quoins(m, f, base, (style == "stoneMixed") and 9 or s.h, r) end     -- the jetty plane, where the upper storey really is
 		local jettyY = s.upper and s.upper.y1 or math.huge
 		local groundOpen = s.groundOpen and fc.front
 		local faceBase = s.faceBase or 0        -- e.g. 8 when the ground floor is buried behind a wall
@@ -575,7 +682,7 @@ local function archBuilding(parent, s)
 						local doorClash = fc.front and isGround and s.doorU and math.abs(u - s.doorU) < 3.5
 						if not clash and not doorClash and r() < 0.9 then
 							local ww, wh = isGround and 3.2 or 2.6, isGround and 3.6 or 3.2
-							window(m, (v >= jettyY) and fU or f, base, u, v, ww, wh, r, { shutters = (s.shutters ~= false) and (not isGround) and r() < 0.65, frame = (style == "stone") and STONE2 or TIMBER })
+							window(m, (v >= jettyY) and fU or f, base, u, v, ww, wh, r, { shutters = (s.shutters ~= false) and (not isGround) and r() < 0.65, frame = (style == "stone") and STONE2 or TIMBER, lit = (not isGround) and r() < 0.3 })
 						end
 					end
 				end
@@ -691,7 +798,9 @@ local function stall(parent, s)
 		for _, x in ipairs({ -5.1, 5.1 }) do mk(b, "Jamb", Vector3.new(0.7, 8.2, 1.0), L(x, 4.1, 1.25), TIMBER, M.wood) end
 		mk(b, "Step", Vector3.new(9.4, 0.4, 1.6), L(0, 0.2, -1.9), STONE2, M.stone2)
 		for _, sgn in ipairs({ -1, 1 }) do
-			mk(b, "Shutter", Vector3.new(0.22, 7.6, 3.6), L(sgn * 6.9, 4.4, 0.9) * CFrame.Angles(0, sgn * math.rad(14), 0), PLANKDARK, M.plank)
+			local lock = L(sgn * 6.9, 4.4, 0.9) * CFrame.Angles(0, sgn * math.rad(14), 0)
+			mk(b, "Shutter", Vector3.new(0.22, 7.6, 3.6), lock, PLANKDARK, M.plank)
+			for _, dy in ipairs({ -2.4, 2.4 }) do mk(b, "Strap", Vector3.new(0.3, 0.5, 3.0), lock * CFrame.new(-0.05, dy, 0), IRON, M.metal) end
 		end
 		if r() < 0.6 then ramp(b, "Awning", dpos(L(0, 9.2, 0.6)), dpos(L(0, 8.1, -3.2)), 10.4, 0.22, cloth, M.cloth) end
 		stallContract(b, L)
@@ -974,8 +1083,8 @@ end
 function G.ArrivalDock()
 	local s = section("ArrivalDock")
 	local D = G.DETAIL
-	slab(s, "DockDeck", -14, 14, -22, 18, 0.4, 1.2, D and PLANK or PAL.plank, M.plank)
-	for _, c in ipairs({ { -13, -21 }, { 13, -21 }, { -13, 0 }, { 13, 6 }, { -13, 16 }, { 13, 17 } }) do
+	slab(s, "DockDeck", -14, 14, -12, 18, 0.4, 1.2, D and PLANK or PAL.plank, M.plank)
+	for _, c in ipairs({ { -13, 0 }, { 13, 6 }, { -13, 16 }, { 13, 17 } }) do
 		box(s, "DockPost", c[1] - 0.5, c[1] + 0.5, c[2] - 0.5, c[2] + 0.5, -4, 2.4, D and TIMBER or PAL.woodDark, M.wood)
 	end
 	slab(s, "Jetty", 14, 40, 4, 12, 0.4, 1.0, D and PLANKDARK or PAL.plank, M.plank)
@@ -984,18 +1093,18 @@ function G.ArrivalDock()
 	for _, b in ipairs(G.BUILDINGS.ArrivalDock) do renderBuilding(s, b) end
 	slab(s, "Boardwalk", 14, 70, 12, 24, 0.2, 1.0, D and PLANKDARK or PAL.plank, M.plank)
 	if D then
-		for _, c in ipairs({ { -13, -14 }, { -13, -4 }, { 13, -14 }, { 13, -4 } }) do
+		for _, c in ipairs({ { -13, -10 }, { -13, -2 }, { 13, -10 }, { 13, -2 } }) do
 			box(s, "RailPost", c[1] - 0.25, c[1] + 0.25, c[2] - 0.25, c[2] + 0.25, 0.4, 3.4, TIMBER2, M.wood)
 		end
-		rod(s, "Rope", Vector3.new(-13, 3.1, -14), Vector3.new(-13, 3.1, -4), 0.16, ROPE, M.cloth)
-		rod(s, "Rope", Vector3.new(13, 3.1, -14), Vector3.new(13, 3.1, -4), 0.16, ROPE, M.cloth)
+		rod(s, "Rope", Vector3.new(-13, 3.1, -10), Vector3.new(-13, 3.1, -2), 0.16, ROPE, M.cloth)
+		rod(s, "Rope", Vector3.new(13, 3.1, -10), Vector3.new(13, 3.1, -2), 0.16, ROPE, M.cloth)
 		for _, x in ipairs({ 22, 38, 54, 68 }) do box(s, "WalkPost", x - 0.4, x + 0.4, 11.5, 12.3, -4, 1.4, TIMBER, M.wood) end
 		box(s, "BoatHull", 20, 26, -6, 6, -1.6, 0.9, C3(96, 70, 46), M.plank)
 		mk(s, "BoatBow", Vector3.new(4.3, 2.5, 4.3), at(23, -0.35, 7.2) * CFrame.Angles(0, math.rad(45), 0), C3(96, 70, 46), M.plank)
 		box(s, "Gunwale", 19.7, 20.4, -6, 6, 0.9, 1.4, TIMBER, M.wood)
 		box(s, "Gunwale", 25.6, 26.3, -6, 6, 0.9, 1.4, TIMBER, M.wood)
 		box(s, "Thwart", 20, 26, -0.5, 0.5, 0.4, 0.8, PLANK, M.plank)
-		for _, c in ipairs({ { -11, -20 }, { 11, 15 } }) do cyl(s, "Bollard", 1.2, 2.2, at(c[1], 1.5, c[2]), IRON, M.metal) end
+		for _, c in ipairs({ { -15.4, -9 }, { 11, 15 } }) do cyl(s, "Bollard", 1.2, 2.2, at(c[1], 1.5, c[2]), IRON, M.metal) end
 	else
 		box(s, "Boat", 20, 26, -8, 6, -1.6, 1.2, PAL.wood, WOODP)
 	end
@@ -1364,7 +1473,7 @@ function G.NpcSpots()
 	local s = section("NpcSpots")
 	for _, n in ipairs(G.NPC_SPOTS) do
 		local pos = W(n.x, n.y + 2, n.z)
-		local p = mk(s, "NpcSpot_" .. n.role, Vector3.new(1, 4, 1), CFrame.lookAt(pos, pos + n.dir), PAL.npc, SP, { Transparency = G.DETAIL and 0.6 or 0.35, CanCollide = false })
+		local p = mk(s, "NpcSpot_" .. n.role, Vector3.new(1, 4, 1), CFrame.lookAt(pos, pos + n.dir), PAL.npc, SP, { Transparency = G.DETAIL and 1 or 0.35, CanCollide = false })   -- invisible markers in the detail render; NPC-01 reads the attributes
 		p:SetAttribute("Role", n.role)
 		p:SetAttribute("Tier", n.tier)
 		p:SetAttribute("Note", n.note)
@@ -1397,8 +1506,8 @@ function G.PlacePortal()
 	local touch = hub and hub:FindFirstChild("PortalTouch", true)
 	if not (hub and touch) then return "HubPortal/PortalTouch not found" end
 	if not hub:GetAttribute("TW2_OriginalPivot") then hub:SetAttribute("TW2_OriginalPivot", hub:GetPivot()) end
-	local pos = W(-21, 5.6, 12)
-	local target = CFrame.lookAt(pos, pos + Vector3.new(-1, 0, 0))
+	local pos = W(0, 0.4 + 5.6, -21.0)
+	local target = CFrame.lookAt(pos, pos + Vector3.new(0, 0, 1))   -- inside the gateway chamber, thin axis across the arch
 	local rel = touch.CFrame:ToObjectSpace(hub:GetPivot())
 	hub:PivotTo(target * rel)
 	return string.format("HubPortal pivoted; PortalTouch at (%.1f, %.1f, %.1f)", touch.Position.X, touch.Position.Y, touch.Position.Z)
@@ -1418,6 +1527,283 @@ function G.RetargetSkip()
 		if p and p:IsA("BasePart") then p.CFrame = CFrame.new(8190, 2000.4, 7878) end
 	end
 	return (new ~= src) and "SkipLoop retargeted (CX 8150, CZ 7878, R 40, WATER_Y 2000)" or "SkipLoop already retargeted"
+end
+
+-- Gateway: the Old Riverside Market Gateway at the south end of the dock -- the way home, built as if it had
+-- stood there for generations. The functional portal (Portals.HubPortal.PortalTouch) is only re-pivoted
+-- into its chamber; its legacy neon decor is moved to the backup folder by RetirePortalDecor().
+local DARKTIMBER = C3(70, 50, 32)
+function G.Gateway()
+	local s = section("Gateway")
+	local D = G.DETAIL
+	box(s, "GateBase", -17, 17, -26, -12, -6, 0.4, D and COBBLE or PAL.stone, D and M.stone or CONCRETE)
+	if not D then
+		box(s, "GateMass", -12, 12, -20, -15, 0.4, 22, PAL.stone, CONCRETE)
+		return s
+	end
+	local r = rng(hashName("gateway"))
+	-- the landing: copings on the water edges, a worn threshold where the planks stop
+	box(s, "BaseCoping", -17.4, 17.4, -26.4, -25.6, 0.4, 0.95, LIME, M.stone2)
+	box(s, "BaseCoping", -17.4, -16.6, -26.4, -12, 0.4, 0.95, LIME, M.stone2)
+	box(s, "BaseCoping", 16.6, 17.4, -26.4, -12, 0.4, 0.95, LIME, M.stone2)
+	box(s, "Threshold", -14, 14, -12.6, -11.4, 0.4, 0.62, LIME, M.stone2)
+	box(s, "WornFlag", -3.2, 2.6, -14.8, -12.8, 0.4, 0.52, C3(112, 104, 92), M.stone)
+	-- piers: the west one heavier with a buttress (nobody built this symmetrical)
+	box(s, "PierE", -11, -7, -20, -15, 0.4, 12.5, STONE, M.stone)
+	box(s, "PierW", 7, 12, -20, -15, 0.4, 12.5, STONE, M.stone)
+	box(s, "PierCap", -11.4, -6.6, -20.4, -14.6, 12.5, 13.2, LIME, M.stone2)
+	box(s, "PierCap", 6.6, 12.4, -20.4, -14.6, 12.5, 13.2, LIME, M.stone2)
+	box(s, "Buttress", 12, 14.6, -20, -15, 0.4, 7.5, STONEDARK, M.stone)
+	ramp(s, "ButtressTop", Vector3.new(12, 9.2, -17.5), Vector3.new(14.8, 7.5, -17.5), 5.2, 0.8, LIME, M.stone2)
+	quoins(s, faceOf({ x1 = -11, x2 = -7, z1 = -20, z2 = -15 }, "N"), 0.4, 12, r)
+	quoins(s, faceOf({ x1 = 7, x2 = 12, z1 = -20, z2 = -15 }, "N"), 0.4, 12, r)
+	box(s, "Patch", -10.2, -8.1, -14.95, -14.75, 4.2, 5.6, LIME, M.stone2)
+	box(s, "Patch", 8.4, 9.6, -14.95, -14.75, 7.8, 8.7, LIME, M.stone2)
+	-- two-ring masonry arch with a keystone, spandrel wall, string course, and the carved tablet
+	arch(s, "ArchOuter", at(0, 12.5, -17.5), 7.6, 11, 1.7, 4.4, LIME, M.stone2)
+	arch(s, "ArchInner", at(0, 12.5, -18.0), 6.1, 9, 1.4, 2.8, STONEDARK, M.stone)
+	box(s, "Keystone", -1.0, 1.0, -19.9, -15.1, 19.2, 21.6, LIME, M.stone2)
+	box(s, "Spandrel", -12, -6.4, -18.8, -15.8, 12.5, 22.0, STONE, M.stone)
+	box(s, "Spandrel", 6.4, 12, -18.8, -15.8, 12.5, 22.0, STONE, M.stone)
+	box(s, "Spandrel", -6.4, 6.4, -18.8, -15.8, 19.4, 22.0, STONE, M.stone)
+	box(s, "StringCourse", -12.6, 12.6, -19.2, -15.4, 22.0, 22.6, LIME, M.stone2)
+	box(s, "TabletBand", -12.4, 12.4, -19.0, -15.6, 22.6, 25.6, STONE, M.stone)
+	box(s, "TabletRim", -5.5, 5.5, -15.6, -15.15, 22.7, 25.5, C3(150, 140, 120), M.stone2)
+	local tablet = box(s, "GateTablet", -5.0, 5.0, -15.6, -14.95, 23.0, 25.2, LIME, M.stone2)
+	plate(tablet, "TRADING WORLD", Enum.NormalId.Back, C3(66, 56, 44), LIME, 1, Enum.Font.Antique, 40)
+	-- heavy timber tie beam across the front at the spring line, strapped and bolted
+	box(s, "TieBeam", -12.4, 12.4, -15.85, -14.9, 12.7, 13.7, DARKTIMBER, M.wood)
+	for _, x in ipairs({ -9.6, -0.4, 9.2 }) do
+		box(s, "Strap", x - 0.5, x + 0.5, -14.95, -14.8, 12.55, 13.85, IRON, M.metal)
+		for _, dy in ipairs({ -0.35, 0.35 }) do
+			cyl(s, "Bolt", 0.3, 0.16, at(x, 13.2 + dy, -14.78) * CFrame.Angles(0, math.rad(90), 0), IRON, M.metal)
+		end
+	end
+	-- timber canopy: slate hood on dark beams, barge boards both ends, joist ends under the north eave, knee braces
+	gable(s, "Gate", -13.5, 13.5, -20, -15, 25.6, 4.4, false, ROOFS[7][1], ROOFS[7][2], 1.7)
+	box(s, "GateRidge", -15.6, 15.6, -17.9, -17.1, 29.8, 30.5, DARKTIMBER, M.wood)
+	box(s, "EaveBeam", -15.2, 15.2, -21.9, -21.1, 24.7, 25.6, DARKTIMBER, M.wood)
+	box(s, "EaveBeam", -15.2, 15.2, -13.9, -13.1, 24.7, 25.6, DARKTIMBER, M.wood)
+	bargeBoards(s, "Gate", -13.5, 13.5, -20, -15, 25.6, 4.4, false, 1.7, true)
+	bargeBoards(s, "Gate", -13.5, 13.5, -20, -15, 25.6, 4.4, false, 1.7, false)
+	for _, x in ipairs({ -11.2, -6.5, -2.4, 1.8, 6.0, 10.6 }) do box(s, "BeamEnd", x - 0.3, x + 0.3, -14.4, -12.9, 24.6, 25.2, DARKTIMBER, M.wood) end
+	for _, x in ipairs({ -10.2, 10.4 }) do
+		mk(s, "KneeBrace", Vector3.new(0.7, 3.4, 0.7), at(x, 23.2, -14.6) * CFrame.Angles(math.rad(-40), 0, 0), DARKTIMBER, M.wood)
+	end
+	mk(s, "OuterBrace", Vector3.new(0.8, 6.6, 0.8), at(13.4, 10.2, -15.0) * CFrame.Angles(0, 0, math.rad(-24)), DARKTIMBER, M.wood)
+	mk(s, "BraceStrap", Vector3.new(1.0, 0.5, 1.0), at(12.4, 12.9, -15.0), IRON, M.metal)
+	for _, x in ipairs({ -9, 9.5 }) do
+		box(s, "LanternArm", x - 0.15, x + 0.15, -15.2, -13.2, 9.1, 9.4, IRON, M.metal)
+		mk(s, "LanternArmBrace", Vector3.new(0.22, 1.6, 0.22), at(x, 8.5, -14.0) * CFrame.Angles(math.rad(-45), 0, 0), IRON, M.metal)
+	end
+	-- the chamber behind the arch: stone walls, back wall, ceiling at the spring line, worn flags
+	box(s, "ChamberWallE", -12, -9, -26, -20, 0.4, 20.6, STONE, M.stone)
+	box(s, "ChamberWallW", 9, 12, -26, -20, 0.4, 20.6, STONE, M.stone)
+	box(s, "ChamberBack", -12, 12, -26, -24.6, 0.4, 21.6, STONEDARK, M.stone)
+	box(s, "ChamberRoof", -12, 12, -24.6, -18.8, 19.6, 20.6, STONEDARK, M.stone)
+	box(s, "ChamberFloor", -9, 9, -24.6, -20, 0.4, 0.55, C3(70, 66, 62), M.stone)
+	-- the supernatural part, contained by the old stone: depth, a glass sheen, a faint veil, slow motes, thin mist, one cool light
+	mk(s, "PortalDepth", Vector3.new(14.0, 19.0, 0.4), at(0, 10.0, -23.6), C3(14, 18, 34), M.sp, { CanCollide = false })
+	mk(s, "PortalSheen", Vector3.new(13.4, 18.6, 0.24), at(0, 9.9, -22.4), C3(36, 58, 92), M.glass, { Transparency = 0.5, Reflectance = 0.06, CanCollide = false })
+	local veil = mk(s, "PortalVeil", Vector3.new(12.6, 18.0, 0.12), at(0, 9.8, -21.6), C3(110, 150, 196), M.sp, { Transparency = 0.9, CanCollide = false })
+	local motes = mk(s, "PortalMotes", Vector3.new(10.4, 0.4, 2.0), at(0, 1.0, -22.2), C3(0, 0, 0), M.sp, { Transparency = 1, CanCollide = false })
+	local pe = Instance.new("ParticleEmitter")
+	pe.Name = "Motes"
+	pe.Rate = 5
+	pe.Lifetime = NumberRange.new(3, 5)
+	pe.Speed = NumberRange.new(0.4, 0.9)
+	pe.SpreadAngle = Vector2.new(20, 20)
+	pe.EmissionDirection = Enum.NormalId.Top
+	pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(0.6, 0.35), NumberSequenceKeypoint.new(1, 0) })
+	pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(0.7, 0.75), NumberSequenceKeypoint.new(1, 1) })
+	pe.Color = ColorSequence.new(C3(196, 214, 240))
+	pe.LightEmission = 0.35
+	pe.RotSpeed = NumberRange.new(-20, 20)
+	pe.Parent = motes
+	local mist = pe:Clone()
+	mist.Name = "Mist"
+	mist.Rate = 1.5
+	mist.Lifetime = NumberRange.new(5, 7)
+	mist.Speed = NumberRange.new(0.15, 0.3)
+	mist.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2.8), NumberSequenceKeypoint.new(1, 5.5) })
+	mist.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.93), NumberSequenceKeypoint.new(1, 1) })
+	mist.Color = ColorSequence.new(C3(150, 165, 190))
+	mist.LightEmission = 0
+	mist.Parent = motes
+	local pl = Instance.new("PointLight")
+	pl.Color = C3(150, 178, 220)
+	pl.Brightness = 0.75
+	pl.Range = 15
+	pl.Shadows = false
+	pl.Parent = veil
+	return s
+end
+
+-- ONCE: the legacy neon arch, pillars, swirl and label leave the portal model (to the backup folder); only PortalTouch stays
+function G.RetirePortalDecor()
+	local portals = gameWorld():FindFirstChild("Portals")
+	local hub = portals and portals:FindFirstChild("HubPortal")
+	if not hub then return "no HubPortal" end
+	local bk = ServerStorage:FindFirstChild(G.BACKUP) or folder(ServerStorage, G.BACKUP)
+	local store = bk:FindFirstChild("HubPortal_LegacyDecor") or folder(bk, "HubPortal_LegacyDecor")
+	local moved = 0
+	for _, ch in ipairs(hub:GetChildren()) do
+		if ch.Name ~= "PortalTouch" then ch.Parent = store; moved += 1 end
+	end
+	return string.format("HubPortal legacy decor: %d moved this call, %d stored", moved, #store:GetChildren())
+end
+
+-- Dressing (Phase 5b): kerbs, drains, dock ironwork, three trade signs, and a few things people left where they used them
+local function specOf(district, name)
+	for _, b in ipairs(G.BUILDINGS[district]) do if b.name == name then return b end end
+end
+function G.Dressing()
+	local s = section("Dressing")
+	if not G.DETAIL then return s end
+	local r = rng(hashName("dressing"))
+	-- limestone kerbs along both edges of the Lower Market street
+	local pts = { { 0, 38, 20 }, { 2, 70, 14 }, { 12, 110, 16 }, { 10, 150, 12 }, { 4, 190, 16 }, { -10, 226, 18 }, { -12, 250, 24 } }
+	for i = 1, #pts - 1 do
+		local a, b = pts[i], pts[i + 1]
+		local dx, dz = b[1] - a[1], b[2] - a[2]
+		local len = math.sqrt(dx * dx + dz * dz)
+		local nx, nz = -dz / len, dx / len
+		local w = (a[3] + b[3]) / 2
+		for _, sgn in ipairs({ -1, 1 }) do
+			local off = sgn * (w / 2 + 0.3)
+			ramp(s, "Kerb", Vector3.new(a[1] + nx * off, 0.32, a[2] + nz * off), Vector3.new(b[1] + nx * off, 0.32, b[2] + nz * off), 0.6, 0.36, LIME, M.stone2)
+		end
+	end
+	-- drains where the street bends, and one on the quay
+	for _, p in ipairs({ { 2, 70 }, { 10, 150 }, { -12, 250 } }) do
+		box(s, "Drain", p[1] - 0.8, p[1] + 0.8, p[2] - 0.8, p[2] + 0.8, 0.12, 0.26, C3(48, 46, 44), M.metal)
+	end
+	box(s, "Scupper", 90.2, 92, 96, 97.2, -1.4, -0.9, C3(40, 38, 36), M.metal)
+	-- dock ironwork: cleats, mooring rings, a coiled line
+	for _, p in ipairs({ { -12, 2 }, { 12, 10 }, { 36, 6 }, { 100, 120 } }) do
+		box(s, "Cleat", p[1] - 0.6, p[1] + 0.6, p[2] - 0.22, p[2] + 0.22, (p[1] > 90) and -0.6 or 0.4, ((p[1] > 90) and -0.6 or 0.4) + 0.42, IRON, M.metal)
+	end
+	for _, z in ipairs({ 60, 172 }) do
+		local ring = mk(s, "MooringRing", Vector3.new(0.14, 1.0, 1.0), at(92.05, -1.6, z), IRON, M.metal, { CanCollide = false })
+		ring.Shape = Enum.PartType.Cylinder
+	end
+	cyl(s, "RopeCoil", 2.2, 0.5, at(-8, 0.65, 8), ROPE, M.cloth)
+	-- crates under a tarp by the hoist warehouse; an upturned boat on the boardwalk; a fish rack on the pier
+	for _, c in ipairs({ { 75, 344, 0 }, { 77.4, 346.6, 14 }, { 75.6, 346.2, 2.1 } }) do
+		mk(s, "Crate", Vector3.new(2.2, 2.0, 2.2), at(c[1], -0.8 + 1.0 + (c[3] > 2 and 2.0 or 0), c[2]) * CFrame.Angles(0, math.rad(c[3] > 2 and 0 or c[3]), 0), PLANK, M.plank)
+	end
+	mk(s, "Tarp", Vector3.new(5.6, 0.25, 5.2), at(76.2, -0.8 + 3.3, 345.4) * CFrame.Angles(math.rad(6), math.rad(-8), math.rad(-9)), CLOTHS[5], M.cloth, { CanCollide = false })
+	mk(s, "BoatHullUp", Vector3.new(5.8, 1.5, 3.0), at(30, 0.95, 20.4) * CFrame.Angles(0, math.rad(-6), 0), C3(96, 70, 46), M.plank)
+	mk(s, "Keel", Vector3.new(5.4, 0.3, 0.4), at(30, 1.85, 20.4) * CFrame.Angles(0, math.rad(-6), 0), TIMBER, M.wood, { CanCollide = false })
+	for _, x in ipairs({ 100, 108 }) do box(s, "RackPost", x - 0.25, x + 0.25, 116.6, 117.1, -0.6, 4.4, TIMBER2, M.wood, { CanCollide = false }) end
+	rod(s, "RackRail", Vector3.new(100, 4.2, 116.85), Vector3.new(108, 4.2, 116.85), 0.22, TIMBER, M.wood)
+	for _, x in ipairs({ 101.6, 104.1, 106.4 }) do
+		mk(s, "DryingFish", Vector3.new(0.35, 1.5, 0.7), at(x, 3.35, 116.85) * CFrame.Angles(0, 0, math.rad((r() - 0.5) * 16)), C3(176, 168, 150), M.sp, { CanCollide = false })
+	end
+	-- a hand cart in the yard, a wheel left against the courtyard wall, barrels by the broker
+	box(s, "CartBed", 11.5, 16.5, 319, 322.4, 1.6, 2.0, PLANKDARK, M.plank)
+	for _, x in ipairs({ 11.2, 16.8 }) do mk(s, "CartWheel", Vector3.new(0.3, 2.4, 2.4), at(x, 1.2, 320.7), TIMBER, M.wood, { CanCollide = false }).Shape = Enum.PartType.Cylinder end
+	for _, x in ipairs({ 12.2, 15.8 }) do mk(s, "CartHandle", Vector3.new(0.3, 0.3, 3.6), at(x, 1.2, 324.6) * CFrame.Angles(math.rad(22), 0, 0), TIMBER, M.wood, { CanCollide = false }) end
+	mk(s, "LeaningWheel", Vector3.new(0.3, 2.6, 2.6), at(-78.6, 1.3, 140) * CFrame.Angles(0, 0, math.rad(12)), TIMBER, M.wood, { CanCollide = false }).Shape = Enum.PartType.Cylinder
+	cyl(s, "Barrel", 2.2, 2.6, at(-19.5, 1.3, 210.6), C3(100, 74, 48), M.plank)
+	cyl(s, "Barrel", 2.0, 2.4, at(-17.4, 1.2, 208.8), C3(112, 84, 54), M.plank)
+	-- a bench facing the well, a notice board by the gate, a bucket and rod at the fishing pocket
+	box(s, "Bench", -26.6, -21.4, 253, 254.4, 1.3, 1.75, PLANKDARK, M.plank)
+	box(s, "BenchLeg", -26.2, -25.4, 253.2, 254.2, 0, 1.3, TIMBER, M.wood)
+	box(s, "BenchLeg", -22.6, -21.8, 253.2, 254.2, 0, 1.3, TIMBER, M.wood)
+	for _, x in ipairs({ -13.6, -9.8 }) do box(s, "BoardPost", x - 0.25, x + 0.25, 30, 30.5, 0, 6.2, TIMBER, M.wood, { CanCollide = false }) end
+	box(s, "NoticeBoard", -14.2, -9.2, 30.05, 30.45, 2.6, 5.8, PLANKDARK, M.plank, { CanCollide = false })
+	box(s, "Notice", -13.4, -12.1, 30.44, 30.5, 3.4, 5.2, C3(222, 214, 190), M.sp, { CanCollide = false })
+	mk(s, "Notice", Vector3.new(1.1, 1.5, 0.06), at(-10.6, 4.1, 30.47) * CFrame.Angles(0, 0, math.rad(7)), C3(214, 204, 176), M.sp, { CanCollide = false })
+	cyl(s, "Bucket", 1.4, 1.3, at(-60, -0.15, 396), IRON, M.metal)
+	mk(s, "FishingRod", Vector3.new(0.12, 7.0, 0.12), at(-63, 2.2, 397.6) * CFrame.Angles(math.rad(-30), 0, math.rad(15)), TIMBER2, M.wood, { CanCollide = false })
+	-- trade signs: the broker, the curio house, the boat shed; a carved tablet on the guild house
+	local kiosk, curio, shed, guild = specOf("LowerMarket", "BrokerKiosk"), specOf("UpperMarket", "CurioHouse"), specOf("Waterfront", "S1"), specOf("LowerMarket", "GuildHouse")
+	tradeSign(s, "SignBroker", "BROKER", faceOf(kiosk, "W"), 0, 5, 6.2)
+	tradeSign(s, "SignCurios", "CURIOS", faceOf(curio, "W", curio.upper), UP, 12, 11.2)
+	tradeSign(s, "SignBoats", "BOATS", faceOf(shed, "W"), 0, 14, 9.6)
+	local gf = faceOf(guild, "S", guild.upper)
+	faceBox(s, "GuildTabletRim", gf, 0, 24, 15.6, 0.3, 8.4, 2.8, 0.5, C3(150, 140, 120), M.stone2, nil, nil, { CanCollide = false })
+	local gt = faceBox(s, "GuildTablet", gf, 0, 24, 15.6, 0.45, 7.8, 2.2, 0.5, LIME, M.stone2, nil, nil, { CanCollide = false })
+	plate(gt, "GUILD HOUSE", Enum.NormalId.Front, C3(66, 56, 44), LIME, 1, Enum.Font.Antique, 40)
+	return s
+end
+
+-- Lanterns (Phase 6): warm pools where people stand, trade, and cross water. One PointLight each, no shadows,
+-- range 14-18; the gateway portal and the tower beacon are the only lights that are not warm iron lanterns.
+G.LANTERNS = {
+	-- gateway piers (hanging from the iron arms) and the dock corners (posts)
+	{ x = -9, y = 8.4, z = -13.5, kind = "hang", away = Vector3.new(0, 0, 1), arm = 0.6 },
+	{ x = 9.5, y = 8.4, z = -13.5, kind = "hang", away = Vector3.new(0, 0, 1), arm = 0.6 },
+	{ x = -13, y = 7.6, z = 15, kind = "post" },
+	{ x = 13, y = 7.6, z = 16, kind = "post" },
+	-- entrance and the Lower Market: over the stalls and at the corners people turn
+	{ x = 8.4, y = 9.6, z = 60, kind = "hang", away = Vector3.new(-1, 0, 0) },
+	{ x = -8.4, y = 9.0, z = 48, kind = "hang", away = Vector3.new(1, 0, 0) },
+	{ x = 6.6, y = 10.3, z = 90, kind = "hang", away = Vector3.new(-1, 0, 0) },
+	{ x = 18.6, y = 9.4, z = 128, kind = "hang", away = Vector3.new(-1, 0, 0) },
+	{ x = 10.6, y = 7.7, z = 176, kind = "hook" },
+	{ x = 4, y = 7.4, z = 222, kind = "hook" },
+	{ x = -6.6, y = 10.4, z = 84, kind = "hang", away = Vector3.new(1, 0, 0) },
+	{ x = -4.4, y = 10.4, z = 118, kind = "hang", away = Vector3.new(1, 0, 0) },
+	{ x = -2.4, y = 10.4, z = 198, kind = "hang", away = Vector3.new(1, 0, 0) },
+	{ x = -52, y = 10.0, z = 158.4, kind = "hang", away = Vector3.new(0, 0, -1) },
+	{ x = -20.6, y = 7.2, z = 221, kind = "hang", away = Vector3.new(1, 0, 0) },
+	{ x = -4, y = 7.6, z = 240, kind = "post" },
+	{ x = -30, y = 8.0, z = 268, kind = "hook" },
+	{ x = 46, y = 10.2, z = 256, kind = "hook" },
+	-- waterfront
+	{ x = 68.6, y = 10.6, z = 50, kind = "hook" },
+	{ x = 72.2, y = 6.1, z = 134, kind = "hook" },
+	{ x = 72, y = 7.7, z = 176, kind = "hook" },
+	{ x = 71.4, y = 10.2, z = 292, kind = "hang", away = Vector3.new(1, 0, 0) },
+	{ x = 74, y = 14.5, z = 339, kind = "hook" },
+	-- upper market and the causeway
+	{ x = -68.4, y = 21.4, z = 288, kind = "hang", away = Vector3.new(1, 0, 0) },
+	{ x = -116, y = 21.4, z = 300, kind = "hook" },
+	{ x = -48.5, y = 19.6, z = 326, kind = "post" },
+	{ x = -45, y = 18.0, z = 372.2, kind = "hang", away = Vector3.new(0, 0, 1) },
+	-- bridge: the iron posts get their heads; the cupola gets the beacon; the passage a hook
+	{ x = 4.6, y = 15.3, z = 403, kind = "bare" },
+	{ x = 17.4, y = 15.3, z = 438, kind = "bare" },
+	{ x = 4.6, y = 15.3, z = 438, kind = "bare" },
+	{ x = 11, y = 18.0, z = 448, kind = "hook" },
+	{ x = 11, y = 66.6, z = 448, kind = "bare", range = 34, brightness = 1.3 },
+	-- collector's row and the fishing pocket
+	{ x = -9.5, y = 6.2, z = 470.4, kind = "hang", away = Vector3.new(0, 0, -1) },
+	{ x = 18, y = 5.2, z = 468, kind = "hook" },
+	{ x = -66, y = 6.6, z = 396, kind = "post", post = 5.5 },
+}
+function G.Lanterns()
+	local s = section("Lanterns")
+	if not G.DETAIL then return s end
+	for i, l in ipairs(G.LANTERNS) do
+		local pos = W(l.x, l.y, l.z)
+		local cf = l.away and CFrame.lookAt(pos, pos + l.away) or CFrame.new(pos)
+		local kind = l.kind
+		local m = lantern(s, "Lantern" .. i, cf, (kind == "hook" or kind == "bare") and "bare" or kind, { arm = l.arm, range = l.range, brightness = l.brightness, post = l.post })
+		if kind == "hook" then mk(m, "LanternHook", Vector3.new(0.14, 0.7, 0.14), cf * CFrame.new(0, 1.1, 0), IRON, M.metal, { CanCollide = false }) end
+	end
+	return s
+end
+
+-- A private colour grade for the trading world (Tundra pattern): disabled at rest, faded in by
+-- StarterPlayerScripts.TradingAtmosphere while the player is inside the BoundsGuard box. Never touches
+-- Lighting globals, ExposureCompensation or the Atmosphere.
+function G.TradingGrade()
+	local L = game:GetService("Lighting")
+	local g = L:FindFirstChild("TradingGrade")
+	if not g then
+		g = Instance.new("ColorCorrectionEffect")
+		g.Name = "TradingGrade"
+		g.Parent = L
+	end
+	g.Enabled = false
+	g.Brightness = 0
+	g.Contrast = 0
+	g.Saturation = 0
+	g.TintColor = Color3.new(1, 1, 1)
+	return "Lighting.TradingGrade ready (disabled at rest)"
 end
 
 -- ============================================================ operations
@@ -1447,7 +1833,7 @@ function G.ClearAll()
 	return "cleared " .. n .. " generated sections"
 end
 
-local SECTIONS = { "Land", "Cliffs", "ArrivalDock", "MarketEntrance", "LowerMarket", "Waterfront", "UpperMarket", "OldBridge", "CollectorsRow", "Stairs", "Roads", "Barrier", "NpcSpots", "Booths", "TradeZone" }
+local SECTIONS = { "Land", "Cliffs", "ArrivalDock", "Gateway", "MarketEntrance", "LowerMarket", "Waterfront", "UpperMarket", "OldBridge", "CollectorsRow", "Stairs", "Roads", "Barrier", "NpcSpots", "Booths", "TradeZone", "Dressing", "Lanterns" }
 function G.BuildAll(opts)
 	if opts and opts.detail ~= nil then G.DETAIL = opts.detail end
 	roofTone = 0
@@ -1457,7 +1843,9 @@ function G.BuildAll(opts)
 		local ok, err = pcall(G[name])
 		table.insert(log, (ok and "ok   " or "FAIL ") .. name .. (ok and "" or (" -- " .. tostring(err))))
 	end
-	local ok, msg = pcall(G.PlacePortal); table.insert(log, (ok and "ok   Portal -- " or "FAIL Portal -- ") .. tostring(msg))
+	local ok, msg = pcall(G.RetirePortalDecor); table.insert(log, (ok and "ok   PortalDecor -- " or "FAIL PortalDecor -- ") .. tostring(msg))
+	ok, msg = pcall(G.PlacePortal); table.insert(log, (ok and "ok   Portal -- " or "FAIL Portal -- ") .. tostring(msg))
+	ok, msg = pcall(G.TradingGrade); table.insert(log, (ok and "ok   Grade -- " or "FAIL Grade -- ") .. tostring(msg))
 	ok, msg = pcall(G.RetargetSkip); table.insert(log, (ok and "ok   Skip -- " or "FAIL Skip -- ") .. tostring(msg))
 	CHS:SetWaypoint("TW2 settlement: after build")
 	return table.concat(log, "\n")
