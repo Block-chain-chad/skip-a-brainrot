@@ -141,11 +141,13 @@ Players.PlayerRemoving:Connect(function(player)
 	PlayerDataManager.Remove(player)
 end)
 
-game:BindToClose(function()
-	for _, player in ipairs(Players:GetPlayers()) do
-		PlayerDataManager.Save(player)
-	end
-end)
+-- Shutdown persistence lives in PlayerDataManager: its own BindToClose writes every live
+-- profile once and hands the session lock back. There used to be a second BindToClose
+-- HERE that called PlayerDataManager.Save for every player. Bound functions run in
+-- parallel, Save re-stamps the lock, and whichever of the two writes landed last decided
+-- whether the next server found the profile locked -- which it did, on nearly every
+-- Studio Stop -> Play ("profile held by another live server -- read-only session").
+-- Removed 2026-09-21 (data-safety hotfix). Do not add it back.
 
 ThrowHandler.Init()
 ShopHandler.Init()

@@ -1299,6 +1299,13 @@ function ThrowHandler.Init()
 				caught.MintedAt = mintedAt   -- os.time() of the catch; proves who had it first
 			end
 			table.insert(liveData.Brainrots, caught)
+			-- A capped mint was spent in the universe-wide registry the moment TryClaim
+			-- returned above; if this server died before the next periodic write, the slot
+			-- would be gone for everyone and the brainrot held by nobody. Queue the write
+			-- now (next autosave tick) rather than waiting up to 30s for it.
+			if LimitedStock.IsLimited(brainrotEntry.Name) then
+				PlayerDataManager.RequestSave(player)
+			end
 			-- Leaderboard stat. Counted HERE and nowhere else, so it measures catches rather
 			-- than holdings: trades, booth buys and eggs must never inflate it.
 			liveData.BrainrotsCaught = (liveData.BrainrotsCaught or 0) + 1

@@ -49,6 +49,9 @@ local function doRebirth(player)
 	data.Rebirths = r + 1
 
 	PlayerDataManager.PushUpdate(player)
+	-- Irreversible and worth the most of anything in the session: queued for the next
+	-- autosave tick (about a second) instead of waiting up to 30s for the periodic one.
+	PlayerDataManager.RequestSave(player)
 	RebirthHandler.SendState(player)
 	-- Maxwell's step 2 is "reach Rebirth 15"; let his questline react to the new total.
 	pcall(MaxwellQuest.NotifyRebirth, player)

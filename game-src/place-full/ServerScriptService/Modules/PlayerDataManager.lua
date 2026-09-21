@@ -609,6 +609,7 @@ function PlayerDataManager.TryBuySpot(player)
 		result:FireClient(player, { Success = true, Message = "Unlocked plot spot " .. nextSpot .. "!" })
 	end
 	PlayerDataManager.PushUpdate(player)
+	PlayerDataManager.RequestSave(player)   -- up to $50B changed hands: milestone (see RequestSave)
 end
 
 -- Camp board state lives as attributes on the plot Model; the client renders it.
@@ -727,130 +728,177 @@ function PlayerDataManager.Snapshot(player)
 	}
 end
 
-function PlayerDataManager.Load(player)
-	local data
+local function deepCopy(v)
+	if type(v) ~= "table" then return v end
+	local out = {}
+	for k, x in pairs(v) do out[k] = deepCopy(x) end
+	return out
+end
+
+-- Every profile that comes out of storage goes through here before anything reads it.
+-- The long list is the project's migration ledger: one line per field, each with its
+-- own idea of a safe default (some estimate, some infer from other fields), kept
+-- verbatim. The catch-all at the end is the 2026-09-21 data-safety hotfix: it fills
+-- whatever is STILL missing from defaultData(), so a field nobody wrote a line for --
+-- Cash was the one -- can never come back nil. Only absent keys are touched; an
+-- existing value, including 0, is never replaced. Pure: no player, no cache, no yields.
+local function normalize(data, who)
+	if not data.OwnedRocks then data.OwnedRocks = { Pebble = true } end
+	if not data.EquippedRock then data.EquippedRock = "Pebble" end
+	if not data.Brainrots then data.Brainrots = {} end
+	if not data.UnlockedSpots then data.UnlockedSpots = BASE_SPOTS end
+	if not data.DailyStreak then data.DailyStreak = 0 end
+	if not data.LastClaimDay then data.LastClaimDay = 0 end
+	if not data.Quests then data.Quests = {} end
+	if data.ChimQuest == nil then data.ChimQuest = 0 end
+	if type(data.Keys) ~= "number" then data.Keys = 0 end
+	if data.CellarUnlocked == nil then data.CellarUnlocked = false end
+	if not data.QuestDay then data.QuestDay = 0 end
+	if not data.Rebirths then data.Rebirths = 0 end
+	if data.MaxwellQuest == nil then data.MaxwellQuest = 0 end
+	if type(data.MaxwellSecrets) ~= "number" then data.MaxwellSecrets = 0 end
+
+	if data.TungQuest == nil then data.TungQuest = 0 end
+	if type(data.TungCatch) ~= "table" then data.TungCatch = { Epic = 0, Legendary = 0, Mythic = 0 } end
+	if data.TungPortalUnlocked == nil then data.TungPortalUnlocked = false end
+	if data.MichelQuest == nil then data.MichelQuest = 0 end
+	if type(data.MichelGiven) ~= "number" then data.MichelGiven = 0 end
+	-- an existing save has been playing in the Valley by definition
+	if type(data.WorldsVisited) ~= "table" then data.WorldsVisited = { Valley = true } end
+	-- WorldsVisited only started being recorded on 2026-08-07, so a save from
+	-- before then knows nothing about where its owner has been and the Worlds tab
+	-- would tell a veteran tundra player to go and find the tundra. TundraQuest > 0
+	-- means they have SPOKEN to Elder Tung in the tundra, which they cannot have
+	-- done remotely -- so it is a record of presence, just an older one. Anyone
+	-- without that proof simply walks the portal once, as intended.
+	if not data.WorldsVisited.Tundra and (tonumber(data.TundraQuest) or 0) > 0 then
+		data.WorldsVisited.Tundra = true
+	end
+	if data.TundraQuest == nil then data.TundraQuest = 0 end
+	if type(data.TundraProgress) ~= "table" then data.TundraProgress = { Catches = 0, Mythics = 0, Secrets = 0 } end
+	if type(data.TundraParts) ~= "table" then data.TundraParts = { Cog = 0, Gear = 0, Drillhead = 0 } end
+	if type(data.TundraDry) ~= "number" then data.TundraDry = 0 end
+	if data.CaveUnlocked == nil then data.CaveUnlocked = false end
+	if type(data.Pity) ~= "table" then data.Pity = {} end
+	if not data.Discovered then data.Discovered = {} end
+	if not data.Upgrades then data.Upgrades = {} end
+	if data.TutorialDone == nil then data.TutorialDone = false end
+	if not data.LastSeen then data.LastSeen = 0 end
+	if not data.LastFreezeDay then data.LastFreezeDay = 0 end
+	if not data.RedeemedCodes then data.RedeemedCodes = {} end
+	if not data.SeasonXP then data.SeasonXP = 0 end
+	if not data.SeasonClaimed then data.SeasonClaimed = {} end
+	if not data.SeasonQuests then data.SeasonQuests = {} end
+	if not data.SeasonQuestDay then data.SeasonQuestDay = 0 end
+	if type(data.Offerings) ~= "number" then data.Offerings = 0 end
+	if type(data.TotalEarned) ~= "number" then data.TotalEarned = 0 end
+	if type(data.PlotLikes) ~= "number" then data.PlotLikes = 0 end
+	if type(data.LikedPlayers) ~= "table" then data.LikedPlayers = {} end
+	if type(data.LifetimeEarned) ~= "number" then
+		-- One-time estimate for saves predating this field. Money already SPENT is not
+		-- recoverable from anything stored, so take the best available floor: you have
+		-- earned at least what you are holding, and at least what you produced.
+		data.LifetimeEarned = math.max(tonumber(data.Cash) or 0, tonumber(data.TotalEarned) or 0)
+	end
+	if type(data.TimePlayed) ~= "number" then data.TimePlayed = 0 end
+	if type(data.BrainrotsCaught) ~= "number" then data.BrainrotsCaught = 0 end
+	if type(data.LastSpinAt) ~= "number" then data.LastSpinAt = 0 end
+	if type(data.Boosts) ~= "table" then data.Boosts = {} end
+	if data.Darrels == nil then data.Darrels = 0 end
+	data.DarrelDaily = data.DarrelDaily or {}
+	-- Absent on every save written before 2026-08-09. An empty table is all the
+	-- weekly engine needs: EmeraldService.weekly() sees no matching Week and seeds
+	-- a fresh one, exactly as it does for a brand new profile.
+	data.DarrelWeekly = data.DarrelWeekly or {}
+	data.EggsOpened = data.EggsOpened or {}
+	data.ReceiptLog = data.ReceiptLog or {}
+	data.Pets = data.Pets or {}
+	data.PetSlots = data.PetSlots or {}
+	-- Absent on every save written before 2026-08-20. Zero is exactly right for
+	-- an existing player: nobody could have bought a follow slot before the
+	-- slots existed, and PetConfig.CapFor floors the cap at SLOTS_FREE anyway.
+	if type(data.PetSlotsBought) ~= "number" then data.PetSlotsBought = 0 end
+	if type(data.PetSlotsRobux) ~= "number" then data.PetSlotsRobux = 0 end
+	if type(data.PendingEggs) ~= "table" then data.PendingEggs = {} end
+	-- NOTHING IS TRIMMED TO THE NEW BAG CAPS HERE, deliberately. A returning
+	-- player who is over the 150/25 lines keeps every brainrot and every pet --
+	-- the caps gate what ARRIVES (BagConfig.HasPetSpace / HasBrainrotSpace on
+	-- each grant path), they are not a ceiling the profile is cut down to. An
+	-- over-cap bag simply cannot take anything new until it is sold down, which
+	-- is the same state a player reaches by filling it normally.
+	data.Settings = data.Settings or {} -- Task 10: settings panel
+	data.Tags = data.Tags or {}         -- season pass name-plate titles
+	data.NextUid = data.NextUid or 1
+	for _, e in ipairs(data.Brainrots) do
+		if RENAMES[e.Name] then e.Name = RENAMES[e.Name] end
+		if not e.Uid then e.Uid = data.NextUid; data.NextUid += 1 end
+		-- Discovery backfill: the Discovered flag was never written before
+		-- 2026-07-25, so owning a copy is the only proof the catch happened.
+		data.Discovered[e.Name] = true
+	end
+	-- Renames must walk EVERY place a config name is persisted. Ancient saves
+	-- carry Discovered keys written by an early build (the writer was later
+	-- lost in a refactor), so old names can lurk here even when no owned
+	-- record does.
+	for oldName, newName in pairs(RENAMES) do
+		if data.Discovered[oldName] then
+			data.Discovered[oldName] = nil
+			data.Discovered[newName] = true
+		end
+	end
+
+	-- === CATCH-ALL AGAINST THE CURRENT SCHEMA (2026-09-21) =====================
+	-- Tables are copied so two profiles never share one default table.
+	for k, v in pairs(defaultData()) do
+		if data[k] == nil then data[k] = deepCopy(v) end
+	end
+	-- `data.Cash += amount` sits on every earning path and `data.Cash >= cost` on every
+	-- purchase, so Cash in particular must be a number, not merely present.
+	if type(data.Cash) ~= "number" then
+		warn(("[PlayerDataManager] %s: Cash was %s, repaired"):format(tostring(who), typeof(data.Cash)))
+		data.Cash = tonumber(data.Cash) or 0
+	end
+	-- LEGACY SESSION MARKER. SessionLock.Claim used to hold the lock for a brand-new
+	-- player by storing { __sessionNew = true } and left it to the first full save to
+	-- replace it. A first session that died before that save (crash, or a heartbeat that
+	-- only refreshed the lock) left the marker in storage, and the next load took it for
+	-- an existing profile -- with no Cash. Claim now stores a real default profile, so
+	-- this only ever meets markers written before the hotfix; the loop above has already
+	-- turned one into a complete default profile, which is exactly what it stands for.
+	if data.__sessionNew ~= nil then
+		warn(("[PlayerDataManager] %s: profile was a session marker (first session never saved); loaded as a new player")
+			:format(tostring(who)))
+		data.__sessionNew = nil
+	end
+	return data
+end
+PlayerDataManager.Normalize = normalize
+PlayerDataManager.DefaultData = defaultData
+
+-- Claim + normalise, and nothing else: no cache, no Player instance, no yields beyond
+-- the DataStore call. Load wires the result up; tests call this directly.
+function PlayerDataManager.LoadProfile(userId, who)
 	-- Claim rather than GetAsync. A plain read cannot tell "nobody else has this" from
 	-- "another server loaded it a moment ago", and that gap is exactly where a
-	-- cross-place teleport duplicates items.
-	local claimed, status = SessionLock.Claim(player.UserId)
-	local ok = (status == "ok" or status == "new")
-	local result = (status == "ok") and claimed or nil
+	-- cross-place teleport duplicates items. Claim writes defaultData() itself for a
+	-- key that does not exist yet, so a brand-new profile is complete from its first
+	-- transaction on.
+	local claimed, status = SessionLock.Claim(userId, defaultData)
+	if (status == "ok" or status == "new") and type(claimed) == "table" then
+		return normalize(claimed, who)         -- "new" is already a default profile: no-op
+	end
 	if status == "locked" then
 		warn(("[PlayerDataManager] %s: profile held by another live server -- read-only session")
-			:format(player.Name))
+			:format(tostring(who)))
 	end
-	if ok and result then
-		data = result
-		if not data.OwnedRocks then data.OwnedRocks = { Pebble = true } end
-		if not data.EquippedRock then data.EquippedRock = "Pebble" end
-		if not data.Brainrots then data.Brainrots = {} end
-		if not data.UnlockedSpots then data.UnlockedSpots = BASE_SPOTS end
-		if not data.DailyStreak then data.DailyStreak = 0 end
-		if not data.LastClaimDay then data.LastClaimDay = 0 end
-		if not data.Quests then data.Quests = {} end
-		if data.ChimQuest == nil then data.ChimQuest = 0 end
-		if type(data.Keys) ~= "number" then data.Keys = 0 end
-		if data.CellarUnlocked == nil then data.CellarUnlocked = false end
-		if not data.QuestDay then data.QuestDay = 0 end
-		if not data.Rebirths then data.Rebirths = 0 end
-		if data.MaxwellQuest == nil then data.MaxwellQuest = 0 end
-		if type(data.MaxwellSecrets) ~= "number" then data.MaxwellSecrets = 0 end
+	local data = defaultData()
+	data.__noSave = true                 -- DataStore READ FAILED: never overwrite the real profile
+	warn("[PlayerDataManager] load failed for " .. tostring(who) .. "; session is read-only")
+	return data
+end
 
-		if data.TungQuest == nil then data.TungQuest = 0 end
-		if type(data.TungCatch) ~= "table" then data.TungCatch = { Epic = 0, Legendary = 0, Mythic = 0 } end
-		if data.TungPortalUnlocked == nil then data.TungPortalUnlocked = false end
-		if data.MichelQuest == nil then data.MichelQuest = 0 end
-		if type(data.MichelGiven) ~= "number" then data.MichelGiven = 0 end
-		-- an existing save has been playing in the Valley by definition
-		if type(data.WorldsVisited) ~= "table" then data.WorldsVisited = { Valley = true } end
-		-- WorldsVisited only started being recorded on 2026-08-07, so a save from
-		-- before then knows nothing about where its owner has been and the Worlds tab
-		-- would tell a veteran tundra player to go and find the tundra. TundraQuest > 0
-		-- means they have SPOKEN to Elder Tung in the tundra, which they cannot have
-		-- done remotely -- so it is a record of presence, just an older one. Anyone
-		-- without that proof simply walks the portal once, as intended.
-		if not data.WorldsVisited.Tundra and (tonumber(data.TundraQuest) or 0) > 0 then
-			data.WorldsVisited.Tundra = true
-		end
-		if data.TundraQuest == nil then data.TundraQuest = 0 end
-		if type(data.TundraProgress) ~= "table" then data.TundraProgress = { Catches = 0, Mythics = 0, Secrets = 0 } end
-		if type(data.TundraParts) ~= "table" then data.TundraParts = { Cog = 0, Gear = 0, Drillhead = 0 } end
-		if type(data.TundraDry) ~= "number" then data.TundraDry = 0 end
-		if data.CaveUnlocked == nil then data.CaveUnlocked = false end
-		if type(data.Pity) ~= "table" then data.Pity = {} end
-		if not data.Discovered then data.Discovered = {} end
-		if not data.Upgrades then data.Upgrades = {} end
-		if data.TutorialDone == nil then data.TutorialDone = false end
-		if not data.LastSeen then data.LastSeen = 0 end
-		if not data.LastFreezeDay then data.LastFreezeDay = 0 end
-		if not data.RedeemedCodes then data.RedeemedCodes = {} end
-		if not data.SeasonXP then data.SeasonXP = 0 end
-		if not data.SeasonClaimed then data.SeasonClaimed = {} end
-		if not data.SeasonQuests then data.SeasonQuests = {} end
-		if not data.SeasonQuestDay then data.SeasonQuestDay = 0 end
-		if type(data.Offerings) ~= "number" then data.Offerings = 0 end
-		if type(data.TotalEarned) ~= "number" then data.TotalEarned = 0 end
-		if type(data.PlotLikes) ~= "number" then data.PlotLikes = 0 end
-		if type(data.LikedPlayers) ~= "table" then data.LikedPlayers = {} end
-		if type(data.LifetimeEarned) ~= "number" then
-			-- One-time estimate for saves predating this field. Money already SPENT is not
-			-- recoverable from anything stored, so take the best available floor: you have
-			-- earned at least what you are holding, and at least what you produced.
-			data.LifetimeEarned = math.max(tonumber(data.Cash) or 0, tonumber(data.TotalEarned) or 0)
-		end
-		if type(data.TimePlayed) ~= "number" then data.TimePlayed = 0 end
-		if type(data.BrainrotsCaught) ~= "number" then data.BrainrotsCaught = 0 end
-		if type(data.LastSpinAt) ~= "number" then data.LastSpinAt = 0 end
-		if type(data.Boosts) ~= "table" then data.Boosts = {} end
-		if data.Darrels == nil then data.Darrels = 0 end
-		data.DarrelDaily = data.DarrelDaily or {}
-		-- Absent on every save written before 2026-08-09. An empty table is all the
-		-- weekly engine needs: EmeraldService.weekly() sees no matching Week and seeds
-		-- a fresh one, exactly as it does for a brand new profile.
-		data.DarrelWeekly = data.DarrelWeekly or {}
-		data.EggsOpened = data.EggsOpened or {}
-		data.ReceiptLog = data.ReceiptLog or {}
-		data.Pets = data.Pets or {}
-		data.PetSlots = data.PetSlots or {}
-		-- Absent on every save written before 2026-08-20. Zero is exactly right for
-		-- an existing player: nobody could have bought a follow slot before the
-		-- slots existed, and PetConfig.CapFor floors the cap at SLOTS_FREE anyway.
-		if type(data.PetSlotsBought) ~= "number" then data.PetSlotsBought = 0 end
-		if type(data.PetSlotsRobux) ~= "number" then data.PetSlotsRobux = 0 end
-		if type(data.PendingEggs) ~= "table" then data.PendingEggs = {} end
-		-- NOTHING IS TRIMMED TO THE NEW BAG CAPS HERE, deliberately. A returning
-		-- player who is over the 150/25 lines keeps every brainrot and every pet --
-		-- the caps gate what ARRIVES (BagConfig.HasPetSpace / HasBrainrotSpace on
-		-- each grant path), they are not a ceiling the profile is cut down to. An
-		-- over-cap bag simply cannot take anything new until it is sold down, which
-		-- is the same state a player reaches by filling it normally.
-		data.Settings = data.Settings or {} -- Task 10: settings panel
-		data.Tags = data.Tags or {}         -- season pass name-plate titles
-		data.NextUid = data.NextUid or 1
-		for _, e in ipairs(data.Brainrots) do
-			if RENAMES[e.Name] then e.Name = RENAMES[e.Name] end
-			if not e.Uid then e.Uid = data.NextUid; data.NextUid += 1 end
-			-- Discovery backfill: the Discovered flag was never written before
-			-- 2026-07-25, so owning a copy is the only proof the catch happened.
-			data.Discovered[e.Name] = true
-		end
-		-- Renames must walk EVERY place a config name is persisted. Ancient saves
-		-- carry Discovered keys written by an early build (the writer was later
-		-- lost in a refactor), so old names can lurk here even when no owned
-		-- record does.
-		for oldName, newName in pairs(RENAMES) do
-			if data.Discovered[oldName] then
-				data.Discovered[oldName] = nil
-				data.Discovered[newName] = true
-			end
-		end
-	elseif ok then
-		data = defaultData()                 -- genuinely a new player: empty read, no error
-	else
-		data = defaultData()
-		data.__noSave = true                 -- DataStore READ FAILED: never overwrite the real profile
-		warn("[PlayerDataManager] load failed for " .. player.Name .. "; session is read-only")
-	end
+function PlayerDataManager.Load(player)
+	local data = PlayerDataManager.LoadProfile(player.UserId, player.Name)
 	PlayerDataManager.cache[player.UserId] = data
 
 	local leaderstats = Instance.new("Folder")
@@ -1010,18 +1058,44 @@ function PlayerDataManager.Save(player)
 	if not data then return false end
 	if data.__noSave then return false end  -- load failed; writing would wipe the real profile
 	data.LastSeen = os.time()
-	local key = "Player_" .. player.UserId
 	-- Routed through SessionLock: it re-checks ownership inside the transaction and
 	-- refuses if another server has taken the profile, because at that point WE are the
 	-- stale session and writing would roll their progress back.
 	return SessionLock.Save(player.UserId, data)
 end
 
+-- The write-side half of persistence (2026-09-21 data-safety hotfix). Saves used to
+-- happen only on trades, receipts, a few quests, leaving and shutdown, so a server
+-- crash lost the whole session -- every throw, catch, upgrade, purchase and rebirth
+-- since the last of those. Now:
+--   * periodic: SessionLock.StartAutosave (bottom of this file) writes each live
+--     profile every 30s, one player per second, and that write is also what keeps the
+--     session lock fresh (the old lock-only heartbeat is gone: same request count,
+--     but every write now persists progress);
+--   * milestones: RequestSave asks for the next tick's write (rebirth, a capped mint,
+--     a plot-spot purchase) -- queued, so ten milestones in a second are one write;
+--   * inline: Save, for the paths that must confirm a write before they proceed
+--     (trades, booth sales, gifts, Robux receipts) -- unchanged;
+--   * leave and shutdown: Remove and the BindToClose below, as the final layer.
+-- The profile handed to every write is prepared HERE, so LastSeen (the offline-earnings
+-- clock, "unix time of last save") is stamped by every one of them, the way Save has
+-- always done -- the leave write had silently stopped stamping it when SessionLock
+-- replaced Save in Remove.
+local function prepareForWrite(userId)
+	local data = PlayerDataManager.cache[userId]
+	if data and not data.__noSave then data.LastSeen = os.time() end
+	return data
+end
+
+function PlayerDataManager.RequestSave(player)
+	SessionLock.MarkDue(player.UserId)
+end
+
 function PlayerDataManager.Remove(player)
 	releasePlot(player)                 -- stop accepting likes BEFORE the SetAsync yield
 	-- Release = final write + drop the lock. Leaving is also how a teleport looks from
 	-- this server, so the destination must find the profile unlocked and current.
-	SessionLock.Release(player.UserId, PlayerDataManager.cache[player.UserId])
+	SessionLock.Release(player.UserId, prepareForWrite(player.UserId))
 	PlayerDataManager.cache[player.UserId] = nil
 end
 
@@ -1077,17 +1151,22 @@ do
 	end
 end
 
--- Refresh our locks every 30s; they go stale after 90, so a crashed server's lock is
--- reclaimable instead of permanent.
--- Release locks when the server goes down, so the next server (or the next Studio play
--- session) can claim these profiles immediately instead of waiting out the stale window.
+-- SHUTDOWN: one final write per live profile, which also hands its session lock back, so
+-- the next server (or the next Studio play session) claims it immediately instead of
+-- waiting out the stale window. This is the ONLY BindToClose that writes profiles.
+-- Main used to bind a second one that called Save for every player; bound functions run
+-- in parallel, Save re-stamps the lock, and whichever write landed last decided whether
+-- the next server found the profile locked -- which it did, on nearly every Studio
+-- Stop -> Play ("profile held by another live server -- read-only session").
 game:BindToClose(function()
-	local n = SessionLock.ReleaseAll(function(userId) return PlayerDataManager.cache[userId] end)
+	local n = SessionLock.ReleaseAll(prepareForWrite)
 	if n > 0 then
 		print(("[PlayerDataManager] released %d session lock(s) on shutdown"):format(n))
 	end
 end)
 
-SessionLock.StartHeartbeat(function(userId) return PlayerDataManager.cache[userId] end)
+-- The periodic writer (see prepareForWrite above). Every 30s per profile, spread one
+-- player per second; keeps the lock fresh (stale after 90s) as a side effect.
+SessionLock.StartAutosave(prepareForWrite)
 
 return PlayerDataManager
