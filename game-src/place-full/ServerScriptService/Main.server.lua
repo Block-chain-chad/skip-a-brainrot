@@ -23,22 +23,48 @@ local MintRegistry = require(ServerScriptService.Modules.MintRegistry)
 local PriceIndex = require(ServerScriptService.Modules.PriceIndex)
 local SeasonPassHandler = require(ServerScriptService.Modules.SeasonPassHandler)
 local PlotBoardHandler = require(ServerScriptService.Modules.PlotBoardHandler)
+-- the walk-over AUTO-PLACE pad at each plot's entrance; a door onto EquipBest
+local PlotEquipPad = require(ServerScriptService.Modules.PlotEquipPad)
+-- records which worlds a player has been to, which is what the Worlds tab unlocks
+local WorldTravelService = require(ServerScriptService.Modules.WorldTravelService)
+-- the Robux shop's remotes (prompts + which passes you own)
+local ShopService = require(ServerScriptService.Modules.ShopService)
+-- gifting is PARKED (2026-08-12 inventory rework): its entry point was the
+-- worn Tool, which no longer exists. The service stays wired (validation is
+-- self-contained and inert without offers); re-entry needs a Bag-side UI.
+local GiftService = require(ServerScriptService.Modules.GiftService)
 local LimitedStock = require(ServerScriptService.Modules.LimitedStock)
 local LeaderboardHandler = require(ServerScriptService.Modules.LeaderboardHandler)
 local LeaderboardBoards = require(ServerScriptService.Modules.LeaderboardBoards)
 local WheelHandler = require(ServerScriptService.Modules.WheelHandler)
 local DevWeather = require(ServerScriptService.Modules.DevWeather)
+local DevQuest = require(ServerScriptService.Modules.DevQuest)
 local GianlucaQuest = require(ServerScriptService.Modules.GianlucaQuest)
 local MaxwellQuest = require(ServerScriptService.Modules.MaxwellQuest)
 
-local TungQuest = require(ServerScriptService.Modules.TungQuest)local DarrelService = require(ServerScriptService.Modules.DarrelService)
+local TungQuest = require(ServerScriptService.Modules.TungQuest)
+-- Elder Tung's SECOND arc, in World 2: the trials and the dig to the cave (Area 3).
+local TundraQuest = require(ServerScriptService.Modules.TundraQuest)
+-- Michel the eagle, also World 2: five MUTATED Tung Tung Tung Sahurs for 1000 emeralds.
+local MichelQuest = require(ServerScriptService.Modules.MichelQuest)
+local EmeraldService = require(ServerScriptService.Modules.EmeraldService)
 local SettingsService = require(ServerScriptService.Modules.SettingsService) -- Task 10: Settings panel plumbing
 local ProductRegistry = require(ServerScriptService.Modules.ProductRegistry)
+-- Plot raid: pay Robux to steal a brainrot off another player's plot into your bag
+local StealService = require(ServerScriptService.Modules.StealService)
+-- Walk-up (hold F) star marker on your own placed brainrots; foundation for a future
+-- gem-bought raid lock. Visual only for now.
+local PlotFavoriteService = require(ServerScriptService.Modules.PlotFavoriteService)
 local EggHandler = require(ServerScriptService.Modules.EggHandler)
 local BoundsGuard = require(ServerScriptService.Modules.BoundsGuard)
 local PetHandler = require(ServerScriptService.Modules.PetHandler)
 
 local GamepassService = require(ServerScriptService.Modules.GamepassService)
+local RockSlingService = require(ServerScriptService.Modules.RockSlingService)
+-- World 2 blizzard ice-fishing event + the worn rod it hands out
+local RodService = require(ServerScriptService.Modules.RodService)
+local ScooterService = require(ServerScriptService.Modules.ScooterService)
+local IceFishingEvent = require(ServerScriptService.Modules.IceFishingEvent)
 local remotes = ReplicatedStorage.Remotes
 
 remotes.GetInitialData.OnServerInvoke = function(player)
@@ -74,12 +100,41 @@ Players.PlayerAdded:Connect(function(player)
 	OfflineEarningsHandler.OnJoin(player)
 end)
 
-remotes.TutorialComplete.OnServerEvent:Connect(function(player)
+-- Finishing the tutorial used to be worth exactly one saved boolean. It now pays
+-- out, which is the thing that makes the last step worth reaching.
+--
+-- `completed` is the CLIENT asserting it walked the ladder rather than pressing
+-- Skip, and is deliberately not re-derived server-side: the payout is one small
+-- starter grant behind a one-way TutorialDone flag, so the worst a liar gets is
+-- the same reward once -- while re-proving nine steps on the server would mean
+-- nine new per-player counters for a first-join nicety.
+--
+-- GrantCash, not AddEarnings: this is not production income (see the funnel
+-- comment above AddEarnings in PlayerDataManager).
+--
+-- AMOUNT (owner call -- one constant): 3,000 is Enzo's cheapest upgrade exactly
+-- (UpgradeConfig BasePrice: Strong Arm and Campfire Keeper are both 3000), so a
+-- player who finishes the ladder can immediately buy the first upgrade the
+-- ladder just showed them. For reference the cheapest paid rock is 300, and a
+-- freshly-placed Common earns 0.9/s. Drop this to 300 if the grant should only
+-- cover a rock rather than an upgrade.
+local TUTORIAL_REWARD = 3000
+remotes.TutorialComplete.OnServerEvent:Connect(function(player, completed)
 	local data = PlayerDataManager.Get(player)
-	if data and not data.TutorialDone then
-		data.TutorialDone = true
-		PlayerDataManager.PushUpdate(player)
+	if not data or data.TutorialDone then return end
+	data.TutorialDone = true
+	if completed == true then
+		local paid = PlayerDataManager.GrantCash(data, TUTORIAL_REWARD)
+		if paid > 0 then
+			-- ToastClient is the ONLY renderer for { Success, Message } and it
+			-- already listens on PurchaseResult, so this needs no new remote.
+			remotes.PurchaseResult:FireClient(player, {
+				Success = true,
+				Message = ("TUTORIAL COMPLETE   +$%d"):format(paid),
+			})
+		end
 	end
+	PlayerDataManager.PushUpdate(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
@@ -111,6 +166,12 @@ MintRegistry.Init()
 PriceIndex.Init()
 SeasonPassHandler.Init()
 PlotBoardHandler.Init()
+-- after PlotBoardHandler: it reuses that module's Targets(), and the pad is sited
+-- off each plot's PlotBoard, so the boards have to exist first
+PlotEquipPad.Init()
+WorldTravelService.Init()
+-- after InventoryHandler.Init(): gifting syncs both players' backpacks
+GiftService.Init()
 -- must run before the first throw can be revealed: until the global mint count is
 -- read, LimitedStock.SoldOut() answers false and the cap is not yet enforced
 LimitedStock.Init()
@@ -124,11 +185,20 @@ DevWeather.Init()
 GianlucaQuest.Init()
 MaxwellQuest.Init()
 
-TungQuest.Init()DarrelService.Init()
+TungQuest.Init()
+TundraQuest.Init()
+MichelQuest.Init()
+-- after TundraQuest.Init(): /tq drives it
+DevQuest.Init()
+EmeraldService.Init()
 SettingsService.Init() -- Task 10: self-heals the SettingsSave remote, wires validation/persistence
 -- Roblox allows exactly one MarketplaceService.ProcessReceipt assignment for the whole
 -- game; ProductRegistry.Init() is that single assignment site. See its header.
 ProductRegistry.Init()
+-- after ProductRegistry.Init(): StealService registers the raid Developer Product
+-- into it (via M.Register), then attaches its "Steal" prompts to placed brainrots.
+StealService.Init()
+PlotFavoriteService.Init()
 -- Server-side backstop behind Workspace.GameWorld.ValleyBarrier: the wall stops every
 -- reachable speed, but a client that sets its own velocity can punch a corner, and only
 -- the server can undo that. See the header in BoundsGuard.
@@ -136,14 +206,42 @@ BoundsGuard.Init()
 -- After BoundsGuard: EggConfig.Validate() (called from EggHandler.Init) asserts on a bad
 -- egg-table typo, and that must not take the containment guard down with it.
 EggHandler.Init()
--- Task 11: pet system, shipped disabled (PetConfig.ENABLED=false). The LuckMult/IncomeMult
--- seams in ThrowHandler/IncomeLoop are already wired live and neutral; Init() only wires
--- the PetEquip remote and the CharacterAdded/Died follow-rig lifecycle.
+-- Task 11: pet system. LIVE since 2026-07-31 (PetConfig.ENABLED=true), so the
+-- LuckMult/IncomeMult seams in ThrowHandler/IncomeLoop now carry real multipliers rather
+-- than a neutral 1. Init() wires the PetEquip remote and the CharacterAdded/Died
+-- follow-rig lifecycle.
 PetHandler.Init()
+
+-- 2x Backpack gamepass raises the brainrot-bag cap, so the profile carries ownership as
+-- data.BagX2 -- BagConfig reads it for BOTH server enforcement and the snapshot the Bag
+-- draws. Registered BEFORE GamepassService.Init() so the join-time ownership pass calls
+-- it (same ordering PetHandler's slot-cap hook relies on); it also fires the instant the
+-- pass is bought mid-session, and PushUpdate repaints the Bag's cap with no rejoin.
+GamepassService.OnRefreshed(function(player)
+	local data = PlayerDataManager.Get(player)
+	if not data then return end
+	local owns = GamepassService.Owns(player, "BackpackX2")
+	if (data.BagX2 == true) ~= owns then
+		data.BagX2 = owns or nil
+		PlayerDataManager.PushUpdate(player)
+	end
+end)
 
 -- Monetization: Robux gamepass ownership + effects. Headless (no UI/prompts);
 -- inert until real ids are filled into ReplicatedStorage.Modules.GamepassConfig.
 GamepassService.Init()
+-- MUST follow GamepassService.Init(): ShopService reports that module's ownership
+-- cache, and its own join handler reads it.
+ShopService.Init()
+-- the VIP electric scooter. Also after GamepassService.Init(): it decides who gets
+-- one from that module's ownership cache.
+ScooterService.Init()
+-- the worn rock sling: server-built so every player sees everyone else's
+RockSlingService.Init()
+-- World 2 blizzard ice-fishing event (hourly on the :00, 20-min freeze). RodService
+-- first so the worn-rod hooks exist before the event can hand one out.
+RodService.Init()
+IceFishingEvent.Init()
 -- Handle players already in-game (e.g. Studio test start)
 for _, player in ipairs(Players:GetPlayers()) do
 	if not PlayerDataManager.Get(player) then
