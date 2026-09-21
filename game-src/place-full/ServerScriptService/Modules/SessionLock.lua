@@ -14,6 +14,8 @@
 -- Returning nil from an UpdateAsync transform cancels the write. That is how a claim
 -- refuses without touching the stored profile.
 local DataStoreService = game:GetService("DataStoreService")
+local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 
 local M = {}
 
@@ -33,7 +35,23 @@ local HEARTBEAT = 30
 local CLAIM_TRIES = 6
 local CLAIM_WAIT = 2
 
-local function key(userId) return KEY_PREFIX .. userId end
+-- STUDIO-ONLY TEST SEAM (2026-09-21, onboarding round). A Studio playtest always
+-- loads the Studio account's REAL profile, so a truly fresh profile -- and a
+-- rejoin against it -- could not be tested without touching the real save. In
+-- Studio only, a non-empty string in the ServerStorage attribute
+-- `ProfileKeySuffix` is appended to the key (`Player_<uid>_qa1`), which is a
+-- separate row in the same store: fresh when it does not exist, persistent
+-- across Play sessions, and never the owner's real row. Live servers never read
+-- the attribute (IsStudio() is false there), and an empty/absent attribute is
+-- the unchanged key. CLEAR THE ATTRIBUTE (set it to nil) when a test session is
+-- over: it lives in the place file, and a leftover suffix would quietly load the
+-- wrong profile in the owner's next playtest.
+local function keySuffix()
+	if not RunService:IsStudio() then return "" end
+	local s = ServerStorage:GetAttribute("ProfileKeySuffix")
+	return (type(s) == "string") and s or ""
+end
+local function key(userId) return KEY_PREFIX .. userId .. keySuffix() end
 local function held(sess)
 	return sess and sess.job and sess.job ~= JOB and (os.time() - (sess.t or 0)) < STALE_AFTER
 end

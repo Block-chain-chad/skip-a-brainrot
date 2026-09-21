@@ -65,7 +65,7 @@ dcd964ca|1146|ModuleScript|ReplicatedStorage.Modules.RarityConfig
 6e7a290a|7659|ModuleScript|ReplicatedStorage.Modules.RarityCurve
 3216a487|5867|ModuleScript|ReplicatedStorage.Modules.RarityFX
 ca5f7f18|2082|ModuleScript|ReplicatedStorage.Modules.RebirthConfig
-fe335fed|7924|ModuleScript|ReplicatedStorage.Modules.RockConfig
+dabbdee4|8562|ModuleScript|ReplicatedStorage.Modules.RockConfig
 a462288b|5163|ModuleScript|ReplicatedStorage.Modules.RockConfigTundra
 26e8ccfb|29525|ModuleScript|ReplicatedStorage.Modules.RockDesign
 1321b0bc|19531|ModuleScript|ReplicatedStorage.Modules.SeasonConfig
@@ -107,7 +107,7 @@ d12ad74e|10695|Script|ServerScriptService.CinematicCommand
 71cf8771|13694|Script|ServerScriptService.EggStallIdle
 3ed1dc12|3548|Script|ServerScriptService.GearBlocker
 87110039|5194|Script|ServerScriptService.ItemStatsService
-aaeb3c06|12193|Script|ServerScriptService.Main
+cafa4c5e|13712|Script|ServerScriptService.Main
 f95dbd9f|20288|ModuleScript|ServerScriptService.Modules.BoothHandler
 e45e2980|7566|ModuleScript|ServerScriptService.Modules.BoundsGuard
 865aafef|6910|ModuleScript|ServerScriptService.Modules.BrainrotMover
@@ -134,13 +134,13 @@ b4dbf415|7964|ModuleScript|ServerScriptService.Modules.MaxwellQuest
 e1a550f9|5054|ModuleScript|ServerScriptService.Modules.OfferingHandler
 2ff5b465|2886|ModuleScript|ServerScriptService.Modules.OfflineEarningsHandler
 ba8255b8|30268|ModuleScript|ServerScriptService.Modules.PetHandler
-7f09e949|51669|ModuleScript|ServerScriptService.Modules.PlayerDataManager
+6f31f44b|51934|ModuleScript|ServerScriptService.Modules.PlayerDataManager
 5ff7096c|16601|ModuleScript|ServerScriptService.Modules.PlotBoardHandler
 750f16a0|18424|ModuleScript|ServerScriptService.Modules.PlotEquipPad
 f17904da|10193|ModuleScript|ServerScriptService.Modules.PlotFavoriteService
 5959f866|12835|ModuleScript|ServerScriptService.Modules.PriceIndex
 389fe421|5735|ModuleScript|ServerScriptService.Modules.ProductRegistry
-f1b67015|13948|ModuleScript|ServerScriptService.Modules.QuestHandler
+bd7c4639|14653|ModuleScript|ServerScriptService.Modules.QuestHandler
 21ae61fc|8134|ModuleScript|ServerScriptService.Modules.RarityRoll
 3a9cd541|3144|ModuleScript|ServerScriptService.Modules.RebirthHandler
 9086ebcf|15567|ModuleScript|ServerScriptService.Modules.RockSlingService
@@ -148,7 +148,7 @@ f1b67015|13948|ModuleScript|ServerScriptService.Modules.QuestHandler
 3118d228|14595|ModuleScript|ServerScriptService.Modules.ScooterService
 ead1e68c|24267|ModuleScript|ServerScriptService.Modules.SeasonPassHandler
 324c2830|7798|ModuleScript|ServerScriptService.Modules.SellHandler
-562e70d5|6154|ModuleScript|ServerScriptService.Modules.SessionLock
+cf898b27|7282|ModuleScript|ServerScriptService.Modules.SessionLock
 e0b8bc08|10269|ModuleScript|ServerScriptService.Modules.SettingsService
 aef9c5e2|5724|ModuleScript|ServerScriptService.Modules.ShopHandler
 b3b9eb36|4844|ModuleScript|ServerScriptService.Modules.ShopService
@@ -435,7 +435,7 @@ cb69a16b|3560|LocalScript|StarterPlayer.StarterPlayerScripts.DevWeatherClient
 c505dd78|5994|LocalScript|StarterPlayer.StarterPlayerScripts.FireflyClient
 c0ceabfa|6739|LocalScript|StarterPlayer.StarterPlayerScripts.FootstepClient
 30a8fb65|20746|LocalScript|StarterPlayer.StarterPlayerScripts.FusionClient
-ed0ef27e|145732|LocalScript|StarterPlayer.StarterPlayerScripts.GameHUDClient
+25535162|147665|LocalScript|StarterPlayer.StarterPlayerScripts.GameHUDClient
 4b1c1f10|211159|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.BackpackPanel
 f1afd6d4|94875|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.CharmsPanel
 81ff4275|42780|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.DailyPanel
@@ -458,7 +458,7 @@ f01dcef7|34936|LocalScript|StarterPlayer.StarterPlayerScripts.IndexClient
 6f847d12|257|LocalScript|StarterPlayer.StarterPlayerScripts.InventoryClient
 0bf8e899|3918|LocalScript|StarterPlayer.StarterPlayerScripts.LakeAmbience
 973e691f|40252|LocalScript|StarterPlayer.StarterPlayerScripts.LuckHUDClient
-97342d95|39111|LocalScript|StarterPlayer.StarterPlayerScripts.MerchantClient
+ebd377db|40571|LocalScript|StarterPlayer.StarterPlayerScripts.MerchantClient
 90cef661|24724|LocalScript|StarterPlayer.StarterPlayerScripts.MichelQuestClient
 23d4595e|6396|LocalScript|StarterPlayer.StarterPlayerScripts.MusicClient
 0edab2d6|15583|LocalScript|StarterPlayer.StarterPlayerScripts.MutationMotionClient
@@ -473,7 +473,7 @@ d11016f0|33109|LocalScript|StarterPlayer.StarterPlayerScripts.PlatformClient
 de266797|9057|LocalScript|StarterPlayer.StarterPlayerScripts.PlotFavoriteClient
 4ff4ee31|4705|LocalScript|StarterPlayer.StarterPlayerScripts.PlotFlagVisibility
 b83e5868|15491|LocalScript|StarterPlayer.StarterPlayerScripts.PlotSignClient
-86487ef9|19762|LocalScript|StarterPlayer.StarterPlayerScripts.QuestBarClient
+47e5f2df|21005|LocalScript|StarterPlayer.StarterPlayerScripts.QuestBarClient
 d9417e5b|6222|LocalScript|StarterPlayer.StarterPlayerScripts.QuestClient
 1e8a8c17|59456|LocalScript|StarterPlayer.StarterPlayerScripts.QuestTrackerClient
 c7c9be1b|2674|LocalScript|StarterPlayer.StarterPlayerScripts.RaidClient
@@ -492,7 +492,7 @@ cc54efba|1870|LocalScript|StarterPlayer.StarterPlayerScripts.ShopPanelCentre
 adc2bd49|7797|LocalScript|StarterPlayer.StarterPlayerScripts.TundraQuestClient
 ab2e0224|5927|LocalScript|StarterPlayer.StarterPlayerScripts.TundraWeatherFX
 bc7db348|25341|LocalScript|StarterPlayer.StarterPlayerScripts.TungQuestClient
-3691c3b9|30021|LocalScript|StarterPlayer.StarterPlayerScripts.TutorialClient
+7179714b|36627|LocalScript|StarterPlayer.StarterPlayerScripts.TutorialClient
 3ed9d260|13366|LocalScript|StarterPlayer.StarterPlayerScripts.UIPolish
 5ed4eb7a|8803|LocalScript|StarterPlayer.StarterPlayerScripts.ValleyAmbience
 94f9fc8f|56723|LocalScript|StarterPlayer.StarterPlayerScripts.WeatherClient

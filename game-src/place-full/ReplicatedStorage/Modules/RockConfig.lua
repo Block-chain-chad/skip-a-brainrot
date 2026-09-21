@@ -63,7 +63,15 @@
 return {
 	-- COMMON (0+)
 	{ Id = "Pebble", Name = "Creek Pebble",            Price = 0,          MaxDistance = 25,  Luck = 1.00, Color = Color3.fromRGB(140, 140, 140) },
-	{ Id = "SmoothStone", Name = "Rivertumble",       Price = 12000,        MaxDistance = 70,  Luck = 1.15, Color = Color3.fromRGB(160, 160, 170) },
+	-- FIRST RUNG REPRICED 12,000 -> 2,000 (owner, 2026-09-21, first-10-minutes round).
+	-- The header's own intent is "a brand-new player still gets their first
+	-- purchase quickly"; at 12,000 the tutorial's rock step was ~10x what a fresh
+	-- profile holds and "Skip This Step" was the only way past. 2,000 is the own5
+	-- goal reward (2,400) minus a little: earned by five catches, bought at ~4 min.
+	-- Still 100% Common (70 studs < the 100-stud Uncommon band): what it sells is
+	-- 3x the reach, 4 skips and the tracking camera. Sevenskip (23,900) stays the
+	-- first tier unlock and is the post-tutorial target the finish card names.
+	{ Id = "SmoothStone", Name = "Rivertumble",       Price = 2000,         MaxDistance = 70,  Luck = 1.15, Color = Color3.fromRGB(160, 160, 170) },
 	-- UNCOMMON (100+)
 	{ Id = "FlatSkipper", Name = "Sevenskip",       Price = 23900,       MaxDistance = 110, Luck = 1.30, Color = Color3.fromRGB(120, 150, 160) },
 	{ Id = "SlateDisc", Name = "Skiprazor",         Price = 3400, Retired = true,       MaxDistance = 200, Luck = 1.42, Color = Color3.fromRGB(105, 115, 125) },

@@ -1369,9 +1369,26 @@ end)
 
 -- Startup pulls, mirroring EmeraldHUDClient/EggShopClient's own join-time
 -- invoke pattern: the push above can race this script's listener connecting.
+-- ONBOARDING HOLD (2026-09-21, first-10-minutes round). The calendar's join
+-- push (see the join sequence at the foot of this file) waits while a fresh
+-- profile is in the tutorial, so the game's first screen is the one core
+-- action rather than a modal over it. Decided HERE from the snapshot rather
+-- than from TutorialClient's attribute, so the decision cannot lose a race with
+-- that script's own start; released by that attribute dropping (finish or
+-- skip) or by the ceiling below. `nil` = not decided yet: the DailyState
+-- handler parks its payload until this resolves.
+local onboardingHold = nil
+local ONBOARDING_HOLD_CEILING = 600
+local releaseOnboardingHold   -- assigned in the join sequence below
 task.spawn(function()
 	local ok, snap = pcall(function() return remotes.GetInitialData:InvokeServer() end)
-	if ok and typeof(snap) == "table" then applyCash(snap.Cash) end
+	if ok and typeof(snap) == "table" then
+		applyCash(snap.Cash)
+		onboardingHold = (snap.TutorialDone == false)
+	else
+		onboardingHold = false
+	end
+	if not onboardingHold and releaseOnboardingHold then releaseOnboardingHold() end
 end)
 
 -- Bug C3 fix (gem seed, round-4 -- ACTUAL ROOT CAUSE). The previous two
@@ -2920,10 +2937,45 @@ end
 -- because silently swallowing a player's payout receipt is not acceptable.
 task.delay(30, releaseHandoff)
 
+-- The join push, held while onboardingHold is true or still undecided; the
+-- latest payload is kept so the release replays exactly what would have shown.
+local heldState = nil
+local handleDailyState   -- forward: the body below, so the release can call it
+
+releaseOnboardingHold = function()
+	if onboardingHold == true then return end
+	local s = heldState
+	heldState = nil
+	if s then handleDailyState(s) end
+end
+player:GetAttributeChangedSignal("OnboardingActive"):Connect(function()
+	if player:GetAttribute("OnboardingActive") == false and onboardingHold then
+		onboardingHold = false
+		releaseOnboardingHold()
+	end
+end)
+-- Ceiling: a tutorial that never signals must not cost the day's claim.
+task.delay(ONBOARDING_HOLD_CEILING, function()
+	if onboardingHold ~= false then
+		onboardingHold = false
+		releaseOnboardingHold()
+	end
+end)
+
 remotes.DailyState.OnClientEvent:Connect(function(s)
 	if typeof(s) ~= "table" then return end
 	dailyClaimable = (s.Claimable == true)
 	if sequenceOver then return end
+	if not introOpened and onboardingHold ~= false then
+		heldState = s
+		return
+	end
+	handleDailyState(s)
+end)
+
+handleDailyState = function(s)
+	if sequenceOver then return end
+	dailyClaimable = (s.Claimable == true)
 
 	if not introOpened then
 		-- The join-time push. Nothing to claim today (a same-day rejoin) means no
@@ -2973,4 +3025,4 @@ remotes.DailyState.OnClientEvent:Connect(function(s)
 			if currentPanelId == "daily" then closePanel() end
 		end)
 	end
-end)
+end

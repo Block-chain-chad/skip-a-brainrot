@@ -1026,7 +1026,10 @@ function PlayerDataManager.Remove(player)
 end
 
 -- === Tycoon-style claiming: walk onto a free plot to claim it ===
-function PlayerDataManager.ClaimPlotFor(player, plot)
+-- `quiet` (2026-09-21): the first-join auto-claim in Main passes true so the
+-- "Base claimed!" toast does not fire over the tutorial's first card, which says
+-- the same thing in its own words. Every other caller omits it and is unchanged.
+function PlayerDataManager.ClaimPlotFor(player, plot, quiet)
 	if not plot or plot:GetAttribute("Claimed") then return false end
 	-- One per WORLD, not one per player: owning a valley camp must not stop you taking a
 	-- tundra one, but it does stop you taking a second valley one.
@@ -1040,7 +1043,7 @@ function PlayerDataManager.ClaimPlotFor(player, plot)
 		BrainrotSpawner.RestoreAll(plot, data.Brainrots)
 	end
 	if PlayerDataManager.OnPlotClaimed then PlayerDataManager.OnPlotClaimed(player) end
-	local result = ReplicatedStorage.Remotes:FindFirstChild("PurchaseResult")
+	local result = (not quiet) and ReplicatedStorage.Remotes:FindFirstChild("PurchaseResult")
 	if result then
 		result:FireClient(player, { Success = true, Message = "Base claimed!" })
 	end

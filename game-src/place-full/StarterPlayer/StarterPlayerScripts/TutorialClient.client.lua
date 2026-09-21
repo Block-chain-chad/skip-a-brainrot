@@ -1,5 +1,29 @@
--- First-join onboarding. Shows once ever (TutorialDone saves with player data).
--- Each step parks a glowing beacon + bobbing arrow over the target until it's done.
+-- First-join onboarding (rewritten 2026-09-21, "first 10 minutes" round). Shows
+-- once ever (TutorialDone saves with player data). ONE card at a time, bottom-left,
+-- a beacon + ground chevrons on the current target, and every step gated on a real
+-- event or on the profile SNAPSHOT -- never on a timer, never on standing near a
+-- thing, and never on something a fresh profile with Pebble cannot do. There is no
+-- "Skip This Step" any more: the step that used to need it (a 12,000 rock against
+-- ~1,700 in hand) was repriced instead. "Skip Tutorial" ends the whole ladder.
+--
+-- The ladder, and what each step is FOR:
+--   1 SKIP YOUR FIRST ROCK    the core action, first
+--   2 IT'S IN YOUR BAG        where a catch goes + distance -> rarity, then repeat x5
+--   3 GOAL COMPLETE           the Goals board pays (own5), and the player sees it
+--   4 OPEN YOUR BAG           "my brainrots are collected here"
+--   5 PUT THEM ON YOUR BASE   the walk-over pad; placed brainrots earn
+--   6 COLLECT YOUR CASH       the campfire
+--   7 BUY A BETTER ROCK       Rivertumble, 2,000 -- affordable from the goal reward
+--   (0 CLAIM A BASE           only when the server could not auto-claim one at join)
+--
+-- REJOIN RESUMES. Steps read durable facts where they exist (brainrot count, PadIndex,
+-- OwnedRocks, TotalEarned, the goal's Claimed flag), so a player who leaves mid-ladder
+-- comes back to the first step that is actually open, not to the start.
+--
+-- CALENDAR HANDSHAKE. The player attribute OnboardingActive is true while this runs
+-- and false the moment it ends (finish or skip); GameHUDClient's join sequence holds
+-- the Daily Calendar's auto-open on it (and decides the hold from the join snapshot
+-- itself, so a late start here cannot lose the race).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -7,10 +31,19 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
-local gui = player:WaitForChild("PlayerGui"):WaitForChild("MainUI")
+local playerGui = player:WaitForChild("PlayerGui")
+local gui = playerGui:WaitForChild("MainUI")
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local UITheme = require(ReplicatedStorage.Modules.UITheme)
-local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local UITheme = require(Modules.UITheme)
+local SoundKit = require(Modules.SoundKit)
+local Platform = require(Modules.Platform)
+local RarityConfig = require(Modules.RarityConfig)
+local RockConfig = require(Modules.RockConfig)
+
+local ONBOARDING_ATTR = "OnboardingActive"
+local GOAL_ID = "own5"          -- QuestHandler's "Own 5 brainrots" -- the first goal
+local GOAL_COUNT = 5
 
 -- The game's panel entrance is a HAND-LERPED glide, not a tween: see
 -- GameHUDClient.glidePanel (its openPanel drives every HUD panel through it)
@@ -39,21 +72,82 @@ end
 -- os.clock() of the last step completion; drives the beacon's victory flare.
 local beaconHitAt = -99
 
--- Forward declaration. finish() is defined above the listener block but has to be
--- able to tear those listeners down, so the block below assigns into this.
+-- Forward declarations: finish() tears the listeners down, and the listener block
+-- assigns into this further down.
 local stopListening
 
 local BLACK = Color3.fromRGB(0, 0, 0)
 local GOLD1, GOLD2 = Color3.fromRGB(255, 220, 100), Color3.fromRGB(240, 150, 24)
 local FONT = UITheme.Font
 
--- One flag per REAL action. Every one is set from an event the server or the
--- world actually fires, so no step can be satisfied by standing near something.
-local flags = {
-	introAck = false, threw = false, caught = false, placed = false,
-	collected = false, sold = false, bought = false, upgraded = false, talked = false,
+-- FACTS: everything a step can be gated on. Durable ones come from the join
+-- snapshot and every DataUpdated after it; session ones from events this client
+-- sees. A step's Done() reads these and nothing else.
+local facts = {
+	-- session
+	threw = false, revealed = false, collected = false, bagOpened = false,
+	lastDistance = nil, lastRarity = nil,
+	-- durable (snapshot)
+	brainrots = 0, placed = false, secondRock = false, totalEarned = 0, unlockedSpots = 12,
+	-- the brainrot count on the JOIN snapshot only: the first step's durable proxy.
+	-- A live first catch must advance through `revealed` (after the pop), never
+	-- through the DataUpdated that lands a frame after ThrowResult.
+	startBrainrots = 0,
+	-- Goals board (QuestState)
+	goalKnown = false, goalMet = false, goalClaimed = false, goalReward = 2400,
 }
+-- os.clock() of the last ThrowResult: nothing may change the card while that
+-- catch is still being revealed (the pop is top-centre, the card bottom-left,
+-- but a card that flips mid-pop reads as the game talking over its own reward).
+local lastResultAt = -99
+-- HOW LONG A REVEAL TAKES is not a constant. The reward-loop pacing build
+-- publishes two player attributes: ThrowCamBusy (true from StoneThrown until the
+-- stone camera is back on the player -- long throws dwell on the splash) and
+-- RevealPopActive (true while a CatchPop is on screen). The rule agreed with that
+-- lane (2026-09-21): after ThrowResult wait while ThrowCamBusy, then for
+-- RevealPopActive to come and go, bounded. Where neither attribute exists (the
+-- build before it, Quick Throw on, a reveal the player switched off) the fixed
+-- grace below covers the Common pop (0.90 s + fade).
+local POP_GRACE = 1.2
+local POP_WAIT_MAX = 3.5
+local function waitForPopEnd(t0)
+	while player:GetAttribute("ThrowCamBusy") == true and os.clock() - t0 < POP_WAIT_MAX do
+		task.wait(0.05)
+	end
+	local sawPop = false
+	while os.clock() - t0 < POP_WAIT_MAX do
+		if player:GetAttribute("RevealPopActive") == true then
+			sawPop = true
+		elseif sawPop then
+			break                                       -- the pop came and went
+		elseif os.clock() - t0 >= POP_GRACE then
+			break                                       -- no pop signal: fixed grace
+		end
+		task.wait(0.05)
+	end
+end
 local active, stepIndex = false, 1
+
+local function readSnapshot(snap)
+	if type(snap) ~= "table" then return end
+	if type(snap.Brainrots) == "table" then
+		facts.brainrots = #snap.Brainrots
+		local placed = false
+		for _, e in ipairs(snap.Brainrots) do
+			if type(e) == "table" and e.PadIndex ~= nil then placed = true break end
+		end
+		facts.placed = placed
+	end
+	if type(snap.OwnedRocks) == "table" then
+		local second = false
+		for id in pairs(snap.OwnedRocks) do
+			if id ~= "Pebble" then second = true break end
+		end
+		facts.secondRock = second
+	end
+	if type(snap.TotalEarned) == "number" then facts.totalEarned = snap.TotalEarned end
+	if type(snap.UnlockedSpots) == "number" then facts.unlockedSpots = snap.UnlockedSpots end
+end
 
 local function blackRim(o, t)
 	for _, s in ipairs(o:GetChildren()) do
@@ -67,6 +161,11 @@ local function inkText(o, t)
 	st.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	st.Color = BLACK; st.Thickness = t or 2; st.Transparency = 0.05; st.Parent = o
 	return st
+end
+local function withCommas(n)
+	local s = tostring(math.floor(tonumber(n) or 0))
+	local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	return (out:gsub("^,", ""))
 end
 
 ---------------------------------------------------------------- beacon
@@ -128,23 +227,61 @@ local function setBeacon(pos, label)
 	beacon:SetAttribute("BaseZ", pos.Z)
 end
 
+---------------------------------------------------------------- rail ring
+-- Some steps point at a HUD tile rather than a place in the world: a gold ring
+-- pulsing around the Bag or Goals tile on the nav rail. Found by name
+-- (GameHUD -> NavRail -> <id>Item, see GameHUDClient's RAIL_ORDER loop); if the
+-- tile is not there within 5 s the ring is simply skipped -- the copy names the
+-- tile anyway.
+local ring = Instance.new("Frame")
+ring.Name = "TutorialRing"
+ring.AnchorPoint = Vector2.new(0.5, 0.5)
+ring.Position = UDim2.fromScale(0.5, 0.5)
+ring.Size = UDim2.fromScale(1.34, 1.34)
+ring.BackgroundTransparency = 1
+ring.ZIndex = 60
+local ringCorner = Instance.new("UICorner")
+ringCorner.CornerRadius = UDim.new(0, 22)
+ringCorner.Parent = ring
+local ringStroke = Instance.new("UIStroke")
+ringStroke.Color = GOLD1
+ringStroke.Thickness = 4
+ringStroke.Transparency = 0
+ringStroke.Parent = ring
+local ringGen = 0
+local function setRing(tileId)
+	ringGen += 1
+	ring.Parent = nil
+	if not tileId then return end
+	local gen = ringGen
+	task.spawn(function()
+		local hud = playerGui:WaitForChild("GameHUD", 5)
+		local rail = hud and hud:FindFirstChild("NavRail", true)
+		local item = rail and rail:FindFirstChild(tileId .. "Item")
+		if gen ~= ringGen or not item then return end
+		ring.Parent = item
+	end)
+end
+
 RunService.RenderStepped:Connect(function()
+	local t = os.clock()
+	if ring.Parent then
+		local pulse = (math.sin(t * 5.0) + 1) * 0.5
+		ringStroke.Thickness = 3 + pulse * 3
+		ringStroke.Transparency = 0.05 + pulse * 0.35
+	end
 	if beacon.Parent == nil then return end
 	local bx = beacon:GetAttribute("BaseX")
 	if not bx then return end
 	local base = Vector3.new(bx, beacon:GetAttribute("BaseY"), beacon:GetAttribute("BaseZ"))
-	local t = os.clock()
 	local bob = math.sin(t * 2.2) * 0.8
 	local spin = t * 1.6
 	local tip = base + Vector3.new(0, 7.5 + bob, 0)
 
-	-- BEAT. glow.Brightness and pillar.Transparency were authored as constants
-	-- (3 and 0.86), so the beacon moved but never PULSED -- it read as scenery
-	-- from any distance where the bob was too small to see. Same 2.2 rad/s as
-	-- the bob, so the flare lands at the top of every rise.
+	-- BEAT. Same 2.2 rad/s as the bob, so the flare lands at the top of every rise.
 	local pulse = (math.sin(t * 2.2) + 1) * 0.5              -- 0..1
-	glow.Brightness = 2.2 + pulse * 2.6                      -- was constant 3
-	pillar.Transparency = 0.90 - pulse * 0.10                -- was constant 0.86
+	glow.Brightness = 2.2 + pulse * 2.6
+	pillar.Transparency = 0.90 - pulse * 0.10
 	-- victory flare: the beacon itself acknowledges the step you just finished
 	local flare = math.max(0, 1 - (os.clock() - beaconHitAt) / 0.45)
 	if flare > 0 then
@@ -162,11 +299,8 @@ end)
 ---------------------------------------------------------------- guide chevrons
 -- The beacon marks WHERE the step is. This marks the WAY there: a run of chevrons laid on
 -- the ground from the player toward that beacon, flowing outward so it reads as "follow
--- me" rather than as scenery.
---
--- It reads the beacon's own BaseX/Y/Z attributes rather than taking a target of its own,
--- so there is exactly one definition of where the current step is -- and it inherits the
--- intro's no-target case for free (no beacon parented = no chevrons).
+-- me" rather than as scenery. It reads the beacon's own BaseX/Y/Z attributes, so there is
+-- exactly one definition of where the current step is (no beacon = no chevrons).
 local GUIDE_N     = 7      -- chevrons in the run
 local GUIDE_STEP  = 5.0    -- studs between them
 local GUIDE_START = 6.0    -- studs ahead of the player the run begins
@@ -244,15 +378,16 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------------- card UI
+-- DESKTOP: 340x184 bottom-left, x 92 clears the nav rail column (13..77) with a
+-- 15px gap (measured 2026-08-20). PHONE: a 300x120 card with smaller type, parked
+-- top-left under the currency cluster -- the only lane on a handset that is clear
+-- of the rail row, the throw cluster (bottom-centre) and the catch pop (top-centre,
+-- x from ~40% of the width). Sizes below are the desktop set; layoutCard() swaps.
 local card = Instance.new("Frame")
 card.Name = "TutorialCard"
 card.AnchorPoint = Vector2.new(0, 1)
--- Measured live: the always-on left rail is GameHUD.NavRail (x 13..73, y 10..448) with
--- SideRailUI's Goals/Rebirth/Index/Season slots stacked in the same 19..77 column. At the
--- old x=16 the card sat straight on top of them. 92 clears the widest of those (77) with
--- a 15px gap and still reads as bottom-left.
 card.Position = UDim2.new(0, 92, 1, -16)
-card.Size = UDim2.fromOffset(340, 152)
+card.Size = UDim2.fromOffset(340, 184)
 card.Visible = false
 card.ZIndex = 9
 card.Parent = gui
@@ -261,11 +396,9 @@ UITheme.corner(card, 16)
 blackRim(card, 3)
 -- UIPolish sweeps every TextLabel under PlayerGui and force-sets Font =
 -- FredokaOne + TextColor3 = white on anything not opted out (see its apply()).
--- That was flattening this card to three identical white lines: the gold step
--- counter, the white title and the muted-blue body all rendered the same.
--- NoPolish on the card covers every descendant (UIPolish walks ancestors), so
--- the three tiers read as three tiers again. bodyLbl gets its own ink stroke
--- below because an exempt label no longer receives UIPolish's.
+-- NoPolish on the card covers every descendant (UIPolish walks ancestors), so the
+-- three text tiers read as three tiers. bodyLbl gets its own ink stroke below
+-- because an exempt label no longer receives UIPolish's.
 card:SetAttribute("NoPolish", true)
 
 local stepLbl = Instance.new("TextLabel")
@@ -304,10 +437,10 @@ bodyLbl.TextYAlignment = Enum.TextYAlignment.Top
 bodyLbl.TextColor3 = Color3.fromRGB(196, 206, 226)
 bodyLbl.ZIndex = 10
 bodyLbl.Parent = card
-inkText(bodyLbl, 1.6)   -- NoPolish means UIPolish no longer strokes this one
+inkText(bodyLbl, 1.6)
 
--- CUE LINE: names the thing the tutorial is waiting for. Without it a
--- gated-on-action step is indistinguishable from a frozen tutorial.
+-- CUE LINE: names the thing the tutorial is waiting for, or the last skip's
+-- distance -> rarity. Without it a gated step is indistinguishable from a frozen one.
 local cueLbl = Instance.new("TextLabel")
 cueLbl.Name = "Cue"
 cueLbl.AnchorPoint = Vector2.new(0, 1)
@@ -323,8 +456,7 @@ cueLbl.ZIndex = 10
 cueLbl.Parent = card
 inkText(cueLbl, 1.4)
 
--- PROGRESS: the old card's only progress signal was the STEP n / m string,
--- which does not move. This one fills.
+-- PROGRESS: fills per finished step.
 local track = Instance.new("Frame")
 track.Name = "Track"
 track.AnchorPoint = Vector2.new(0, 1)
@@ -347,8 +479,7 @@ fill.Parent = track
 UITheme.corner(fill, 4)
 UITheme.gradient(fill, GOLD1, GOLD2, 90)
 
--- Hand-lerped for the same reason glideCard is: this codebase does not trust
--- TweenService for entrance-shaped UI motion (GameHUDClient.glidePanel header).
+-- Hand-lerped for the same reason glideCard is (GameHUDClient.glidePanel header).
 local fillGen = 0
 local function setProgress(done, total)
 	fillGen += 1
@@ -369,6 +500,7 @@ local function setProgress(done, total)
 end
 
 local skipBtn = Instance.new("TextButton")
+skipBtn.Name = "SkipBtn"
 skipBtn.Size = UDim2.fromOffset(126, 32)
 skipBtn.Position = UDim2.new(1, -138, 1, -40)
 skipBtn.Text = "Skip Tutorial"
@@ -378,38 +510,36 @@ UITheme.styleHudButton(skipBtn, Color3.fromRGB(150, 156, 170), Color3.fromRGB(94
 skipBtn.TextSize = 13
 blackRim(skipBtn, 2.5)
 
--- The intro used to advance on a 9-second timer, with the reasoning (see the
--- steps-table comment) that "a card you must work out how to close is the wrong
--- first thing to hand a new player". That is right about a CLOSE button and
--- wrong about a FORWARD button: one ends the tutorial, the other starts it, and
--- a green LET'S GO is the least ambiguous control on the card. The 20s ceiling
--- below keeps an AFK first-joiner from being stranded.
-local goBtn = Instance.new("TextButton")
-goBtn.Name = "GoBtn"
-goBtn.Size = UDim2.fromOffset(126, 32)
-goBtn.Position = UDim2.new(1, -138, 1, -40)
-goBtn.Text = "LET'S GO"
-goBtn.Visible = false
-goBtn.ZIndex = 11
-goBtn.Parent = card
-UITheme.styleHudButton(goBtn, Color3.fromRGB(126, 238, 156), Color3.fromRGB(36, 172, 86), 10)
-goBtn.TextSize = 14
-blackRim(goBtn, 2.5)
-
--- Gating a step on a real PURCHASE can strand a player with no cash. After 90s
--- the card offers a per-step bail. Distinct from Skip Tutorial on purpose: this
--- advances ONE step, that one ends the whole ladder.
-local nextBtn = Instance.new("TextButton")
-nextBtn.Name = "NextBtn"
-nextBtn.Size = UDim2.fromOffset(126, 32)
-nextBtn.Position = UDim2.new(1, -272, 1, -40)
-nextBtn.Text = "Skip This Step"
-nextBtn.Visible = false
-nextBtn.ZIndex = 11
-nextBtn.Parent = card
-UITheme.styleHudButton(nextBtn, Color3.fromRGB(150, 156, 170), Color3.fromRGB(94, 100, 114), 10)
-nextBtn.TextSize = 12
-blackRim(nextBtn, 2.5)
+-- Where the card rests, per platform. Phone numbers were measured in the iPhone 16
+-- simulator (733x371 viewport): the currency cluster ends at y~62, the tab bar is
+-- centred, the rail row and the throw cluster own the bottom band.
+local CARD_REST = UDim2.new(0, 92, 1, -16)
+local function layoutCard()
+	if Platform.IsPhone then
+		card.AnchorPoint = Vector2.new(0, 0)
+		CARD_REST = UDim2.new(0, 8, 0, 70)
+		card.Size = UDim2.fromOffset(300, 120)
+		stepLbl.TextSize = 11; stepLbl.Position = UDim2.new(0, 10, 0, 6); stepLbl.Size = UDim2.new(1, -16, 0, 14)
+		titleLbl.TextSize = 15; titleLbl.Position = UDim2.new(0, 10, 0, 20); titleLbl.Size = UDim2.new(1, -16, 0, 20)
+		bodyLbl.TextSize = 11; bodyLbl.Position = UDim2.new(0, 10, 0, 40); bodyLbl.Size = UDim2.new(1, -20, 0, 42)
+		cueLbl.TextSize = 10; cueLbl.Position = UDim2.new(0, 10, 1, -30); cueLbl.Size = UDim2.new(1, -20, 0, 12)
+		track.Position = UDim2.new(0, 10, 1, -18); track.Size = UDim2.new(1, -108, 0, 6)
+		skipBtn.Size = UDim2.fromOffset(88, 22); skipBtn.Position = UDim2.new(1, -96, 1, -28); skipBtn.TextSize = 11
+	else
+		card.AnchorPoint = Vector2.new(0, 1)
+		CARD_REST = UDim2.new(0, 92, 1, -16)
+		card.Size = UDim2.fromOffset(340, 184)
+		stepLbl.TextSize = 14; stepLbl.Position = UDim2.new(0, 14, 0, 10); stepLbl.Size = UDim2.new(1, -20, 0, 20)
+		titleLbl.TextSize = 20; titleLbl.Position = UDim2.new(0, 14, 0, 30); titleLbl.Size = UDim2.new(1, -20, 0, 26)
+		bodyLbl.TextSize = 13; bodyLbl.Position = UDim2.new(0, 14, 0, 58); bodyLbl.Size = UDim2.new(1, -24, 0, 44)
+		cueLbl.TextSize = 12; cueLbl.Position = UDim2.new(0, 14, 1, -60); cueLbl.Size = UDim2.new(1, -28, 0, 16)
+		track.Position = UDim2.new(0, 14, 1, -46); track.Size = UDim2.new(1, -28, 0, 8)
+		skipBtn.Size = UDim2.fromOffset(126, 32); skipBtn.Position = UDim2.new(1, -138, 1, -40); skipBtn.TextSize = 13
+	end
+	card.Position = CARD_REST
+end
+layoutCard()
+Platform.Watch(function() layoutCard() end)
 
 ---------------------------------------------------------------- helpers
 local gw = Workspace:WaitForChild("GameWorld")
@@ -426,7 +556,7 @@ local function nearestFreePlot()
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	local best, bestD
 	for _, p in ipairs(plots:GetChildren()) do
-		if p:IsA("Model") and not p:GetAttribute("Claimed") and p.PrimaryPart then
+		if p:IsA("Model") and not p:GetAttribute("Claimed") and p:GetAttribute("World") == "Valley" and p.PrimaryPart then
 			local d = hrp and (p.PrimaryPart.Position - hrp.Position).Magnitude or 0
 			if not bestD or d < bestD then best, bestD = p, d end
 		end
@@ -438,231 +568,237 @@ local function stallPos(name)
 	local part = stall and stall:FindFirstChild("PromptPart")
 	return part and part.Position
 end
-local function nearPos(pos, dist)
-	local char = player.Character
-	local hrp = char and char:FindFirstChild("HumanoidRootPart")
-	if not (hrp and pos) then return false end
-	return (hrp.Position - pos).Magnitude <= dist
+-- a named part/model inside my plot (EquipBestPad, Campfire), else the plot itself
+local function plotPos(childName)
+	local p = myPlot()
+	if not p then return nil end
+	local c = childName and p:FindFirstChild(childName, true)
+	if c and c:IsA("BasePart") then return c.Position end
+	if c and c:IsA("Model") then return c:GetPivot().Position end
+	return p.PrimaryPart and p.PrimaryPart.Position or p:GetPivot().Position
+end
+local function dockPos()
+	local z = gw:FindFirstChild("ThrowZone")
+	return z and z.Position
 end
 
----------------------------------------------------------------- steps
-local stepShownAt = 0
+local uncommonAt = (RarityConfig[2] and RarityConfig[2].MinDistance) or 100
+local firstRock = RockConfig[2] or { Name = "Rivertumble", Price = 2000, MaxDistance = 70 }
+local starterReach = (RockConfig[1] and RockConfig[1].MaxDistance) or 25
+local reachMult = math.max(2, math.floor(firstRock.MaxDistance / math.max(starterReach, 1) + 0.5))
 
--- ONE intro card, then five things to DO, then Elder Tung.
---   * The intro is index 1 and is the only entry with no Target, so it shows no beacon --
---     there is nowhere to walk yet. It advances on a timer rather than a dismiss button:
---     a card you must work out how to close is the wrong first thing to hand a new player.
---   * Elder Tung is LAST (owner, 2026-08-12) so the tutorial hands straight over to the
---     questline. By then the player has a base, a catch, cash and upgrades -- exactly what
---     he asks them to spend.
+---------------------------------------------------------------- steps
+-- Title / Body / Tag (beacon label) / Cue (string or function) / Target (world
+-- position or nil) / Ring (rail tile id or nil) / Done. Every Done reads `facts`.
 local steps = {
 	{
-		Intro = true,
-		Title = "WELCOME TO SKIP A BRAINROT",
-		Body = "Skip rocks across the lake to catch brainrots. The farther a rock flies, the rarer the catch.\n\nPut brainrots on your base and they earn you cash while you play. Spend it on better rocks, then skip even farther.",
-		Target = function() return nil end,
-		-- pressed LET'S GO, or 20s as an AFK ceiling (was a hard 9s wait)
-		Done = function() return flags.introAck or (os.clock() - stepShownAt > 20) end,
-	},
-	{
-		Title = "CLAIM YOUR BASE",
-		Body = "Walk onto a free plot to claim it as yours.",
-		Tag = "CLAIM HERE",
-		Cue = "Waiting for you to step onto a plot...",
-		Target = function()
-			local p = nearestFreePlot()
-			return p and p.PrimaryPart and p.PrimaryPart.Position
-		end,
-		Done = function() return myPlot() ~= nil end,
-	},
-	{
-		Title = "SKIP A ROCK",
-		Body = "Go to the dock, HOLD to charge, release to throw.",
+		Id = "skip",
+		Title = "SKIP YOUR FIRST ROCK",
+		Body = "Follow the arrows to the dock. HOLD the button, let go to skip.",
 		Tag = "SKIP HERE",
 		Cue = "Waiting for your first skip...",
-		Target = function()
-			local z = gw:FindFirstChild("ThrowZone")
-			return z and z.Position
-		end,
-		-- StoneThrown, not ThrowResult: the server fires StoneThrown for EVERY
-		-- throw and ThrowResult only from revealCatch, so the old gate silently
-		-- demanded a catch while the copy asked for a throw.
-		Done = function() return flags.threw end,
+		Target = dockPos,
+		Done = function() return facts.revealed or facts.startBrainrots >= 1 end,
 	},
 	{
-		Title = "CATCH A BRAINROT",
-		Body = "Keep skipping. The farther the rock flies, the rarer what comes back.",
+		Id = "bag",
+		Title = "IT'S IN YOUR BAG",
+		Body = ("Every catch goes to your Bag. Farther skips find rarer brainrots -- Uncommon from %dm. Catch %d!"):format(uncommonAt, GOAL_COUNT),
 		Tag = "SKIP AGAIN",
-		Cue = "Waiting for a catch...",
-		Target = function()
-			local z = gw:FindFirstChild("ThrowZone")
-			return z and z.Position
+		Cue = function()
+			local n = math.min(facts.brainrots, GOAL_COUNT)
+			if facts.lastDistance then
+				return ("%d / %d caught  \u{2022}  last skip %dm \u{2192} %s"):format(n, GOAL_COUNT, facts.lastDistance, string.upper(facts.lastRarity or "Common"))
+			end
+			return ("%d / %d caught"):format(n, GOAL_COUNT)
 		end,
-		Done = function() return flags.caught end,
+		Target = dockPos,
+		Ring = "bag",
+		RingFor = 4,
+		Done = function() return facts.brainrots >= GOAL_COUNT end,
 	},
 	{
-		Title = "PUT IT ON YOUR BASE",
-		Body = "Open your Bag and tap the brainrot to stand it on a pad. Placed brainrots earn cash while you play.",
+		Id = "goal",
+		Title = "GOAL COMPLETE!",
+		Body = function() return ("Open GOALS on the left and claim your $%s."):format(withCommas(facts.goalReward)) end,
+		Cue = "Waiting for you to claim it...",
+		Target = function() return nil end,
+		Ring = "goals",
+		Done = function() return facts.goalClaimed end,
+	},
+	{
+		Id = "openbag",
+		Title = "OPEN YOUR BAG",
+		Body = "Your brainrots are collected here. Take a look.",
+		Cue = "Waiting for you to open the Bag...",
+		Target = function() return nil end,
+		Ring = "bag",
+		Done = function() return facts.bagOpened end,
+	},
+	{
+		Id = "place",
+		Title = "PUT THEM ON YOUR BASE",
+		Body = "Walk onto the green pad at your camp and confirm. Placed brainrots earn cash while you play.",
 		Tag = "YOUR BASE",
 		Cue = "Waiting for a brainrot on a pad...",
-		Target = function()
-			local p = myPlot()
-			return p and p.PrimaryPart and p.PrimaryPart.Position
-		end,
-		Done = function() return flags.placed end,
+		Target = function() return plotPos("EquipBestPad") end,
+		Done = function() return facts.placed end,
 	},
 	{
+		Id = "collect",
 		Title = "COLLECT YOUR CASH",
-		Body = "Your brainrots bank cash at the campfire. Walk into the ring to take it.",
+		Body = "Stand in the campfire to collect what they've earned.",
 		Tag = "COLLECT",
 		Cue = "Waiting for a collect...",
-		Target = function()
-			local p = myPlot()
-			return p and p.PrimaryPart and p.PrimaryPart.Position
-		end,
-		Done = function() return flags.collected end,
+		Target = function() return plotPos("Campfire") end,
+		Done = function() return facts.collected or facts.totalEarned > 0 end,
 	},
 	{
-		Title = "SELL YOUR BRAINROTS",
-		Body = "Spare brainrots turn into cash at Marco's stall. Sell one.",
-		Tag = "MARCO - SELL",
-		Cue = "Waiting for a sale...",
-		Target = function() return stallPos("SellStall") end,
-		Done = function() return flags.sold end,
-	},
-	{
-		Title = "BUY BETTER ROCKS",
-		Body = "Rocco's rocks skip farther and roll luckier. Buy one.",
+		Id = "rock",
+		Title = "BUY A BETTER ROCK",
+		Body = ("Rocco's %s skips %dx farther than your pebble. $%s -- you've earned it."):format(firstRock.Name or "Rivertumble", reachMult, withCommas(firstRock.Price)),
 		Tag = "ROCCO - ROCKS",
 		Cue = "Waiting for a rock purchase...",
 		Target = function() return stallPos("ShopStall") end,
-		Done = function() return flags.bought end,
-	},
-	{
-		-- NOT gated on a purchase, unlike the rock step above. Enzo's cheapest
-		-- upgrade is 3,000 (UpgradeConfig: Strong Arm / Campfire Keeper) and a
-		-- freshly-placed Common earns 0.9/s, so a real-purchase gate here is ~56
-		-- minutes of income for a first-join player -- every one of them would hit
-		-- the 90s bail instead, which is worse than no step at all. Opening the
-		-- stall is still a deliberate act (an E press at the right place, not
-		-- walking past), and the completion reward below is sized to buy exactly
-		-- this. A real upgrade purchase also sets the flag, via DataUpdated.
-		Title = "GRAB UPGRADES",
-		Body = "Enzo sells permanent boosts to luck, skip power and income. Open his stall and see what is worth saving for.",
-		Tag = "ENZO - UPGRADES",
-		Cue = "Waiting for you to open Enzo's stall...",
-		Target = function() return stallPos("UpgradeStall") end,
-		Done = function() return flags.upgraded end,
-	},
-	{
-		Title = "TALK TO ELDER TUNG",
-		Body = "He waits by the lake with your first quest. Press E to talk to him.",
-		Tag = "ELDER TUNG - QUEST",
-		Cue = "Waiting for you to press E...",
-		Target = function() return stallPos("ElderTung") end,
-		Done = function() return flags.talked end,
+		Done = function() return facts.secondRock end,
 	},
 }
-local CARD_REST = UDim2.new(0, 92, 1, -16)
+-- Only when the server could not auto-claim a camp at join (a full server).
+local CLAIM_STEP = {
+	Id = "claim",
+	Title = "CLAIM A BASE",
+	Body = "Walk onto a free camp. It's yours.",
+	Tag = "CLAIM HERE",
+	Cue = "Waiting for you to step onto a camp...",
+	Target = function()
+		local p = nearestFreePlot()
+		return p and p.PrimaryPart and p.PrimaryPart.Position
+	end,
+	Done = function() return myPlot() ~= nil end,
+}
+
+local function textOf(v)
+	if type(v) == "function" then
+		local ok, res = pcall(v)
+		return ok and tostring(res or "") or ""
+	end
+	return v or ""
+end
 
 local function showStep(i)
 	local s = steps[i]
 	if not s then return end
-	stepShownAt = os.clock()
-	-- the intro is not a numbered step, so the rest count from 1
-	stepLbl.Text = s.Intro and "WELCOME" or ("STEP %d / %d"):format(i - 1, #steps - 1)
+	stepLbl.Text = ("STEP %d / %d"):format(i, #steps)
 	titleLbl.Text = s.Title
-	bodyLbl.Text = s.Body
-	cueLbl.Text = s.Cue or ""
-	goBtn.Visible = (s.Intro == true)
-	skipBtn.Visible = not s.Intro
-	nextBtn.Visible = false
-	setProgress(i - 1, #steps - 1)
-	-- the intro says considerably more than a one-line instruction, and bodyLbl at 44px
-	-- only holds about three lines. Grow the card for it -- it is anchored bottom-left,
-	-- so the extra height goes UPWARD and the button row stays where it was.
-	-- (184/240 rather than 152/208: the progress track and the cue line took 32px.)
-	local tall = s.Intro == true
-	card.Size = UDim2.fromOffset(340, tall and 240 or 184)
-	bodyLbl.Size = UDim2.new(1, -24, 0, tall and 100 or 44)
+	bodyLbl.Text = textOf(s.Body)
+	cueLbl.Text = textOf(s.Cue)
+	skipBtn.Visible = true
+	setProgress(i - 1, #steps)
 	setBeacon(s.Target(), s.Tag)
-	-- MOTION: a new step now ARRIVES. Same 26px rise + Back/Out curve that every
-	-- HUD panel opens with (GameHUDClient openPanel -> glidePanel).
+	setRing(s.Ring)
+	if s.Ring and s.RingFor then
+		local gen = ringGen
+		task.delay(s.RingFor, function() if ringGen == gen then setRing(nil) end end)
+	end
+	-- MOTION: a new step ARRIVES. Same 26px rise + Back/Out curve that every HUD
+	-- panel opens with (GameHUDClient openPanel -> glidePanel).
 	cardGen += 1
 	glideCard(card, CARD_REST + UDim2.fromOffset(0, 26), CARD_REST, PANEL_OPEN, cardGen)
 	pcall(SoundKit.play, "panelOpen", nil, { volume = 0.14 })
 end
+
+local function refreshCue()
+	if not active then return end
+	local s = steps[stepIndex]
+	if s and type(s.Cue) == "function" then cueLbl.Text = textOf(s.Cue) end
+end
+
+local FINISH_HOLD = 6
 local function finish(completed)
 	if not active then return end
 	active = false
 	setBeacon(nil)
+	setRing(nil)
 	hideGuide()
 	if stopListening then stopListening() end
 	if completed then
-		-- The ladder ends ON SCREEN. Before this, the last step's card simply
-		-- disappeared and the server set a boolean: nothing marked the finish.
+		-- The ladder ends ON SCREEN, and says what comes next.
 		cardGen += 1
 		stepLbl.Text = "COMPLETE"
 		titleLbl.Text = "YOU'RE SET"
-		bodyLbl.Text = "Skip, catch, place, collect -- that is the whole loop. Elder Tung has your first quest."
-		cueLbl.Text = ""
-		goBtn.Visible = false
+		bodyLbl.Text = ("Skip, catch, place, collect -- that's the loop. Next: fill all %d pads, sell spares to Marco, and save for Sevenskip -- it reaches UNCOMMON."):format(facts.unlockedSpots)
+		cueLbl.Text = "Tap SKIP at the top to jump back to the dock."
 		skipBtn.Visible = false
-		nextBtn.Visible = false
 		setProgress(1, 1)
 		beaconHitAt = os.clock()
 		-- The kit already layers these two for a top-tier catch (see SoundKit.Ids
 		-- catchBigHit / catchSparkle): impact to land it, shimmer over the top.
 		pcall(SoundKit.play, "catchBigHit", nil, { volume = 0.32 })
 		pcall(SoundKit.play, "catchSparkle", nil, { volume = 0.30 })
+		card.Visible = true
 		glideCard(card, CARD_REST + UDim2.fromOffset(0, 26), CARD_REST, PANEL_OPEN, cardGen)
-		task.delay(3.4, function() card.Visible = false end)
+		task.delay(FINISH_HOLD, function()
+			card.Visible = false
+			-- the calendar (held by GameHUDClient) comes AFTER the finish beat, not over it
+			player:SetAttribute(ONBOARDING_ATTR, false)
+		end)
 	else
 		pcall(SoundKit.play, "panelClose", nil, { volume = 0.12 })
 		card.Visible = false
+		player:SetAttribute(ONBOARDING_ATTR, false)
 	end
 	-- the boolean is what gates the completion reward server-side
 	remotes.TutorialComplete:FireServer(completed == true)
 end
 
 skipBtn.Activated:Connect(function() finish(false) end)
-goBtn.Activated:Connect(function() flags.introAck = true end)
-nextBtn.Activated:Connect(function()
-	nextBtn.Visible = false
-	stepIndex += 1
-	if stepIndex > #steps then finish(true) else showStep(stepIndex) end
-end)
+
+-- Completion is EVENT-shaped: every listener calls this, and the 0.4 s poll only
+-- catches what the listeners did not see. Advances through every already-done step
+-- in one go (rejoin resume, or a fact that satisfies two steps at once).
+local function tryAdvance()
+	if not active then return end
+	local advanced = false
+	while true do
+		local s = steps[stepIndex]
+		if not s or not s.Done() then break end
+		advanced = true
+		stepIndex += 1
+		if stepIndex > #steps then finish(true) return end
+	end
+	if advanced then
+		beaconHitAt = os.clock()                                      -- beacon flares
+		pcall(SoundKit.play, "catchSparkle", nil, { volume = 0.26 })   -- step-complete ping
+		showStep(stepIndex)
+	else
+		refreshCue()
+	end
+end
 
 local function start()
 	if active then return end
 	active = true
+	-- fast-forward: the first step that is genuinely open
 	stepIndex = 1
+	while steps[stepIndex] and steps[stepIndex].Done() do stepIndex += 1 end
+	if stepIndex > #steps then
+		-- everything the ladder teaches is already on the profile: just close it out
+		finish(true)
+		return
+	end
 	card.Visible = true
-	showStep(1)
-	-- first appearance comes in from further, off the bottom edge. Bumping the
-	-- gen supersedes the 26px glide showStep just started.
+	showStep(stepIndex)
+	-- first appearance comes in from further away. Bumping the gen supersedes the
+	-- 26px glide showStep just started.
 	cardGen += 1
-	glideCard(card, UDim2.new(0, 92, 1, 60), CARD_REST,
-		TweenInfo.new(0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out), cardGen)
+	local from = Platform.IsPhone and (CARD_REST + UDim2.fromOffset(0, -40)) or UDim2.new(0, 92, 1, 60)
+	glideCard(card, from, CARD_REST, TweenInfo.new(0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out), cardGen)
 end
 
--- Completion is EVENT-shaped now. The old 0.4s poll meant every real action was
--- acknowledged up to 400ms after the player performed it, which is most of why
--- the two genuine steps also felt inert.
-local function tryAdvance()
-	if not active then return end
-	local s = steps[stepIndex]
-	if not (s and s.Done()) then return end
-	beaconHitAt = os.clock()                                      -- beacon flares
-	pcall(SoundKit.play, "catchSparkle", nil, { volume = 0.26 })   -- step-complete ping
-	stepIndex += 1
-	if stepIndex > #steps then finish(true) else showStep(stepIndex) end
-end
-
--- Every listener this file opens goes in here, so a player who has finished --
--- or skipped, or who arrived with TutorialDone already set -- is not signing
--- snapshot tables for the rest of the session. Assigns into the forward
--- declaration at the top because finish() is defined above this block.
+---------------------------------------------------------------- listeners
+-- Every listener this file opens goes in here, so a player who has finished -- or
+-- skipped, or who arrived with TutorialDone already set -- is not signing snapshot
+-- tables for the rest of the session.
 local conns = {}
 local function listen(signal, fn) conns[#conns + 1] = signal:Connect(fn) end
 stopListening = function()
@@ -670,70 +806,66 @@ stopListening = function()
 	table.clear(conns)
 end
 
--- StoneThrown fires for EVERY throw; ThrowResult only from revealCatch. Two
--- signals, two steps.
-listen(remotes.StoneThrown.OnClientEvent, function() flags.threw = true; tryAdvance() end)
-listen(remotes.ThrowResult.OnClientEvent, function()
-	flags.threw = true; flags.caught = true; tryAdvance()
-end)
-listen(remotes.SellResult.OnClientEvent, function(res)
-	if type(res) == "table" and res.Success == false then return end
-	flags.sold = true; tryAdvance()
-end)
-listen(remotes.CampfireCollected.OnClientEvent, function() flags.collected = true; tryAdvance() end)
-
--- Rock purchases and upgrades are read off the SNAPSHOT rather than off
--- PurchaseResult's message string: the message is prose and would break the
--- moment anyone reworded it, whereas OwnedRocks/Upgrades changing IS the fact.
--- Shape-agnostic on purpose -- neither table's layout is re-derived here.
-local function sig(t)
-	if type(t) ~= "table" then return "" end
-	local parts = {}
-	for k, v in pairs(t) do parts[#parts + 1] = tostring(k) .. "=" .. tostring(v) end
-	table.sort(parts)
-	return table.concat(parts, ",")
+-- StoneThrown fires for EVERY throw; ThrowResult only when a catch is revealed.
+-- The first step waits for the REVEAL to finish (waitForPopEnd), not for the throw.
+listen(remotes.StoneThrown.OnClientEvent, function() facts.threw = true end)
+-- Advance, but not over a catch pop: anything that lands while the last catch is
+-- still being revealed waits for the reveal to end first.
+local function advanceAfterPop()
+	local t0 = lastResultAt
+	if os.clock() - t0 < POP_WAIT_MAX then
+		task.spawn(function() waitForPopEnd(t0); tryAdvance() end)
+	else
+		tryAdvance()
+	end
 end
-local baseRockSig, baseUpgSig = nil, nil
+listen(remotes.ThrowResult.OnClientEvent, function(res)
+	local t0 = os.clock()
+	lastResultAt = t0
+	if type(res) == "table" then
+		if type(res.Distance) == "number" then facts.lastDistance = res.Distance end
+		if type(res.Rarity) == "string" then facts.lastRarity = res.Rarity end
+	end
+	task.spawn(function()
+		waitForPopEnd(t0)
+		facts.revealed = true
+		tryAdvance()
+	end)
+end)
+listen(remotes.CampfireCollected.OnClientEvent, function() facts.collected = true; tryAdvance() end)
 listen(remotes.DataUpdated.OnClientEvent, function(snap)
-	if type(snap) ~= "table" then return end
-	if baseRockSig == nil then baseRockSig, baseUpgSig = sig(snap.OwnedRocks), sig(snap.Upgrades) end
-	if sig(snap.OwnedRocks) ~= baseRockSig then flags.bought = true end
-	if sig(snap.Upgrades) ~= baseUpgSig then flags.upgraded = true end
-	if type(snap.Brainrots) == "table" then
-		for _, e in ipairs(snap.Brainrots) do
-			if e.PadIndex ~= nil then flags.placed = true break end
-		end
+	readSnapshot(snap)
+	advanceAfterPop()
+end)
+-- The Goals board: QuestHandler pushes the whole list every 3 s and on every claim.
+listen(remotes.QuestState.OnClientEvent, function(list)
+	if type(list) ~= "table" then return end
+	local found = nil
+	for _, q in ipairs(list) do
+		if type(q) == "table" and q.Id == GOAL_ID then found = q break end
+	end
+	facts.goalKnown = true
+	if found then
+		facts.goalReward = tonumber(found.Reward) or facts.goalReward
+		facts.goalMet = (found.Met == true)
+		if found.Claimed == true then facts.goalClaimed = true end
+	else
+		-- the board no longer carries this goal: nothing to claim, the step stands down
+		facts.goalClaimed = true
 	end
 	tryAdvance()
 end)
-
--- "Press E to talk to him" now actually means pressing E -- and "open Enzo's
--- stall" means opening it. Every merchant already owns a named ProximityPrompt
--- (TungTalkPrompt / UpgradePrompt, same ones TungQuestClient hangs dialogue
--- off), so one watcher covers both gates and neither costs the player cash.
-local PROMPT_FLAG = { TungTalkPrompt = "talked", UpgradePrompt = "upgraded" }
-task.spawn(function()
-	local hooked, count = {}, 0
-	for _ = 1, 60 do
-		for _, d in ipairs(Workspace:GetDescendants()) do
-			local key = d:IsA("ProximityPrompt") and PROMPT_FLAG[d.Name]
-			if key and not hooked[d] then
-				hooked[d] = true
-				count += 1
-				listen(d.Triggered, function(who)
-					if who == player then flags[key] = true; tryAdvance() end
-				end)
-			end
-		end
-		if count >= 2 then return end
-		task.wait(0.5)
+-- "Open your Bag" means opening it: GameHUDClient mirrors the open panel's id here.
+listen(player:GetAttributeChangedSignal("HudOpenPanel"), function()
+	if player:GetAttribute("HudOpenPanel") == "bag" then
+		facts.bagOpened = true
+		tryAdvance()
 	end
 end)
 
--- The poll no longer OWNS advance -- it keeps the beacon parked on a live target
--- (a plot can be claimed out from under you, a stall can stream in late), runs
--- the intro's 20s ceiling and the 90s per-step bail, and catches any Done()
--- whose event this file does not see.
+-- The poll does not own advance: it keeps the beacon parked on a live target (a stall
+-- can stream in late, a plot can change hands) and catches any Done() whose event
+-- this file did not see.
 task.spawn(function()
 	while true do
 		task.wait(0.4)
@@ -744,22 +876,61 @@ task.spawn(function()
 					tryAdvance()
 				else
 					setBeacon(s.Target(), s.Tag)
-					nextBtn.Visible = (not s.Intro) and (os.clock() - stepShownAt > 90)
 				end
 			end
 		end
 	end
 end)
 
+---------------------------------------------------------------- post-tutorial hint
+-- ONE hint, once per session, after a completed ladder: the first snapshot that
+-- shows every unlocked pad filled AND a spare in the bag. Selling is the early
+-- game's real income (a Common sells for ~15 minutes of its own earnings) and
+-- nothing else in the game says so at the moment it first matters.
+local function armSpareHint()
+	local Toast = require(Modules.UIKit.Toast)
+	local conn
+	conn = remotes.DataUpdated.OnClientEvent:Connect(function(snap)
+		if type(snap) ~= "table" or type(snap.Brainrots) ~= "table" then return end
+		local placed, spare = 0, 0
+		for _, e in ipairs(snap.Brainrots) do
+			if type(e) == "table" then
+				if e.PadIndex ~= nil then placed += 1 else spare += 1 end
+			end
+		end
+		local spots = tonumber(snap.UnlockedSpots) or facts.unlockedSpots
+		if placed >= spots and spare >= 1 then
+			conn:Disconnect()
+			pcall(Toast.show, { text = "Base full -- spare brainrots sell for cash at Marco's stall (SHOPS)", tone = "info", hold = 5 })
+		end
+	end)
+end
+
+---------------------------------------------------------------- boot
 task.spawn(function()
 	local ok, snap = pcall(function() return remotes.GetInitialData:InvokeServer() end)
-	if ok and snap and not snap.TutorialDone then
-		-- seed the purchase/upgrade baselines from the JOIN snapshot, not from the
-		-- first DataUpdated -- that one can arrive after a purchase and would
-		-- baseline the change away
-		baseRockSig, baseUpgSig = sig(snap.OwnedRocks), sig(snap.Upgrades)
-		task.wait(1.5)
+	if ok and type(snap) == "table" and not snap.TutorialDone then
+		player:SetAttribute(ONBOARDING_ATTR, true)
+		readSnapshot(snap)
+		facts.startBrainrots = facts.brainrots
+		-- The server auto-claims a valley camp for a first-join profile (Main). Give
+		-- that attribute a moment to replicate; if nothing arrives, lead with CLAIM.
+		local waited = 0
+		while not myPlot() and waited < 3 do
+			task.wait(0.25); waited += 0.25
+		end
+		if not myPlot() then table.insert(steps, 1, CLAIM_STEP) end
+		task.wait(1.0)
 		start()
+		-- the hint only makes sense after a ladder that taught placing; a skipped one
+		-- is the player saying "I know", and the toast would be noise
+		local watch
+		watch = player:GetAttributeChangedSignal(ONBOARDING_ATTR):Connect(function()
+			if player:GetAttribute(ONBOARDING_ATTR) == false then
+				watch:Disconnect()
+				if stepIndex > #steps then armSpareHint() end
+			end
+		end)
 	else
 		-- already done (or the fetch failed): nothing will ever read these flags
 		stopListening()

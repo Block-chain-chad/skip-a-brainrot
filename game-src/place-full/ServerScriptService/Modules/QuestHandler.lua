@@ -186,6 +186,20 @@ local QUESTS = {
 	  cur = lifetimeCash,    met = function(d) return lifetimeCash(d) >= 100000000000 end },
 }
 
+-- TIER GOALS ARE ALL-OR-NOTHING (2026-09-21, first-10-minutes round). `cur =
+-- bestRarity` reported a single Common as "1 of 2" toward "Catch an Uncommon+",
+-- so QuestBarClient's nearest-to-complete pick led every fresh player with a goal
+-- they cannot reach on Pebble (100% Common under 100 studs; 4% Uncommon on the
+-- $23,900 rock) -- ahead of "Own 5 brainrots", which five throws finish. A tier
+-- is not half-caught: report 0 until it is met, then the full target. `met` is
+-- untouched, so nothing about what pays out changes.
+for _, q in ipairs(QUESTS) do
+	if q.cur == bestRarity then
+		local target = q.target
+		q.cur = function(d) return bestRarity(d) >= target and target or 0 end
+	end
+end
+
 local QuestHandler = {}
 
 function QuestHandler.SendState(player)

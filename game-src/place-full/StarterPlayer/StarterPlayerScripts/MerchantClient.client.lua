@@ -479,11 +479,38 @@ comingSoon.ZIndex = panel.ZIndex + 3
 -- round 2: a taller art well (the rock is the card) and a kit-sized button:
 -- 13 + 118 + 8 + 26 + 6 + 34 + 8 + 46 + 13 = 272 = CARD_H
 local CARD_PAD, BAND_GAP = 13, 8
-local ART_H, NAME_H, INFO_H, BTN_H = 118, 26, 34, 46
+-- INFO_H 34 -> 50 (2026-09-21): rock cards now carry a second line saying what
+-- the rock reaches. The band sits at 158..208 against the button's top at 213, so
+-- the card height and the grid are untouched; upgrade cards top-align their one
+-- line in the same band as before.
+local ART_H, NAME_H, INFO_H, BTN_H = 118, 26, 50, 46
 
 -- round 2: `kind` replaces the (btnTop, btnBot, textColor) gradient triple --
 -- "buy" (green kit button, coin icon), "equip" (blue), "equipped" (green state
 -- plate, not a button), "locked" / "maxed" (disabled kit button)
+-- WHAT A ROCK IS FOR, in the player's terms (2026-09-21, first-10-minutes round).
+-- "Up to 70m . 1.15x luck" told a new player nothing they could act on. The
+-- ladder's own header says reach only matters where it crosses a RarityConfig
+-- band edge, so say exactly that: the highest tier this rock's own reach covers
+-- and the next band edge. Rebirth/upgrade/pet power multiply on top, so a rock
+-- "5 short" of a band can still cross it -- this is the honest floor, not a cap.
+-- The apex tier (infinite band) is quest-only and never named here.
+local function reachLine(rock, worldName)
+	local ladder = WorldProgression.Resolve(worldName).Rarities
+	local reach, nextTier
+	for i, t in ipairs(ladder) do
+		if t.MaxDistance ~= math.huge and rock.MaxDistance >= t.MinDistance then
+			reach, nextTier = t, ladder[i + 1]
+		end
+	end
+	if not reach then return nil end
+	local s = ("Catches %s"):format(string.upper(reach.Name))
+	if nextTier and nextTier.MaxDistance ~= math.huge then
+		s ..= ("  \u{2022}  %s from %dm"):format(nextTier.Name, nextTier.MinDistance)
+	end
+	return s
+end
+
 local function makeCard(order, name, infoLine, btnText, kind, onClick, previewBuilder, statLine, stockText)
 	-- UI.surface, NOT UI.panel: UI.panel hangs a hard shadow as a SIBLING, and a
 	-- sibling dropped into this UIGridLayout becomes a phantom cell that shoves
@@ -614,7 +641,9 @@ rebuild = function()
 					txt, kind = "$" .. short(rock.Price), "buy"
 					cb = function() remotes.BuyRock:FireServer(rock.Id) end
 				end
-				local desc = ("Up to %dm  \u{2022}  %.2fx luck"):format(rock.MaxDistance, rock.Luck)
+				local desc = ("Skips up to %dm  \u{2022}  %.2fx luck"):format(rock.MaxDistance, rock.Luck)
+				local reach = reachLine(rock, currentWorld)
+				if reach then desc ..= "\n" .. reach end
 				-- DISPLAY NAME, not the Id (2026-08-22). Ids are save keys in CamelCase,
 				-- so the shelf used to read "MeteoriteFragment" / "PermafrostHeart".
 				-- WorldProgression.RockName is the single resolver -- see its note there.

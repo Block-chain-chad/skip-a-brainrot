@@ -94,10 +94,37 @@ supplyRemote.OnServerInvoke = function()
 	return out
 end
 
+-- FIRST-JOIN BASE (owner, 2026-09-21, first-10-minutes round). A throw is refused
+-- until the player owns a plot, so a brand-new player used to walk to a camp
+-- BEFORE the game could show them its one core action. For a profile that has
+-- not finished the tutorial and owns no valley camp on this server, claim the
+-- free valley plot nearest the spawn the moment the profile lands -- no
+-- teleport, no toast (the tutorial's first card names it). Returning players
+-- keep walk-to-claim exactly as before; a full server simply claims nothing and
+-- the tutorial falls back to its CLAIM A BASE step.
+local function autoClaimFirstBase(player)
+	local data = PlayerDataManager.Get(player)
+	if not data or data.TutorialDone then return end
+	if PlayerDataManager.GetPlot(player, "Valley") then return end
+	local bases = workspace:FindFirstChild("PlayerBases")
+	if not bases then return end
+	local spawn = workspace:FindFirstChildOfClass("SpawnLocation", true)
+	local origin = spawn and spawn.Position or Vector3.zero
+	local best, bestD
+	for _, plot in ipairs(bases:GetChildren()) do
+		if plot:IsA("Model") and not plot:GetAttribute("Claimed") and plot:GetAttribute("World") == "Valley" then
+			local d = (plot:GetPivot().Position - origin).Magnitude
+			if not bestD or d < bestD then best, bestD = plot, d end
+		end
+	end
+	if best then PlayerDataManager.ClaimPlotFor(player, best, true) end
+end
+
 Players.PlayerAdded:Connect(function(player)
 	PlayerDataManager.Load(player)
 	PlayerDataManager.PushUpdate(player)
 	OfflineEarningsHandler.OnJoin(player)
+	autoClaimFirstBase(player)
 end)
 
 -- Finishing the tutorial used to be worth exactly one saved boolean. It now pays
@@ -115,9 +142,10 @@ end)
 -- AMOUNT (owner call -- one constant): 3,000 is Enzo's cheapest upgrade exactly
 -- (UpgradeConfig BasePrice: Strong Arm and Campfire Keeper are both 3000), so a
 -- player who finishes the ladder can immediately buy the first upgrade the
--- ladder just showed them. For reference the cheapest paid rock is 300, and a
--- freshly-placed Common earns 0.9/s. Drop this to 300 if the grant should only
--- cover a rock rather than an upgrade.
+-- ladder just showed them. For reference the cheapest paid rock is 2,000
+-- (Rivertumble, repriced 2026-09-21 -- the tutorial's BUY A BETTER ROCK step
+-- expects it bought BEFORE this grant, out of the own5 goal reward), and a
+-- freshly-placed Common earns ~1.3/s.
 local TUTORIAL_REWARD = 3000
 remotes.TutorialComplete.OnServerEvent:Connect(function(player, completed)
 	local data = PlayerDataManager.Get(player)
@@ -248,6 +276,7 @@ for _, player in ipairs(Players:GetPlayers()) do
 		PlayerDataManager.Load(player)
 		PlayerDataManager.PushUpdate(player)
 		OfflineEarningsHandler.OnJoin(player)
+		autoClaimFirstBase(player)
 	end
 end
 

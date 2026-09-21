@@ -100,8 +100,17 @@ root.Name = "Root"
 -- Named because the phone layout hands this frame to HudLayout, which overwrites
 -- AnchorPoint with its stack's own, and detaching has to put this one back.
 local HOME_ANCHOR = Vector2.new(1, 0)
+-- UI ROUND 3 (2026-09-19): on touch the right edge is the jump button's corner
+-- band, so the bar sits inside Platform.TouchCorner() -- the same rule the quest
+-- tracker under it uses, so the two stack in one column. At the flat -18 the bar
+-- rendered 56-83% under the jump control on the iPhone 16 sim (HudAudit
+-- "UNDER CTRL"). Desktop keeps the 18 to the pixel.
+local function rightPad(): number
+	if Platform.IsTouch then return Platform.TouchCorner() + 12 end
+	return 18
+end
 root.AnchorPoint = HOME_ANCHOR
-root.Position = UDim2.new(1, -18, 0, TOP_OFFSET)
+root.Position = UDim2.new(1, -rightPad(), 0, TOP_OFFSET)
 root.Size = UDim2.fromOffset(W, H)
 root.BackgroundTransparency = 1
 root.Visible = false          -- until the first payload names a quest
@@ -112,7 +121,15 @@ root.Parent = gui
 -- time it runs -- and this was 165 lines below its first use, so the dismiss tween
 -- completed, tried to restore a nil Position, and left the bar parked at its
 -- off-screen `away` spot (observed live at Position {1, 308}).
-local HOME_POS = UDim2.new(1, -18, 0, TOP_OFFSET)
+local HOME_POS = UDim2.new(1, -rightPad(), 0, TOP_OFFSET)
+-- the class can settle after boot (device sim, rotation): re-home the bar, but
+-- only when it is sitting AT home -- HudToggleClient parks it off to the right
+-- while quests are folded and owns Position for the length of that fold.
+Platform.Watch(function()
+	local prev = HOME_POS
+	HOME_POS = UDim2.new(1, -rightPad(), 0, TOP_OFFSET)
+	if root.Position == prev then root.Position = HOME_POS end
+end)
 
 -- One dismiss path rather than two copies of the same tween (the X button and the
 -- oversized touch target behind it both land here).
@@ -143,105 +160,92 @@ Platform.Watch(function()
 end)
 
 -- ============================================================================
--- NAKED RESTYLE (2026-08-16, PS99 white-chrome pass). Passive info carries no
--- plate: the charcoal card, its border stroke and the amber accent bar are
--- gone. What remains floats straight on the world as white bubble text with
--- the house dark-navy #313D4F Contextual stroke, plus one THIN minimal track
--- (dark navy #2E3A4C) with a CYAN #39D7F5 fill -- cyan is the progress colour;
--- gold is reserved for real money, so the amber left with the old card.
--- READY! keeps green (act/ready); the dismiss x is a small pink-red glyph.
+-- UI ROUND 3 (2026-09-19): the Goals nudge on the KIT -- a compact white card
+-- with an orange GOAL chip, the goal in the read face, and a chunky bar with the
+-- numbers on it. The same card language the NPC tracker's QuestCard now speaks
+-- (same width, same edge, same bar) with its OWN identity: the orange Goals
+-- chip and no NPC badge, so a Goal never reads as a story quest. Everything
+-- behavioural -- the pick, dismiss, the panel/shop yields, HudToggle's fold --
+-- is exactly as it was; only what gets painted changed. The pre-round-3 file
+-- is ServerStorage.AuditBackups.PreUIRound3_2026_09_19.QuestBarClient_pre.
 -- ============================================================================
+local PC = require(UIKit:WaitForChild("PanelChrome"))
+local S = require(UIKit:WaitForChild("SpecTheme"))
+
 local C = {
-	ink      = Color3.fromRGB(49, 61, 79),    -- #313D4F bubble-text stroke
-	trackBg  = Color3.fromRGB(46, 58, 76),    -- #2E3A4C thin track
-	progress = Color3.fromRGB(57, 215, 245),  -- #39D7F5 progress numbers + fill
-	ready    = Color3.fromRGB(99, 222, 67),   -- #63DE43 house act/ready green
-	dismiss  = Color3.fromRGB(255, 93, 128),  -- #FF5D80 dismiss glyph
-	dismissH = Color3.fromRGB(255, 141, 166), -- its hover lift
+	ink      = S.Outline,
+	progress = Color3.fromRGB(57, 215, 245),  -- kept for callers of the old token
+	ready    = Color3.fromRGB(99, 222, 67),   -- house act/ready green
+	dismiss  = S.Action.Danger[1],
+	dismissH = Color3.fromRGB(255, 141, 166),
 	white    = Color3.fromRGB(255, 255, 255),
 }
-local FONT = Enum.Font.FredokaOne
+local FONT = S.Font.Read
 
--- the bubble-text outline every naked label wears: Contextual (glyph-hugging),
--- not Border -- there are no boxes left to border
-local function inkStroke(obj, thickness)
-	local s = Instance.new("UIStroke")
-	s.Color = C.ink
-	s.Thickness = thickness or 2
-	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-	s.Parent = obj
-	return s
+-- the plate: white shell, navy edge, no gloss -- QuestCard's exact recipe
+local plate = Instance.new("Frame")
+plate.Name = "Plate"
+plate.BackgroundColor3 = S.Surface.RowTop
+plate.BorderSizePixel = 0
+plate.Size = UDim2.fromScale(1, 1)
+plate.ZIndex = root.ZIndex
+plate.Parent = root
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 18); c.Parent = plate
+	local st = Instance.new("UIStroke"); st.Thickness = 4; st.Color = S.Outline; st.LineJoinMode = Enum.LineJoinMode.Round; st.Parent = plate
+	local g = Instance.new("UIGradient"); g.Rotation = 90; g.Color = ColorSequence.new(S.Surface.RowTop, S.Surface.RowBottom); g.Parent = plate
 end
 
-local function label(parent, size, colour, xAlign)
-	local l = Instance.new("TextLabel")
-	l.BackgroundTransparency = 1
-	l.BorderSizePixel = 0
-	l.Text = ""
-	l.Font = FONT
-	l.TextSize = size
-	l.TextColor3 = colour
-	l.TextXAlignment = xAlign or Enum.TextXAlignment.Left
-	l.TextYAlignment = Enum.TextYAlignment.Center
-	l.Parent = parent
-	return l
-end
+-- "GOAL" identity chip: the Goals panel's orange, as a small kit chip
+local chip = PC.statePlate({
+	name = "Kind", text = "GOAL", colors = { Color3.fromHex("FFC21A"), Color3.fromHex("FF9F1C") },
+	size = UDim2.fromOffset(58, 20), position = UDim2.fromOffset(12, 10),
+	textSize = 13, zIndex = root.ZIndex + 2, parent = root,
+})
 
--- NO PLATE (naked restyle): the old ClaimRing helper, charcoal plate and amber
--- accent bar are gone. Children hang straight off `root`, which is already
--- transparent, and the READY! pulse now lives on the text itself (see the
--- QuestState handler at the bottom).
-
--- goal text: naked white bubble text floating on the world
-local title = label(root, 14, C.white)
-title.Position = UDim2.fromOffset(14, 11)
-title.Size = UDim2.fromOffset(W - 14 - 88, 20)
+-- goal text beside the chip, in the read face
+local title = PC.read({
+	name = "Title", text = "", size = 15, color = S.Surface.ReadInk, align = Enum.TextXAlignment.Left,
+	frameSize = UDim2.new(1, -(12 + 58 + 8 + 12 + 26), 0, 20), position = UDim2.fromOffset(12 + 58 + 8, 10),
+	zIndex = root.ZIndex + 2, parent = root,
+})
 title.TextTruncate = Enum.TextTruncate.AtEnd
-title.ZIndex = root.ZIndex + 1
-inkStroke(title, 2)
 
--- "GOAL" kind tag: small white outlined caps -- the boxed amber chip lost its
--- hairline border and its gold along with the plate (gold = real money only)
-local chip = label(root, 9, C.white, Enum.TextXAlignment.Center)
-chip.Name = "Kind"
-chip.AnchorPoint = Vector2.new(1, 0)
-chip.Position = UDim2.new(1, -32, 0, 12)
-chip.AutomaticSize = Enum.AutomaticSize.X
-chip.Size = UDim2.fromOffset(0, 17)
-chip.Text = "G O A L"
-chip.ZIndex = root.ZIndex + 1
-inkStroke(chip, 1)
-
--- THIN minimal progress row: dark navy track, CYAN fill (cyan = progress; the
--- old amber fill went with the card), right-aligned n/m beside it
+-- chunky bar with the count ON it
 local track = Instance.new("Frame")
 track.Name = "Track"
-track.AnchorPoint = Vector2.new(0, 0.5)
-track.Position = UDim2.new(0, 14, 0, 44)
-track.Size = UDim2.new(1, -74, 0, 3)
-track.BackgroundColor3 = C.trackBg
+track.BackgroundColor3 = S.Surface.Track
 track.BorderSizePixel = 0
-track.ZIndex = root.ZIndex + 1
+track.Position = UDim2.fromOffset(12, 36)
+track.Size = UDim2.new(1, -24, 0, 18)
+track.ZIndex = root.ZIndex + 2
+track.ClipsDescendants = true
 track.Parent = root
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 999); c.Parent = track
+	local st = Instance.new("UIStroke"); st.Thickness = 3; st.Color = S.Outline; st.Parent = track
+end
 
 local fill = Instance.new("Frame")
 fill.Name = "Fill"
-fill.Size = UDim2.new(0, 0, 1, 0)
-fill.BackgroundColor3 = C.progress
+fill.BackgroundColor3 = S.Action.GreenFill[1]
 fill.BorderSizePixel = 0
+fill.Size = UDim2.new(0, 0, 1, 0)
 fill.ZIndex = track.ZIndex + 1
 fill.Parent = track
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 999); c.Parent = fill
+	local g = Instance.new("UIGradient"); g.Rotation = 90; g.Color = ColorSequence.new(S.Action.GreenFill[1], S.Action.GreenFill[2]); g.Parent = fill
+end
 
-local count = label(root, 10, C.progress, Enum.TextXAlignment.Right)
-count.Name = "Count"
-count.AnchorPoint = Vector2.new(1, 0.5)
-count.Position = UDim2.new(1, -14, 0, 44)
-count.Size = UDim2.fromOffset(44, 13)
-count.ZIndex = root.ZIndex + 1
-inkStroke(count, 2)
+local count = PC.shout({
+	name = "Count", text = "", size = 13, align = Enum.TextXAlignment.Right,
+	frameSize = UDim2.new(1, -8, 1, 0), zIndex = track.ZIndex + 2, parent = track,
+})
 
 local readyPulse = nil   -- looping TextTransparency pulse on READY! while claimable
 local shownId, shownPct = nil, -1
+local shownMet = false   -- the shown goal is claimable: the whole bar becomes a shortcut to GOALS
 
 -- DISMISSIBLE (2026-08-06). This was built as a standing "you are one step from a
 -- reward" nudge and had no way off the screen at all -- reported as "it pops up
@@ -254,35 +258,43 @@ local shownId, shownPct = nil, -1
 -- it up. Deliberately not persisted: a fresh session starts with it shown again.
 local dismissedId = nil
 
+-- the kit's small close: a pink-red rounded square, top-right of the plate
 local close = Instance.new("TextButton")
 close.Name = "Dismiss"
 close.AnchorPoint = Vector2.new(1, 0)
-close.Position = UDim2.new(1, -8, 0, 9)
--- 20x20 AUTHORED, 12x12 RENDERED on a phone once Platform.Widget() has scaled
--- this bar down -- under a third of Roblox's 44px minimum, on the only control
--- that makes this nudge go away. The bar exists because "it pops up and won't go
--- away" was a player report; a dismiss button too small to hit reintroduces
--- exactly that complaint.
---
--- The GLYPH stays small -- a big X would shout louder than the nudge it closes.
--- What grows is the hit area, via a transparent oversized child, which is the
--- pattern already used by the scooter card and the quest rail. Sized against the
--- scale this bar wears so the RENDERED target clears the floor.
-close.Size = UDim2.fromOffset(20, 20)
-close.BackgroundTransparency = 1
+close.Position = UDim2.new(1, -8, 0, 8)
+close.Size = UDim2.fromOffset(22, 22)
+close.BackgroundColor3 = S.Action.Danger[1]
 close.BorderSizePixel = 0
-close.Text = "\u{00D7}"
-close.Font = FONT
-close.TextSize = 14
-close.TextColor3 = C.dismiss
+close.Text = ""
 close.AutoButtonColor = false
-close.ZIndex = root.ZIndex + 2
+close.ZIndex = root.ZIndex + 3
 close.Parent = root
--- naked pink-red glyph -- the bordered box went with the plate. The 20x20 hit
--- target stays; hover lifts the glyph colour now there is no stroke to tint.
-inkStroke(close, 1)
-close.MouseEnter:Connect(function() close.TextColor3 = C.dismissH end)
-close.MouseLeave:Connect(function() close.TextColor3 = C.dismiss end)
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = close
+	local st = Instance.new("UIStroke"); st.Thickness = 2; st.Color = Color3.new(1, 1, 1); st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; st.Parent = close   -- Border: a TextButton's default mode strokes its (empty) text
+	local g = Instance.new("UIGradient"); g.Rotation = 90; g.Color = ColorSequence.new(S.Action.Danger[1], S.Action.Danger[2]); g.Parent = close
+	PC.shout({ name = "Glyph", text = "X", size = 14, zIndex = close.ZIndex + 1, parent = close })
+end
+
+-- TAP WHEN READY (2026-09-21, first-10-minutes round). The bar said READY! and the
+-- claim lived two clicks away on a rail tile a new player has never opened; the
+-- tutorial's GOAL COMPLETE step points at that tile, and this makes the bar itself
+-- the shortcut. A full-size transparent button between the plate and the labels
+-- (the labels are not Active, so taps fall through to it; the X and its hit pad
+-- sit two layers higher and keep their own click), live only while the shown
+-- goal is met. Opens through the same attribute idiom every other caller uses.
+local readyHit = Instance.new("TextButton")
+readyHit.Name = "ReadyHit"
+readyHit.Size = UDim2.fromScale(1, 1)
+readyHit.BackgroundTransparency = 1
+readyHit.Text = ""
+readyHit.AutoButtonColor = false
+readyHit.ZIndex = root.ZIndex + 1
+readyHit.Parent = root
+readyHit.Activated:Connect(function()
+	if shownMet then player:SetAttribute("HudPanelRequest", "goals") end
+end)
 
 -- Slide out right, the direction the quest fold already leaves in, instead
 -- of vanishing in one frame (2026-08-10 user capture: every state change on
@@ -296,16 +308,12 @@ end)
 
 -- THE HIT AREA, not the glyph.
 --
--- close is authored 20x20 and RENDERS 12x12 on a phone once Platform.Widget()
+-- close is authored 22x22 and RENDERS ~13px on a phone once Platform.Widget()
 -- has scaled this bar down -- under a third of Roblox's 44px minimum, on the one
--- control that makes this nudge go away. This bar exists because "it pops up and
--- won't go away" was a player report; a dismiss button too small to hit hands
--- that complaint straight back.
---
--- The X stays small, because a 44px glyph would shout louder than the nudge it
--- closes. What grows is a transparent oversized child -- the same pattern the
--- scooter card and the quest rail already use. Sized against the scale this bar
--- wears, so the target clears the floor ON THE GLASS rather than in design units.
+-- control that makes this nudge go away. What grows is a transparent oversized
+-- child -- the same pattern the scooter card and the tracker's chevron use.
+-- Sized against the scale this bar wears, so the target clears the floor ON THE
+-- GLASS rather than in design units.
 do
 	local HudLayout = require(modules:WaitForChild("HudLayout"))
 	local hit = Instance.new("TextButton")
@@ -315,7 +323,7 @@ do
 	hit.BackgroundTransparency = 1
 	hit.Text = ""
 	hit.AutoButtonColor = false
-	hit.ZIndex = close.ZIndex + 1
+	hit.ZIndex = close.ZIndex + 2
 	hit.Parent = close
 	Platform.Watch(function()
 		if not Platform.IsTouch then
@@ -324,7 +332,7 @@ do
 		end
 		local s = math.max(Platform.Widget(), 0.01)
 		local need = math.ceil(HudLayout.MIN_TOUCH / s)
-		hit.Size = UDim2.fromOffset(math.max(need, 20), math.max(need, 20))
+		hit.Size = UDim2.fromOffset(math.max(need, 22), math.max(need, 22))
 	end)
 	-- Same effect as pressing the X, routed through the same signal so there is
 	-- one dismiss path rather than two copies of the tween.
@@ -408,12 +416,13 @@ remotes.QuestState.OnClientEvent:Connect(function(list)
 	local target = tonumber(q.Target) or 1
 	local cur = tonumber(q.Cur) or 0
 	title.Text = tostring(q.Desc or "")
+	shownMet = (q.Met == true)
 	if q.Met then
 		count.Text = "READY!"
-		count.TextColor3 = C.ready   -- act/ready green, naked outlined text
+		count.TextColor3 = C.ready   -- act/ready green on the navy track
 	else
-		count.Text = formatNumber(cur) .. "/" .. formatNumber(target)
-		count.TextColor3 = C.progress   -- cyan = progress numbers
+		count.Text = formatNumber(cur) .. " / " .. formatNumber(target)
+		count.TextColor3 = C.white   -- round 3: white shout on the bar, like QuestCard
 		count.TextTransparency = 0
 	end
 
