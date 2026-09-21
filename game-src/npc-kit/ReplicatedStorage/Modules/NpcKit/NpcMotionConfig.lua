@@ -199,7 +199,8 @@ P.Veteran = {
 	idle = { breathe = breathe(3.8, 1.2), weightShift = weightShift(9.0, 3.0), weightDip = weightDip(9.0), look = look(7.0, 18), lookTilt = lookTilt(7.0), handSway = handSway() },
 	gestures = pick({ "slowLook", "shoulderRoll", "nodGreet", "pointRestrained", "dismissWave", "gazeLock", "nod" }),
 	greet = "nodGreet",
-	track = { maxTurn = 30, maxBend = 12, smooth = 0.35, promptWeight = 0.7 },
+	-- slow, deliberate head: 0.6 s smoothing, a third of a turn when you merely come near, most of it once the prompt is up
+	track = { maxTurn = 30, maxBend = 12, smooth = 0.6, promptWeight = 0.7, approachWeight = 0.35 },
 	talk = { every = { 5, 8 }, gestures = { "pointRestrained", "dismissWave", "gazeLock" }, nod = { every = { 4, 6 } } },
 	gestureRange = 90,
 	reactions = {

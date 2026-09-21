@@ -36,6 +36,10 @@ FORBIDDEN = {
         (r"MerchantDialog\s*=\s*require|require\([^)]*MerchantDialog", "locked UI module must not be required by the kit"),
     ],
 }
+# Drop-in replacements for LIVE scripts that already require the locked UI module: they are
+# the glue between the live prompt/remotes and MerchantDialog, not kit runtime. Everything
+# else in the kit (driver, forge, data) stays barred from it.
+LIVE_DROP_INS = {"GianlucaClient.client.lua": {"locked UI module must not be required by the kit"}}
 
 
 def strip(line: str) -> str:
@@ -64,7 +68,7 @@ def main() -> int:
                 if re.search(pat, code):
                     problems.append(f"{rel}:{n}: Luau-only syntax {pat!r}")
             for pat, why in FORBIDDEN.get(f.name, []) + FORBIDDEN["*"]:
-                if re.search(pat, code):
+                if re.search(pat, code) and why not in LIVE_DROP_INS.get(f.name, set()):
                     problems.append(f"{rel}:{n}: forbidden ({why}): {line.strip()[:80]}")
         if f.name == "NpcLife.lua":
             scans = sum(1 for line in lines if "GetDescendants" in strip(line))

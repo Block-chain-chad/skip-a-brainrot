@@ -22,4 +22,4 @@ Design rules and budgets: ../docs/brainrot-build-standard.md. Pipeline: ../docs/
 
 `npc_kit/forge_npc.py` is the forge's NPC profile (pitch 0.05, sizes read from NpcRigSpec.lua, forge bake()/write_glb unchanged); `npc_kit/preview.py` is the harness-side renderer.
 
-Kit sources and install order: ../game-src/npc-kit/README.md. Specs: ../docs/npc/PHASE2.5-IMPLEMENTATION-PREP.md. Visual prototype: ../docs/npc/STEP0-VISUAL-PROTOTYPE.md. Art studies: ../docs/npc/V25-CHARACTER-ART-STUDY.md (APPROVED; decisions in ../docs/npc/V25-APPROVAL-RECORD.md), ../docs/npc/V2-CHARACTER-ART-STUDY.md (superseded Gianluca).
+Kit sources and install order: ../game-src/npc-kit/README.md. Specs: ../docs/npc/PHASE2.5-IMPLEMENTATION-PREP.md. Visual prototype: ../docs/npc/STEP0-VISUAL-PROTOTYPE.md. Production pass (dialogue, approach, drop-in client): ../docs/npc/GIANLUCA-PRODUCTION-PASS.md. Art studies: ../docs/npc/V25-CHARACTER-ART-STUDY.md (APPROVED; decisions in ../docs/npc/V25-APPROVAL-RECORD.md), ../docs/npc/V2-CHARACTER-ART-STUDY.md (superseded Gianluca).

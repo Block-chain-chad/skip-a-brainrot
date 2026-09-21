@@ -37,11 +37,14 @@ SCRIPTS = {
     "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Villager_Valley_01": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Villager_Valley_01.lua"),
     "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca_v1": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcCharacters/Gianluca_v1.lua"),
     "ReplicatedStorage/Modules/NpcKit/NpcShells/Gianluca_V25": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcShells/Gianluca_V25.lua"),
+    "ReplicatedStorage/Modules/NpcKit/NpcTalk": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcTalk.lua"),
+    "ReplicatedStorage/Modules/NpcKit/NpcDialogue/Gianluca": ("ModuleScript", "ReplicatedStorage/Modules/NpcKit/NpcDialogue/Gianluca.lua"),
+    "StarterPlayer/StarterPlayerScripts/GianlucaClient": ("LocalScript", "StarterPlayer/StarterPlayerScripts/GianlucaClient.client.lua"),
     "ServerStorage/NpcForge": ("ModuleScript", "ServerStorage/NpcForge.lua"),
     "ServerStorage/NpcBudget": ("ModuleScript", "ServerStorage/NpcBudget.lua"),
     "StarterPlayer/StarterPlayerScripts/NpcLifeClient": ("LocalScript", "StarterPlayer/StarterPlayerScripts/NpcLifeClient.client.lua"),
 }
-FOLDERS = ["ReplicatedStorage/Modules", "ReplicatedStorage/Modules/NpcKit", "ReplicatedStorage/Modules/NpcKit/NpcCharacters", "ReplicatedStorage/Modules/NpcKit/NpcShells"]
+FOLDERS = ["ReplicatedStorage/Modules", "ReplicatedStorage/Modules/NpcKit", "ReplicatedStorage/Modules/NpcKit/NpcCharacters", "ReplicatedStorage/Modules/NpcKit/NpcShells", "ReplicatedStorage/Modules/NpcKit/NpcDialogue"]
 
 
 def all_lua_files() -> list[Path]:

@@ -104,6 +104,7 @@ function NpcLife:adopt(model)
 		lastWritten = {}, frameCounter = 0, dirtyModel = false,
 		headOffset = tonumber(model:GetAttribute("NpcHeadOffset")) or M.RigSpec.Root.HeadOffset,   -- the portrait line of THIS body
 		freezeIdleUntil = 0, faceRestoreAt = 0, faceBefore = nil,                                   -- reaction state (V2.5)
+		approaching = false,                                                                        -- inside trackRange (with hysteresis)
 	}
 	local pivot = pivotOf(model)
 	entry.basePivot = pivot
@@ -416,13 +417,19 @@ function NpcLife:_update(entry, dt, now)
 	entry.frameCounter = entry.frameCounter + 1
 	local pack = entry.pack
 
-	-- tracking weight (talking = 1, prompt shown = promptWeight, else 0)
+	-- tracking weight: talking = 1, prompt shown = promptWeight, merely approaching = approachWeight
+	-- (the pack's, 0 unless set -- a composed NPC notices you before the prompt, a little). The
+	-- range has 2 studs of hysteresis so standing on its edge never flickers the head.
 	local wantTrack = 0
 	local head = self.deps.playerHead()
 	if head and entry.lod.trackRange > 0 then
 		local d = (head - entry.root.Position).Magnitude
-		if d <= entry.lod.trackRange then
-			if entry.talking then wantTrack = 1 elseif entry.promptShown then wantTrack = pack.track and pack.track.promptWeight or 0 end
+		local range = entry.lod.trackRange
+		if d <= range then entry.approaching = true elseif d > range + 2.0 then entry.approaching = false end
+		if entry.approaching then
+			if entry.talking then wantTrack = 1
+			elseif entry.promptShown then wantTrack = pack.track and pack.track.promptWeight or 0
+			else wantTrack = pack.track and pack.track.approachWeight or 0 end
 		end
 	end
 	entry.trackWeight = Motion.smooth(entry.trackWeight, wantTrack, dt, TRACK_RAMP / 3)

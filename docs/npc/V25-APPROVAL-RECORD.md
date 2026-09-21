@@ -41,6 +41,8 @@
 
 Standing rules through the window: do not replace Gianluca automatically; do not touch Elder Tung; do not begin the global rollout.
 
+Added by the production pass (`docs/npc/GIANLUCA-PRODUCTION-PASS.md`): the STOP 5 swap plan must also (a) exclude the V2.5 body from the live `NpcBodyLife` and `NpcPropLife` server scripts, which animate `StupidGianluca` by name (a ±28° root yaw and a coin toss), and (b) install the kit's `GianlucaClient` drop-in in the same step as the body; the live `TalkPrompt` values and the portrait framing are verified, never recreated.
+
 ## Disk-side prerequisites the window depends on — DONE 2026-09-19 (owner: "ok to continue"), still no Studio
 
 The kit now assembles Gianluca V2.5 from data; the face meshes are exported at a neutral rest and `NpcFaceConfig` applies the states as deltas (bottom row of the K sheet). `python -m npc_kit.v2.forge_check` renders the NpcForge build next to the approved study at a silhouette overlap of 0.9998 / 0.9998 / 1.000 (front / ¾ / back) — [v25-K-forge-vs-study.png](previews/v25/v25-K-forge-vs-study.png). Budget from `NpcBudget`: 43 parts / 19 welds / 22 Motor6D / 7 bespoke / 4,188 tris, PASS against the Tier 3 caps. What each item became:
