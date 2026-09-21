@@ -404,7 +404,9 @@ ccdc114e|18728|ModuleScript|ServerStorage.GardensBuild.Terra
 db80c228|10256|ModuleScript|ServerStorage.PeteV3Pipeline
 873a76ff|16262|ModuleScript|ServerStorage.PlotLODBuilder
 e051a9b7|8597|ModuleScript|ServerStorage.TradingWorldBackups_2026_09_19.Rollback
+8414e863|7706|Script|ServerStorage.TradingWorldBackups_2026_09_20.Legacy_TradingWorld.CoveDressing.CoveDriver
 c1fee68b|38097|ModuleScript|ServerStorage.TradingWorldBuild.Generator
+39ac62ad|50690|ModuleScript|ServerStorage.TradingWorldBuild.SettlementGenerator
 35867672|17640|ModuleScript|ServerStorage.TundraPetBuilders
 426f94c9|8856|ModuleScript|ServerStorage.TundraPetKit
 1d7e8275|3173|ModuleScript|ServerStorage.World2Backups_2026_09_19.Rollback
@@ -496,6 +498,5 @@ bc7db348|25341|LocalScript|StarterPlayer.StarterPlayerScripts.TungQuestClient
 94f9fc8f|56723|LocalScript|StarterPlayer.StarterPlayerScripts.WeatherClient
 776d74ed|79643|LocalScript|StarterPlayer.StarterPlayerScripts.WheelClient
 5a8c9184|5501|LocalScript|StarterPlayer.StarterPlayerScripts.__RevealHarnessRunner
-8414e863|7706|Script|Workspace.GameWorld.TradingWorld.CoveDressing.CoveDriver
-73841159|1615|Script|Workspace.GameWorld.TradingWorld.EternalSkip.SkipLoop
+d41bed3b|1615|Script|Workspace.GameWorld.TradingWorld.EternalSkip.SkipLoop
 ef210098|878|Script|Workspace.TitleScaler
