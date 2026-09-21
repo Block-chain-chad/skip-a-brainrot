@@ -1,19 +1,20 @@
 --!nocheck
 --[[
-TradingWorldBuild.SettlementGenerator -- BUILD-TIME ONLY greybox generator for the Riverside Trading
-Settlement (TW-02, Phase 2 blockout). Installed at ServerStorage.TradingWorldBuild.SettlementGenerator.
-Nothing in the game requires it. Run from the command bar or the Studio MCP, in Edit mode:
+TradingWorldBuild.SettlementGenerator -- BUILD-TIME ONLY generator for the Riverside Trading Settlement
+(TW-02). Installed at ServerStorage.TradingWorldBuild.SettlementGenerator. Nothing in the game requires it.
+Run from the command bar or the Studio MCP, in Edit mode:
 
     local G = loadstring(game:GetService("ServerStorage").TradingWorldBuild.SettlementGenerator.Source)()
     G.RetireLegacy()     -- ONCE: moves the old cove island out of GameWorld.TradingWorld / TradingCenter
                          --       into ServerStorage.TradingWorldBackups_2026_09_20.Legacy_* (a move, not a delete)
     G.ClearAll()         -- removes only the sections this generator built (attribute TW2 = true)
+    G.DETAIL = true      -- true = Phase 5 architecture renderer; false = the approved Phase 2 greybox (same numbers)
     G.BuildAll()         -- every section, each pcall-guarded, in place around TRADE_POS
     print(G.Contracts()) -- booth / zone / index / ground / portal self-check -> "OK 18/18 stalls ..."
     print(G.Stats())     -- part / light / script counts + bounding box vs the BoundsGuard box
 
 IN PLACE. The settlement is generated around the existing arrival point: design origin O = the ground
-under TeleportService.TRADE_POS = (8000, 2002.4, 7818). Design axes: x = WEST (world +X, the player's LEFT
+under TeleportService.TRADE_POS = (8000, 2002.4, 7818). Design axes: x = WEST (world +X, the player LEFT
 on arrival), z = NORTH (world +Z, ahead on arrival), y = height above the Lower Market datum P = 2002.4.
 Terrain water surface is y 2000 (design -2.4) everywhere in the BoundsGuard "Trading" box; land is parts.
 
@@ -26,13 +27,16 @@ GameWorld.TradingCenter (Folder) > Booths (Folder) > Booth<N> (Model, attr Booth
 GameWorld.TradingCenter.TradeZone (ONE BasePart, direct child); GameWorld.TradingWorld (Folder);
 walkable ground under TRADE_POS; GameWorld.Portals.HubPortal re-pivoted only (attributes untouched).
 
-GREYBOX RULES (owner brief, Phase 2): primitive materials, no decoration, no lights, no scripts beyond
-the kept EternalSkip; the layout must read as streets / water / elevation / bridge -- never as a circle,
-plaza or hub from the air.
+TWO RENDERERS, ONE SET OF NUMBERS. G.BUILDINGS / G.STALLS / G.NPC_SPOTS and the section functions hold
+the approved layout (Phase 2, greybox v3). With G.DETAIL = false every building is a box + roof mass and
+every stall a niche; with G.DETAIL = true the same footprints get the architecture pass: plinths, timber
+frames, windows, doors, shutters, eaves, chimneys, dormers, balconies, the stone bridge and tower, quay
+walls, real stair treads, and the six stall-shell families. The currency never appears anywhere here.
 ]]
 
 local G = {}
-G.VERSION = 3
+G.VERSION = 10
+G.DETAIL = true
 G.O = Vector3.new(8000, 2002.4, 7818)          -- design origin (ground under TRADE_POS)
 G.ROOT_WORLD = "TradingWorld"
 G.ROOT_CENTER = "TradingCenter"
@@ -44,8 +48,9 @@ local Workspace = game:GetService("Workspace")
 local ServerStorage = game:GetService("ServerStorage")
 local CHS = game:GetService("ChangeHistoryService")
 
--- ============================================================ palette (greybox: muted naturals, levels readable)
+-- ============================================================ palettes
 local C3 = Color3.fromRGB
+-- greybox
 local PAL = {
 	ground = C3(170, 162, 148), road = C3(112, 108, 102), quay = C3(142, 138, 130), square = C3(126, 122, 116),
 	wood = C3(124, 90, 58), woodDark = C3(94, 68, 42), plank = C3(140, 104, 66),
@@ -55,10 +60,41 @@ local PAL = {
 	cliff = C3(86, 82, 80), cliff2 = C3(98, 92, 88), niche = C3(58, 52, 46), sign = C3(238, 228, 200),
 	green = C3(96, 132, 72), npc = C3(64, 200, 190), relic = C3(120, 124, 112), water = C3(70, 140, 170),
 }
+-- architecture: natural materials only; colour comes from merchandise, gems and cloth accents later
+local M = {
+	plaster = Enum.Material.Concrete, stone = Enum.Material.Cobblestone, stone2 = Enum.Material.Limestone,
+	slate = Enum.Material.Slate, wood = Enum.Material.Wood, plank = Enum.Material.WoodPlanks,
+	cloth = Enum.Material.Fabric, metal = Enum.Material.Metal, glass = Enum.Material.SmoothPlastic,
+	grass = Enum.Material.Grass, brick = Enum.Material.Brick, sp = Enum.Material.SmoothPlastic,
+}
+local PLASTER = { C3(202, 186, 158), C3(188, 160, 116), C3(172, 174, 150), C3(190, 166, 144), C3(206, 196, 176), C3(178, 150, 100), C3(194, 182, 154), C3(164, 156, 136) }
+local ROOFS = { { C3(74, 70, 72), M.slate }, { C3(98, 74, 58), M.plank }, { C3(70, 78, 68), M.slate }, { C3(86, 80, 78), M.slate }, { C3(122, 80, 62), M.slate }, { C3(108, 88, 64), M.plank }, { C3(64, 62, 66), M.slate } }
+local CLOTHS = { C3(146, 72, 62), C3(96, 118, 86), C3(78, 90, 116), C3(176, 138, 82), C3(206, 196, 176), C3(120, 84, 96) }
+local TIMBER, TIMBER2, PLANK, PLANKDARK = C3(84, 60, 38), C3(108, 80, 50), C3(134, 100, 64), C3(104, 76, 48)
+local STONE, STONE2, STONEDARK, COBBLE, LIME = C3(138, 128, 112), C3(156, 146, 128), C3(110, 100, 88), C3(124, 114, 100), C3(184, 172, 148)
+local GLASS, IRON, CLIFF, CLIFF2 = C3(52, 64, 78), C3(58, 56, 56), C3(86, 82, 80), C3(100, 94, 88)
+local SIGN, INK, ROPE = C3(226, 214, 184), C3(56, 46, 36), C3(178, 160, 122)
+
 local SP = Enum.Material.SmoothPlastic
 local CONCRETE = Enum.Material.Concrete
 local WOODP = Enum.Material.WoodPlanks
 local SLATE = Enum.Material.Slate
+
+-- deterministic variation (never even spacing, never the same building twice)
+local function hashName(s)
+	local h = 5381
+	for i = 1, #s do h = (h * 31 + s:byte(i)) % 2147483647 end
+	return h
+end
+local function rng(seed)
+	local st = (seed or 1) % 2147483647
+	if st == 0 then st = 7 end
+	return function()
+		st = (st * 48271) % 2147483647
+		return st / 2147483647
+	end
+end
+local function pick(r, list) return list[1 + math.floor(r() * #list)] end
 
 -- ============================================================ frame helpers (design -> world)
 local function W(x, y, z) return G.O + Vector3.new(x, y, z) end
@@ -80,27 +116,38 @@ local function mk(parent, name, size, cf, color, material, props)
 	counts.parts += 1
 	return p
 end
--- axis-aligned box from design extents (x1<x2, z1<z2, y1<y2)
 local function box(parent, name, x1, x2, z1, z2, y1, y2, color, material, props)
 	local size = Vector3.new(x2 - x1, y2 - y1, z2 - z1)
 	return mk(parent, name, size, at((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2), color, material, props)
 end
--- thin walkable surface with its TOP at yTop
 local function slab(parent, name, x1, x2, z1, z2, yTop, thick, color, material, props)
 	return box(parent, name, x1, x2, z1, z2, yTop - thick, yTop, color, material, props)
 end
--- tilted slab whose TOP runs from design point a to design point b (Vector3 x,y,z), width w across
-local function ramp(parent, name, a, b, w, thick, color, material)
+-- tilted slab whose TOP runs from design point a to design point b, width w across
+local function ramp(parent, name, a, b, w, thick, color, material, props)
 	thick = thick or 1.0
 	local mid = (a + b) / 2
 	local len = (b - a).Magnitude + 0.3
 	local cf = CFrame.lookAt(W(mid.X, mid.Y, mid.Z), W(b.X, b.Y, b.Z)) * CFrame.new(0, -thick / 2, 0)
-	return mk(parent, name, Vector3.new(w, thick, len), cf, color or PAL.stone, material or SP)
+	return mk(parent, name, Vector3.new(w, thick, len), cf, color or PAL.stone, material or SP, props)
 end
--- vertical cylinder (Roblox cylinders point along local X)
 local function cyl(parent, name, diameter, height, cf, color, material, props)
 	local p = mk(parent, name, Vector3.new(height, diameter, diameter), cf * CFrame.Angles(0, 0, math.rad(90)), color, material, props)
 	p.Shape = Enum.PartType.Cylinder
+	return p
+end
+-- horizontal cylinder from design point a to b (ropes, beams)
+local function rod(parent, name, a, b, diameter, color, material)
+	local mid = (a + b) / 2
+	local len = (b - a).Magnitude
+	local cf = CFrame.lookAt(W(mid.X, mid.Y, mid.Z), W(b.X, b.Y, b.Z)) * CFrame.Angles(0, math.rad(90), 0)
+	local p = mk(parent, name, Vector3.new(len, diameter, diameter), cf, color, material)
+	p.Shape = Enum.PartType.Cylinder
+	return p
+end
+local function ball(parent, name, diameter, cf, color, material)
+	local p = mk(parent, name, Vector3.new(diameter, diameter, diameter), cf, color, material)
+	p.Shape = Enum.PartType.Ball
 	return p
 end
 local function model(parent, name)
@@ -116,21 +163,47 @@ local function plate(part, text, face, textColor, bgColor, bgTransparency, font,
 	gui.Face = face or Enum.NormalId.Front
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	gui.PixelsPerStud = pps or 40
-	gui.LightInfluence = 0
+	gui.LightInfluence = 0.6
 	gui.Parent = part
 	local label = Instance.new("TextLabel")
 	label.Name = "TextLabel"
 	label.Size = UDim2.new(1, 0, 1, 0)
-	label.BackgroundColor3 = bgColor or PAL.sign
+	label.BackgroundColor3 = bgColor or SIGN
 	label.BackgroundTransparency = bgTransparency == nil and 1 or bgTransparency
 	label.BorderSizePixel = 0
-	label.Font = font or Enum.Font.GothamBold
+	label.Font = font or Enum.Font.Antique
 	label.Text = text
-	label.TextColor3 = textColor or PAL.niche
+	label.TextColor3 = textColor or INK
 	label.TextScaled = true
 	label.TextStrokeTransparency = 1
 	label.Parent = gui
 	return gui, label
+end
+-- semicircular arch of n blocks; base = CFrame at the span centre at spring height; local X along the span
+local function arch(parent, name, base, radius, n, thick, depth, color, material)
+	local seglen = 2 * radius * math.sin(math.pi / (2 * n)) * 1.12
+	for i = 0, n - 1 do
+		local th = (i + 0.5) * math.pi / n
+		local cf = base * CFrame.new(radius * math.cos(th), radius * math.sin(th), 0) * CFrame.Angles(0, 0, th + math.pi / 2)
+		mk(parent, name, Vector3.new(seglen, thick, depth), cf, color, material or M.stone)
+	end
+end
+-- real treads between two design points (walkable: rise per step <= 0.8)
+local function steps(parent, name, a, b, w, color, material)
+	local rise = math.abs(b.Y - a.Y)
+	local n = math.max(2, math.ceil(rise / 0.75))
+	local run = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+	local len = run.Magnitude
+	local dir = run.Unit
+	local tread = len / n
+	local yaw = math.atan2(dir.X, dir.Z)
+	for i = 0, n - 1 do
+		local yTop = a.Y + (b.Y - a.Y) * (i + 1) / n
+		local yLow = math.min(a.Y, b.Y) - 0.6
+		local c = a + dir * (tread * (i + 0.5))
+		local cf = CFrame.new(W(c.X, (yTop + yLow) / 2, c.Z)) * CFrame.Angles(0, yaw, 0)
+		mk(parent, name, Vector3.new(w, yTop - yLow, tread + 0.05), cf, color or STONE, material or M.stone)
+	end
 end
 
 -- ============================================================ roots / sections
@@ -155,36 +228,52 @@ local function section(name, parent)
 	return m
 end
 
--- ============================================================ building kit
--- spec: { name, x1, x2, z1, z2, h, base=0, roof="gableX"|"gableZ"|"hip"|"flat"|"shed", rise, tone, shedHigh="N"|"S"|"E"|"W",
---         open="W"|"E"|"N"|"S" (open-front shed: 3 thin walls), upper={x1,x2,z1,z2,y1,y2} (an overhanging upper floor, y rel. base),
---         balcony={x1,x2,z1,z2,y,posts={{x,z},...}} }
+-- ============================================================ greybox building kit (Phase 2, unchanged output)
 local ROOF_TONES = { PAL.roof, PAL.roof2, PAL.roof3 }
 local roofTone = 0
-local function roofColor() roofTone += 1; return ROOF_TONES[(roofTone - 1) % #ROOF_TONES + 1] end
-local function gable(parent, name, x1, x2, z1, z2, top, rise, alongZ, color)
-	color = color or roofColor()
+local function greyRoofColor() roofTone += 1; return ROOF_TONES[(roofTone - 1) % #ROOF_TONES + 1] end
+-- gable: ridge parallel to Z (alongZ) or X; ov = overhang beyond the walls
+local function gable(parent, name, x1, x2, z1, z2, top, rise, alongZ, color, material, ov)
+	ov = ov or 0
+	material = material or SP
 	if alongZ then
-		-- ridge parallel to Z; slope across X
-		local span = x2 - x1
+		local span = (x2 - x1) + 2 * ov
 		local half = span / 2
 		local th = math.atan(rise, half)
 		local len = math.sqrt(half * half + rise * rise) + 0.5
-		local zc, depth = (z1 + z2) / 2, (z2 - z1) + 1.2
-		mk(parent, name .. "RoofA", Vector3.new(len, 0.6, depth), at(x1 + half / 2, top + rise / 2, zc) * CFrame.Angles(0, 0, th), color, SP)
-		mk(parent, name .. "RoofB", Vector3.new(len, 0.6, depth), at(x2 - half / 2, top + rise / 2, zc) * CFrame.Angles(0, 0, -th), color, SP)
+		local zc, depth = (z1 + z2) / 2, (z2 - z1) + 1.2 + 2 * ov
+		local lo = x1 - ov
+		mk(parent, name .. "RoofA", Vector3.new(len, 0.6, depth), at(lo + half / 2, top + rise / 2, zc) * CFrame.Angles(0, 0, th), color, material)
+		mk(parent, name .. "RoofB", Vector3.new(len, 0.6, depth), at(lo + span - half / 2, top + rise / 2, zc) * CFrame.Angles(0, 0, -th), color, material)
 	else
-		-- ridge parallel to X; slope across Z
-		local span = z2 - z1
+		local span = (z2 - z1) + 2 * ov
 		local half = span / 2
 		local th = math.atan(rise, half)
 		local len = math.sqrt(half * half + rise * rise) + 0.5
-		local xc, width = (x1 + x2) / 2, (x2 - x1) + 1.2
-		mk(parent, name .. "RoofA", Vector3.new(width, 0.6, len), at(xc, top + rise / 2, z1 + half / 2) * CFrame.Angles(-th, 0, 0), color, SP)
-		mk(parent, name .. "RoofB", Vector3.new(width, 0.6, len), at(xc, top + rise / 2, z2 - half / 2) * CFrame.Angles(th, 0, 0), color, SP)
+		local xc, width = (x1 + x2) / 2, (x2 - x1) + 1.2 + 2 * ov
+		local lo = z1 - ov
+		mk(parent, name .. "RoofA", Vector3.new(width, 0.6, len), at(xc, top + rise / 2, lo + half / 2) * CFrame.Angles(-th, 0, 0), color, material)
+		mk(parent, name .. "RoofB", Vector3.new(width, 0.6, len), at(xc, top + rise / 2, lo + span - half / 2) * CFrame.Angles(th, 0, 0), color, material)
 	end
 end
-local function building(parent, s)
+local function shedRoof(parent, name, x1, x2, z1, z2, top, r, hi, color, material, ov)
+	ov = ov or 0
+	material = material or SP
+	if hi == "E" or hi == "W" then
+		local span = (x2 - x1) + 2 * ov
+		local th = math.atan(r, span)
+		local len = math.sqrt(span * span + r * r) + 0.5
+		local sgn = (hi == "W") and 1 or -1
+		mk(parent, name .. "Roof", Vector3.new(len, 0.6, (z2 - z1) + 1.2 + 2 * ov), at((x1 + x2) / 2, top + r / 2, (z1 + z2) / 2) * CFrame.Angles(0, 0, sgn * th), color, material)
+	else
+		local span = (z2 - z1) + 2 * ov
+		local th = math.atan(r, span)
+		local len = math.sqrt(span * span + r * r) + 0.5
+		local sgn = (hi == "N") and -1 or 1
+		mk(parent, name .. "Roof", Vector3.new((x2 - x1) + 1.2 + 2 * ov, 0.6, len), at((x1 + x2) / 2, top + r / 2, (z1 + z2) / 2) * CFrame.Angles(sgn * th, 0, 0), color, material)
+	end
+end
+local function greyBuilding(parent, s)
 	local base = s.base or 0
 	local bodyTop = base + s.h
 	local top = bodyTop
@@ -192,7 +281,6 @@ local function building(parent, s)
 	local tone = s.tone or PAL.wall
 	local m = model(parent, s.name)
 	if s.open then
-		-- open-front shed: three thin walls + the roof
 		local t = 0.8
 		if s.open ~= "N" then box(m, "WallN", s.x1, s.x2, s.z2 - t, s.z2, base, bodyTop, tone, SP) end
 		if s.open ~= "S" then box(m, "WallS", s.x1, s.x2, s.z1, s.z1 + t, base, bodyTop, tone, SP) end
@@ -210,34 +298,14 @@ local function building(parent, s)
 	if s.upper then rx1, rx2, rz1, rz2 = math.min(rx1, s.upper.x1), math.max(rx2, s.upper.x2), math.min(rz1, s.upper.z1), math.max(rz2, s.upper.z2) end
 	local roof = s.roof or "gableZ"
 	local rise = s.rise or math.min(8, math.max(3, (roof == "gableX" and (rz2 - rz1) or (rx2 - rx1)) * 0.3))
-	if roof == "gableZ" then
-		gable(m, s.name, rx1, rx2, rz1, rz2, top, rise, true, s.roofColor)
-	elseif roof == "gableX" then
-		gable(m, s.name, rx1, rx2, rz1, rz2, top, rise, false, s.roofColor)
+	if roof == "gableZ" then gable(m, s.name, rx1, rx2, rz1, rz2, top, rise, true, s.roofColor or greyRoofColor())
+	elseif roof == "gableX" then gable(m, s.name, rx1, rx2, rz1, rz2, top, rise, false, s.roofColor or greyRoofColor())
 	elseif roof == "hip" then
-		local c = s.roofColor or roofColor()
+		local c = s.roofColor or greyRoofColor()
 		box(m, s.name .. "Hip1", rx1 + 0.8, rx2 - 0.8, rz1 + 0.8, rz2 - 0.8, top, top + rise * 0.55, c, SP)
 		box(m, s.name .. "Hip2", rx1 + 3.2, rx2 - 3.2, rz1 + 3.2, rz2 - 3.2, top + rise * 0.55, top + rise, c, SP)
-	elseif roof == "flat" then
-		box(m, s.name .. "Parapet", rx1 - 0.3, rx2 + 0.3, rz1 - 0.3, rz2 + 0.3, top, top + 1.2, s.roofColor or PAL.stoneDark, SP)
-	elseif roof == "shed" then
-		-- one slope, high at the shedHigh side
-		local c = s.roofColor or roofColor()
-		local hi = s.shedHigh or "E"
-		local r = math.min(rise, 5)
-		if hi == "E" or hi == "W" then
-			local span = rx2 - rx1
-			local th = math.atan(r, span)
-			local len = math.sqrt(span * span + r * r) + 0.5
-			local sgn = (hi == "W") and 1 or -1  -- W = +x is high
-			mk(m, s.name .. "Roof", Vector3.new(len, 0.6, (rz2 - rz1) + 1.2), at((rx1 + rx2) / 2, top + r / 2, (rz1 + rz2) / 2) * CFrame.Angles(0, 0, sgn * th), c, SP)
-		else
-			local span = rz2 - rz1
-			local th = math.atan(r, span)
-			local len = math.sqrt(span * span + r * r) + 0.5
-			local sgn = (hi == "N") and -1 or 1  -- N = +z is high -> tilt +Z up = negative rotation about X
-			mk(m, s.name .. "Roof", Vector3.new((rx2 - rx1) + 1.2, 0.6, len), at((rx1 + rx2) / 2, top + r / 2, (rz1 + rz2) / 2) * CFrame.Angles(sgn * th, 0, 0), c, SP)
-		end
+	elseif roof == "flat" then box(m, s.name .. "Parapet", rx1 - 0.3, rx2 + 0.3, rz1 - 0.3, rz2 + 0.3, top, top + 1.2, s.roofColor or PAL.stoneDark, SP)
+	elseif roof == "shed" then shedRoof(m, s.name, rx1, rx2, rz1, rz2, top, math.min(rise, 5), s.shedHigh or "E", s.roofColor or greyRoofColor())
 	end
 	if s.balcony then
 		local b = s.balcony
@@ -248,40 +316,314 @@ local function building(parent, s)
 	end
 	return m
 end
-local function stair(parent, name, a, b, w, color)
-	return ramp(parent, name, a, b, w, 1.0, color or PAL.stone, SP)
+
+-- ============================================================ architecture building kit (Phase 5)
+-- Facade frame. side: "E" = the face at x1 (outward -x) . "W" = x2 (+x) . "S" = z1 (-z) . "N" = z2 (+z).
+-- u runs along the face from its low corner (z1 for E/W, x1 for N/S); v is height above the base; d is proud of the wall.
+local function faceOf(s, side, ext)
+	local x1, x2, z1, z2 = s.x1, s.x2, s.z1, s.z2
+	if ext then x1, x2, z1, z2 = ext.x1, ext.x2, ext.z1, ext.z2 end
+	local f = { side = side }
+	if side == "E" then f.len = z2 - z1; f.pos = function(u, v, d) return x1 - d, v, z1 + u end; f.along = "z"
+	elseif side == "W" then f.len = z2 - z1; f.pos = function(u, v, d) return x2 + d, v, z1 + u end; f.along = "z"
+	elseif side == "S" then f.len = x2 - x1; f.pos = function(u, v, d) return x1 + u, v, z1 - d end; f.along = "x"
+	else f.len = x2 - x1; f.pos = function(u, v, d) return x1 + u, v, z2 + d end; f.along = "x" end
+	return f
+end
+-- a box on a face: w along the face, h up, t proud (centred at depth d); optional yaw (about Y) or roll (about the face normal)
+local function faceBox(parent, name, f, base, u, v, d, w, h, t, color, material, yaw, roll, props, pitch)
+	local x, y, z = f.pos(u, base + v, d)
+	local cf = at(x, y, z)
+	local size
+	if f.along == "z" then
+		size = Vector3.new(t, h, w)
+		if roll then cf = cf * CFrame.Angles(roll, 0, 0) end
+		if pitch then cf = cf * CFrame.Angles(0, 0, pitch) end
+	else
+		size = Vector3.new(w, h, t)
+		if roll then cf = cf * CFrame.Angles(0, 0, roll) end
+		if pitch then cf = cf * CFrame.Angles(pitch, 0, 0) end
+	end
+	if yaw then cf = cf * CFrame.Angles(0, yaw, 0) end
+	return mk(parent, name, size, cf, color, material, props)
 end
 
--- ============================================================ stall module (the ONE reusable contract module)
--- spec: { idx, x, z, y (level), dir (unit Vector3 toward the customer), shell, signY, district }
-local function stall(parent, s)
-	local b = model(parent, "Booth" .. s.idx)
-	b:SetAttribute("BoothIndex", s.idx)
-	b:SetAttribute("District", s.district or "")
-	b:SetAttribute("Shell", s.shell or "counter")
-	local pos = W(s.x, s.y, s.z)
-	local origin = CFrame.lookAt(pos, pos + s.dir)         -- local -Z = toward the customer / street
-	local function L(x, y, z) return origin * CFrame.new(x, y, z) end
-	-- backdrop niche flush with the wall behind the counter (reads as an opening in the greybox)
-	mk(b, "Niche", Vector3.new(9.6, 8.2, 0.6), L(0, 4.1, 1.6), PAL.niche, SP)
-	local counter = mk(b, "Counter", Vector3.new(8, 3, 2.4), L(0, 1.5, 0), PAL.woodDark, WOODP)
-	for i, x in ipairs({ -2.6, 0, 2.6 }) do
-		mk(b, "Display" .. i, Vector3.new(1.6, 0.4, 1.6), L(x, 3.2, -0.2), PAL.plank, WOODP)
+local function window(parent, f, base, u, v, w, h, r, opts)
+	opts = opts or {}
+	faceBox(parent, "WindowFrame", f, base, u, v, 0.12, w + 0.5, h + 0.5, 0.35, opts.frame or TIMBER, M.wood)
+	faceBox(parent, "WindowGlass", f, base, u, v, 0.02, w, h, 0.18, GLASS, M.glass, nil, nil, { Reflectance = 0.14 })
+	faceBox(parent, "Sill", f, base, u, v - h / 2 - 0.15, 0.35, w + 0.9, 0.35, 0.8, opts.sill or STONE2, M.stone2)
+	if opts.shutters then
+		local a = (r() < 0.7) and math.rad(22) or 0
+		local sw = w / 2 + 0.2
+		for _, sgn in ipairs({ -1, 1 }) do
+			if r() < 0.85 then
+				local hingeU = u + sgn * (w / 2 + 0.3)
+				local cu = hingeU + sgn * (sw / 2) * math.cos(a)
+				local cd = 0.25 + (sw / 2) * math.sin(a)
+				-- open shutters swing out from the wall; the yaw sign depends on which way the face looks
+				local yaw = sgn * a
+				if f.side == "E" or f.side == "N" then yaw = -yaw end
+				faceBox(parent, "Shutter", f, base, cu, v, cd, sw, h + 0.2, 0.2, opts.shutterColor or PLANKDARK, M.plank, yaw)
+			end
+		end
 	end
-	local signY = s.signY or 7
-	local sign = mk(b, "SignBoard", Vector3.new(4.6, 1.5, 0.3), L(0, signY, -0.9), PAL.sign, SP)
-	plate(sign, "CLAIM STALL", Enum.NormalId.Front, PAL.niche, PAL.sign, 0, Enum.Font.GothamBold, 40)
-	mk(b, "SignBracket", Vector3.new(0.3, 0.3, 2.2), L(0, signY + 0.9, 0.4), PAL.woodDark, WOODP)
-	if s.shell == "awning" or s.shell == "dock" then
-		mk(b, "Awning", Vector3.new(10, 0.4, 5), L(0, 7.6, -2.0), PAL.wood, WOODP)
-		for _, x in ipairs({ -4.6, 4.6 }) do
-			mk(b, "AwningPost", Vector3.new(0.5, 7.4, 0.5), L(x, 3.7, -4.2), PAL.woodDark, WOODP)
+end
+local function door(parent, f, base, u, r, opts)
+	opts = opts or {}
+	local w, h = opts.w or 3.0, opts.h or 7.2
+	faceBox(parent, "DoorFrame", f, base, u, h / 2, 0.15, w + 0.7, h + 0.4, 0.4, TIMBER, M.wood)
+	faceBox(parent, "Door", f, base, u, h / 2, 0.05, w, h, 0.25, opts.color or PLANKDARK, M.plank)
+	faceBox(parent, "DoorStep", f, base, u, -0.05, 0.7, w + 1.2, 0.5, 1.4, STONE2, M.stone2)
+	if opts.lintel ~= false then faceBox(parent, "Lintel", f, base, u, h + 0.55, 0.35, w + 1.4, 0.55, 0.7, TIMBER2, M.wood) end
+end
+
+-- the detailed building
+local function archBuilding(parent, s)
+	local base = s.base or 0
+	local bodyTop = base + s.h
+	local top = bodyTop
+	if s.upper then top = math.max(top, base + s.upper.y2) end
+	local r = rng(hashName(s.name))
+	local style = s.style or "mixed"
+	local m = model(parent, s.name)
+	m:SetAttribute("Style", style)
+	local plaster = s.plaster or pick(r, PLASTER)
+	local wallColor, wallMat
+	if style == "stone" then wallColor, wallMat = pick(r, { STONE, STONE2, COBBLE }), M.stone
+	elseif style == "timber" then wallColor, wallMat = pick(r, { PLANK, PLANKDARK, TIMBER2 }), M.plank
+	elseif style == "stoneMixed" then wallColor, wallMat = pick(r, { STONE, COBBLE }), M.stone
+	else wallColor, wallMat = plaster, M.plaster end
+	local upperColor, upperMat = wallColor, wallMat
+	if style == "mixed" or style == "stoneMixed" then upperColor, upperMat = plaster, M.plaster end
+
+	-- body
+	if s.open then
+		local t = 0.8
+		local c, mat = pick(r, { PLANK, PLANKDARK }), M.plank
+		if s.open ~= "N" then box(m, "WallN", s.x1, s.x2, s.z2 - t, s.z2, base, bodyTop, c, mat) end
+		if s.open ~= "S" then box(m, "WallS", s.x1, s.x2, s.z1, s.z1 + t, base, bodyTop, c, mat) end
+		if s.open ~= "W" then box(m, "WallW", s.x2 - t, s.x2, s.z1, s.z2, base, bodyTop, c, mat) end
+		if s.open ~= "E" then box(m, "WallE", s.x1, s.x1 + t, s.z1, s.z2, base, bodyTop, c, mat) end
+		slab(m, "Floor", s.x1, s.x2, s.z1, s.z2, base + 0.2, 0.4, PLANK, M.plank)
+		local f = faceOf(s, s.open)
+		faceBox(m, "OpenBeam", f, base, f.len / 2, bodyTop - base - 0.5, 0.3, f.len, 0.8, 0.8, TIMBER, M.wood)
+		faceBox(m, "OpenPost", f, base, 0.6, (bodyTop - base) / 2, 0.3, 0.8, bodyTop - base, 0.8, TIMBER, M.wood)
+		faceBox(m, "OpenPost", f, base, f.len - 0.6, (bodyTop - base) / 2, 0.3, 0.8, bodyTop - base, 0.8, TIMBER, M.wood)
+	else
+		box(m, "Body", s.x1, s.x2, s.z1, s.z2, base, bodyTop, wallColor, wallMat)
+	end
+	if s.upper then
+		local u = s.upper
+		box(m, "Upper", u.x1, u.x2, u.z1, u.z2, base + u.y1, base + u.y2, upperColor, upperMat)
+		-- jetty: a timber sill beam under every overhanging edge, plus brackets
+		local ov = { E = s.x1 - u.x1, W = u.x2 - s.x2, S = s.z1 - u.z1, N = u.z2 - s.z2 }
+		for side, o in pairs(ov) do
+			if o > 0.5 then
+				local f = faceOf(s, side, u)
+				faceBox(m, "JettyBeam", f, base, f.len / 2, u.y1 - 0.35, 0.2, f.len, 0.7, 0.7, TIMBER, M.wood)
+				local n = math.max(2, math.floor(f.len / 9))
+				local drop = 3.25
+				local reach = o - 0.5
+				local blen = math.sqrt(reach * reach + drop * drop)
+				local pitch = math.atan(reach, drop) * ((side == "E" or side == "N") and 1 or -1)
+				for i = 1, n do
+					local bu = f.len * (i - 0.5 + (r() - 0.5) * 0.3) / n
+					faceBox(m, "JettyBracket", f, base, bu, u.y1 - 0.35 - drop / 2, (-o + 0.2 - 0.3) / 2, 0.6, blen, 0.6, TIMBER, M.wood, nil, nil, nil, pitch)
+				end
+			end
 		end
-	elseif s.shell == "window" then
-		mk(b, "Lintel", Vector3.new(10.4, 1.4, 1.2), L(0, 8.9, 1.3), PAL.woodDark, WOODP)
-		for _, x in ipairs({ -5.0, 5.0 }) do
-			mk(b, "Jamb", Vector3.new(0.6, 8.2, 1.2), L(x, 4.1, 1.3), PAL.woodDark, WOODP)
+	end
+	-- plinth: the stone course every plastered wall stands on
+	if (style == "mixed" or style == "plaster") and not s.open and not s.noPlinth then
+		box(m, "Plinth", s.x1 - 0.25, s.x2 + 0.25, s.z1 - 0.25, s.z2 + 0.25, base - 0.2, base + (s.plinth or 2.2), pick(r, { STONE, STONEDARK, COBBLE }), M.stone)
+	end
+
+	-- roof
+	local rx1, rx2, rz1, rz2 = s.x1, s.x2, s.z1, s.z2
+	if s.upper then rx1, rx2, rz1, rz2 = math.min(rx1, s.upper.x1), math.max(rx2, s.upper.x2), math.min(rz1, s.upper.z1), math.max(rz2, s.upper.z2) end
+	local roof = s.roof or "gableZ"
+	local rise = s.rise or math.min(8, math.max(3, (roof == "gableX" and (rz2 - rz1) or (rx2 - rx1)) * 0.3))
+	local rc = s.roofSet or pick(r, ROOFS)
+	local roofColor, roofMat = rc[1], rc[2]
+	local ov = s.eave or 1.3
+	if roof == "gableZ" or roof == "gableX" then
+		gable(m, s.name, rx1, rx2, rz1, rz2, top, rise, roof == "gableZ", roofColor, roofMat, ov)
+		if roof == "gableZ" then
+			box(m, "Ridge", (rx1 + rx2) / 2 - 0.4, (rx1 + rx2) / 2 + 0.4, rz1 - ov - 0.2, rz2 + ov + 0.2, top + rise - 0.1, top + rise + 0.6, TIMBER, M.wood)
+			box(m, "Eave", rx1 - ov - 0.3, rx1 - ov + 0.2, rz1 - ov, rz2 + ov, top - 0.9, top - 0.1, TIMBER2, M.wood)
+			box(m, "Eave", rx2 + ov - 0.2, rx2 + ov + 0.3, rz1 - ov, rz2 + ov, top - 0.9, top - 0.1, TIMBER2, M.wood)
+		else
+			box(m, "Ridge", rx1 - ov - 0.2, rx2 + ov + 0.2, (rz1 + rz2) / 2 - 0.4, (rz1 + rz2) / 2 + 0.4, top + rise - 0.1, top + rise + 0.6, TIMBER, M.wood)
+			box(m, "Eave", rx1 - ov, rx2 + ov, rz1 - ov - 0.3, rz1 - ov + 0.2, top - 0.9, top - 0.1, TIMBER2, M.wood)
+			box(m, "Eave", rx1 - ov, rx2 + ov, rz2 + ov - 0.2, rz2 + ov + 0.3, top - 0.9, top - 0.1, TIMBER2, M.wood)
 		end
+	elseif roof == "hip" then
+		local alongZ = (rx2 - rx1) <= (rz2 - rz1)
+		if alongZ then
+			gable(m, s.name, rx1, rx2, rz1 + rise, rz2 - rise, top, rise, true, roofColor, roofMat, ov)
+			local half = (rx2 - rx1) / 2 + ov
+			local xc = (rx1 + rx2) / 2
+			for _, e in ipairs({ { rz1 - ov, rz1 + rise + 0.4, -1 }, { rz2 - rise - 0.4, rz2 + ov, 1 } }) do
+				local span = math.abs(e[2] - e[1])
+				local th = math.atan(rise, span)
+				local len = math.sqrt(span * span + rise * rise) + 0.4
+				mk(m, s.name .. "HipEnd", Vector3.new(half * 2 - rise * 0.4, 0.6, len), at(xc, top + rise / 2, (e[1] + e[2]) / 2) * CFrame.Angles(e[3] * th, 0, 0), roofColor, roofMat)
+			end
+		else
+			gable(m, s.name, rx1 + rise, rx2 - rise, rz1, rz2, top, rise, false, roofColor, roofMat, ov)
+			local half = (rz2 - rz1) / 2 + ov
+			local zc = (rz1 + rz2) / 2
+			for _, e in ipairs({ { rx1 - ov, rx1 + rise + 0.4, 1 }, { rx2 - rise - 0.4, rx2 + ov, -1 } }) do
+				local span = math.abs(e[2] - e[1])
+				local th = math.atan(rise, span)
+				local len = math.sqrt(span * span + rise * rise) + 0.4
+				mk(m, s.name .. "HipEnd", Vector3.new(len, 0.6, half * 2 - rise * 0.4), at((e[1] + e[2]) / 2, top + rise / 2, zc) * CFrame.Angles(0, 0, e[3] * th), roofColor, roofMat)
+			end
+		end
+	elseif roof == "flat" then
+		box(m, "Coping", rx1 - 0.35, rx2 + 0.35, rz1 - 0.35, rz2 + 0.35, top + 0.6, top + 1.3, LIME, M.stone2)
+		box(m, "Parapet", rx1 - 0.15, rx2 + 0.15, rz1 - 0.15, rz2 + 0.15, top, top + 0.7, wallColor, wallMat)
+		slab(m, "RoofDeck", rx1 + 0.3, rx2 - 0.3, rz1 + 0.3, rz2 - 0.3, top + 0.3, 0.4, STONEDARK, M.slate)
+	elseif roof == "shed" then
+		shedRoof(m, s.name, rx1, rx2, rz1, rz2, top, math.min(rise, 5), s.shedHigh or "E", roofColor, roofMat, ov)
+	end
+	if s.chimney then
+		local cx = (s.chimney == "W") and (rx2 - 2.6) or (rx1 + 1.4)
+		local cz = s.chimneyZ or (rz1 + 3 + r() * math.max(1, rz2 - rz1 - 6))
+		local ctop = top + rise + 2.2 + r() * 1.5
+		box(m, "Chimney", cx, cx + 1.8, cz, cz + 1.8, top - 2, ctop, pick(r, { STONEDARK, C3(120, 84, 70) }), pick(r, { M.stone, M.brick }))
+		box(m, "ChimneyCap", cx - 0.2, cx + 2.0, cz - 0.2, cz + 2.0, ctop, ctop + 0.4, STONE2, M.stone2)
+	end
+	if s.dormer and (roof == "gableZ" or roof == "gableX") then
+		local dsz = 3.2
+		local dx, dz
+		if roof == "gableZ" then
+			dx = (s.dormer == "W") and (rx2 - (rx2 - rx1) * 0.28) or (rx1 + (rx2 - rx1) * 0.28)
+			dz = rz1 + (rz2 - rz1) * (0.35 + r() * 0.3)
+		else
+			dx = rx1 + (rx2 - rx1) * (0.35 + r() * 0.3)
+			dz = (s.dormer == "N") and (rz2 - (rz2 - rz1) * 0.28) or (rz1 + (rz2 - rz1) * 0.28)
+		end
+		local dy = top + rise * 0.5
+		box(m, "Dormer", dx - dsz / 2, dx + dsz / 2, dz - dsz / 2, dz + dsz / 2, dy - 1.2, dy + 2.4, upperColor, upperMat)
+		gable(m, s.name .. "Dormer", dx - dsz / 2, dx + dsz / 2, dz - dsz / 2, dz + dsz / 2, dy + 2.4, 1.6, roof ~= "gableZ", roofColor, roofMat, 0.4)
+		local ds = (roof == "gableZ") and ((s.dormer == "W") and "W" or "E") or ((s.dormer == "N") and "N" or "S")
+		local f = faceOf({ x1 = dx - dsz / 2, x2 = dx + dsz / 2, z1 = dz - dsz / 2, z2 = dz + dsz / 2 }, ds)
+		faceBox(m, "DormerGlass", f, dy - 1.2, dsz / 2, 1.9, 0.05, 1.8, 2.0, 0.2, GLASS, M.glass, nil, nil, { Reflectance = 0.14 })
+		faceBox(m, "DormerFrame", f, dy - 1.2, dsz / 2, 1.9, 0.12, 2.3, 2.5, 0.3, TIMBER, M.wood)
+	end
+
+	-- facades: the front and any other side the player can see
+	local faces = {}
+	if s.front then table.insert(faces, { side = s.front, front = true }) end
+	for _, sd in ipairs(s.sides or {}) do table.insert(faces, { side = sd }) end
+	local floors = s.floors or math.max(1, math.floor(s.h / 9 + 0.5))
+	if s.upper then floors = math.max(floors, math.floor(s.upper.y2 / 9 + 0.5)) end
+	for _, fc in ipairs(faces) do
+		local f = faceOf(s, fc.side)
+		local fU = s.upper and faceOf(s, fc.side, s.upper) or f     -- the jetty plane, where the upper storey really is
+		local jettyY = s.upper and s.upper.y1 or math.huge
+		local groundOpen = s.groundOpen and fc.front
+		local faceBase = s.faceBase or 0        -- e.g. 8 when the ground floor is buried behind a wall
+		-- timber frame on mixed/timber styles: corner posts, floor beams, studs, one brace
+		if style == "mixed" or style == "timber" or style == "stoneMixed" then
+			local y0 = faceBase
+			if style == "mixed" then y0 = math.max(faceBase, s.upper and s.upper.y1 or 2.2) end
+			if style == "stoneMixed" then y0 = math.max(faceBase, s.upper and s.upper.y1 or 9) end
+			local yTop = top - base
+			local fh = yTop - y0
+			local ff = (y0 >= jettyY - 0.01) and fU or f
+			if fh > 2 then
+				faceBox(m, "Post", ff, base, 0.45, y0 + fh / 2, 0.22, 0.7, fh, 0.55, TIMBER, M.wood)
+				faceBox(m, "Post", ff, base, ff.len - 0.45, y0 + fh / 2, 0.22, 0.7, fh, 0.55, TIMBER, M.wood)
+				for k = 1, floors - 1 do
+					local by = 9 * k
+					if by > y0 + 1 and by < yTop - 1 then
+						faceBox(m, "FloorBeam", ff, base, ff.len / 2, by, 0.2, ff.len, 0.6, 0.5, TIMBER, M.wood)
+					end
+				end
+				local nStud = math.max(1, math.floor(ff.len / 7))
+				for i = 1, nStud do
+					local su = ff.len * (i - 0.3 - r() * 0.4) / nStud
+					if r() < 0.75 then
+						local sh = (fh > 11) and (fh - 9) or (fh * 0.5)
+						faceBox(m, "Stud", ff, base, su, yTop - sh / 2 - 0.3, 0.18, 0.5, sh, 0.42, TIMBER, M.wood)
+					end
+				end
+				local bu = ff.len * (0.25 + r() * 0.5)
+				local bh = math.min(fh - 0.5, 6.5)
+				faceBox(m, "Brace", ff, base, bu, y0 + fh - bh / 2 - 0.4, 0.16, 0.45, bh, 0.4, TIMBER, M.wood, nil, (r() < 0.5 and 1 or -1) * math.rad(32))
+			end
+		end
+		-- windows: a few per floor, never evenly spaced, some missing
+		local nWin = fc.front and (s.winFront or math.max(1, math.min(4, math.floor(f.len / 8)))) or (s.winSide or math.max(1, math.min(3, math.floor(f.len / 11))))
+		local avoid = fc.front and s.shopU or nil
+		for k = 1, floors do
+			local v = (k == 1) and 4.6 or math.min((k - 1) * 9 + 5.2, (top - base) - 2.8)
+			if v > faceBase + 1 and v < (top - base) - 1.5 and (k == 1 or v > (k - 2) * 9 + 9.4) then
+				local isGround = (k == 1)
+				if not (isGround and (groundOpen or (fc.front and s.groundBlank))) then
+					local count = nWin
+					if isGround and fc.front then count = math.max(0, count - 1) end
+					if isGround and fc.front and s.shopU then count = math.max(0, count - 1) end
+					local slotW = f.len / math.max(1, count)
+					for i = 1, count do
+						local u = slotW * (i - 0.5) + (r() - 0.5) * slotW * 0.35
+						u = math.max(2.2, math.min(f.len - 2.2, u))
+						local clash = avoid and isGround and math.abs(u - avoid) < 7
+						local doorClash = fc.front and isGround and s.doorU and math.abs(u - s.doorU) < 3.5
+						if not clash and not doorClash and r() < 0.9 then
+							local ww, wh = isGround and 3.2 or 2.6, isGround and 3.6 or 3.2
+							window(m, (v >= jettyY) and fU or f, base, u, v, ww, wh, r, { shutters = (s.shutters ~= false) and (not isGround) and r() < 0.65, frame = (style == "stone") and STONE2 or TIMBER })
+						end
+					end
+				end
+			end
+		end
+		-- the door on the front (unless a shop opening takes the whole ground floor)
+		if fc.front and s.door ~= false and not groundOpen and faceBase < 1 then
+			local du = s.doorU
+			if not du then
+				du = f.len * (0.2 + r() * 0.6)
+				if s.shopU and math.abs(du - s.shopU) < 7.5 then du = (s.shopU > f.len / 2) and math.max(2.4, s.shopU - 8.5) or math.min(f.len - 2.4, s.shopU + 8.5) end
+			end
+			door(m, f, base, du, r, { color = pick(r, { PLANKDARK, TIMBER, C3(70, 52, 40) }) })
+		end
+	end
+	-- balcony: plank deck on posts with a rail
+	if s.balcony then
+		local b = s.balcony
+		slab(m, "Balcony", b.x1, b.x2, b.z1, b.z2, base + b.y, 0.5, PLANKDARK, M.plank)
+		local alongZ = (b.x2 - b.x1) < (b.z2 - b.z1)
+		if alongZ then
+			local outerX = (b.x1 < s.x1) and b.x1 or b.x2
+			box(m, "Rail", outerX - 0.15, outerX + 0.15, b.z1, b.z2, base + b.y + 2.6, base + b.y + 2.9, TIMBER, M.wood)
+			for _, z in ipairs({ b.z1 + 0.3, (b.z1 + b.z2) / 2, b.z2 - 0.3 }) do
+				box(m, "Baluster", outerX - 0.2, outerX + 0.2, z - 0.2, z + 0.2, base + b.y, base + b.y + 2.7, TIMBER, M.wood)
+			end
+		else
+			local outerZ = (b.z1 < s.z1) and b.z1 or b.z2
+			box(m, "Rail", b.x1, b.x2, outerZ - 0.15, outerZ + 0.15, base + b.y + 2.6, base + b.y + 2.9, TIMBER, M.wood)
+		end
+		for _, corner in ipairs(b.posts or {}) do
+			box(m, "Post", corner[1] - 0.35, corner[1] + 0.35, corner[2] - 0.35, corner[2] + 0.35, base, base + b.y, TIMBER, M.wood)
+		end
+	end
+	return m
+end
+
+local function renderBuilding(parent, s)
+	if G.DETAIL then return archBuilding(parent, s) else return greyBuilding(parent, s) end
+end
+
+-- ============================================================ stall module + shell families
+-- Contract parts are identical in every family; only the shell differs. Nothing here knows what a price is.
+local function stallContract(b, L)
+	local counter = mk(b, "Counter", Vector3.new(8, 3, 2.4), L(0, 1.5, 0), G.DETAIL and PLANKDARK or PAL.woodDark, M.plank)
+	if G.DETAIL then mk(b, "CounterTop", Vector3.new(8.5, 0.28, 2.9), L(0, 3.12, 0), PLANK, M.plank) end
+	for i, x in ipairs({ -2.6, 0, 2.6 }) do
+		mk(b, "Display" .. i, Vector3.new(1.6, 0.4, 1.6), L(x, 3.45, -0.2), G.DETAIL and TIMBER2 or PAL.plank, M.plank)
 	end
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "StandPrompt"
@@ -293,6 +635,146 @@ local function stall(parent, s)
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.Parent = counter
 	b.PrimaryPart = counter
+	return counter
+end
+-- the sign is the contract SignBoard: a BasePart with SurfaceGui > TextLabel the server rewrites
+local function stallSign(b, L, kind, signY, roll)
+	local sign
+	if kind == "fascia" then
+		sign = mk(b, "SignBoard", Vector3.new(6.2, 1.3, 0.3), L(0, signY, 0.9), SIGN, M.plank)
+	elseif kind == "plaque" then
+		sign = mk(b, "SignBoard", Vector3.new(3.6, 1.4, 0.25), L(0, signY, 1.2), LIME, M.stone2)
+	else
+		local cf = L(0, signY, -0.9)
+		if roll then cf = cf * CFrame.Angles(0, 0, roll) end
+		sign = mk(b, "SignBoard", Vector3.new(4.4, 1.5, 0.28), cf, SIGN, M.plank)
+		mk(b, "SignBracket", Vector3.new(0.28, 0.28, 2.4), L(0, signY + 0.95, 0.3), IRON, M.metal)
+		mk(b, "SignChain", Vector3.new(0.12, 0.6, 0.12), L(-1.6, signY + 0.95, -0.9), IRON, M.metal)
+		mk(b, "SignChain", Vector3.new(0.12, 0.6, 0.12), L(1.6, signY + 0.95, -0.9), IRON, M.metal)
+	end
+	plate(sign, "CLAIM STALL", Enum.NormalId.Front, INK, SIGN, (kind == "plaque") and 1 or 0, Enum.Font.Antique, 40)
+	return sign
+end
+local function dpos(cf) return cf.Position - G.O end   -- world CFrame -> design Vector3
+local function stall(parent, s)
+	local b = model(parent, "Booth" .. s.idx)
+	b:SetAttribute("BoothIndex", s.idx)
+	b:SetAttribute("District", s.district or "")
+	b:SetAttribute("Shell", s.shell or "counter")
+	b:SetAttribute("Family", s.family or "")
+	local pos = W(s.x, s.y, s.z)
+	local origin = CFrame.lookAt(pos, pos + s.dir)         -- local -Z = toward the customer / street
+	local function L(x, y, z) return origin * CFrame.new(x, y, z) end
+	local r = rng(hashName("stall" .. s.idx))
+	if not G.DETAIL then
+		mk(b, "Niche", Vector3.new(9.6, 8.2, 0.6), L(0, 4.1, 1.6), PAL.niche, SP)
+		stallContract(b, L)
+		local signY = s.signY or 7
+		local sign = mk(b, "SignBoard", Vector3.new(4.6, 1.5, 0.3), L(0, signY, -0.9), PAL.sign, SP)
+		plate(sign, "CLAIM STALL", Enum.NormalId.Front, PAL.niche, PAL.sign, 0, Enum.Font.GothamBold, 40)
+		mk(b, "SignBracket", Vector3.new(0.3, 0.3, 2.2), L(0, signY + 0.9, 0.4), PAL.woodDark, WOODP)
+		if s.shell == "awning" or s.shell == "dock" then
+			mk(b, "Awning", Vector3.new(10, 0.4, 5), L(0, 7.6, -2.0), PAL.wood, WOODP)
+			for _, x in ipairs({ -4.6, 4.6 }) do mk(b, "AwningPost", Vector3.new(0.5, 7.4, 0.5), L(x, 3.7, -4.2), PAL.woodDark, WOODP) end
+		elseif s.shell == "window" then
+			mk(b, "Lintel", Vector3.new(10.4, 1.4, 1.2), L(0, 8.9, 1.3), PAL.woodDark, WOODP)
+			for _, x in ipairs({ -5.0, 5.0 }) do mk(b, "Jamb", Vector3.new(0.6, 8.2, 1.2), L(x, 4.1, 1.3), PAL.woodDark, WOODP) end
+		end
+		return b
+	end
+	local fam = s.family or "storefront"
+	local cloth = pick(r, CLOTHS)
+	if fam == "storefront" then
+		-- a shop opening in the wall: dark interior, timber jambs + lintel, fascia sign, folding shutters, a stone step
+		mk(b, "Niche", Vector3.new(9.6, 8.2, 0.8), L(0, 4.1, 1.7), C3(44, 38, 32), M.plank)
+		mk(b, "Lintel", Vector3.new(10.8, 1.2, 1.0), L(0, 8.7, 1.25), TIMBER, M.wood)
+		for _, x in ipairs({ -5.1, 5.1 }) do mk(b, "Jamb", Vector3.new(0.7, 8.2, 1.0), L(x, 4.1, 1.25), TIMBER, M.wood) end
+		mk(b, "Step", Vector3.new(9.4, 0.4, 1.6), L(0, 0.2, -1.9), STONE2, M.stone2)
+		for _, sgn in ipairs({ -1, 1 }) do
+			mk(b, "Shutter", Vector3.new(0.22, 7.6, 3.6), L(sgn * 6.9, 4.4, 0.9) * CFrame.Angles(0, sgn * math.rad(14), 0), PLANKDARK, M.plank)
+		end
+		if r() < 0.6 then ramp(b, "Awning", dpos(L(0, 9.2, 0.6)), dpos(L(0, 8.1, -3.2)), 10.4, 0.22, cloth, M.cloth) end
+		stallContract(b, L)
+		stallSign(b, L, "fascia", 9.95)
+	elseif fam == "covered" then
+		-- a timber street stall built against the wall: posts, sloped cloth, shelf board, hanging sign
+		stallContract(b, L)
+		if s.roofed ~= false then
+			for _, x in ipairs({ -4.7, 4.7 }) do mk(b, "AwningPost", Vector3.new(0.55, 7.8, 0.55), L(x, 3.9, -4.3), TIMBER, M.wood) end
+			mk(b, "AwningBeam", Vector3.new(10.2, 0.5, 0.5), L(0, 7.6, -4.3), TIMBER, M.wood)
+			ramp(b, "Awning", dpos(L(0, 8.6, 0.4)), dpos(L(0, 7.9, -4.6)), 10.6, 0.22, cloth, M.cloth)
+			mk(b, "SideCloth", Vector3.new(0.18, 3.0, 4.6), L(4.9 * (r() < 0.5 and 1 or -1), 6.0, -2.2), cloth, M.cloth)
+		end
+		mk(b, "BackBoard", Vector3.new(8.6, 4.0, 0.3), L(0, 5.2, 1.3), PLANKDARK, M.plank)
+		mk(b, "Shelf", Vector3.new(8.2, 0.3, 1.2), L(0, 5.4, 0.9), PLANK, M.plank)
+		mk(b, "Crate", Vector3.new(2.0, 1.8, 2.0), L(5.4, 0.9, -0.6) * CFrame.Angles(0, math.rad(-9), 0), PLANK, M.plank)
+		stallSign(b, L, "hanging", s.signY or 7.0)
+	elseif fam == "dock" then
+		-- waterside: plank counter, rope, a crate, a lean-to plank roof where nothing else covers it
+		stallContract(b, L)
+		if s.roofed ~= false then
+			for _, x in ipairs({ -4.6, 4.6 }) do mk(b, "RoofPost", Vector3.new(0.6, 7.2, 0.6), L(x, 3.6, -4.0), TIMBER2, M.wood) end
+			ramp(b, "LeanTo", dpos(L(0, 8.4, 0.4)), dpos(L(0, 7.0, -4.4)), 10.6, 0.3, PLANKDARK, M.plank)
+			rod(b, "Rope", dpos(L(-4.6, 2.9, -4.0)), dpos(L(4.6, 2.9, -4.0)), 0.16, ROPE, M.cloth)
+		end
+		mk(b, "Crate", Vector3.new(2.2, 2.0, 2.2), L(-5.6, 1.0, -1.2) * CFrame.Angles(0, math.rad(12), 0), PLANK, M.plank)
+		mk(b, "Basket", Vector3.new(1.6, 1.2, 1.6), L(5.4, 0.6, -0.8), C3(150, 122, 82), M.cloth)
+		stallSign(b, L, "hanging", s.signY or 6.6)
+	elseif fam == "terrace" then
+		-- stone-surrounded opening: piers and an arch of blocks over the counter, a carved plaque
+		mk(b, "Niche", Vector3.new(9.6, 8.6, 0.8), L(0, 4.3, 1.7), C3(48, 42, 38), M.stone)
+		for _, x in ipairs({ -5.3, 5.3 }) do mk(b, "Pier", Vector3.new(1.1, 6.0, 1.2), L(x, 3.0, 1.2), STONE2, M.stone2) end
+		arch(b, "Arch", L(0, 6.0, 1.2), 5.3, 7, 1.1, 1.2, STONE2, M.stone2)
+		mk(b, "Step", Vector3.new(10.4, 0.4, 1.4), L(0, 0.2, -1.9), STONE, M.stone)
+		stallContract(b, L)
+		stallSign(b, L, "plaque", 10.2)
+	elseif fam == "canopy" then
+		-- arcade / open-terrace stand: four posts and a big cloth
+		stallContract(b, L)
+		for _, p in ipairs({ { -5.4, -4.4 }, { 5.4, -4.4 }, { -5.4, 1.6 }, { 5.4, 1.6 } }) do
+			mk(b, "CanopyPost", Vector3.new(0.6, 8.2, 0.6), L(p[1], 4.1, p[2]), TIMBER, M.wood)
+		end
+		mk(b, "CanopyBeam", Vector3.new(11.6, 0.5, 0.5), L(0, 8.2, -4.4), TIMBER, M.wood)
+		mk(b, "CanopyBeam", Vector3.new(11.6, 0.5, 0.5), L(0, 8.2, 1.6), TIMBER, M.wood)
+		ramp(b, "Canopy", dpos(L(0, 8.9, 1.9)), dpos(L(0, 8.0, -4.9)), 12.2, 0.22, cloth, M.cloth)
+		mk(b, "Valance", Vector3.new(12.2, 1.1, 0.16), L(0, 7.5, -4.9), cloth, M.cloth)
+		stallSign(b, L, "hanging", 6.8)
+	elseif fam == "loading" then
+		-- an upper loading door with a hoist beam over the counter (the warehouse front on the causeway)
+		mk(b, "Niche", Vector3.new(7.6, 8.4, 0.8), L(0, 4.2, 1.7), C3(44, 38, 32), M.plank)
+		for _, x in ipairs({ -4.1, 4.1 }) do mk(b, "Jamb", Vector3.new(0.8, 8.4, 1.0), L(x, 4.2, 1.25), TIMBER, M.wood) end
+		mk(b, "Lintel", Vector3.new(9.0, 1.0, 1.0), L(0, 8.9, 1.25), TIMBER, M.wood)
+		mk(b, "HoistBeam", Vector3.new(0.6, 0.6, 6.0), L(0, 11.2, -1.6), TIMBER, M.wood)
+		mk(b, "HoistStrut", Vector3.new(0.5, 4.2, 0.5), L(0, 9.6, -3.4) * CFrame.Angles(math.rad(-38), 0, 0), TIMBER, M.wood)
+		rod(b, "HoistRope", dpos(L(0, 11.0, -4.3)), dpos(L(0, 5.5, -4.3)), 0.14, ROPE, M.cloth)
+		mk(b, "DoorLeaf", Vector3.new(3.4, 7.6, 0.24), L(-5.6, 4.0, 0.7) * CFrame.Angles(0, math.rad(-30), 0), PLANKDARK, M.plank)
+		stallContract(b, L)
+		stallSign(b, L, "hanging", s.signY or 7.2)
+	elseif fam == "bridge" then
+		-- the cabin hatch on the deck side: a plank hood propped on struts, jambs, sign off the eave
+		mk(b, "Niche", Vector3.new(8.6, 6.4, 0.8), L(0, 4.4, 1.7), C3(40, 34, 30), M.plank)
+		for _, x in ipairs({ -4.6, 4.6 }) do mk(b, "Jamb", Vector3.new(0.6, 6.6, 0.9), L(x, 4.4, 1.3), TIMBER, M.wood) end
+		mk(b, "Hood", Vector3.new(9.6, 0.24, 3.6), L(0, 8.3, -0.6) * CFrame.Angles(math.rad(-24), 0, 0), PLANKDARK, M.plank)
+		mk(b, "HoodStrut", Vector3.new(0.3, 0.3, 2.8), L(-3.9, 7.1, -1.4) * CFrame.Angles(math.rad(35), 0, 0), TIMBER, M.wood)
+		mk(b, "HoodStrut", Vector3.new(0.3, 0.3, 2.8), L(3.9, 7.1, -1.4) * CFrame.Angles(math.rad(35), 0, 0), TIMBER, M.wood)
+		stallContract(b, L)
+		stallSign(b, L, "hanging", s.signY or 6.4)
+	elseif fam == "collector" then
+		-- the strange one: heavy black timber, iron straps, a dark drape, a cage on a hook, a crooked sign
+		mk(b, "Niche", Vector3.new(9.8, 8.6, 1.0), L(0, 4.3, 1.8), C3(28, 24, 22), M.wood)
+		for _, x in ipairs({ -5.3, 5.3 }) do mk(b, "Jamb", Vector3.new(1.0, 8.6, 1.2), L(x, 4.3, 1.3), C3(48, 36, 28), M.wood) end
+		mk(b, "Lintel", Vector3.new(11.6, 1.4, 1.2), L(0, 9.3, 1.3), C3(48, 36, 28), M.wood)
+		for _, x in ipairs({ -3.6, 0.4, 4.2 }) do mk(b, "Strap", Vector3.new(0.7, 1.7, 0.1), L(x, 9.3, 0.66), IRON, M.metal) end
+		mk(b, "Drape", Vector3.new(2.6, 7.4, 0.18), L(-3.4, 4.6, 0.9) * CFrame.Angles(0, math.rad(8), math.rad(3)), C3(52, 40, 56), M.cloth)
+		mk(b, "Hook", Vector3.new(0.14, 1.6, 0.14), L(3.0, 7.6, -0.4), IRON, M.metal)
+		mk(b, "Cage", Vector3.new(1.2, 1.5, 1.2), L(3.0, 6.3, -0.4), IRON, M.metal, { Transparency = 0.35 })
+		stallContract(b, L)
+		stallSign(b, L, "hanging", s.signY or 7.0, math.rad(7))
+	else
+		mk(b, "Niche", Vector3.new(9.6, 8.2, 0.6), L(0, 4.1, 1.6), C3(44, 38, 32), M.plank)
+		stallContract(b, L)
+		stallSign(b, L, "hanging", s.signY or 7)
+	end
 	return b
 end
 
@@ -300,29 +782,29 @@ end
 local E, Wd, N, S = Vector3.new(-1, 0, 0), Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 0, -1)
 
 G.STALLS = {
-	-- Lower Market Street (7)
-	{ idx = 1,  x = -8.6,  z = 40,  y = 0,    dir = Wd, shell = "awning",    district = "LowerMarket", note = "Customs House awning, first thing past the gate" },
-	{ idx = 2,  x = 6.6,   z = 81,  y = 0,    dir = E,  shell = "window",    district = "LowerMarket", note = "B2 storefront window" },
-	{ idx = 3,  x = 10.6,  z = 172, y = 0,    dir = E,  shell = "balcony",   district = "LowerMarket", note = "beneath B4's balcony" },
-	{ idx = 4,  x = 4.0,   z = 215, y = 0,    dir = E,  shell = "understair", signY = 5, district = "LowerMarket", note = "under B5's external stair" },
-	{ idx = 5,  x = -4.6,  z = 110, y = 0,    dir = Wd, shell = "window",    district = "LowerMarket", note = "B8 storefront window" },
-	{ idx = 6,  x = -60,   z = 158.6, y = 0,  dir = S,  shell = "awning",    district = "LowerMarket", note = "courtyard, north side" },
-	{ idx = 7,  x = -2.6,  z = 190, y = 0,    dir = Wd, shell = "opening",   district = "LowerMarket", note = "B10 shop opening" },
-	-- Upper Market (4)
-	{ idx = 8,  x = -68.6, z = 281, y = UP,   dir = Wd, shell = "opening",   district = "UpperMarket", note = "U1 opening on the edge street" },
-	{ idx = 9,  x = -73.4, z = 346, y = UP,   dir = Wd, shell = "arcade",    district = "UpperMarket", note = "inside the Curio House arcade" },
-	{ idx = 10, x = -118.6, z = 300, y = UP + 2, dir = Wd, shell = "awning", district = "UpperMarket", note = "back terrace, under an awning" },
-	{ idx = 11, x = -45,   z = 371.4, y = 8,  dir = N,  shell = "window",    district = "UpperMarket", note = "warehouse upper front on the causeway" },
-	-- Waterfront (4)
-	{ idx = 12, x = 50,    z = 42,  y = 0.2,  dir = Wd, shell = "dock",      district = "Waterfront", note = "deep inside the open boat shed" },
-	{ idx = 13, x = 71.4,  z = 127, y = -0.8, dir = Wd, shell = "dock",      district = "Waterfront", note = "lean-to on the quay" },
-	{ idx = 14, x = 71.4,  z = 171, y = -0.8, dir = Wd, shell = "balcony",   district = "Waterfront", note = "beneath S4's balcony over the quay" },
-	{ idx = 15, x = 71.4,  z = 284, y = -0.8, dir = Wd, shell = "window",    district = "Waterfront", note = "S6 water-side window" },
-	-- Old Bridge (2)
-	{ idx = 16, x = 5.4,   z = 413, y = 8,    dir = Wd, shell = "bridge",    district = "OldBridge", note = "east cabin, counter opens onto the deck" },
-	{ idx = 17, x = 16.6,  z = 429, y = 8,    dir = E,  shell = "bridge",    district = "OldBridge", note = "west cabin" },
-	-- Collector's Row (1)
-	{ idx = 18, x = -14,   z = 471.6, y = -1.4, dir = S, shell = "opening",  district = "CollectorsRow", note = "RN2's opening onto the sunken lane" },
+	-- Lower Market Street (7): 4 integrated storefronts + 3 covered street stalls
+	{ idx = 1,  x = -8.6,  z = 40,  y = 0,    dir = Wd, shell = "awning",  family = "covered",    district = "LowerMarket", note = "covered stall against the Customs House by the gate" },
+	{ idx = 2,  x = 6.6,   z = 81,  y = 0,    dir = E,  shell = "window",  family = "storefront", district = "LowerMarket", note = "B2 storefront" },
+	{ idx = 3,  x = 10.6,  z = 172, y = 0,    dir = E,  shell = "balcony", family = "covered", roofed = false, district = "LowerMarket", note = "covered stall beneath B4 balcony" },
+	{ idx = 4,  x = 4.0,   z = 215, y = 0,    dir = E,  shell = "understair", family = "covered", roofed = false, signY = 5, district = "LowerMarket", note = "covered stall under B5 external stair" },
+	{ idx = 5,  x = -4.6,  z = 110, y = 0,    dir = Wd, shell = "window",  family = "storefront", district = "LowerMarket", note = "B8 storefront" },
+	{ idx = 6,  x = -60,   z = 158.6, y = 0,  dir = S,  shell = "window",  family = "storefront", district = "LowerMarket", note = "CY_N storefront on the courtyard" },
+	{ idx = 7,  x = -2.6,  z = 190, y = 0,    dir = Wd, shell = "opening", family = "storefront", district = "LowerMarket", note = "B10 storefront" },
+	-- Upper Market (4): terrace shops
+	{ idx = 8,  x = -68.6, z = 281, y = UP,   dir = Wd, shell = "opening", family = "terrace",    district = "UpperMarket", note = "U1: stone-arched opening on the edge street" },
+	{ idx = 9,  x = -73.4, z = 346, y = UP,   dir = Wd, shell = "arcade",  family = "canopy",     district = "UpperMarket", note = "inside the Curio House arcade, under a cloth" },
+	{ idx = 10, x = -118.6, z = 300, y = UP + 2, dir = Wd, shell = "awning", family = "canopy",   district = "UpperMarket", note = "back terrace, under a big cloth" },
+	{ idx = 11, x = -45,   z = 371.4, y = 8,  dir = N,  shell = "window",  family = "loading",    district = "UpperMarket", note = "WH1 upper loading door on the causeway" },
+	-- Waterfront (4): dock / waterside
+	{ idx = 12, x = 50,    z = 42,  y = 0.2,  dir = Wd, shell = "dock",    family = "dock", roofed = false, district = "Waterfront", note = "bench inside the open boat shed" },
+	{ idx = 13, x = 71.4,  z = 127, y = -0.8, dir = Wd, shell = "dock",    family = "dock",       district = "Waterfront", note = "lean-to against S3 on the quay" },
+	{ idx = 14, x = 71.4,  z = 171, y = -0.8, dir = Wd, shell = "balcony", family = "dock", roofed = false, district = "Waterfront", note = "beneath S4 balcony over the quay" },
+	{ idx = 15, x = 71.4,  z = 284, y = -0.8, dir = Wd, shell = "window",  family = "dock",       district = "Waterfront", note = "S6 water-side hatch" },
+	-- Old Bridge (2): bridge-integrated
+	{ idx = 16, x = 5.4,   z = 413, y = 8,    dir = Wd, shell = "bridge",  family = "bridge",     district = "OldBridge", note = "east cabin hatch, counter on the deck" },
+	{ idx = 17, x = 16.6,  z = 429, y = 8,    dir = E,  shell = "bridge",  family = "bridge",     district = "OldBridge", note = "west cabin hatch" },
+	-- Collector's Row (1): unique
+	{ idx = 18, x = -14,   z = 471.6, y = -1.4, dir = S, shell = "opening", family = "collector", district = "CollectorsRow", note = "the collector opening onto the sunken lane" },
 }
 
 G.NPC_SPOTS = {
@@ -336,294 +818,539 @@ G.NPC_SPOTS = {
 	{ role = "AttendantBridge", tier = 2, x = 20, z = 380, y = 8, dir = N, note = "the Bridge Steps square" },
 	{ role = "Angler", tier = 3, x = -62, z = 393, y = -0.8, dir = N, note = "fishing pocket under the causeway, end of the river quay" },
 	{ role = "BridgeWarden", tier = 3, x = 17, z = 448, y = 8, dir = E, note = "doorway in the gate tower passage" },
-	{ role = "Collector", tier = 3, x = -36, z = 472.5, y = -1.4, dir = S, note = "RN3's doorway on Collector's Row" },
+	{ role = "Collector", tier = 3, x = -36, z = 472.5, y = -1.4, dir = S, note = "RN3 doorway on Collector's Row" },
+}
+
+-- Buildings by district. Footprints/heights/roofs are the approved greybox v3. Phase 5 fields: style, front, sides,
+-- shopU (the stall position along the front face, studs from the face low corner), doorU, chimney, dormer, winFront/winSide.
+G.BUILDINGS = {
+	ArrivalDock = {
+		{ name = "Boathouse", x1 = -44, x2 = -20, z1 = 4, z2 = 20, h = 12, roof = "shed", shedHigh = "E", open = "W", style = "timber", roofSet = ROOFS[2] },
+	},
+	MarketEntrance = {
+		{ name = "Harbourmaster", x1 = 10, x2 = 42, z1 = 24, z2 = 62, h = 11, roof = "gableZ", rise = 7, style = "mixed", plaster = PLASTER[1],
+			upper = { x1 = 7, x2 = 42, z1 = 21, z2 = 62, y1 = 11, y2 = 24 }, front = "E", sides = { "S" }, doorU = 28, chimney = "W", dormer = "E", winFront = 3, roofSet = ROOFS[1] },
+		{ name = "CustomsHouse", x1 = -46, x2 = -10, z1 = 22, z2 = 56, h = 18, roof = "hip", rise = 6, style = "stone", front = "W", sides = { "S" }, shopU = 18, doorU = 30, chimney = "E", winFront = 2 },
+	},
+	LowerMarket = {
+		{ name = "B2", x1 = 8, x2 = 40, z1 = 66, z2 = 96, h = 15, roof = "flat", style = "plaster", plaster = PLASTER[6], front = "E", shopU = 15, doorU = 26, winFront = 3 },
+		{ name = "B3", x1 = 20, x2 = 54, z1 = 104, z2 = 146, h = 10, roof = "gableX", rise = 8, style = "mixed", plaster = PLASTER[3],
+			upper = { x1 = 20, x2 = 54, z1 = 104, z2 = 153, y1 = 10, y2 = 28 }, front = "E", doorU = 14, chimney = "E", winFront = 3, dormer = "E", roofSet = ROOFS[7] },
+		{ name = "B4", x1 = 12, x2 = 46, z1 = 153, z2 = 190, h = 20, roof = "hip", rise = 7, style = "plaster", plaster = PLASTER[4], front = "E", shopU = 19, doorU = 8, chimney = "W",
+			balcony = { x1 = 9, x2 = 12.2, z1 = 160, z2 = 184, y = 9, posts = { { 9.5, 161 }, { 9.5, 183 } } } },
+		{ name = "B5", x1 = 6, x2 = 40, z1 = 194, z2 = 248, h = 18, roof = "gableZ", rise = 6, style = "mixed", plaster = PLASTER[2], front = "E", shopU = 21, doorU = 44, chimney = "W", winFront = 4, roofSet = ROOFS[5] },
+		{ name = "B12", x1 = 6, x2 = 48, z1 = 264, z2 = 300, h = 18, roof = "gableX", rise = 6, style = "stone", front = "S", sides = { "E" }, doorU = 24, winFront = 3, roofSet = ROOFS[4] },
+		{ name = "B13", x1 = 4, x2 = 40, z1 = 336, z2 = 364, h = 14, roof = "gableZ", rise = 6, style = "mixed", plaster = PLASTER[7], front = "S", doorU = 10, chimney = "E", roofSet = ROOFS[2] },
+		{ name = "WH2", x1 = -32, x2 = 0, z1 = 334, z2 = 370, h = 16, roof = "flat", style = "stone", front = "S", doorU = 12, winFront = 2 },
+		{ name = "WH1", x1 = -54, x2 = -36, z1 = 336, z2 = 370, h = 18, roof = "gableX", rise = 6, style = "timber", front = "N", faceBase = 8, shopU = 9, door = false, winFront = 1, roofSet = ROOFS[6] },
+		{ name = "B7", x1 = -44, x2 = -8, z1 = 60, z2 = 92, h = 26, roof = "gableZ", rise = 8, style = "mixed", plaster = PLASTER[5], front = "W", doorU = 10, chimney = "E", winFront = 3, dormer = "W", roofSet = ROOFS[1] },
+		{ name = "B8", x1 = -40, x2 = -6, z1 = 96, z2 = 122, h = 14, roof = "shed", shedHigh = "E", style = "plaster", plaster = PLASTER[2], front = "W", shopU = 14, doorU = 5, winFront = 2, roofSet = ROOFS[6] },
+		{ name = "B9", x1 = -40, x2 = -4, z1 = 130, z2 = 172, h = 22, roof = "gableX", rise = 7, style = "mixed", plaster = PLASTER[1], front = "W", doorU = 30, chimney = "E", winFront = 4, roofSet = ROOFS[3] },
+		{ name = "B10", x1 = -38, x2 = -4, z1 = 176, z2 = 204, h = 18, roof = "hip", rise = 6, style = "plaster", plaster = PLASTER[8], front = "W", shopU = 14, doorU = 24, winFront = 3 },
+		{ name = "B14", x1 = -70, x2 = -36, z1 = 208, z2 = 232, h = 16, roof = "flat", style = "stone", front = "N", sides = { "W" }, doorU = 10, winFront = 2 },
+		{ name = "CY_S", x1 = -80, x2 = -46, z1 = 60, z2 = 116, h = 14, roof = "gableZ", rise = 6, style = "plaster", plaster = PLASTER[3], front = "N", doorU = 26, winFront = 2, roofSet = ROOFS[4] },
+		{ name = "CY_E", x1 = -112, x2 = -80, z1 = 118, z2 = 160, h = 20, roof = "hip", rise = 6, style = "mixed", plaster = PLASTER[6], front = "W", doorU = 12, chimney = "E", winFront = 3 },
+		{ name = "CY_N", x1 = -80, x2 = -42, z1 = 160, z2 = 204, h = 16, roof = "gableZ", rise = 6, style = "plaster", plaster = PLASTER[1], front = "S", shopU = 20, doorU = 8, winFront = 3, roofSet = ROOFS[2] },
+		{ name = "CY_NN", x1 = -112, x2 = -72, z1 = 206, z2 = 228, h = 18, roof = "gableX", rise = 6, style = "mixed", plaster = PLASTER[4], front = "S", doorU = 30, chimney = "E", winFront = 3 },
+		{ name = "BrokerKiosk", x1 = -30, x2 = -22, z1 = 212, z2 = 222, h = 8, roof = "hip", rise = 3, style = "stone", front = "W", door = false, winFront = 1, floors = 1 },
+		{ name = "GuildHouse", x1 = -44, x2 = 4, z1 = 276, z2 = 300, h = 22, roof = "gableX", rise = 6, style = "mixed", plaster = PLASTER[5],
+			upper = { x1 = -44, x2 = 4, z1 = 262, z2 = 276, y1 = 9, y2 = 22 }, front = "S", groundOpen = true, sides = { "W" }, chimney = "E", winFront = 4, dormer = "S", roofSet = ROOFS[7] },
+		{ name = "TY_E", x1 = -44, x2 = -4, z1 = 304, z2 = 330, h = 10, roof = "flat", style = "stone", front = "W", doorU = 12, winFront = 2, floors = 1 },
+	},
+	Waterfront = {
+		{ name = "S1", x1 = 46, x2 = 70, z1 = 28, z2 = 56, h = 12, roof = "shed", shedHigh = "E", open = "W", style = "timber", roofSet = ROOFS[6] },
+		{ name = "S2", x1 = 50, x2 = 70, z1 = 66, z2 = 92, h = 14, roof = "gableX", rise = 5, style = "timber", front = "W", doorU = 8, winFront = 2, roofSet = ROOFS[2] },
+		{ name = "S3", x1 = 54, x2 = 70, z1 = 108, z2 = 146, h = 10, roof = "flat", style = "stone", front = "W", shopU = 19, doorU = 6, winFront = 2, floors = 1 },
+		{ name = "S4", x1 = 52, x2 = 70, z1 = 156, z2 = 190, h = 16, roof = "gableZ", rise = 6, style = "mixed", plaster = PLASTER[7], front = "W", shopU = 15, doorU = 4, winFront = 3, chimney = "E",
+			balcony = { x1 = 70, x2 = 73.2, z1 = 162, z2 = 180, y = 9, posts = { { 72.6, 163 }, { 72.6, 179 } } } },
+		{ name = "S5", x1 = 44, x2 = 70, z1 = 196, z2 = 234, h = 18, roof = "hip", rise = 6, style = "mixed", plaster = PLASTER[3], front = "W", doorU = 20, chimney = "E", winFront = 3 },
+		{ name = "S6", x1 = 48, x2 = 70, z1 = 268, z2 = 300, h = 14, roof = "gableX", rise = 5, style = "timber", front = "W", shopU = 16, doorU = 5, winFront = 2, roofSet = ROOFS[4] },
+		{ name = "S7", x1 = 44, x2 = 70, z1 = 314, z2 = 364, h = 16, roof = "gableZ", rise = 6, style = "stone", front = "W", doorU = 14, winFront = 3, roofSet = ROOFS[1] },
+	},
+	UpperMarket = {
+		{ name = "U6", x1 = -112, x2 = -74, z1 = 234, z2 = 258, h = 18, base = UP, roof = "hip", rise = 6, style = "mixed", plaster = PLASTER[2], front = "W", doorU = 8, chimney = "E", winFront = 2 },
+		{ name = "U1", x1 = -100, x2 = -70, z1 = 268, z2 = 294, h = 20, base = UP, roof = "gableX", rise = 7, style = "plaster", plaster = PLASTER[5], front = "W", shopU = 13, doorU = 22, winFront = 2, roofSet = ROOFS[3] },
+		{ name = "U2", x1 = -104, x2 = -70, z1 = 302, z2 = 330, h = 16, base = UP, roof = "hip", rise = 6, style = "mixed", plaster = PLASTER[1], front = "W", doorU = 6, chimney = "E", winFront = 3,
+			balcony = { x1 = -70, x2 = -66, z1 = 308, z2 = 324, y = 8.5, posts = { { -66.6, 309 }, { -66.6, 323 } } } },
+		{ name = "CurioHouse", x1 = -110, x2 = -76, z1 = 334, z2 = 372, h = 26, base = UP, roof = "gableZ", rise = 9, style = "stoneMixed", plaster = PLASTER[4],
+			upper = { x1 = -76, x2 = -70, z1 = 334, z2 = 372, y1 = 9, y2 = 26 }, front = "W", groundOpen = true, chimney = "E", winFront = 3, dormer = "W", roofSet = ROOFS[7] },
+		{ name = "U4", x1 = -140, x2 = -120, z1 = 276, z2 = 322, h = 18, base = UP + 2, roof = "gableX", rise = 6, style = "timber", front = "W", shopU = 24, doorU = 8, winFront = 3, roofSet = ROOFS[2] },
+		{ name = "U5", x1 = -140, x2 = -112, z1 = 336, z2 = 362, h = 14, base = UP, roof = "flat", style = "plaster", plaster = PLASTER[8], front = "S", doorU = 14, winFront = 2 },
+	},
+	OldBridge = {
+		{ name = "CabinE", x1 = -6, x2 = 3.4, z1 = 406, z2 = 420, h = 10, base = 8, roof = "gableX", rise = 4, style = "timber", front = "W", shopU = 7, door = false, winFront = 0, sides = { "E" }, winSide = 1, roofSet = ROOFS[2], eave = 0.9, noPlinth = true },
+		{ name = "CabinW", x1 = 18.6, x2 = 30, z1 = 422, z2 = 436, h = 12, base = 8, roof = "gableX", rise = 5, style = "timber", front = "E", shopU = 7, door = false, winFront = 0, sides = { "W" }, winSide = 1, chimney = "W", roofSet = ROOFS[4], eave = 0.9, noPlinth = true },
+	},
+	CollectorsRow = {
+		{ name = "RN1", x1 = 26, x2 = 44, z1 = 480, z2 = 500, h = 18, base = -1.4, roof = "gableZ", rise = 6, style = "mixed", plaster = PLASTER[8], front = "S", doorU = 6, chimney = "W", winFront = 2, roofSet = ROOFS[3] },
+		{ name = "RN2", x1 = -24, x2 = -4, z1 = 473, z2 = 496, h = 14, base = -1.4, roof = "hip", rise = 5, style = "timber", front = "S", shopU = 10, door = false, winFront = 1, roofSet = ROOFS[7] },
+		{ name = "RN3", x1 = -44, x2 = -28, z1 = 473, z2 = 504, h = 22, base = -1.4, roof = "gableZ", rise = 7, style = "stone", front = "S", doorU = 8, winFront = 1, chimney = "E", roofSet = ROOFS[1] },
+		{ name = "RN4", x1 = -60, x2 = -48, z1 = 473, z2 = 500, h = 16, base = -1.4, roof = "flat", style = "plaster", plaster = PLASTER[3], front = "S", doorU = 6, winFront = 1 },
+		{ name = "RS1", x1 = -24, x2 = -4, z1 = 446, z2 = 460, h = 10, base = -1.4, roof = "flat", style = "stone", front = "N", door = false, winFront = 2, floors = 1 },
+		{ name = "RS2", x1 = -56, x2 = -28, z1 = 446, z2 = 460, h = 12, base = -1.4, roof = "shed", shedHigh = "S", style = "timber", front = "N", doorU = 8, winFront = 2, roofSet = ROOFS[6] },
+	},
 }
 
 -- ============================================================ sections
--- Land: every walkable slab (bottoms below the water at -6), the Upper terrace, causeway wall, abutments, north bank
 function G.Land()
 	local s = section("Land")
-	box(s, "TownSlab", -112, 70, 24, 386, -6, 0, PAL.ground, CONCRETE)
-	box(s, "ShoreApron", -80, 16, 17, 24, -6, 0, PAL.ground, CONCRETE)         -- the shore is only built out in front of the dock
-	box(s, "QuayA", 70, 92, 24, 210, -6, -0.8, PAL.quay, CONCRETE)              -- the quay steps in halfway (two builders, two eras)
-	box(s, "QuayB", 70, 86, 210, 400, -6, -0.8, PAL.quay, CONCRETE)
-	box(s, "QuayCorner", 40, 70, 386, 400, -6, -0.8, PAL.quay, CONCRETE)
-	box(s, "RiverQuayE", -72, -4, 386, 400, -6, -0.8, PAL.quay, CONCRETE)      -- the fishing pocket under the causeway
-	box(s, "UpperTerraceS", -142, -70, 230, 262, 0, UP, PAL.stone, CONCRETE)
-	box(s, "UpperTerraceN", -142, -68, 262, 372, 0, UP, PAL.stone, CONCRETE)
-	box(s, "UpperTerraceEdge", -68, -54, 262, 362, 0, UP, PAL.stone, CONCRETE)
-	box(s, "UpperTerraceRampBase", -68, -54, 362, 372, 0, 8, PAL.stone, CONCRETE)
-	box(s, "BackTerrace", -140, -104, 270, 330, UP, UP + 2, PAL.stoneDark, CONCRETE)
-	box(s, "CausewayWall", -70, -4, 372, 386, 0, 8, PAL.bridge, CONCRETE)        -- the raised road to the bridge
-	box(s, "AbutmentSquare", -4, 40, 366, 400, -6, 8, PAL.bridge, CONCRETE)      -- south abutment + the Bridge Steps square
-	box(s, "StepsLandingPillar", 40, 48, 366, 372, 0, 8, PAL.bridge, CONCRETE)
-	box(s, "NorthBankA", -60, 50, 444, 476, -6, -1.4, PAL.ground, CONCRETE)      -- Collector's Row ground (stepped west edge)
-	box(s, "NorthBankB", -60, 44, 476, 520, -6, -1.4, PAL.ground, CONCRETE)
-	box(s, "NorthAbutment", -4, 26, 438, 456, -6, 8, PAL.bridge, CONCRETE)
-	-- Fork Square / courtyard / yard floors (slightly different tone so the walk test reads them)
-	slab(s, "ForkSquare", -30, 6, 236, 262, 0.1, 0.3, PAL.square, CONCRETE)
-	slab(s, "Courtyard", -80, -40, 118, 160, 0.1, 0.3, PAL.square, CONCRETE)
-	slab(s, "TannersYard", -4, 40, 304, 332, 0.1, 0.3, PAL.square, CONCRETE)
+	local D = G.DETAIL
+	local gCol, gMat = D and C3(150, 140, 122) or PAL.ground, D and M.stone2 or CONCRETE
+	local qCol, qMat = D and COBBLE or PAL.quay, D and M.stone or CONCRETE
+	local tCol, tMat = D and STONE or PAL.stone, D and M.stone or CONCRETE
+	local bCol, bMat = D and STONE2 or PAL.bridge, D and M.stone or CONCRETE
+	box(s, "TownSlab", -112, 70, 24, 386, -6, 0, gCol, gMat)
+	box(s, "ShoreApron", -80, 16, 17, 24, -6, 0, gCol, gMat)
+	box(s, "QuayA", 70, 92, 24, 210, -6, -0.8, qCol, qMat)
+	box(s, "QuayB", 70, 86, 210, 400, -6, -0.8, qCol, qMat)
+	box(s, "QuayCorner", 40, 70, 386, 400, -6, -0.8, qCol, qMat)
+	box(s, "RiverQuayE", -72, -4, 386, 400, -6, -0.8, qCol, qMat)
+	box(s, "UpperTerraceS", -142, -70, 230, 262, 0, UP, tCol, tMat)
+	box(s, "UpperTerraceN", -142, -68, 262, 372, 0, UP, tCol, tMat)
+	box(s, "UpperTerraceEdge", -68, -54, 262, 362, 0, UP, tCol, tMat)
+	box(s, "UpperTerraceRampBase", -68, -54, 362, 372, 0, 8, tCol, tMat)
+	box(s, "BackTerrace", -140, -104, 270, 330, UP, UP + 2, D and STONEDARK or PAL.stoneDark, tMat)
+	box(s, "CausewayWall", -70, -4, 372, 386, 0, 8, bCol, bMat)
+	box(s, "AbutmentSquare", -4, 40, 366, 400, -6, 8, bCol, bMat)
+	box(s, "StepsLandingPillar", 40, 48, 366, 372, 0, 8, bCol, bMat)
+	box(s, "NorthBankA", -60, 50, 444, 476, -6, -1.4, gCol, gMat)
+	box(s, "NorthBankB", -60, 44, 476, 520, -6, -1.4, gCol, gMat)
+	box(s, "NorthAbutment", -4, 26, 438, 456, -6, 8, bCol, bMat)
+	if D then
+		box(s, "QuayCopingA", 91.4, 92.6, 24, 210, -1.0, -0.4, LIME, M.stone2)
+		box(s, "QuayCopingB", 85.4, 86.6, 210, 400, -1.0, -0.4, LIME, M.stone2)
+		box(s, "TerraceCoping", -70.6, -69.4, 230, 262, UP - 0.2, UP + 0.4, LIME, M.stone2)
+		box(s, "TerraceCoping", -54.6, -53.4, 262, 362, UP - 0.2, UP + 0.4, LIME, M.stone2)
+		for _, z in ipairs({ 234, 254 }) do box(s, "Buttress", -73, -70, z, z + 3, 0, UP - 3, STONEDARK, M.stone) end
+		slab(s, "ForkSquare", -30, 6, 236, 262, 0.1, 0.3, C3(126, 118, 108), M.stone)
+		slab(s, "Courtyard", -80, -40, 118, 160, 0.1, 0.3, C3(138, 128, 112), M.stone)
+		slab(s, "TannersYard", -4, 40, 304, 332, 0.1, 0.3, C3(120, 108, 92), M.stone)
+	else
+		slab(s, "ForkSquare", -30, 6, 236, 262, 0.1, 0.3, PAL.square, CONCRETE)
+		slab(s, "Courtyard", -80, -40, 118, 160, 0.1, 0.3, PAL.square, CONCRETE)
+		slab(s, "TannersYard", -4, 40, 304, 332, 0.1, 0.3, PAL.square, CONCRETE)
+	end
 	return s
 end
 
--- Cliffs: the world's hard edges (east, gorge, north) as rock masses; a few blocks of varied height each
+-- Cliffs: rock masses; detailed = a few leaning slate blocks per run so no face is a flat plane
+local function rockRun(s, name, x1, x2, z1, z2, y1, y2, seed)
+	if not G.DETAIL then return box(s, name, x1, x2, z1, z2, y1, y2, PAL.cliff, SLATE) end
+	local r = rng(seed)
+	box(s, name, x1, x2, z1, z2, y1, y2 - 3, CLIFF, M.slate)
+	local n = math.max(2, math.floor(math.max(x2 - x1, z2 - z1) / 22))
+	local alongX = (x2 - x1) > (z2 - z1)
+	for i = 1, n do
+		local t = (i - 0.5) / n
+		local cx = alongX and (x1 + (x2 - x1) * t) or (x1 + x2) / 2
+		local cz = alongX and (z1 + z2) / 2 or (z1 + (z2 - z1) * t)
+		local sx = alongX and (x2 - x1) / n * (0.8 + r() * 0.5) or (x2 - x1) * (0.8 + r() * 0.5)
+		local sz = alongX and (z2 - z1) * (0.8 + r() * 0.5) or (z2 - z1) / n * (0.8 + r() * 0.5)
+		local h = (y2 - y1) * (0.75 + r() * 0.45)
+		local cf = at(cx, y1 + h / 2, cz) * CFrame.Angles(math.rad((r() - 0.5) * 10), math.rad((r() - 0.5) * 24), math.rad((r() - 0.5) * 10))
+		mk(s, name .. "Rock", Vector3.new(sx, h, sz), cf, pick(r, { CLIFF, CLIFF2, C3(74, 70, 68) }), M.slate)
+	end
+end
 function G.Cliffs()
 	local s = section("Cliffs")
-	-- east cliff behind the Lower Market's east block (z 17..230)
-	box(s, "EastCliffA", -134, -112, 17, 80, -6, 26, PAL.cliff, SLATE)
-	box(s, "EastCliffB", -138, -112, 80, 150, -6, 32, PAL.cliff2, SLATE)
-	box(s, "EastCliffC", -132, -112, 150, 230, -6, 28, PAL.cliff, SLATE)
-	-- upper-east cliff behind the Upper Market (from the terrace top)
-	box(s, "UpperCliffA", -166, -142, 230, 300, -6, 40, PAL.cliff2, SLATE)
-	box(s, "UpperCliffB", -170, -142, 300, 372, -6, 46, PAL.cliff, SLATE)
-	-- south-east corner: rock coming down to the shore behind the Customs House
-	box(s, "ShoreRock", -112, -80, 17, 60, -6, 22, PAL.cliff2, SLATE)
-	box(s, "ShoreWall", -80, -46, 17, 20, -6, 4, PAL.stoneDark, CONCRETE)
-	-- the gorge: the river comes out of rock to the east; a wall across it closes the view
-	box(s, "GorgeS", -112, -72, 372, 400, -6, 30, PAL.cliff, SLATE)
-	box(s, "GorgeN", -112, -60, 444, 520, -6, 34, PAL.cliff2, SLATE)
-	box(s, "GorgeEnd", -122, -100, 396, 448, -6, 36, PAL.cliff, SLATE)
-	-- north cliff closing Collector's Row
-	box(s, "NorthCliffA", -60, 0, 520, 544, -6, 34, PAL.cliff, SLATE)
-	box(s, "NorthCliffB", 0, 54, 520, 540, -6, 30, PAL.cliff2, SLATE)
-	box(s, "NorthCliffC", 50, 58, 444, 476, -6, 6, PAL.cliff2, SLATE)              -- low rock lip on the bank's west edge
-	box(s, "NorthCliffD", 44, 52, 476, 520, -6, 8, PAL.cliff2, SLATE)
+	rockRun(s, "EastCliffA", -134, -112, 17, 80, -6, 26, 11)
+	rockRun(s, "EastCliffB", -138, -112, 80, 150, -6, 32, 12)
+	rockRun(s, "EastCliffC", -132, -112, 150, 230, -6, 28, 13)
+	rockRun(s, "UpperCliffA", -166, -142, 230, 300, -6, 40, 14)
+	rockRun(s, "UpperCliffB", -170, -142, 300, 372, -6, 46, 15)
+	rockRun(s, "ShoreRock", -112, -80, 17, 60, -6, 22, 16)
+	box(s, "ShoreWall", -80, -46, 17, 20, -6, 4, G.DETAIL and STONEDARK or PAL.stoneDark, G.DETAIL and M.stone or CONCRETE)
+	rockRun(s, "GorgeS", -112, -72, 372, 400, -6, 30, 17)
+	rockRun(s, "GorgeN", -112, -60, 444, 520, -6, 34, 18)
+	rockRun(s, "GorgeEnd", -122, -100, 396, 448, -6, 36, 19)
+	rockRun(s, "NorthCliffA", -60, 0, 520, 544, -6, 34, 20)
+	rockRun(s, "NorthCliffB", 0, 54, 520, 540, -6, 30, 21)
+	box(s, "NorthCliffC", 50, 58, 444, 476, -6, 6, G.DETAIL and CLIFF2 or PAL.cliff2, SLATE)
+	box(s, "NorthCliffD", 44, 52, 476, 520, -6, 8, G.DETAIL and CLIFF2 or PAL.cliff2, SLATE)
 	return s
 end
 
--- Arrival Dock: the deck under TRADE_POS, a side jetty with a boat, the boathouse that holds the way home
+-- Arrival Dock
 function G.ArrivalDock()
 	local s = section("ArrivalDock")
-	slab(s, "DockDeck", -14, 14, -22, 18, 0.4, 1.2, PAL.plank, WOODP)
+	local D = G.DETAIL
+	slab(s, "DockDeck", -14, 14, -22, 18, 0.4, 1.2, D and PLANK or PAL.plank, M.plank)
 	for _, c in ipairs({ { -13, -21 }, { 13, -21 }, { -13, 0 }, { 13, 6 }, { -13, 16 }, { 13, 17 } }) do
-		box(s, "DockPost", c[1] - 0.5, c[1] + 0.5, c[2] - 0.5, c[2] + 0.5, -4, 2.4, PAL.woodDark, WOODP)
+		box(s, "DockPost", c[1] - 0.5, c[1] + 0.5, c[2] - 0.5, c[2] + 0.5, -4, 2.4, D and TIMBER or PAL.woodDark, M.wood)
 	end
-	slab(s, "Jetty", 14, 40, 4, 12, 0.4, 1.0, PAL.plank, WOODP)
-	box(s, "JettyPost", 38, 39, 3, 4, -4, 2.2, PAL.woodDark, WOODP)
-	box(s, "Boat", 20, 26, -8, 6, -1.6, 1.2, PAL.wood, WOODP)                    -- moored rowing boat (blockout mass)
-	slab(s, "BoathousePlank", -22, -14, 8, 16, 0.4, 1.0, PAL.plank, WOODP)
-	building(s, { name = "Boathouse", x1 = -44, x2 = -20, z1 = 4, z2 = 20, h = 12, roof = "shed", shedHigh = "E", open = "W", tone = PAL.wall4 })
-	slab(s, "Boardwalk", 14, 70, 12, 24, 0.2, 1.0, PAL.plank, WOODP)                 -- Route B: west along the bay to the quay
+	slab(s, "Jetty", 14, 40, 4, 12, 0.4, 1.0, D and PLANKDARK or PAL.plank, M.plank)
+	box(s, "JettyPost", 38, 39, 3, 4, -4, 2.2, D and TIMBER or PAL.woodDark, M.wood)
+	slab(s, "BoathousePlank", -22, -14, 8, 16, 0.4, 1.0, D and PLANK or PAL.plank, M.plank)
+	for _, b in ipairs(G.BUILDINGS.ArrivalDock) do renderBuilding(s, b) end
+	slab(s, "Boardwalk", 14, 70, 12, 24, 0.2, 1.0, D and PLANKDARK or PAL.plank, M.plank)
+	if D then
+		for _, c in ipairs({ { -13, -14 }, { -13, -4 }, { 13, -14 }, { 13, -4 } }) do
+			box(s, "RailPost", c[1] - 0.25, c[1] + 0.25, c[2] - 0.25, c[2] + 0.25, 0.4, 3.4, TIMBER2, M.wood)
+		end
+		rod(s, "Rope", Vector3.new(-13, 3.1, -14), Vector3.new(-13, 3.1, -4), 0.16, ROPE, M.cloth)
+		rod(s, "Rope", Vector3.new(13, 3.1, -14), Vector3.new(13, 3.1, -4), 0.16, ROPE, M.cloth)
+		for _, x in ipairs({ 22, 38, 54, 68 }) do box(s, "WalkPost", x - 0.4, x + 0.4, 11.5, 12.3, -4, 1.4, TIMBER, M.wood) end
+		box(s, "BoatHull", 20, 26, -6, 6, -1.6, 0.9, C3(96, 70, 46), M.plank)
+		mk(s, "BoatBow", Vector3.new(4.3, 2.5, 4.3), at(23, -0.35, 7.2) * CFrame.Angles(0, math.rad(45), 0), C3(96, 70, 46), M.plank)
+		box(s, "Gunwale", 19.7, 20.4, -6, 6, 0.9, 1.4, TIMBER, M.wood)
+		box(s, "Gunwale", 25.6, 26.3, -6, 6, 0.9, 1.4, TIMBER, M.wood)
+		box(s, "Thwart", 20, 26, -0.5, 0.5, 0.4, 0.8, PLANK, M.plank)
+		for _, c in ipairs({ { -11, -20 }, { 11, 15 } }) do cyl(s, "Bollard", 1.2, 2.2, at(c[1], 1.5, c[2]), IRON, M.metal) end
+	else
+		box(s, "Boat", 20, 26, -8, 6, -1.6, 1.2, PAL.wood, WOODP)
+	end
 	return s
 end
 
--- Market Entrance: the Harbourmaster and the Customs House pinch the way north; no beam, the gap shows the tower
+-- Market Entrance
 function G.MarketEntrance()
 	local s = section("MarketEntrance")
-	building(s, { name = "Harbourmaster", x1 = 10, x2 = 42, z1 = 24, z2 = 62, h = 11, roof = "gableZ", rise = 7, tone = PAL.wall2,
-		upper = { x1 = 7, x2 = 42, z1 = 21, z2 = 62, y1 = 11, y2 = 24 }, upperTone = PAL.wall })
-	building(s, { name = "CustomsHouse", x1 = -46, x2 = -10, z1 = 22, z2 = 56, h = 18, roof = "hip", rise = 6, tone = PAL.wall3 })
-	-- a hanging sign on the Harbourmaster's street face (no gate beam: the bridge tower must stay visible)
-	box(s, "GateSign", 4.5, 7, 40, 40.4, 8, 10.4, PAL.sign, SP)
-	box(s, "GateSignArm", 4.5, 7.2, 40.1, 40.3, 10.4, 10.7, PAL.woodDark, WOODP)
+	for _, b in ipairs(G.BUILDINGS.MarketEntrance) do renderBuilding(s, b) end
+	if G.DETAIL then
+		box(s, "GateSignArm", 4.4, 7.4, 40.0, 40.4, 10.6, 10.9, IRON, M.metal)
+		local sign = box(s, "GateSign", 4.6, 6.8, 39.85, 40.55, 8.4, 10.3, SIGN, M.plank)
+		plate(sign, "RIVERSIDE MARKET", Enum.NormalId.Back, INK, SIGN, 1, Enum.Font.Antique, 40)
+		plate(sign, "RIVERSIDE MARKET", Enum.NormalId.Front, INK, SIGN, 1, Enum.Font.Antique, 40)
+		box(s, "GatePost", -10.8, -9.2, 36, 37.6, 0, 6.5, STONE2, M.stone2)
+		box(s, "GatePostCap", -11.1, -8.9, 35.7, 37.9, 6.5, 7.1, LIME, M.stone2)
+	else
+		box(s, "GateSign", 4.5, 7, 40, 40.4, 8, 10.4, PAL.sign, SP)
+		box(s, "GateSignArm", 4.5, 7.2, 40.1, 40.3, 10.4, 10.7, PAL.woodDark, WOODP)
+	end
 	return s
 end
 
--- Lower Market Street: the winding main street and its two building rows, the courtyard, the Fork Square, the Guild House
+-- Lower Market Street
 function G.LowerMarket()
 	local s = section("LowerMarket")
-	-- west row (fronts on the street's west edge, backs on the quay sheds)
-	building(s, { name = "B2", x1 = 8, x2 = 40, z1 = 66, z2 = 96, h = 15, roof = "flat", tone = PAL.wall })
-	building(s, { name = "B3", x1 = 20, x2 = 54, z1 = 104, z2 = 146, h = 10, roof = "gableX", rise = 8, tone = PAL.wall4,
-		upper = { x1 = 20, x2 = 54, z1 = 104, z2 = 153, y1 = 10, y2 = 28 } })             -- upper floors span alley A2
-	building(s, { name = "B4", x1 = 12, x2 = 46, z1 = 153, z2 = 190, h = 20, roof = "hip", rise = 7, tone = PAL.wall2,
-		balcony = { x1 = 9, x2 = 12.2, z1 = 160, z2 = 184, y = 9, posts = { { 9.5, 161 }, { 9.5, 183 } } } })
-	building(s, { name = "B5", x1 = 6, x2 = 40, z1 = 194, z2 = 248, h = 18, roof = "gableZ", rise = 6, tone = PAL.wall3 })
-	-- B5's external stair up its street face (stall 4 sits beneath its high half)
-	stair(s, "B5Stair", Vector3.new(4, 0, 196), Vector3.new(4, 9, 218), 4, PAL.woodDark)
-	slab(s, "B5Landing", 2, 6, 218, 224, 9, 0.8, PAL.woodDark, WOODP)
-	building(s, { name = "B12", x1 = 6, x2 = 48, z1 = 264, z2 = 300, h = 18, roof = "gableX", rise = 6, tone = PAL.wall })
-	building(s, { name = "B13", x1 = 4, x2 = 40, z1 = 336, z2 = 364, h = 14, roof = "gableZ", rise = 6, tone = PAL.wall4 })
-	building(s, { name = "WH2", x1 = -32, x2 = 0, z1 = 334, z2 = 370, h = 16, roof = "flat", tone = PAL.wall2 })
-	building(s, { name = "WH1", x1 = -54, x2 = -36, z1 = 336, z2 = 370, h = 18, roof = "gableX", rise = 6, tone = PAL.wall })
-	-- east row (fronts on the street's east edge, backs on the cliff / courtyard / terrace wall)
-	building(s, { name = "B7", x1 = -44, x2 = -8, z1 = 60, z2 = 92, h = 26, roof = "gableZ", rise = 8, tone = PAL.wall })
-	building(s, { name = "B8", x1 = -40, x2 = -6, z1 = 96, z2 = 122, h = 14, roof = "shed", shedHigh = "E", tone = PAL.wall3 })
-	building(s, { name = "B9", x1 = -40, x2 = -4, z1 = 130, z2 = 172, h = 22, roof = "gableX", rise = 7, tone = PAL.wall2 })
-	building(s, { name = "B10", x1 = -38, x2 = -4, z1 = 176, z2 = 204, h = 18, roof = "hip", rise = 6, tone = PAL.wall4 })
-	building(s, { name = "B14", x1 = -70, x2 = -36, z1 = 208, z2 = 232, h = 16, roof = "flat", tone = PAL.wall })
-	building(s, { name = "CY_S", x1 = -80, x2 = -46, z1 = 60, z2 = 116, h = 14, roof = "gableZ", rise = 6, tone = PAL.wall4 })
-	building(s, { name = "CY_E", x1 = -112, x2 = -80, z1 = 118, z2 = 160, h = 20, roof = "hip", rise = 6, tone = PAL.wall2 })
-	building(s, { name = "CY_N", x1 = -80, x2 = -42, z1 = 160, z2 = 204, h = 16, roof = "gableZ", rise = 6, tone = PAL.wall3 })
-	building(s, { name = "CY_NN", x1 = -112, x2 = -72, z1 = 206, z2 = 228, h = 18, roof = "gableX", rise = 6, tone = PAL.wall })
-	-- the Gem Broker's stone kiosk before the Fork (off the street, against B14's block)
-	building(s, { name = "BrokerKiosk", x1 = -30, x2 = -22, z1 = 212, z2 = 222, h = 8, roof = "hip", rise = 3, tone = PAL.stone })
-	-- Guild House: closes the Fork Square to the north; open arcade on its south face (covered market corner)
-	building(s, { name = "GuildHouse", x1 = -44, x2 = 4, z1 = 276, z2 = 300, h = 22, roof = "gableX", rise = 6, tone = PAL.wall2,
-		upper = { x1 = -44, x2 = 4, z1 = 262, z2 = 276, y1 = 9, y2 = 22 } })
-	for _, x in ipairs({ -40, -27, -14, 0 }) do
-		box(s, "ArcadeColumn", x - 0.9, x + 0.9, 262.5, 264.3, 0, 9, PAL.stone, SP)
+	local D = G.DETAIL
+	for _, b in ipairs(G.BUILDINGS.LowerMarket) do renderBuilding(s, b) end
+	-- B5 external stair up its street face (stall 4 sits beneath its high half)
+	if D then
+		steps(s, "B5Stair", Vector3.new(4, 0, 196), Vector3.new(4, 9, 218), 4, PLANKDARK, M.plank)
+		slab(s, "B5Landing", 2, 6, 218, 224, 9, 0.6, PLANKDARK, M.plank)
+		for _, z in ipairs({ 197, 205, 213, 223 }) do box(s, "B5Baluster", 1.75, 2.25, z - 0.25, z + 0.25, 0, 9.7, TIMBER, M.wood) end
+		mk(s, "B5RailSlope", Vector3.new(0.35, 0.35, 24), at(2, 6.5, 207) * CFrame.Angles(math.atan(9, 22), 0, 0), TIMBER, M.wood)
+		box(s, "B5LandingRail", 1.8, 2.2, 218, 224, 9.6, 9.9, TIMBER, M.wood)
+	else
+		ramp(s, "B5Stair", Vector3.new(4, 0, 196), Vector3.new(4, 9, 218), 4, 1.0, PAL.woodDark, SP)
+		slab(s, "B5Landing", 2, 6, 218, 224, 9, 0.8, PAL.woodDark, WOODP)
 	end
-	-- Tanners' Yard enclosure (a hidden back yard reached from the quay)
-	building(s, { name = "TY_E", x1 = -44, x2 = -4, z1 = 304, z2 = 330, h = 10, roof = "flat", tone = PAL.wall4 })
-	box(s, "YardWall", 40, 48, 311, 332, 0, 6, PAL.stoneDark, CONCRETE)
-	-- the Fork Square well and the courtyard / yard trees (layout masses, not decoration)
-	cyl(s, "Well", 5, 3, at(-14, 1.5, 250), PAL.stoneDark, CONCRETE)
-	cyl(s, "CourtyardTree", 2.4, 10, at(-62, 5, 138), PAL.woodDark, WOODP)
-	box(s, "CourtyardCanopy", -70, -54, 130, 146, 9, 17, PAL.green, SP)
-	cyl(s, "YardTree", 2, 9, at(20, 4.5, 318), PAL.woodDark, WOODP)
-	box(s, "YardCanopy", 13, 27, 311, 325, 8, 15, PAL.green, SP)
+	for _, x in ipairs({ -40, -27, -14, 0 }) do
+		if D then
+			box(s, "ArcadeColumn", x - 0.9, x + 0.9, 262.5, 264.3, 0, 9, STONE2, M.stone2)
+			box(s, "ColumnCap", x - 1.2, x + 1.2, 262.2, 264.6, 8.4, 9.0, LIME, M.stone2)
+			box(s, "ColumnBase", x - 1.2, x + 1.2, 262.2, 264.6, 0, 0.8, STONEDARK, M.stone)
+		else
+			box(s, "ArcadeColumn", x - 0.9, x + 0.9, 262.5, 264.3, 0, 9, PAL.stone, SP)
+		end
+	end
+	box(s, "YardWall", 40, 48, 311, 332, 0, 6, D and STONEDARK or PAL.stoneDark, D and M.stone or CONCRETE)
+	if D then
+		cyl(s, "Well", 5, 3, at(-14, 1.5, 250), STONE, M.stone)
+		cyl(s, "WellRim", 5.4, 0.5, at(-14, 3.1, 250), LIME, M.stone2)
+		for _, dx in ipairs({ -2.2, 2.2 }) do box(s, "WellPost", -14 + dx - 0.25, -14 + dx + 0.25, 249.75, 250.25, 3, 8, TIMBER, M.wood) end
+		gable(s, "Well", -17.2, -10.8, 248, 252, 8, 1.8, true, ROOFS[2][1], ROOFS[2][2], 0.3)
+		box(s, "WellBeam", -16.4, -11.6, 249.8, 250.2, 7.6, 8.1, TIMBER, M.wood)
+		for _, t in ipairs({ { -62, 138, 2.4, 10, 15 }, { 20, 318, 2.0, 9, 13 } }) do
+			cyl(s, "TreeTrunk", t[3], t[4], at(t[1], t[4] / 2, t[2]), C3(72, 54, 38), M.wood)
+			ball(s, "TreeCanopy", t[5], at(t[1] + 1.5, t[4] + 3, t[2] - 1), C3(84, 118, 62), M.grass)
+			ball(s, "TreeCanopy", t[5] * 0.8, at(t[1] - 2.5, t[4] + 5, t[2] + 2.5), C3(96, 132, 70), M.grass)
+			ball(s, "TreeCanopy", t[5] * 0.7, at(t[1] + 1, t[4] + 7.5, t[2] + 1.5), C3(78, 110, 58), M.grass)
+		end
+	else
+		cyl(s, "Well", 5, 3, at(-14, 1.5, 250), PAL.stoneDark, CONCRETE)
+		cyl(s, "CourtyardTree", 2.4, 10, at(-62, 5, 138), PAL.woodDark, WOODP)
+		box(s, "CourtyardCanopy", -70, -54, 130, 146, 9, 17, PAL.green, SP)
+		cyl(s, "YardTree", 2, 9, at(20, 4.5, 318), PAL.woodDark, WOODP)
+		box(s, "YardCanopy", 13, 27, 311, 325, 8, 15, PAL.green, SP)
+	end
 	return s
 end
 
--- Waterfront: the quay sheds (backs of the west block), the pier, water stairs, the river-mouth corner
+-- Waterfront
 function G.Waterfront()
 	local s = section("Waterfront")
-	building(s, { name = "S1", x1 = 46, x2 = 70, z1 = 28, z2 = 56, h = 12, roof = "shed", shedHigh = "E", open = "W", tone = PAL.wall4 })
-	building(s, { name = "S2", x1 = 50, x2 = 70, z1 = 66, z2 = 92, h = 14, roof = "gableX", rise = 5, tone = PAL.wall })
-	building(s, { name = "S3", x1 = 54, x2 = 70, z1 = 108, z2 = 146, h = 10, roof = "flat", tone = PAL.wall2 })
-	building(s, { name = "S4", x1 = 52, x2 = 70, z1 = 156, z2 = 190, h = 16, roof = "gableZ", rise = 6, tone = PAL.wall3,
-		balcony = { x1 = 70, x2 = 73.2, z1 = 162, z2 = 180, y = 9, posts = { { 72.6, 163 }, { 72.6, 179 } } } })
-	building(s, { name = "S5", x1 = 44, x2 = 70, z1 = 196, z2 = 234, h = 18, roof = "hip", rise = 6, tone = PAL.wall })
-	building(s, { name = "S6", x1 = 48, x2 = 70, z1 = 268, z2 = 300, h = 14, roof = "gableX", rise = 5, tone = PAL.wall4 })
-	building(s, { name = "S7", x1 = 44, x2 = 70, z1 = 314, z2 = 364, h = 16, roof = "gableZ", rise = 6, tone = PAL.wall2 })
-	box(s, "HoistBeam", 70, 76, 338, 340, 15.5, 16.5, PAL.woodDark, WOODP)
-	-- lane L1 arch (the way from the Fork Square down to the quay passes under it)
-	box(s, "LaneArchPierS", 44, 48, 248, 250, 0, 9, PAL.stone, CONCRETE)
-	box(s, "LaneArchPierN", 44, 48, 262, 264, 0, 9, PAL.stone, CONCRETE)
-	box(s, "LaneArchLintel", 44, 48, 248, 264, 9, 11, PAL.stone, CONCRETE)
-	-- pier into the bay with a moored boat; second pier at the river-mouth corner
-	slab(s, "Pier", 92, 114, 116, 122, -0.6, 1.0, PAL.plank, WOODP)
-	box(s, "PierPost", 113, 114, 115, 116, -5, 1.4, PAL.woodDark, WOODP)
-	box(s, "PierBoat", 94, 100, 124, 138, -1.6, 1.0, PAL.wood, WOODP)
-	slab(s, "MouthPier", 86, 104, 378, 384, -0.6, 1.0, PAL.plank, WOODP)
-	-- water stairs (into the bay / river)
-	stair(s, "WaterStairA", Vector3.new(88, -0.8, 80), Vector3.new(92, -3, 80), 8)
-	stair(s, "WaterStairB", Vector3.new(82, -0.8, 300), Vector3.new(86, -3, 300), 8)
-	stair(s, "WaterStairC", Vector3.new(78, -0.8, 392), Vector3.new(86, -3.2, 392), 6)
+	local D = G.DETAIL
+	for _, b in ipairs(G.BUILDINGS.Waterfront) do renderBuilding(s, b) end
+	box(s, "HoistBeam", 70, 76, 338, 340, 15.5, 16.5, D and TIMBER or PAL.woodDark, M.wood)
+	local ac, am = D and STONE2 or PAL.stone, D and M.stone2 or CONCRETE
+	box(s, "LaneArchPierS", 44, 48, 248, 250, 0, 9, ac, am)
+	box(s, "LaneArchPierN", 44, 48, 262, 264, 0, 9, ac, am)
+	if D then
+		arch(s, "LaneArch", at(46, 5.6, 256) * CFrame.Angles(0, math.rad(90), 0), 6.4, 9, 1.4, 4, STONE2, M.stone2)
+	else
+		box(s, "LaneArchLintel", 44, 48, 248, 264, 9, 11, PAL.stone, CONCRETE)
+	end
+	slab(s, "Pier", 92, 114, 116, 122, -0.6, 1.0, D and PLANKDARK or PAL.plank, M.plank)
+	slab(s, "MouthPier", 86, 104, 378, 384, -0.6, 1.0, D and PLANKDARK or PAL.plank, M.plank)
+	if D then
+		for _, x in ipairs({ 96, 106, 113 }) do
+			box(s, "PierPost", x - 0.45, x + 0.45, 115.3, 116.2, -5, 1.6, TIMBER, M.wood)
+			box(s, "PierPost", x - 0.45, x + 0.45, 121.8, 122.7, -5, 1.6, TIMBER, M.wood)
+		end
+		for _, x in ipairs({ 90, 98, 103 }) do box(s, "PierPost", x - 0.45, x + 0.45, 383.8, 384.7, -5, 1.6, TIMBER, M.wood) end
+		rod(s, "Rope", Vector3.new(96, 1.4, 115.7), Vector3.new(113, 1.4, 115.7), 0.16, ROPE, M.cloth)
+		box(s, "BoatHull", 94, 100, 124, 138, -1.6, 0.9, C3(88, 66, 44), M.plank)
+		mk(s, "BoatBow", Vector3.new(4.3, 2.5, 4.3), at(97, -0.35, 139.2) * CFrame.Angles(0, math.rad(45), 0), C3(88, 66, 44), M.plank)
+		box(s, "Gunwale", 93.7, 94.4, 124, 138, 0.9, 1.4, TIMBER, M.wood)
+		box(s, "Gunwale", 99.6, 100.3, 124, 138, 0.9, 1.4, TIMBER, M.wood)
+		box(s, "BoatHull", 88, 93, 360, 372, -1.6, 0.7, C3(108, 84, 58), M.plank)
+		mk(s, "BoatBow", Vector3.new(3.6, 2.2, 3.6), at(90.5, -0.45, 373) * CFrame.Angles(0, math.rad(45), 0), C3(108, 84, 58), M.plank)
+		for _, z in ipairs({ 44, 96, 150, 188, 236, 262, 318, 356 }) do
+			local x = (z < 210) and 90.6 or 84.6
+			cyl(s, "Bollard", 1.1, 2.0, at(x, 0.2, z), IRON, M.metal)
+		end
+		for _, z in ipairs({ 70, 132, 214, 292, 346 }) do
+			local x = (z < 210) and 89.5 or 83.5
+			cyl(s, "Barrel", 2.2, 2.6, at(x, 0.5, z), C3(100, 74, 48), M.plank)
+		end
+		steps(s, "WaterStairA", Vector3.new(88, -0.8, 80), Vector3.new(92.5, -3.2, 80), 8, STONE, M.stone)
+		steps(s, "WaterStairB", Vector3.new(82, -0.8, 300), Vector3.new(86.5, -3.2, 300), 8, STONE, M.stone)
+		steps(s, "WaterStairC", Vector3.new(78, -0.8, 392), Vector3.new(86.5, -3.4, 392), 6, STONE, M.stone)
+		mk(s, "Net", Vector3.new(0.3, 5.2, 7.0), at(70.4, 5.0, 60) * CFrame.Angles(0, 0, math.rad(6)), C3(120, 112, 90), M.cloth, { Transparency = 0.35 })
+		mk(s, "Net", Vector3.new(6.0, 0.25, 3.4), at(78, -0.6, 150) * CFrame.Angles(0, math.rad(20), 0), C3(120, 112, 90), M.cloth, { Transparency = 0.3 })
+	else
+		box(s, "PierPost", 113, 114, 115, 116, -5, 1.4, PAL.woodDark, WOODP)
+		box(s, "PierBoat", 94, 100, 124, 138, -1.6, 1.0, PAL.wood, WOODP)
+		ramp(s, "WaterStairA", Vector3.new(88, -0.8, 80), Vector3.new(92, -3, 80), 8)
+		ramp(s, "WaterStairB", Vector3.new(82, -0.8, 300), Vector3.new(86, -3, 300), 8)
+		ramp(s, "WaterStairC", Vector3.new(78, -0.8, 392), Vector3.new(86, -3.2, 392), 6)
+	end
 	return s
 end
 
--- Upper Market: the terrace's edge street, its buildings, the overlook, the back terrace lane
+-- Upper Market
 function G.UpperMarket()
 	local s = section("UpperMarket")
-	building(s, { name = "U6", x1 = -112, x2 = -74, z1 = 234, z2 = 258, h = 18, base = UP, roof = "hip", rise = 6, tone = PAL.wall })
-	building(s, { name = "U1", x1 = -100, x2 = -70, z1 = 268, z2 = 294, h = 20, base = UP, roof = "gableX", rise = 7, tone = PAL.wall3 })
-	building(s, { name = "U2", x1 = -104, x2 = -70, z1 = 302, z2 = 330, h = 16, base = UP, roof = "hip", rise = 6, tone = PAL.wall2,
-		balcony = { x1 = -70, x2 = -66, z1 = 308, z2 = 324, y = 8.5, posts = { { -66.6, 309 }, { -66.6, 323 } } } })
-	building(s, { name = "CurioHouse", x1 = -110, x2 = -76, z1 = 334, z2 = 372, h = 26, base = UP, roof = "gableZ", rise = 9, tone = PAL.wall4,
-		upper = { x1 = -76, x2 = -70, z1 = 334, z2 = 372, y1 = 9, y2 = 26 } })
+	local D = G.DETAIL
+	for _, b in ipairs(G.BUILDINGS.UpperMarket) do renderBuilding(s, b) end
 	for _, z in ipairs({ 336, 348, 360, 370 }) do
-		box(s, "ArcadeColumn", -71.8, -70, z - 0.9, z + 0.9, UP, UP + 9, PAL.stone, SP)
+		if D then
+			box(s, "ArcadeColumn", -71.8, -70, z - 0.9, z + 0.9, UP, UP + 9, STONE2, M.stone2)
+			box(s, "ColumnCap", -72.1, -69.7, z - 1.2, z + 1.2, UP + 8.4, UP + 9, LIME, M.stone2)
+		else
+			box(s, "ArcadeColumn", -71.8, -70, z - 0.9, z + 0.9, UP, UP + 9, PAL.stone, SP)
+		end
 	end
-	building(s, { name = "U4", x1 = -140, x2 = -120, z1 = 276, z2 = 322, h = 18, base = UP + 2, roof = "gableX", rise = 6, tone = PAL.wall })
-	building(s, { name = "U5", x1 = -140, x2 = -112, z1 = 336, z2 = 362, h = 14, base = UP, roof = "flat", tone = PAL.wall2 })
-	-- parapets on the terrace edges (west face over the Lower Market, south face by the stair top)
-	box(s, "ParapetW", -55, -54, 266, 306, UP, UP + 1.2, PAL.stoneDark, CONCRETE)
-	box(s, "ParapetW2", -55, -54, 330, 362, UP, UP + 1.2, PAL.stoneDark, CONCRETE)
-	box(s, "ParapetS", -70, -62, 262, 263, UP, UP + 1.2, PAL.stoneDark, CONCRETE)
-	box(s, "ParapetSW", -71, -70, 230, 262, UP, UP + 1.2, PAL.stoneDark, CONCRETE)
-	-- the overlook: a cantilevered balcony square on the edge street (view west over the yard to the water)
-	slab(s, "Overlook", -54, -46, 306, 330, UP, 1.2, PAL.stone, CONCRETE)
-	box(s, "OverlookRail", -47, -46, 306, 330, UP, UP + 1.2, PAL.stoneDark, CONCRETE)
-	-- upper street + lane surfaces
-	slab(s, "EdgeStreet", -68, -54, 266, 362, UP + 0.12, 0.24, PAL.road, CONCRETE)
-	slab(s, "UpperLane", -104, -70, 294, 302, UP + 0.12, 0.24, PAL.road, CONCRETE)
+	local pc, pm = D and LIME or PAL.stoneDark, D and M.stone2 or CONCRETE
+	box(s, "ParapetW", -55, -54, 266, 306, UP, UP + 1.2, pc, pm)
+	box(s, "ParapetW2", -55, -54, 330, 362, UP, UP + 1.2, pc, pm)
+	box(s, "ParapetS", -70, -62, 262, 263, UP, UP + 1.2, pc, pm)
+	box(s, "ParapetSW", -71, -70, 230, 262, UP, UP + 1.2, pc, pm)
+	slab(s, "Overlook", -54, -46, 306, 330, UP, 1.2, D and STONE or PAL.stone, D and M.stone or CONCRETE)
+	box(s, "OverlookRail", -47, -46, 306, 330, UP, UP + 1.2, pc, pm)
+	if D then
+		for _, z in ipairs({ 309, 318, 327 }) do mk(s, "OverlookBracket", Vector3.new(6.2, 0.7, 0.7), at(-50, UP - 2.6, z) * CFrame.Angles(0, 0, math.rad(40)), STONEDARK, M.stone) end
+		box(s, "Bench", -52.6, -47.4, 314, 315.4, UP + 1.0, UP + 1.5, PLANKDARK, M.plank)
+		box(s, "BenchLeg", -52.2, -51.4, 314.2, 315.2, UP, UP + 1.0, TIMBER, M.wood)
+		box(s, "BenchLeg", -48.6, -47.8, 314.2, 315.2, UP, UP + 1.0, TIMBER, M.wood)
+		for _, z in ipairs({ 280, 344 }) do
+			box(s, "Planter", -55.6, -53.4, z, z + 3.2, UP + 1.2, UP + 2.4, C3(126, 84, 62), M.brick)
+			ball(s, "PlanterBush", 2.8, at(-54.5, UP + 3.3, z + 1.6), C3(90, 124, 66), M.grass)
+		end
+		slab(s, "EdgeStreet", -68, -54, 266, 362, UP + 0.12, 0.24, COBBLE, M.stone)
+		slab(s, "UpperLane", -104, -70, 294, 302, UP + 0.12, 0.24, COBBLE, M.stone)
+	else
+		slab(s, "EdgeStreet", -68, -54, 266, 362, UP + 0.12, 0.24, PAL.road, CONCRETE)
+		slab(s, "UpperLane", -104, -70, 294, 302, UP + 0.12, 0.24, PAL.road, CONCRETE)
+	end
 	return s
 end
 
--- Old Bridge: abutment square, deck on a pier, two shop cabins over the water, the gate tower, the closed road north
+-- Old Bridge
 function G.OldBridge()
 	local s = section("OldBridge")
-	slab(s, "Deck", 4, 18, 400, 440, 8, 2, PAL.bridge, CONCRETE)
-	box(s, "Pier", 3, 19, 416, 424, -6, 6, PAL.stoneDark, CONCRETE)
-	box(s, "Cutwater", 3, 19, 424, 428, -6, 4, PAL.stoneDark, CONCRETE)
-	-- parapets where there is no cabin
-	box(s, "ParapetE1", 4, 5.2, 400, 406, 8, 9.3, PAL.stone, CONCRETE)
-	box(s, "ParapetE2", 4, 5.2, 420, 440, 8, 9.3, PAL.stone, CONCRETE)
-	box(s, "ParapetW1", 16.8, 18, 400, 422, 8, 9.3, PAL.stone, CONCRETE)
-	box(s, "ParapetW2", 16.8, 18, 436, 440, 8, 9.3, PAL.stone, CONCRETE)
-	-- the two cabins cantilevered over the river on timber brackets (their counters open onto the deck)
-	slab(s, "CabinEBracket", -6, 4, 406, 420, 8, 2, PAL.woodDark, WOODP)
-	building(s, { name = "CabinE", x1 = -6, x2 = 3.4, z1 = 406, z2 = 420, h = 10, base = 8, roof = "gableX", rise = 4, tone = PAL.wall4 })
-	slab(s, "CabinWBracket", 18, 30, 422, 436, 8, 2, PAL.woodDark, WOODP)
-	building(s, { name = "CabinW", x1 = 18.6, x2 = 30, z1 = 422, z2 = 436, h = 12, base = 8, roof = "gableX", rise = 5, tone = PAL.wall2 })
-	-- square parapets (river side, west edge except where the Bridge Steps land) and the causeway's north parapet
-	box(s, "SquareParapetN1", -4, 4, 399, 400, 8, 9.3, PAL.stone, CONCRETE)
-	box(s, "SquareParapetN2", 18, 40, 399, 400, 8, 9.3, PAL.stone, CONCRETE)
-	box(s, "SquareParapetW", 39, 40, 372, 400, 8, 9.3, PAL.stone, CONCRETE)
-	slab(s, "StepsLanding", 40, 48, 366, 372, 8.12, 0.24, PAL.square, CONCRETE)
-	box(s, "CausewayParapetA", -70, -34, 385, 386, 8, 9.3, PAL.stone, CONCRETE)
-	box(s, "CausewayParapetB", -26, -4, 385, 386, 8, 9.3, PAL.stone, CONCRETE)
-	-- gate tower on the north abutment, road passage through it, a lantern turret on top
-	box(s, "TowerE", -2, 4, 440, 456, 8, 62, PAL.bridge, CONCRETE)
-	box(s, "TowerW", 18, 24, 440, 456, 8, 62, PAL.bridge, CONCRETE)
-	box(s, "TowerTop", -2, 24, 440, 456, 20, 62, PAL.bridge, CONCRETE)
-	box(s, "TowerCap", -3, 25, 439, 457, 62, 64, PAL.stoneDark, CONCRETE)
-	box(s, "Lantern", 7, 15, 443, 453, 64, 76, PAL.stone, CONCRETE)
+	local D = G.DETAIL
+	local bc, bm = D and STONE2 or PAL.bridge, D and M.stone or CONCRETE
+	local dc, dm = D and STONEDARK or PAL.stoneDark, D and M.stone or CONCRETE
+	slab(s, "Deck", 4, 18, 400, 440, 8, 2, D and COBBLE or PAL.bridge, D and M.stone or CONCRETE)
+	box(s, "Pier", 3, 19, 416, 424, -6, 6, dc, dm)
+	if D then
+		mk(s, "Cutwater", Vector3.new(6, 10, 6), at(0.6, -1, 420) * CFrame.Angles(0, math.rad(45), 0), STONEDARK, M.stone)
+		mk(s, "Cutwater", Vector3.new(6, 10, 6), at(21.4, -1, 420) * CFrame.Angles(0, math.rad(45), 0), STONEDARK, M.stone)
+		arch(s, "ArchS", at(11, -2.2, 408) * CFrame.Angles(0, math.rad(90), 0), 7.6, 9, 1.4, 14.4, STONE2, M.stone)
+		arch(s, "ArchN", at(11, -2.2, 432) * CFrame.Angles(0, math.rad(90), 0), 7.6, 9, 1.4, 14.4, STONE2, M.stone)
+		box(s, "SpandrelS", 3.6, 18.4, 400, 404, 0, 6, STONE, M.stone)
+		box(s, "SpandrelSp", 3.6, 18.4, 412.5, 416, 0, 6, STONE, M.stone)
+		box(s, "SpandrelNp", 3.6, 18.4, 424, 427.5, 0, 6, STONE, M.stone)
+		box(s, "SpandrelN", 3.6, 18.4, 436, 440, 0, 6, STONE, M.stone)
+		box(s, "ParapetE1", 4, 5.2, 400, 406, 8, 9.3, STONE, M.stone); box(s, "CopingE1", 3.8, 5.4, 400, 406, 9.3, 9.7, LIME, M.stone2)
+		box(s, "ParapetE2", 4, 5.2, 420, 440, 8, 9.3, STONE, M.stone); box(s, "CopingE2", 3.8, 5.4, 420, 440, 9.3, 9.7, LIME, M.stone2)
+		box(s, "ParapetW1", 16.8, 18, 400, 422, 8, 9.3, STONE, M.stone); box(s, "CopingW1", 16.6, 18.2, 400, 422, 9.3, 9.7, LIME, M.stone2)
+		box(s, "ParapetW2", 16.8, 18, 436, 440, 8, 9.3, STONE, M.stone); box(s, "CopingW2", 16.6, 18.2, 436, 440, 9.3, 9.7, LIME, M.stone2)
+		for _, p in ipairs({ { 4.6, 403 }, { 17.4, 438 }, { 4.6, 438 } }) do box(s, "LampPost", p[1] - 0.3, p[1] + 0.3, p[2] - 0.3, p[2] + 0.3, 9.6, 14.6, IRON, M.metal) end
+	else
+		box(s, "Cutwater", 3, 19, 424, 428, -6, 4, PAL.stoneDark, CONCRETE)
+		box(s, "ParapetE1", 4, 5.2, 400, 406, 8, 9.3, PAL.stone, CONCRETE)
+		box(s, "ParapetE2", 4, 5.2, 420, 440, 8, 9.3, PAL.stone, CONCRETE)
+		box(s, "ParapetW1", 16.8, 18, 400, 422, 8, 9.3, PAL.stone, CONCRETE)
+		box(s, "ParapetW2", 16.8, 18, 436, 440, 8, 9.3, PAL.stone, CONCRETE)
+	end
+	slab(s, "CabinEBracket", -6, 4, 406, 420, 8, 2, D and PLANKDARK or PAL.woodDark, M.plank)
+	slab(s, "CabinWBracket", 18, 30, 422, 436, 8, 2, D and PLANKDARK or PAL.woodDark, M.plank)
+	if D then
+		for _, z in ipairs({ 408, 413, 418 }) do mk(s, "Strut", Vector3.new(0.7, 0.7, 7.2), at(-2.6, 3.6, z) * CFrame.Angles(0, 0, math.rad(-52)), TIMBER, M.wood) end
+		for _, z in ipairs({ 424, 429, 434 }) do mk(s, "Strut", Vector3.new(0.7, 0.7, 7.2), at(24.6, 3.6, z) * CFrame.Angles(0, 0, math.rad(52)), TIMBER, M.wood) end
+	end
+	for _, b in ipairs(G.BUILDINGS.OldBridge) do renderBuilding(s, b) end
+	box(s, "SquareParapetN1", -4, 4, 399, 400, 8, 9.3, bc, bm)
+	box(s, "SquareParapetN2", 18, 40, 399, 400, 8, 9.3, bc, bm)
+	box(s, "SquareParapetW", 39, 40, 372, 400, 8, 9.3, bc, bm)
+	slab(s, "StepsLanding", 40, 48, 366, 372, 8.12, 0.24, D and COBBLE or PAL.square, D and M.stone or CONCRETE)
+	box(s, "CausewayParapetA", -70, -33, 385, 386, 8, 9.3, bc, bm)
+	box(s, "CausewayParapetB", -27, -4, 385, 386, 8, 9.3, bc, bm)   -- the gap is exactly the stair head
+	-- gate tower: stone base, jettied timber upper storey, cap, lantern cupola; road passage vaulted
+	if D then
+		box(s, "TowerE", -2, 4, 440, 456, 8, 30, STONE, M.stone)
+		box(s, "TowerW", 18, 24, 440, 456, 8, 30, STONE, M.stone)
+		box(s, "TowerTop", -2, 24, 440, 456, 20, 30, STONE, M.stone)
+		box(s, "TowerUpper", -3, 25, 439, 457, 30, 54, PLASTER[7], M.plaster)
+		for _, zf in ipairs({ 438.8, 457.2 }) do
+			box(s, "TowerBeam", -3.2, 25.2, zf - 0.3, zf + 0.3, 30, 30.7, TIMBER, M.wood)
+			box(s, "TowerBeam", -3.2, 25.2, zf - 0.3, zf + 0.3, 42, 42.6, TIMBER, M.wood)
+			for _, x in ipairs({ -2.6, 4.2, 10.4, 17.8, 24.6 }) do box(s, "TowerStud", x - 0.3, x + 0.3, zf - 0.3, zf + 0.3, 30, 54, TIMBER, M.wood) end
+			mk(s, "TowerBrace", Vector3.new(0.45, 7, 0.45), at(7.2, 35.4, zf) * CFrame.Angles(0, 0, math.rad(36)), TIMBER, M.wood)
+			mk(s, "TowerBrace", Vector3.new(0.45, 7, 0.45), at(14.8, 48.4, zf) * CFrame.Angles(0, 0, math.rad(-36)), TIMBER, M.wood)
+		end
+		for _, x in ipairs({ 3, 19 }) do
+			box(s, "TowerWindow", x - 1.2, x + 1.2, 438.6, 439.0, 45.5, 48.7, GLASS, M.glass, { Reflectance = 0.14 })
+			box(s, "TowerWindowFrame", x - 1.5, x + 1.5, 438.5, 438.85, 45.2, 49.0, TIMBER, M.wood)
+		end
+		box(s, "TowerCap", -4, 26, 438, 458, 54, 56, STONEDARK, M.stone)
+		gable(s, "Tower", -3, 25, 439, 457, 56, 8, false, ROOFS[7][1], ROOFS[7][2], 1.4)
+		box(s, "TowerRidge", -4.6, 26.6, 447.6, 448.4, 63.8, 64.6, TIMBER, M.wood)
+		for _, p in ipairs({ { 8.2, 445.2 }, { 13.8, 445.2 }, { 8.2, 450.8 }, { 13.8, 450.8 } }) do box(s, "CupolaPost", p[1] - 0.35, p[1] + 0.35, p[2] - 0.35, p[2] + 0.35, 64, 70, TIMBER, M.wood) end
+		box(s, "CupolaFloor", 7.4, 14.6, 444.4, 451.6, 63.6, 64.2, PLANKDARK, M.plank)
+		gable(s, "Cupola", 7.4, 14.6, 444.4, 451.6, 70, 3.6, true, ROOFS[7][1], ROOFS[7][2], 0.8)
+		box(s, "LanternCage", 9.8, 12.2, 446.8, 449.2, 65.2, 68.2, IRON, M.metal, { Transparency = 0.4 })
+		arch(s, "PassageArchS", at(11, 8 + 5.2, 440.6), 7.2, 9, 1.3, 1.4, STONE2, M.stone2)   -- spring 5.2 above the DECK
+		arch(s, "PassageArchN", at(11, 8 + 5.2, 455.4), 7.2, 9, 1.3, 1.4, STONE2, M.stone2)
+		box(s, "PassageWall", 3.6, 4.4, 440, 456, 8, 20, STONEDARK, M.stone)
+		box(s, "PassageWall", 17.6, 18.4, 440, 456, 8, 20, STONEDARK, M.stone)
+		box(s, "WardenDoor", 17.9, 18.15, 445.5, 448.5, 8, 14.2, PLANKDARK, M.plank)
+		box(s, "WardenDoorFrame", 17.7, 18.0, 445.1, 448.9, 8, 14.6, TIMBER, M.wood)
+	else
+		box(s, "TowerE", -2, 4, 440, 456, 8, 62, PAL.bridge, CONCRETE)
+		box(s, "TowerW", 18, 24, 440, 456, 8, 62, PAL.bridge, CONCRETE)
+		box(s, "TowerTop", -2, 24, 440, 456, 20, 62, PAL.bridge, CONCRETE)
+		box(s, "TowerCap", -3, 25, 439, 457, 62, 64, PAL.stoneDark, CONCRETE)
+		box(s, "Lantern", 7, 15, 443, 453, 64, 76, PAL.stone, CONCRETE)
+	end
 	-- north stub: embankment, the vault Collector's Row passes through, the ramp down, the closed gate
-	box(s, "EmbankA", -2, 24, 456, 462, -1.4, 8, PAL.bridge, CONCRETE)
-	slab(s, "VaultRoad", -2, 24, 462, 470, 8, 2, PAL.bridge, CONCRETE)
-	box(s, "EmbankB", -2, 24, 470, 490, -1.4, 2, PAL.bridge, CONCRETE)
-	box(s, "EmbankB1", -2, 24, 470, 477, 2, 6.6, PAL.bridge, CONCRETE)          -- stepped fill under the ramp
-	box(s, "EmbankB2", -2, 24, 477, 484, 2, 4.5, PAL.bridge, CONCRETE)
-	box(s, "EmbankB3", -2, 24, 484, 490, 2, 2.6, PAL.bridge, CONCRETE)
-	stair(s, "StubRamp", Vector3.new(11, 8, 470), Vector3.new(11, 2, 490), 26, PAL.bridge)
-	box(s, "ClosedGate", -4, 26, 490, 494, -1.4, 16, PAL.stoneDark, CONCRETE)
-	box(s, "ClosedGateBeam", -4, 26, 488, 490, 12, 14, PAL.woodDark, WOODP)
+	box(s, "EmbankA", -2, 24, 456, 462, -1.4, 8, bc, bm)
+	slab(s, "VaultRoad", -2, 24, 462, 470, 8, 2, bc, bm)
+	box(s, "EmbankB", -2, 24, 470, 490, -1.4, 2, bc, bm)
+	box(s, "EmbankB1", -2, 24, 470, 477, 2, 6.6, bc, bm)
+	box(s, "EmbankB2", -2, 24, 477, 484, 2, 4.5, bc, bm)
+	box(s, "EmbankB3", -2, 24, 484, 490, 2, 2.6, bc, bm)
+	ramp(s, "StubRamp", Vector3.new(11, 8, 470), Vector3.new(11, 2, 490), 26, 1.0, D and COBBLE or PAL.bridge, D and M.stone or SP)
+	if D then
+		box(s, "ClosedGateArchL", -4, 1, 490, 494, -1.4, 12, STONE, M.stone)
+		box(s, "ClosedGateArchR", 21, 26, 490, 494, -1.4, 12, STONE, M.stone)
+		box(s, "ClosedGateHead", -4, 26, 490, 494, 12, 16, STONE, M.stone)
+		box(s, "ClosedGateDoor", 1, 21, 491.2, 492.4, 2, 12, C3(62, 46, 34), M.plank)
+		for _, y in ipairs({ 4.2, 7.4, 10.4 }) do box(s, "GateStrap", 1, 21, 491.0, 491.25, y, y + 0.5, IRON, M.metal) end
+		box(s, "GateBeam", -4, 26, 488, 490, 12, 14, TIMBER, M.wood)
+		box(s, "StubParapet", -2, -1, 456, 490, 8, 9.2, STONE, M.stone)
+		box(s, "StubParapet", 23, 24, 456, 462, 8, 9.2, STONE, M.stone)
+	else
+		box(s, "ClosedGate", -4, 26, 490, 494, -1.4, 16, PAL.stoneDark, CONCRETE)
+		box(s, "ClosedGateBeam", -4, 26, 488, 490, 12, 14, PAL.woodDark, WOODP)
+	end
 	return s
 end
 
--- Collector's Row: the sunken lane under the bridge road, its old buildings, the relic at the dead end
+-- Collector's Row
 function G.CollectorsRow()
 	local s = section("CollectorsRow")
-	building(s, { name = "RN1", x1 = 26, x2 = 44, z1 = 472, z2 = 500, h = 18, base = -1.4, roof = "gableZ", rise = 6, tone = PAL.wall4 })
-	building(s, { name = "RN2", x1 = -24, x2 = -4, z1 = 473, z2 = 496, h = 14, base = -1.4, roof = "hip", rise = 5, tone = PAL.wall2 })
-	building(s, { name = "RN3", x1 = -44, x2 = -28, z1 = 473, z2 = 504, h = 22, base = -1.4, roof = "gableZ", rise = 7, tone = PAL.wall })
-	building(s, { name = "RN4", x1 = -60, x2 = -48, z1 = 473, z2 = 500, h = 16, base = -1.4, roof = "flat", tone = PAL.wall3 })
-	building(s, { name = "RS1", x1 = -24, x2 = -4, z1 = 446, z2 = 460, h = 10, base = -1.4, roof = "flat", tone = PAL.wall4 })
-	building(s, { name = "RS2", x1 = -56, x2 = -28, z1 = 446, z2 = 460, h = 12, base = -1.4, roof = "shed", shedHigh = "S", tone = PAL.wall2 })
-	-- an old timber overhang closing the lane's east end above the relic
-	box(s, "EndOverhang", -60, -44, 458, 474, 8, 9, PAL.woodDark, WOODP)
-	-- the relic: a fallen colossus head half-buried where the lane dies (relic scale, the only survivor)
-	mk(s, "RelicHead", Vector3.new(11, 9, 9), at(-52, -2.5, 465) * CFrame.Angles(math.rad(18), math.rad(-25), math.rad(12)), PAL.relic, SLATE)
-	-- railing on the river side of the stair landing
-	box(s, "RowRail", 24, 48, 460.4, 461.4, -1.4, 0.2, PAL.woodDark, WOODP)
-	slab(s, "RowLane", -56, 48, 462, 471, -1.28, 0.24, PAL.road, CONCRETE)
+	local D = G.DETAIL
+	for _, b in ipairs(G.BUILDINGS.CollectorsRow) do renderBuilding(s, b) end
+	box(s, "EndOverhang", -60, -44, 458, 474, 8, 9, D and C3(58, 44, 32) or PAL.woodDark, M.plank)
+	if D then
+		for _, x in ipairs({ -58, -46 }) do box(s, "OverhangPost", x - 0.4, x + 0.4, 461.5, 462.3, -1.4, 8, C3(58, 44, 32), M.wood) end
+		mk(s, "RelicHead", Vector3.new(11, 9, 9), at(-52, -2.5, 465) * CFrame.Angles(math.rad(18), math.rad(-25), math.rad(12)), C3(112, 118, 106), M.stone2)
+		mk(s, "RelicEye", Vector3.new(2.2, 1.4, 0.6), at(-49.2, 0.6, 461.4) * CFrame.Angles(math.rad(18), math.rad(-25), math.rad(12)), C3(72, 76, 70), M.stone)
+		mk(s, "RelicMoss", Vector3.new(6, 0.5, 5), at(-53, 1.6, 466) * CFrame.Angles(math.rad(14), math.rad(-25), math.rad(8)), C3(88, 112, 62), M.grass)
+		-- a washing line of odd cloths across the lane
+		rod(s, "Line", Vector3.new(-6, 5.6, 472.6), Vector3.new(-16, 5.2, 461.2), 0.1, ROPE, M.cloth)
+		local cr = rng(hashName("rowcloth"))
+		for _, t in ipairs({ 0.25, 0.5, 0.75 }) do
+			local x, z = -6 - 10 * t, 472.6 - 11.4 * t
+			mk(s, "HungCloth", Vector3.new(1.4, 2.2, 0.15), at(x, 4.3, z) * CFrame.Angles(0, math.rad(-49), 0), pick(cr, CLOTHS), M.cloth)
+		end
+		box(s, "RowRail", 24, 48, 460.4, 461.4, -1.4, 0.2, TIMBER, M.wood)
+		for _, x in ipairs({ 25, 36, 47 }) do box(s, "RowRailPost", x - 0.25, x + 0.25, 460.5, 461.3, -1.4, 1.6, TIMBER, M.wood) end
+		rod(s, "RowRope", Vector3.new(25, 1.4, 460.9), Vector3.new(47, 1.4, 460.9), 0.14, ROPE, M.cloth)
+		box(s, "RowEndRail", 47.6, 48.4, 461, 470, -1.4, 1.6, TIMBER, M.wood)   -- the lane dead-ends at the bank edge
+		slab(s, "RowLane", -56, 48, 462, 471, -1.28, 0.24, C3(96, 90, 84), M.stone)
+	else
+		mk(s, "RelicHead", Vector3.new(11, 9, 9), at(-52, -2.5, 465) * CFrame.Angles(math.rad(18), math.rad(-25), math.rad(12)), PAL.relic, SLATE)
+		box(s, "RowRail", 24, 48, 460.4, 461.4, -1.4, 0.2, PAL.woodDark, WOODP)
+		slab(s, "RowLane", -56, 48, 462, 471, -1.28, 0.24, PAL.road, CONCRETE)
+	end
 	return s
 end
 
--- Stairs: every level change (tilted slabs in the greybox; real treads at the architecture pass)
+-- Stairs: real treads in detail mode, tilted slabs in the greybox
 function G.Stairs()
 	local s = section("Stairs")
-	stair(s, "ForkStairA", Vector3.new(-30, 0, 246), Vector3.new(-54, 7, 246), 6)
-	slab(s, "ForkLanding", -62, -54, 242, 250, 7, 1.0, PAL.stone, CONCRETE)
-	stair(s, "ForkStairB", Vector3.new(-58, 7, 250), Vector3.new(-58, UP, 262), 6)
-	stair(s, "UpperToCauseway", Vector3.new(-61, UP, 362), Vector3.new(-61, 8, 372), 8)
-	stair(s, "BridgeSteps", Vector3.new(44, -0.8, 396), Vector3.new(44, 8, 372), 8)
-	stair(s, "PocketStair", Vector3.new(-30, 8, 388), Vector3.new(-54, -0.8, 388), 4)
-	stair(s, "StubToRow", Vector3.new(24, 8, 466), Vector3.new(48, -1.4, 466), 8)
-	stair(s, "BackTerraceStep", Vector3.new(-104, UP, 298), Vector3.new(-108, UP + 2, 298), 8)
+	local D = G.DETAIL
+	local flights = {
+		{ "ForkStairA", Vector3.new(-30, 0, 246), Vector3.new(-54, 7, 246), 6 },
+		{ "ForkStairB", Vector3.new(-58, 7, 250), Vector3.new(-58, UP, 262), 6 },
+		{ "UpperToCauseway", Vector3.new(-61, UP, 362), Vector3.new(-61, 8, 372), 8 },
+		{ "BridgeSteps", Vector3.new(44, -0.8, 396), Vector3.new(44, 8, 372), 8 },
+		{ "PocketStair", Vector3.new(-28, 8, 388), Vector3.new(-54, -0.8, 388), 4 },
+		{ "StubToRow", Vector3.new(24, 6.8, 474), Vector3.new(40, -1.4, 474), 8 },   -- north of the lane: the Row is a walk-in, walk-out loop
+		{ "BackTerraceStep", Vector3.new(-104, UP, 298), Vector3.new(-108, UP + 2, 298), 8 },
+	}
+	for _, fl in ipairs(flights) do
+		if D then steps(s, fl[1], fl[2], fl[3], fl[4], STONE, M.stone) else ramp(s, fl[1], fl[2], fl[3], fl[4], 1.0, PAL.stone, SP) end
+	end
+	slab(s, "ForkLanding", -62, -54, 242, 250, 7, 1.0, D and STONE or PAL.stone, D and M.stone or CONCRETE)
+	if D then
+		-- low sloped parapets that follow the treads (never a wall: the flights stay enterable from their feet)
+		ramp(s, "ForkRail", Vector3.new(-30, 1.2, 242.7), Vector3.new(-54, 8.2, 242.7), 0.6, 1.6, STONEDARK, M.stone)
+		ramp(s, "BridgeStepsRail", Vector3.new(47.7, 0.4, 396), Vector3.new(47.7, 9.2, 372), 0.6, 1.6, STONEDARK, M.stone)
+		ramp(s, "StubRail", Vector3.new(24, 8.0, 470.2), Vector3.new(40, -0.2, 470.2), 0.6, 1.6, STONEDARK, M.stone)
+		ramp(s, "StubRoadRail", Vector3.new(23.5, 9.2, 478), Vector3.new(23.5, 3.2, 490), 0.6, 1.6, STONE, M.stone)
+		ramp(s, "PocketRail", Vector3.new(-28, 9.2, 390.3), Vector3.new(-54, 0.4, 390.3), 0.6, 1.6, STONEDARK, M.stone)
+	end
 	return s
 end
 
--- Roads: thin darker slabs on the ground so the walk test reads the routes (the street bends; no straight axis)
+-- Roads
 function G.Roads()
 	local s = section("Roads")
-	local pts = { -- Lower Market Street centreline: x, z, width
-		{ 0, 38, 20 }, { 2, 70, 14 }, { 12, 110, 16 }, { 10, 150, 12 }, { 4, 190, 16 }, { -10, 226, 18 }, { -12, 250, 24 },
-	}
+	local D = G.DETAIL
+	local rc, rm = D and C3(108, 100, 92) or PAL.road, D and M.stone or CONCRETE
+	local pts = { { 0, 38, 20 }, { 2, 70, 14 }, { 12, 110, 16 }, { 10, 150, 12 }, { 4, 190, 16 }, { -10, 226, 18 }, { -12, 250, 24 } }
 	for i = 1, #pts - 1 do
 		local a, b = pts[i], pts[i + 1]
 		local p, q = Vector3.new(a[1], 0.12, a[2]), Vector3.new(b[1], 0.12, b[2])
 		local w = (a[3] + b[3]) / 2
-		ramp(s, "Street", p, q, w, 0.24, PAL.road, CONCRETE)
-		cyl(s, "StreetJoint", w, 0.24, at(b[1], 0.12, b[2]), PAL.road, CONCRETE)
+		ramp(s, "Street", p, q, w, 0.24, rc, rm)
+		cyl(s, "StreetJoint", w, 0.24, at(b[1], 0.12, b[2]), rc, rm)
 	end
-	slab(s, "GatePath", -10, 10, 17, 40, 0.12, 0.24, PAL.road, CONCRETE)
-	slab(s, "AlleyA1", 8, 70, 96, 104, 0.12, 0.24, PAL.road, CONCRETE)
-	slab(s, "AlleyA2", 20, 70, 146, 153, 0.12, 0.24, PAL.road, CONCRETE)
-	slab(s, "AlleyA3", 40, 70, 304, 311, 0.12, 0.24, PAL.road, CONCRETE)
-	slab(s, "AlleyA4", -40, -6, 122, 130, 0.12, 0.24, PAL.road, CONCRETE)
-	slab(s, "LaneL1", 6, 70, 250, 262, 0.12, 0.24, PAL.road, CONCRETE)
-	slab(s, "Causeway", -70, -4, 372, 385, 8.12, 0.24, PAL.road, CONCRETE)
-	slab(s, "SquareTop", -4, 39, 366, 399, 8.12, 0.24, PAL.square, CONCRETE)
-	slab(s, "StubRoad", 4, 18, 456, 462, 8.12, 0.24, PAL.road, CONCRETE)
+	slab(s, "GatePath", -10, 10, 17, 40, 0.12, 0.24, rc, rm)
+	slab(s, "AlleyA1", 8, 70, 96, 104, 0.12, 0.24, rc, rm)
+	slab(s, "AlleyA2", 20, 70, 146, 153, 0.12, 0.24, rc, rm)
+	slab(s, "AlleyA3", 40, 70, 304, 311, 0.12, 0.24, rc, rm)
+	slab(s, "AlleyA4", -40, -6, 122, 130, 0.12, 0.24, rc, rm)
+	slab(s, "LaneL1", 6, 70, 250, 262, 0.12, 0.24, rc, rm)
+	slab(s, "Causeway", -70, -4, 372, 385, 8.12, 0.24, D and COBBLE or PAL.road, rm)
+	slab(s, "SquareTop", -4, 39, 366, 399, 8.12, 0.24, D and COBBLE or PAL.square, rm)
+	slab(s, "StubRoad", 4, 18, 456, 462, 8.12, 0.24, D and COBBLE or PAL.road, rm)
+	if D then
+		for i = 1, #pts - 1 do
+			local a, b = pts[i], pts[i + 1]
+			ramp(s, "Gutter", Vector3.new(a[1], 0.14, a[2]), Vector3.new(b[1], 0.14, b[2]), 1.2, 0.2, C3(84, 78, 72), M.stone)
+		end
+	end
 	return s
 end
 
--- Barrier: invisible walls where the water would otherwise let a player leave the settlement
 function G.Barrier()
 	local s = section("Barrier")
 	local props = { Transparency = 1, CanCollide = true, CastShadow = false }
@@ -633,12 +1360,11 @@ function G.Barrier()
 	return s
 end
 
--- NPC spots: visible teal posts in the greybox (invisible anchors from Phase 4); NPC-01 places rigs on them
 function G.NpcSpots()
 	local s = section("NpcSpots")
 	for _, n in ipairs(G.NPC_SPOTS) do
 		local pos = W(n.x, n.y + 2, n.z)
-		local p = mk(s, "NpcSpot_" .. n.role, Vector3.new(1, 4, 1), CFrame.lookAt(pos, pos + n.dir), PAL.npc, SP, { Transparency = 0.35, CanCollide = false })
+		local p = mk(s, "NpcSpot_" .. n.role, Vector3.new(1, 4, 1), CFrame.lookAt(pos, pos + n.dir), PAL.npc, SP, { Transparency = G.DETAIL and 0.6 or 0.35, CanCollide = false })
 		p:SetAttribute("Role", n.role)
 		p:SetAttribute("Tier", n.tier)
 		p:SetAttribute("Note", n.note)
@@ -646,7 +1372,6 @@ function G.NpcSpots()
 	return s
 end
 
--- Booths: the 18 stall modules in their shells, BoothIndex 1..18 contiguous
 function G.Booths()
 	local rc = rootCenter()
 	local old = rc:FindFirstChild("Booths")
@@ -657,7 +1382,6 @@ function G.Booths()
 	return f
 end
 
--- TradeZone: ONE box over the Fork Square + the Guild House arcade (where traders naturally meet)
 function G.TradeZone()
 	local rc = rootCenter()
 	local old = rc:FindFirstChild("TradeZone")
@@ -667,24 +1391,19 @@ function G.TradeZone()
 	return z
 end
 
--- HubPortal: re-pivot the existing portal model so its PortalTouch stands in the boathouse's open west face
 function G.PlacePortal()
 	local portals = gameWorld():FindFirstChild("Portals")
 	local hub = portals and portals:FindFirstChild("HubPortal")
 	local touch = hub and hub:FindFirstChild("PortalTouch", true)
 	if not (hub and touch) then return "HubPortal/PortalTouch not found" end
-	if not hub:GetAttribute("TW2_OriginalPivot") then
-		hub:SetAttribute("TW2_OriginalPivot", hub:GetPivot())
-	end
+	if not hub:GetAttribute("TW2_OriginalPivot") then hub:SetAttribute("TW2_OriginalPivot", hub:GetPivot()) end
 	local pos = W(-21, 5.6, 12)
-	-- the touch part's thin axis is its local Z; the player walks off the dock EAST (design -x) into the boathouse
 	local target = CFrame.lookAt(pos, pos + Vector3.new(-1, 0, 0))
-	local rel = touch.CFrame:ToObjectSpace(hub:GetPivot())      -- pivot expressed in the touch part's frame
+	local rel = touch.CFrame:ToObjectSpace(hub:GetPivot())
 	hub:PivotTo(target * rel)
 	return string.format("HubPortal pivoted; PortalTouch at (%.1f, %.1f, %.1f)", touch.Position.X, touch.Position.Y, touch.Position.Z)
 end
 
--- EternalSkip: keep the kept island script, retarget its orbit into the bay west of the dock (one-time source edit)
 function G.RetargetSkip()
 	local rw = rootWorld()
 	local es = rw:FindFirstChild("EternalSkip")
@@ -694,7 +1413,6 @@ function G.RetargetSkip()
 	local new = src:gsub("local CX, CZ, R = 8000, 8000, 68", "local CX, CZ, R = 8150, 7878, 40", 1)
 	new = new:gsub("local WATER_Y = 2002%.0", "local WATER_Y = 2000.0", 1)
 	if new ~= src then loop.Source = new end
-	-- park the static parts in the bay so they are not left inside the town in Edit mode
 	for _, n in ipairs({ "Stone", "Ring1", "Ring2", "Ring3" }) do
 		local p = es:FindFirstChild(n)
 		if p and p:IsA("BasePart") then p.CFrame = CFrame.new(8190, 2000.4, 7878) end
@@ -703,7 +1421,6 @@ function G.RetargetSkip()
 end
 
 -- ============================================================ operations
--- ONCE: move the old cove island out of the two live folders into ServerStorage (a move, not a delete).
 function G.RetireLegacy()
 	local bk = ServerStorage:FindFirstChild(G.BACKUP)
 	if not bk then bk = folder(ServerStorage, G.BACKUP) end
@@ -711,14 +1428,10 @@ function G.RetireLegacy()
 	local lw = bk:FindFirstChild("Legacy_TradingWorld") or folder(bk, "Legacy_TradingWorld")
 	local lc = bk:FindFirstChild("Legacy_TradingCenter") or folder(bk, "Legacy_TradingCenter")
 	for _, ch in ipairs(rootWorld():GetChildren()) do
-		if not ch:GetAttribute("TW2") and ch.Name ~= "EternalSkip" then
-			ch.Parent = lw; moved.world += 1
-		end
+		if not ch:GetAttribute("TW2") and ch.Name ~= "EternalSkip" then ch.Parent = lw; moved.world += 1 end
 	end
 	for _, ch in ipairs(rootCenter():GetChildren()) do
-		if not ch:GetAttribute("TW2") then
-			ch.Parent = lc; moved.center += 1
-		end
+		if not ch:GetAttribute("TW2") then ch.Parent = lc; moved.center += 1 end
 	end
 	return string.format("legacy moved to ServerStorage.%s: %d from TradingWorld, %d from TradingCenter (EternalSkip kept)", G.BACKUP, moved.world, moved.center)
 end
@@ -735,9 +1448,11 @@ function G.ClearAll()
 end
 
 local SECTIONS = { "Land", "Cliffs", "ArrivalDock", "MarketEntrance", "LowerMarket", "Waterfront", "UpperMarket", "OldBridge", "CollectorsRow", "Stairs", "Roads", "Barrier", "NpcSpots", "Booths", "TradeZone" }
-function G.BuildAll()
+function G.BuildAll(opts)
+	if opts and opts.detail ~= nil then G.DETAIL = opts.detail end
+	roofTone = 0
 	CHS:SetWaypoint("TW2 settlement: before build")
-	local log = {}
+	local log = { "renderer: " .. (G.DETAIL and "ARCHITECTURE (Phase 5)" or "GREYBOX (Phase 2)") }
 	for _, name in ipairs(SECTIONS) do
 		local ok, err = pcall(G[name])
 		table.insert(log, (ok and "ok   " or "FAIL ") .. name .. (ok and "" or (" -- " .. tostring(err))))
@@ -776,7 +1491,6 @@ function G.Contracts()
 		local gui = sign and sign:FindFirstChildWhichIsA("SurfaceGui")
 		local lbl = gui and gui:FindFirstChildOfClass("TextLabel")
 		if not (sign and sign:IsA("BasePart") and gui and lbl) then table.insert(bad, "SignBoard/SurfaceGui/TextLabel") end
-		-- ground under the customer's feet in front of the counter (a stall nobody can reach is a dead stall)
 		if counter then
 			local front = counter.CFrame * CFrame.new(0, 2, -4)
 			local hit = Workspace:Raycast(front.Position, Vector3.new(0, -8, 0))
@@ -786,7 +1500,6 @@ function G.Contracts()
 	end
 	local total = bf and #bf:GetChildren() or 0
 	for i = 1, maxIdx do if not seen[i] then table.insert(problems, "BoothIndex gap at " .. i) end end
-	-- ground under TRADE_POS and the way home off-axis
 	local tradePos = Vector3.new(8000, 2004.6, 7818)
 	local hit = Workspace:Raycast(tradePos, Vector3.new(0, -6, 0))
 	if not hit then table.insert(problems, "no ground under TRADE_POS") else table.insert(problems, string.format("(ground under TRADE_POS: %s at y %.1f)", hit.Instance.Name, hit.Position.Y)) end
@@ -803,6 +1516,7 @@ function G.Stats()
 	local gw = gameWorld()
 	local c = { BasePart = 0, WedgePart = 0, Light = 0, ParticleEmitter = 0, Script = 0, SurfaceGui = 0, BillboardGui = 0, Neon = 0, Model = 0, Total = 0 }
 	local minv, maxv = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
+	local bySection = {}
 	for _, n in ipairs({ G.ROOT_WORLD, G.ROOT_CENTER }) do
 		local m = gw:FindFirstChild(n)
 		if m then
@@ -811,6 +1525,9 @@ function G.Stats()
 				if d:IsA("BasePart") then
 					c.BasePart += 1
 					if d.Material == Enum.Material.Neon then c.Neon += 1 end
+					local sec = d
+					while sec.Parent and sec.Parent ~= m do sec = sec.Parent end
+					bySection[sec.Name] = (bySection[sec.Name] or 0) + 1
 					if d.Name ~= "BarrierWest" and d.Name ~= "BarrierSouth" and d.Name ~= "BarrierEastShore" then
 						local p, s = d.Position, d.Size
 						minv = Vector3.new(math.min(minv.X, p.X - s.X / 2), math.min(minv.Y, p.Y - s.Y / 2), math.min(minv.Z, p.Z - s.Z / 2))
@@ -830,10 +1547,12 @@ function G.Stats()
 	local parts = {}
 	for k, v in pairs(c) do table.insert(parts, k .. "=" .. v) end
 	table.sort(parts)
-	-- BoundsGuard "Trading" box: X 7300..8790, Y 1930..2110, Z 7375..8725 (margins reported)
+	local secs = {}
+	for k, v in pairs(bySection) do table.insert(secs, k .. "=" .. v) end
+	table.sort(secs)
 	local margin = string.format("bbox X %.0f..%.0f Y %.0f..%.0f Z %.0f..%.0f | BoundsGuard margins W %.0f E %.0f N %.0f S %.0f top %.0f",
 		minv.X, maxv.X, minv.Y, maxv.Y, minv.Z, maxv.Z, 8790 - maxv.X, minv.X - 7300, 8725 - maxv.Z, minv.Z - 7375, 2110 - maxv.Y)
-	return table.concat(parts, " ") .. "\n" .. margin
+	return table.concat(parts, " ") .. "\nparts by section: " .. table.concat(secs, " ") .. "\n" .. margin
 end
 
 return G

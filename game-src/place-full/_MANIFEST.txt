@@ -406,7 +406,7 @@ db80c228|10256|ModuleScript|ServerStorage.PeteV3Pipeline
 e051a9b7|8597|ModuleScript|ServerStorage.TradingWorldBackups_2026_09_19.Rollback
 8414e863|7706|Script|ServerStorage.TradingWorldBackups_2026_09_20.Legacy_TradingWorld.CoveDressing.CoveDriver
 c1fee68b|38097|ModuleScript|ServerStorage.TradingWorldBuild.Generator
-39ac62ad|50690|ModuleScript|ServerStorage.TradingWorldBuild.SettlementGenerator
+78f3186c|95119|ModuleScript|ServerStorage.TradingWorldBuild.SettlementGenerator
 35867672|17640|ModuleScript|ServerStorage.TundraPetBuilders
 426f94c9|8856|ModuleScript|ServerStorage.TundraPetKit
 1d7e8275|3173|ModuleScript|ServerStorage.World2Backups_2026_09_19.Rollback
