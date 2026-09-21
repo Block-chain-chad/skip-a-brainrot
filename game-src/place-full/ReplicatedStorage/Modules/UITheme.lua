@@ -595,47 +595,49 @@ end
 -- changes until a shop script opts in by calling these instead of
 -- accentCard/campPanel/campButton.
 -- ===================================================================
--- 2026-08-13 LEMONPOP RETINT (spec §3b "every shop"): the dark stall goes
--- lemon-cream -- light window, warm outline, ONE red header per shop window
--- (the per-shop bronze/green/pink header identities collapse into the red,
--- deliberate). Old values inline. Text colours below assume the pack's
--- builders now set NoPolish and follow the light/dark rule themselves.
+-- 2026-08-16 PS99 RESTYLE (user reference: Pet Simulator 99). White/cool-light
+-- shop windows and cards, dark COOL ink, cool navy edges/shadows; the action
+-- colours (gold headers, red close/stock, green cash, gold gem) and the
+-- per-shop identity ramps KEEP -- they are content, not chrome.
+--
+-- NOTE ON HISTORY: the previous comment block here described a 2026-08-14
+-- "olive revert" whose per-line comments claimed olive values -- THE LITERALS
+-- NEVER MATCHED THEM (audited 2026-08-16). The values below replace the
+-- actual live LemonPop lemon-cream literals, which are recorded inline.
 local BZ = {
-	ink        = Color3.fromRGB(36, 31, 20),    -- #241F14 (was 10,13,19)
-	panelTop   = Color3.fromRGB(255, 251, 226), -- #FFFBE2 (was dark 38,46,60)
-	panelBot   = Color3.fromRGB(255, 217, 119), -- #FFD977 (was 19,23,32)
-	panelEdge  = Color3.fromRGB(36, 31, 20),    -- #241F14 (was 7,9,13)
-	header1    = Color3.fromRGB(255, 107, 92),  -- #FF6B5C the ONE red (was cyan 126,219,255)
-	header2    = Color3.fromRGB(216, 52, 44),   -- #D8342C (was 26,138,214)
-	close1     = Color3.fromRGB(255, 107, 107), -- #FF6B6B (was 255,100,100)
-	close2     = Color3.fromRGB(216, 62, 62),   -- #D83E3E (was 204,32,32)
-	notice     = Color3.fromRGB(194, 65, 12),   -- #C2410C accent ink on light (was salmon 255,122,96)
-	cardTop    = Color3.fromRGB(255, 246, 207), -- #FFF6CF subPanel (was 35,43,56)
-	cardBot    = Color3.fromRGB(247, 201, 92),  -- #F7C95C (was 23,28,38)
-	cardEdge   = Color3.fromRGB(36, 31, 20),    -- #241F14 (was 12,16,22)
-	iconTop    = Color3.fromRGB(255, 255, 255), -- #FFFFFF light art well (was 48,57,74)
-	iconBot    = Color3.fromRGB(255, 244, 217), -- #FFF4D9 (was 27,32,43)
-	title      = Color3.fromRGB(194, 65, 12),   -- #C2410C item names = accent on light (was green 104,232,118)
-	desc       = Color3.fromRGB(51, 38, 26),    -- #33261A ink on light (was 224,230,240)
-	muted      = Color3.fromRGB(122, 106, 82),  -- #7A6A52 (was 150,158,174)
-	stock      = Color3.fromRGB(216, 52, 44),   -- #D8342C warning red that reads on cream (was 255,92,92)
-	cash1      = Color3.fromRGB(131, 227, 74),  -- #83E34A LemonPop green (was 200,246,96)
-	cash2      = Color3.fromRGB(79, 180, 46),   -- #4FB42E (was 92,194,40)
+	ink        = Color3.fromRGB(49, 61, 79),     -- #313D4F cool navy (was warm 36,31,20)
+	panelTop   = Color3.fromRGB(255, 255, 255),  -- white shop window (was lemon 255,251,226)
+	panelBot   = Color3.fromRGB(239, 243, 249),  -- #EFF3F9 (was gold 255,217,119)
+	panelEdge  = Color3.fromRGB(49, 61, 79),     -- (was 36,31,20)
+	header1    = Color3.fromRGB(255, 216, 77),   -- #FFD84D gold KEEPS (identity)
+	header2    = Color3.fromRGB(224, 168, 30),   -- #E0A81E
+	close1     = Color3.fromRGB(255, 100, 100),  -- red KEEPS
+	close2     = Color3.fromRGB(204, 32, 32),
+	notice     = Color3.fromRGB(37, 137, 214),   -- #2589D6 cool accent (was rust 194,65,12)
+	cardTop    = Color3.fromRGB(255, 255, 255),  -- white item cards (was cream 255,246,207)
+	cardBot    = Color3.fromRGB(244, 247, 251),  -- #F4F7FB (was gold 247,201,92)
+	cardEdge   = Color3.fromRGB(49, 61, 79),     -- (was 36,31,20)
+	iconTop    = Color3.fromRGB(255, 255, 255),  -- art well stays light
+	iconBot    = Color3.fromRGB(238, 242, 248),  -- #EEF2F8 (was ivory 255,244,217)
+	title      = Color3.fromRGB(51, 65, 79),     -- #33414F dark item names, PS99-style (was rust 194,65,12)
+	desc       = Color3.fromRGB(51, 65, 79),     -- #33414F (was warm 51,38,26)
+	muted      = Color3.fromRGB(124, 140, 160),  -- #7C8CA0 (was taupe 122,106,82)
+	stock      = Color3.fromRGB(216, 52, 44),    -- warning red KEEPS
+	cash1      = Color3.fromRGB(200, 246, 96),   -- green KEEPS
+	cash2      = Color3.fromRGB(92, 194, 40),
 	cashText   = Color3.fromRGB(24, 44, 10),
-	gem1       = Color3.fromRGB(255, 197, 49),  -- #FFC531 LemonPop gold (was 255,194,92)
-	gem2       = Color3.fromRGB(224, 138, 12),  -- #E08A0C (was 222,120,18)
+	gem1       = Color3.fromRGB(255, 194, 92),   -- gold KEEPS
+	gem2       = Color3.fromRGB(222, 120, 18),
 	white      = Color3.fromRGB(255, 255, 255),
-	rivetTop   = Color3.fromRGB(194, 168, 120), -- #C2A878 brass on cream (was 90,100,118)
-	rivetBot   = Color3.fromRGB(138, 115, 80),  -- #8A7350 (was 30,35,46)
-	rowAltTop  = Color3.fromRGB(255, 242, 192), -- #FFF2C0 alt stripe (was 31,38,50)
-	rowAltBot  = Color3.fromRGB(242, 193, 84),  -- #F2C154 (was 19,23,32)
-	shadow     = Color3.fromRGB(36, 31, 20),    -- #241F14 warm hard shadow (was 6,7,10)
-	-- per-shop header identity RETIRED under LemonPop's one-red-header rule --
-	-- keys kept so call sites don't change, all resolve to the red
-	-- (was rock 255,199,120/197,122,32; sell 168,236,130/58,168,76; egg 255,156,214/188,72,172)
-	rockHeader1 = Color3.fromRGB(255, 107, 92), rockHeader2 = Color3.fromRGB(216, 52, 44),
-	sellHeader1 = Color3.fromRGB(255, 107, 92), sellHeader2 = Color3.fromRGB(216, 52, 44),
-	eggHeader1  = Color3.fromRGB(255, 107, 92), eggHeader2  = Color3.fromRGB(216, 52, 44),
+	rivetTop   = Color3.fromRGB(185, 198, 214),  -- #B9C6D6 cool studs (was brass 194,168,120)
+	rivetBot   = Color3.fromRGB(139, 157, 179),  -- #8B9DB3 (was 138,115,80)
+	rowAltTop  = Color3.fromRGB(248, 250, 253),  -- #F8FAFD alt stripe (was 255,242,192)
+	rowAltBot  = Color3.fromRGB(233, 239, 246),  -- #E9EFF6 (was 242,193,84)
+	shadow     = Color3.fromRGB(49, 61, 79),     -- cool shadow (was warm 36,31,20)
+	-- per-shop header identity KEEPS (bronze rock / green sell / pink egg)
+	rockHeader1 = Color3.fromRGB(255, 199, 120), rockHeader2 = Color3.fromRGB(197, 122, 32),
+	sellHeader1 = Color3.fromRGB(168, 236, 130), sellHeader2 = Color3.fromRGB(58, 168, 76),
+	eggHeader1  = Color3.fromRGB(255, 156, 214), eggHeader2  = Color3.fromRGB(188, 72, 172),
 }
 M.Bazaar = BZ
 M.BazaarFont = Enum.Font.FredokaOne
@@ -730,7 +732,16 @@ function M.bazaarPanel(frame, radius)
 	M.corner(frame, radius)
 	M.gradient(frame, BZ.panelTop, BZ.panelBot, 90)
 	if not frame:FindFirstChildOfClass("UIStroke") then bzStroke(frame, BZ.panelEdge, 4) end
-	bzShadow(frame, 7, radius)
+	-- NO WHOLE-PANEL SHADOW (2026-08-12). This used to drop a panel-SIZED, fully opaque
+	-- BZ.shadow rectangle behind the window, offset 7px. On a 44px header that reads as
+	-- depth; at 440x400 it reads as a SECOND BOX behind the shop -- reported from play as
+	-- "2 boxes ... remove the black box and just have the shop ui showing". The 4px
+	-- outline above is what gives the panel its edge against the world instead.
+	-- Clear one built by an earlier session, since it is a sibling and would linger.
+	do
+		local stale = frame.Parent and frame.Parent:FindFirstChild("BazaarShadow")
+		if stale and stale.AbsoluteSize.Y > 200 then stale:Destroy() end
+	end
 	if not frame:FindFirstChild("Rivet") then
 		local w, h = frame.AbsoluteSize.X, frame.AbsoluteSize.Y
 		-- fallback offsets for the very first frame (AbsoluteSize not resolved yet)
@@ -743,7 +754,7 @@ function M.bazaarPanel(frame, radius)
 	return frame
 end
 
--- inset title bar with an optional leading glyph, e.g. "\u{1F4E6}". Pass
+-- inset title bar with an optional leading glyph, e.g. \"\u{1F4E6}\". Pass
 -- accentTop/accentBot to give a shop its OWN identity colour (rock shop
 -- bronze, sell green, egg pink) instead of every panel sharing one cyan --
 -- omit them and it falls back to the original cyan.
@@ -773,6 +784,11 @@ function M.bazaarHeader(parent, text, iconGlyph, accentTop, accentBot)
 		icon.Text = iconGlyph
 		icon.TextSize = 24
 		icon.ZIndex = bar.ZIndex + 1
+		-- latent-bug fix (2026-08-16 audit): without NoPolish, UIPolish forced
+		-- this glyph white + FredokaOne; colour emoji ignore that but plain-text
+		-- glyphs vanished on the light header ramps. Own the glyph here.
+		icon:SetAttribute("NoPolish", true)
+		icon.TextColor3 = BZ.white
 		icon.Parent = bar
 	end
 
@@ -784,7 +800,9 @@ function M.bazaarHeader(parent, text, iconGlyph, accentTop, accentBot)
 	label.BackgroundTransparency = 1
 	label.Font = M.BazaarFont
 	label.Text = text or ""
-	label.TextColor3 = BZ.white -- red header = dark ground: white + stroke stays
+	label.TextColor3 = BZ.white -- white + bzTextStroke's dark keyline: the only
+	-- thing making this readable on the light TOP of a gold/bronze/green/pink
+	-- header ramp (fill-vs-ground alone is ~1.4:1 up there). Do not drop the stroke.
 	label.TextSize = 21
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.TextTruncate = Enum.TextTruncate.AtEnd
@@ -852,9 +870,12 @@ function M.bazaarRow(parent, height)
 	row.BackgroundColor3 = top
 	row.BorderSizePixel = 0
 	row.Parent = parent
-	M.corner(row, 12)
+	-- 2026-08-19 shop unification: cards were r12 with the HARD navy edge while the
+	-- PS99 panels around them are r24 with the soft grey-blue one. SpecTheme's rule is
+	-- that interiors wear the SOFT edge and only buttons/close keep the chunky dark one.
+	M.corner(row, 24) -- was 12; matches PanelChrome rows / ShopPanel cards
 	M.gradient(row, top, bot, 90)
-	bzStroke(row, BZ.cardEdge, 3)
+	bzStroke(row, Color3.fromRGB(216, 224, 234), 3) -- was BZ.cardEdge #313D4F (OutlineSoft #D8E0EA)
 	return row
 end
 
@@ -870,9 +891,11 @@ function M.bazaarIconSlot(parent, size)
 	icon.ClipsDescendants = true
 	icon.ZIndex = (parent.ZIndex or 1) + 1
 	icon.Parent = parent
-	M.corner(icon, 10)
+	-- Tracks the r24 soft-edged card above: an r10 hard-edged tile inside a rounded
+	-- soft card is exactly the mismatch that made these rows look assembled from parts.
+	M.corner(icon, 20) -- was 10; SpecTheme.Chrome.IconRadius
 	M.gradient(icon, BZ.iconTop, BZ.iconBot, 90)
-	bzStroke(icon, BZ.cardEdge, 2.5)
+	bzStroke(icon, Color3.fromRGB(216, 224, 234), 3) -- was BZ.cardEdge 2.5; IconOutline
 	return icon
 end
 
@@ -932,13 +955,13 @@ function M.bazaarPill(parent, text, kind)
 	btn.BackgroundColor3 = BZ.white
 	btn.BorderSizePixel = 0
 	btn.AutoButtonColor = true
-	btn.Font = Enum.Font.GothamBlack
+	btn.Font = M.BazaarFont -- FredokaOne. GothamBlack was a THIRD face against the kit's "two typefaces, no more"
 	btn.Text = text or ""
 	btn.TextSize = 16
 	btn.ZIndex = (parent.ZIndex or 1) + 1
 	btn:SetAttribute("NoPolish", true) -- LemonPop: pill governs its own label
 	btn.Parent = parent
-	M.corner(btn, 10)
+	M.corner(btn, 18) -- was 10; tracks bazaarRestylePill / Tokens.radius.control
 	if kind == "gem" then
 		M.gradient(btn, BZ.gem1, BZ.gem2, 90)
 		btn.TextColor3 = BZ.white
@@ -947,7 +970,7 @@ function M.bazaarPill(parent, text, kind)
 		M.gradient(btn, BZ.cash1, BZ.cash2, 90)
 		btn.TextColor3 = BZ.cashText
 	end
-	bzStroke(btn, BZ.ink, 2.5)
+	bzStroke(btn, BZ.ink, 4) -- was 2.5; tracks bazaarRestylePill / Tokens.stroke.control
 	-- pills live inside a Row, so a shadow parented to the SAME row (not the
 	-- row's parent) tracks the row's list-managed position automatically --
 	-- no PropertyChangedSignal needed, unlike panel/header/close above.
@@ -965,15 +988,31 @@ function M.bazaarRestylePill(btn, c1, c2, textColor)
 	btn.BackgroundColor3 = BZ.white
 	btn.BorderSizePixel = 0
 	btn.AutoButtonColor = true
-	btn.Font = Enum.Font.GothamBlack
+	btn.Font = M.BazaarFont -- FredokaOne. GothamBlack was a THIRD face against the kit's "two typefaces, no more"
 	btn:SetAttribute("NoPolish", true) -- LemonPop: caller-chosen pill colours survive the polish pass
 	btn.TextColor3 = textColor
-	M.corner(btn, 10)
+	M.corner(btn, 18) -- was 10; Tokens.radius.control = 18 (Egg Shop / Booth buttons)
 	M.gradient(btn, c1, c2, 90)
 	for _, s in ipairs(btn:GetChildren()) do
 		if s:IsA("UIStroke") then s:Destroy() end
 	end
-	bzStroke(btn, BZ.ink, 2.5)
+	bzStroke(btn, BZ.ink, 4) -- was 2.5; Tokens.stroke.control = 4. Buttons keep the CHUNKY dark edge
+	-- INVISIBLE LABELS (fixed 2026-08-14, owner: "you cant see the text").
+	-- A UIGradient MULTIPLIES a TextButton's glyphs as well as its background, and
+	-- multiply can only darken -- so a WHITE label on the gold/orange gem ramp came
+	-- out gold and disappeared into its own button. Rock Shop's BUY pills and Sell
+	-- Rocks' SELL ALL both rendered completely blank; the green SELL 1 survived only
+	-- because it passes a dark cashText that multiply leaves readable.
+	--
+	-- Every sibling builder already compensates with a contextual glyph stroke --
+	-- bazaarPill does it for its gem kind, and campButton and candyButton both call
+	-- the hazard out by name. This one destroyed ALL strokes just above and then only
+	-- ever put the BORDER back, so its label had nothing carrying it.
+	--
+	-- Light labels only: a dark label on a light ramp is already legible, and an ink
+	-- outline under dark text just thickens it into a blob.
+	local tl = 0.2126 * textColor.R + 0.7152 * textColor.G + 0.0722 * textColor.B
+	if tl > 0.5 then bzTextStroke(btn, 1.6) end
 	bzShadow(btn, 3, 10)
 	wireClick(btn, "uiClick") -- SFX2
 end

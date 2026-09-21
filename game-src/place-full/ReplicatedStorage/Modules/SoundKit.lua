@@ -155,6 +155,13 @@ M.Ids = {
 	angel       = "rbxassetid://102859001475552",   -- choir, 2.6s        (Angel, r12)
 	demon       = "rbxassetid://9114628818",        -- deep growl, 2.1s   (Demon, r11)
 	glitched    = "rbxassetid://137930743906958",   -- glitch sfx, 1.8s   (Glitched, r10)
+	-- Phase 2 of the mutation-visuals handoff (2026-08-13): every mutation gets
+	-- a voice. These two reuse WeatherClient's ALREADY-VERIFIED loops as one-
+	-- shots (SoundKit clones play once; the source being a loop doesn't matter)
+	-- -- same ids that play as the Aurora / Shooting Star event beds, which is
+	-- exactly the association the catch cue should trigger.
+	aurora      = "rbxassetid://9125742262",        -- airy swells       (Aurora, r8)
+	celestial   = "rbxassetid://9119807233",        -- falling synth drone (Celestial, r9)
 	cash        = "rbxassetid://9113848943",        -- SFX2 default (was coin_effect 6786936397)
 	place       = "rbxassetid://9113805426",        -- ProSoundEffects, dirt impact
 	uiClick     = "rbxassetid://9119717523",        -- SFX2 default (was rbxasset switch.wav)
@@ -194,6 +201,31 @@ M.Ids = {
 	eggCrumbleBig = "rbxassetid://4307210855",      -- earthloudcrumble2, 1.51s -- tail on the last hit
 	eggStrain     = "rbxassetid://3929463305",      -- bonecrackle, 2.63s -- quiet bed while it waits to be tapped
 	eggSplit      = "rbxassetid://4307207693",      -- brickburst2, 1.37s -- the shell coming apart
+	-- HOLD-TO-SKIP CHARGE BED (ClientMain, via SoundKit.loop -- see the THROW AUDIO
+	-- block there). Was `eggStrain`, which is bonecrackle: the egg hatch's "waiting to
+	-- be tapped" bed, i.e. a BONE sample, looped and pitched 0.72 -> 1.85 while you
+	-- wind up. Owner 2026-08-18: "the hold to skip button makes a weird sound" -- and
+	-- it was, because that is a horror texture doing a job it was never chosen for.
+	-- It stays in this file: the egg still uses it, correctly, for the egg.
+	--
+	-- PICKED BY EAR, and that is the point. Two blind swaps were rejected before this
+	-- (`magic-charge05` among them): reasoning about sample length, family and pitch
+	-- behaviour picks a sound that is DEFENSIBLE, not one that is right, and the owner
+	-- kept hearing "weird". What settled it was auditioning six candidates from six
+	-- different CLASSES -- air, ratchet, stone grind, thrust, wood creak, magic -- each
+	-- played through the real charge treatment rather than raw, and letting the owner
+	-- choose. Anything replacing this should be chosen the same way.
+	--
+	-- Rejected on the way, so nobody walks back into them: `magic-charge05` (fantasy
+	-- spell-cast -- wrong genre for a cartoon lake), and the whole >=2.4s pool of this
+	-- library, which is a horror/combat/fantasy pack with no cartoon wind-up in it.
+	--
+	-- Length still matters and this one is comfortable: a full bar fill is 0.68-1.71s
+	-- (ClientMain's CYCLE_SECONDS * CYCLE_MIN/MAX_MULT), so at 5.12s -- longer again
+	-- once the low end of the pitch ramp stretches it -- the bed cannot wrap inside any
+	-- realistic hold. A bed that wraps retriggers its own attack and reads as a stutter,
+	-- which is half of what was wrong with eggStrain. Keep any replacement above ~2.4s.
+	throwCharge = "rbxassetid://4085858384",        -- flyloop, 5.12s -- sustained air
 	panelOpen   = "rbxassetid://9117847793",        -- SFX2 new: popup/panel appears
 	panelClose  = "rbxassetid://9126267413",        -- SFX2 new: panel close (X buttons)
 	fusion      = "rbxassetid://4612374036",        -- SFX2 new: same id as `mutation` above, the generic sting

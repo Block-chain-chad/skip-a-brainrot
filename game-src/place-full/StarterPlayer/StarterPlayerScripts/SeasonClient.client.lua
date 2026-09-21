@@ -275,7 +275,12 @@ local function render()
 		emoji.Size = UDim2.fromScale(1, 1)
 		emoji.Font = FONT
 		emoji.TextSize = 24
-		emoji.Text = claimed and "\u{2705}" or (def.Milestone and "\u{2B50}" or "\u{1F4B0}")
+		-- the badge now says WHAT the tier gives, not just whether it is a milestone
+		local rw = SeasonConfig.DescribeReward(def)
+		local kindGlyph = (rw.kind == "Emeralds" and "\u{1F48E}")
+			or (rw.kind == "Egg" and "\u{1F95A}")
+			or (def.Milestone and "\u{2B50}" or "\u{1F4B0}")
+		emoji.Text = claimed and "\u{2705}" or kindGlyph
 		emoji.ZIndex = medal.ZIndex + 4
 		emoji.Parent = medal
 
@@ -288,7 +293,9 @@ local function render()
 		cash.Font = FONT
 		cash.TextSize = 14
 		cash.TextColor3 = CF.cream
-		cash.Text = "$" .. fmt(def.Cash)
+		-- cash keeps this client's own abbreviator; every other kind arrives
+		-- display-ready from SeasonConfig so the two pass UIs cannot word it differently
+		cash.Text = (rw.kind == "Cash") and ("$" .. fmt(rw.amount)) or rw.text
 		cash.ZIndex = card.ZIndex + 2
 		cash.Parent = card
 		UITheme.corner(cash, 7)
