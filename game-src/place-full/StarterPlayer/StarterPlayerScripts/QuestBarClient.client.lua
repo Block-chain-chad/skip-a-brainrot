@@ -378,6 +378,30 @@ end
 --   2. otherwise the highest Cur/Target fraction
 --   3. ties broken by list order, which is authored easiest-first
 local function pick(list)
+	-- A BOARD WITH NOTHING CLAIMED YET follows the authored order (2026-09-21,
+	-- first-10-minutes round). Every fresh profile carries progress it did nothing
+	-- for -- the free Pebble is 1/5 of "Own 5 different rocks", a lucky first catch
+	-- is 1/3 of "Own 3 mutated brainrots" -- and nearest-to-complete put those in
+	-- front of "Own 5 brainrots", the goal five throws finish. The list is written
+	-- easiest-first, so until the first claim the first unclaimed goal leads; a met
+	-- goal still wins outright, since READY! is the strongest signal the bar has.
+	-- After the first claim the fraction rule below takes over unchanged.
+	local anyClaimed = false
+	for _, q in ipairs(list) do
+		if q.Claimed then anyClaimed = true break end
+	end
+	if not anyClaimed then
+		for _, q in ipairs(list) do
+			if q.Met and not q.Claimed then return q, 1 end
+		end
+		for _, q in ipairs(list) do
+			if not q.Claimed then
+				local target = tonumber(q.Target) or 1
+				local cur = tonumber(q.Cur) or 0
+				return q, (target > 0 and math.clamp(cur / target, 0, 1) or 0)
+			end
+		end
+	end
 	local best, bestPct, bestIdx
 	for i, q in ipairs(list) do
 		if not q.Claimed then

@@ -103,10 +103,13 @@ rarity ladder runs to 8 = God. discover150, pets12, rocks20 and god all sit insi
 those ceilings. A goal whose target cannot be met is a dead row that never leaves
 the board. ]]
 local QUESTS = {
-	{ id = "uncommon",  desc = "Catch an Uncommon+ brainrot", reward = 900,   target = 2,
-	  cur = bestRarity,      met = function(d) return bestRarity(d) >= 2 end },
+	-- own5 FIRST (2026-09-21): the list is authored easiest-first and QuestBarClient
+	-- follows that order for a board with nothing claimed yet. Five throws finish
+	-- this one; an Uncommon needs a rock a fresh profile cannot afford for minutes.
 	{ id = "own5",      desc = "Own 5 brainrots",             reward = 2400,  target = 5,
 	  cur = totalBrainrots,  met = function(d) return totalBrainrots(d) >= 5 end },
+	{ id = "uncommon",  desc = "Catch an Uncommon+ brainrot", reward = 900,   target = 2,
+	  cur = bestRarity,      met = function(d) return bestRarity(d) >= 2 end },
 	{ id = "cash25k",   desc = "Reach $25,000 cash",          reward = 3600,  target = 25000,
 	  cur = function(d) return d.Cash end,   met = function(d) return d.Cash >= 25000 end },
 	{ id = "dupe3",     desc = "Own 4 of the same brainrot",  reward = 4900,  target = 4,

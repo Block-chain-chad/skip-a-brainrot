@@ -140,7 +140,7 @@ ba8255b8|30268|ModuleScript|ServerScriptService.Modules.PetHandler
 f17904da|10193|ModuleScript|ServerScriptService.Modules.PlotFavoriteService
 5959f866|12835|ModuleScript|ServerScriptService.Modules.PriceIndex
 389fe421|5735|ModuleScript|ServerScriptService.Modules.ProductRegistry
-bd7c4639|14653|ModuleScript|ServerScriptService.Modules.QuestHandler
+a2dec304|14898|ModuleScript|ServerScriptService.Modules.QuestHandler
 21ae61fc|8134|ModuleScript|ServerScriptService.Modules.RarityRoll
 3a9cd541|3144|ModuleScript|ServerScriptService.Modules.RebirthHandler
 9086ebcf|15567|ModuleScript|ServerScriptService.Modules.RockSlingService
@@ -440,7 +440,7 @@ c0ceabfa|6739|LocalScript|StarterPlayer.StarterPlayerScripts.FootstepClient
 f1afd6d4|94875|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.CharmsPanel
 81ff4275|42780|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.DailyPanel
 e9d29875|29445|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.GalleryPanel
-40ce2d0c|70063|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.GoalsPanel
+e73081b2|71238|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.GoalsPanel
 cc289c9b|70430|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.IndexPanel
 739ef35d|44470|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.PassPanel
 16c01080|6989|ModuleScript|StarterPlayer.StarterPlayerScripts.GameHUDPanels.PetAbilityHelp
@@ -458,7 +458,7 @@ f01dcef7|34936|LocalScript|StarterPlayer.StarterPlayerScripts.IndexClient
 6f847d12|257|LocalScript|StarterPlayer.StarterPlayerScripts.InventoryClient
 0bf8e899|3918|LocalScript|StarterPlayer.StarterPlayerScripts.LakeAmbience
 973e691f|40252|LocalScript|StarterPlayer.StarterPlayerScripts.LuckHUDClient
-ebd377db|40571|LocalScript|StarterPlayer.StarterPlayerScripts.MerchantClient
+3794c789|40940|LocalScript|StarterPlayer.StarterPlayerScripts.MerchantClient
 90cef661|24724|LocalScript|StarterPlayer.StarterPlayerScripts.MichelQuestClient
 23d4595e|6396|LocalScript|StarterPlayer.StarterPlayerScripts.MusicClient
 0edab2d6|15583|LocalScript|StarterPlayer.StarterPlayerScripts.MutationMotionClient
@@ -473,7 +473,7 @@ d11016f0|33109|LocalScript|StarterPlayer.StarterPlayerScripts.PlatformClient
 de266797|9057|LocalScript|StarterPlayer.StarterPlayerScripts.PlotFavoriteClient
 4ff4ee31|4705|LocalScript|StarterPlayer.StarterPlayerScripts.PlotFlagVisibility
 b83e5868|15491|LocalScript|StarterPlayer.StarterPlayerScripts.PlotSignClient
-47e5f2df|21005|LocalScript|StarterPlayer.StarterPlayerScripts.QuestBarClient
+66705f0d|22079|LocalScript|StarterPlayer.StarterPlayerScripts.QuestBarClient
 d9417e5b|6222|LocalScript|StarterPlayer.StarterPlayerScripts.QuestClient
 1e8a8c17|59456|LocalScript|StarterPlayer.StarterPlayerScripts.QuestTrackerClient
 c7c9be1b|2674|LocalScript|StarterPlayer.StarterPlayerScripts.RaidClient

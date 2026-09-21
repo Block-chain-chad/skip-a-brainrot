@@ -564,6 +564,11 @@ local function makeCard(order, name, infoLine, btnText, kind, onClick, previewBu
 		zIndex = card.ZIndex + 1, parent = card,
 	})
 	info.TextYAlignment = Enum.TextYAlignment.Top
+	-- Two-line infos (rock cards: reach line under the stats) read at 14: the longest
+	-- reach line, "Catches LEGENDARY  .  Mythic from 640m", measures 250 px at 14 and
+	-- 266 at 15 against a 269 px band -- at 15 the Common/Uncommon lines wrapped to a
+	-- third line under the button (seen live 2026-09-21).
+	if infoLine:find("\n", 1, true) then info.TextSize = 14 end
 
 	-- ACTION PILL. Still a bare TextButton restyled by stylePill rather than a
 	-- UI.button: the caller passes an explicit gradient PAIR per state (cash

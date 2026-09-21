@@ -1300,12 +1300,23 @@ function GoalsPanel.Build(ctx, opts)
 		tickCountdownRef()
 	end
 
+	-- The player picked a tab since this open: the claim-landing rule below must
+	-- not yank them off it when the next QuestState push lands.
+	local userPickedTab = false
 	for id, btn in pairs(tabButtons) do
 		btn.MouseButton1Click:Connect(function()
+			userPickedTab = true
 			switchTab(id)
 		end)
 	end
 	updateTabVisuals()
+
+	local function hasClaimableGoal(list)
+		for _, q in ipairs(list) do
+			if q.Met and not q.Claimed then return true end
+		end
+		return false
+	end
 
 	----------------------------------------------------------- refresh countdown (1s loop, STRICTLY gated on wrapper.Visible)
 	local countdownRunning = false
@@ -1456,6 +1467,10 @@ function GoalsPanel.Build(ctx, opts)
 		goalsQuests = quests
 		if activeTab == "Goals" then
 			renderGoals()
+		elseif wrapper.Visible and not userPickedTab and hasClaimableGoal(quests) then
+			-- see onShown: the first open builds this panel lazily, so the board
+			-- arrives AFTER onShown ran -- land on the claim from here instead
+			switchTab("Goals")
 		end
 	end)
 
@@ -1485,6 +1500,16 @@ function GoalsPanel.Build(ctx, opts)
 	-- client-fire request path (QuestHandler only pushes on join + its own
 	-- 3s poll) so Goals milestones rely on that passive push alone.
 	local function onShown()
+		-- LAND ON A CLAIM (2026-09-21, first-10-minutes round). A met, unclaimed
+		-- one-time goal is the most actionable thing on this board, so the panel
+		-- opens on the GOALS tab whenever there is one: the bar's READY! tap and the
+		-- tutorial's GOAL COMPLETE step both send a new player here for exactly that,
+		-- and the Daily tab was hiding the CLAIM behind a click they had no reason to
+		-- make. With nothing to claim the remembered tab is respected as before.
+		userPickedTab = false
+		if activeTab ~= "Goals" and hasClaimableGoal(goalsQuests) then
+			switchTab("Goals")
+		end
 		ctx.remotes.SeasonState:FireServer()
 		pullEmeraldState()
 		ensureBobDriver()
