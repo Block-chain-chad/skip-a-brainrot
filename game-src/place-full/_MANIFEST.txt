@@ -492,7 +492,7 @@ cc54efba|1870|LocalScript|StarterPlayer.StarterPlayerScripts.ShopPanelCentre
 adc2bd49|7797|LocalScript|StarterPlayer.StarterPlayerScripts.TundraQuestClient
 ab2e0224|5927|LocalScript|StarterPlayer.StarterPlayerScripts.TundraWeatherFX
 bc7db348|25341|LocalScript|StarterPlayer.StarterPlayerScripts.TungQuestClient
-7179714b|36627|LocalScript|StarterPlayer.StarterPlayerScripts.TutorialClient
+8280d033|37590|LocalScript|StarterPlayer.StarterPlayerScripts.TutorialClient
 3ed9d260|13366|LocalScript|StarterPlayer.StarterPlayerScripts.UIPolish
 5ed4eb7a|8803|LocalScript|StarterPlayer.StarterPlayerScripts.ValleyAmbience
 94f9fc8f|56723|LocalScript|StarterPlayer.StarterPlayerScripts.WeatherClient

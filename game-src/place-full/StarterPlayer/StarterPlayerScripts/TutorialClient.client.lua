@@ -510,21 +510,33 @@ UITheme.styleHudButton(skipBtn, Color3.fromRGB(150, 156, 170), Color3.fromRGB(94
 skipBtn.TextSize = 13
 blackRim(skipBtn, 2.5)
 
--- Where the card rests, per platform. Phone numbers were measured in the iPhone 16
--- simulator (733x371 viewport): the currency cluster ends at y~62, the tab bar is
--- centred, the rail row and the throw cluster own the bottom band.
+-- Where the card rests, per platform.
+--
+-- PHONE, measured in the iPhone 16 simulator (733x371 viewport, 58px top inset, so
+-- MainUI's canvas runs y -58..313 in screen terms): the currency cluster owns
+-- y 10..48, the 2x3 nav rail x 10..152 / y 65..172, the throw cluster x 196..536
+-- from y 241 at the dock, the catch pop and skip counter the top centre, the Goals
+-- bar the right edge. The one lane clear of all of them is bottom-left UNDER the
+-- rail and LEFT of the throw cluster: 176 wide, from the rail's foot to the bottom
+-- edge. PlatformClient's auto-fitter would halve a frame this size (it did: 0.49),
+-- so the card declares itself managed and is sized by hand.
 local CARD_REST = UDim2.new(0, 92, 1, -16)
 local function layoutCard()
 	if Platform.IsPhone then
-		card.AnchorPoint = Vector2.new(0, 0)
-		CARD_REST = UDim2.new(0, 8, 0, 70)
-		card.Size = UDim2.fromOffset(300, 120)
-		stepLbl.TextSize = 11; stepLbl.Position = UDim2.new(0, 10, 0, 6); stepLbl.Size = UDim2.new(1, -16, 0, 14)
-		titleLbl.TextSize = 15; titleLbl.Position = UDim2.new(0, 10, 0, 20); titleLbl.Size = UDim2.new(1, -16, 0, 20)
-		bodyLbl.TextSize = 11; bodyLbl.Position = UDim2.new(0, 10, 0, 40); bodyLbl.Size = UDim2.new(1, -20, 0, 42)
-		cueLbl.TextSize = 10; cueLbl.Position = UDim2.new(0, 10, 1, -30); cueLbl.Size = UDim2.new(1, -20, 0, 12)
-		track.Position = UDim2.new(0, 10, 1, -18); track.Size = UDim2.new(1, -108, 0, 6)
-		skipBtn.Size = UDim2.fromOffset(88, 22); skipBtn.Position = UDim2.new(1, -96, 1, -28); skipBtn.TextSize = 11
+		card:SetAttribute("HudLayoutManaged", true)
+		local fit = card:FindFirstChild("PlatformFitScale")
+		if fit then fit.Scale = 1 end
+		card.AnchorPoint = Vector2.new(0, 1)
+		CARD_REST = UDim2.new(0, 8, 1, -8)
+		card.Size = UDim2.fromOffset(176, 124)
+		stepLbl.TextSize = 10; stepLbl.Position = UDim2.new(0, 8, 0, 4); stepLbl.Size = UDim2.new(1, -12, 0, 12)
+		titleLbl.TextSize = 13; titleLbl.Position = UDim2.new(0, 8, 0, 15); titleLbl.Size = UDim2.new(1, -12, 0, 16)
+		bodyLbl.TextSize = 10; bodyLbl.Position = UDim2.new(0, 8, 0, 32); bodyLbl.Size = UDim2.new(1, -14, 0, 60)
+		-- the cue ("3 / 5 caught . last skip 20m -> COMMON") needs the whole width, so on
+		-- a phone Skip Tutorial moves up beside the short step label instead
+		cueLbl.TextSize = 9; cueLbl.Position = UDim2.new(0, 8, 1, -24); cueLbl.Size = UDim2.new(1, -16, 0, 11)
+		track.Position = UDim2.new(0, 8, 1, -12); track.Size = UDim2.new(1, -16, 0, 5)
+		skipBtn.Size = UDim2.fromOffset(76, 16); skipBtn.Position = UDim2.new(1, -82, 0, 3); skipBtn.TextSize = 10
 	else
 		card.AnchorPoint = Vector2.new(0, 1)
 		CARD_REST = UDim2.new(0, 92, 1, -16)
@@ -608,6 +620,10 @@ local steps = {
 		Cue = function()
 			local n = math.min(facts.brainrots, GOAL_COUNT)
 			if facts.lastDistance then
+				-- the phone cue line is 160 px at 9 px: the same facts, fewer words
+				if Platform.IsPhone then
+					return ("%d/%d caught  \u{2022}  %dm \u{2192} %s"):format(n, GOAL_COUNT, facts.lastDistance, string.upper(facts.lastRarity or "Common"))
+				end
 				return ("%d / %d caught  \u{2022}  last skip %dm \u{2192} %s"):format(n, GOAL_COUNT, facts.lastDistance, string.upper(facts.lastRarity or "Common"))
 			end
 			return ("%d / %d caught"):format(n, GOAL_COUNT)
@@ -791,7 +807,7 @@ local function start()
 	-- first appearance comes in from further away. Bumping the gen supersedes the
 	-- 26px glide showStep just started.
 	cardGen += 1
-	local from = Platform.IsPhone and (CARD_REST + UDim2.fromOffset(0, -40)) or UDim2.new(0, 92, 1, 60)
+	local from = Platform.IsPhone and UDim2.new(0, 8, 1, 60) or UDim2.new(0, 92, 1, 60)
 	glideCard(card, from, CARD_REST, TweenInfo.new(0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out), cardGen)
 end
 
