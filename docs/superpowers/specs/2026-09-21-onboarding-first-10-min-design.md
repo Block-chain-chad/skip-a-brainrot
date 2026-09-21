@@ -156,11 +156,12 @@ unlocked pad filled AND at least one unplaced brainrot, show one `UIKit.Toast`:
 
 ### 7.4 Phone
 
-The card keeps its 340×184 desktop box. On `Platform.IsPhone` it becomes 280×150,
-body 12px, and sits bottom-left ABOVE the phone rail row (y from `HudLayout` rail
-reserve + 8), never under `MainUI.ThrowFrame` (bottom-centre) — verified in the
-iPhone 16 simulator. Short phones (`Platform.IsShortPhone()`) get the same box at
-top-centre under the tab bar.
+The card keeps its 340×184 desktop box. On `Platform.IsPhone` it becomes 300×120
+with smaller type and sits top-left under the currency cluster (x 8, y ~70) — the
+one lane on a handset that is clear of the rail row and the throw cluster (both in
+the bottom band) and of the catch pop (top-centre, from ~40 % of the width). The
+exact y is measured in the iPhone 16 simulator and must leave the card with zero
+HudAudit overlaps; the throw cluster and the pop stay uncovered.
 
 ## 8. Test seam — `ServerScriptService.Modules.SessionLock`
 
