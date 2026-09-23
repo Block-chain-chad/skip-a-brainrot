@@ -12,6 +12,7 @@ Run from the command bar or the Studio MCP, in Edit mode:
     G.BuildAll()         -- every section, each pcall-guarded, in place around TRADE_POS
     print(G.Contracts()) -- booth / zone / index / ground / portal self-check -> "OK 18/18 stalls ..."
     print(G.Stats())     -- part / light / script counts + bounding box vs the BoundsGuard box
+    G.CounterGuards()    -- (v15) only the invisible counter guards; safe to re-run on its own
 
 IN PLACE. The settlement is generated around the existing arrival point: design origin O = the ground
 under TeleportService.TRADE_POS = (8000, 2002.4, 7818). Design axes: x = WEST (world +X, the player LEFT
@@ -35,7 +36,7 @@ walls, real stair treads, and the six stall-shell families. The currency never a
 ]]
 
 local G = {}
-G.VERSION = 14
+G.VERSION = 15
 G.DETAIL = true
 G.O = Vector3.new(8000, 2002.4, 7818)          -- design origin (ground under TRADE_POS)
 G.ROOT_WORLD = "TradingWorld"
@@ -1500,6 +1501,62 @@ function G.TradeZone()
 	return z
 end
 
+-- ============================================================ counter guards (v15, TRADE queue Item 2)
+-- One invisible collider over each CounterTop so nobody can stand on a counter. Its own section, NOT inside
+-- the Booth models: NpcFocusClient outlines the whole booth model when a StandPrompt shows. The footprint is
+-- the CounterTop's (8.5 x 2.9) and never more, so customers stand where they did (a tall avatar's head just can't
+-- lean over the top any more, ~0.4 studs); Counter.Position (BoothHandler's BUY_RADIUS centre) and both prompts
+-- are untouched, and both prompts skip line of sight.
+-- `top` is design studs above the counter's foot (the CounterTop surface is +3.26). An R15 root part rides
+-- HipHeight above the feet and the legs don't collide, so a jump clears a ledge at standing height + HipHeight
+-- + 7.2 (a 10-stud guard was mounted from the street in the Item 2 play test). Sized for HipHeight up to 3.5 and
+-- a sprint (33.8) jump arc from every standable prop or walkway near the stall, + 0.8. Building masses under
+-- the non-collidable roofs are left out: rooftop parkour is its own problem. Where a solid balcony, lean-to,
+-- landing or arcade floor covers the counter the guard is sealed to its underside instead: no top to stand on.
+G.GUARD_TOP = 14                                       -- the street and the 2.2 plinths: 2.2 + 3.5 + 7.2 + 0.8 = 13.7
+G.COUNTER_GUARDS = {
+	[1] = { top = 16.5 },                              -- the Gateway open post (12 high, 18 studs off); the gate-post cap is boxed in by this guard + the Customs House
+	[3] = { top = 8.55 },                              -- sealed under the B4 balcony (underside 8.5)
+	[4] = { top = 8.45, x1 = -4.25, x2 = -3.05 },      -- sealed under the B5 landing; the stair's solid treads bury the rest of this counter
+	[6] = { top = 15 },                                -- tree trunk 10 high, 18 studs off
+	[7] = { top = 22 },                                -- the B5 stair's balusters (9.7) and landing (9.0) in front of it
+	[8] = { top = 23.5 },                              -- the stone arch over it is walkable from the piers (crown 11.9)
+	[9] = { top = 9.05 },                              -- sealed under the Curio House arcade floor (9.0)
+	[10] = { top = 20 },                               -- canopy post tops 8.2
+	[11] = { top = 17 },                               -- causeway parapet 5.2, 9 studs off
+	[13] = { top = 7.6, split = 0.4, backTop = 20 },   -- front sealed under the lean-to (7.6); behind it, clear of the lean-to roof (8.4)
+	[14] = { top = 9.35 },                             -- sealed under the S4 balcony (underside 9.3)
+	[15] = { top = 7.6, split = 0.4, backTop = 20 },
+	[16] = { top = 18.5 },                             -- lamp post 6.6, 5.5 studs off
+	[17] = { top = 18.5 },                             -- lamp post 6.6, 4.5 studs off
+	[18] = { top = 23 },                               -- the north stub ramp (9.4) and its parapet (10.6), 8 studs off
+}
+local GUARD_FOOT = 3.2                                 -- 0.06 into the CounterTop: no seam to catch a foot
+function G.CounterGuards()
+	local s = section("CounterGuards")
+	local props = { Transparency = 1, CanCollide = true, CanTouch = false, CastShadow = false, Locked = true }
+	local n = 0
+	for _, st in ipairs(G.STALLS) do
+		local g = G.COUNTER_GUARDS[st.idx] or {}
+		local pos = W(st.x, st.y, st.z)
+		local origin = CFrame.lookAt(pos, pos + st.dir)   -- the stall's own frame: local -Z = toward the customer
+		local x1, x2 = g.x1 or -4.25, g.x2 or 4.25
+		local function guard(name, z1, z2, top)
+			local p = mk(s, name, Vector3.new(x2 - x1, top - GUARD_FOOT, z2 - z1),
+				origin * CFrame.new((x1 + x2) / 2, (GUARD_FOOT + top) / 2, (z1 + z2) / 2), PAL.npc, SP, props)
+			p:SetAttribute("BoothIndex", st.idx)
+			n += 1
+		end
+		if g.split then
+			guard("CounterGuard" .. st.idx, -1.45, g.split, g.top)
+			guard("CounterGuard" .. st.idx .. "Back", g.split, 1.45, g.backTop)
+		else
+			guard("CounterGuard" .. st.idx, -1.45, 1.45, g.top or G.GUARD_TOP)
+		end
+	end
+	return string.format("%d counter guards over %d stalls", n, #G.STALLS)
+end
+
 function G.PlacePortal()
 	local portals = gameWorld():FindFirstChild("Portals")
 	local hub = portals and portals:FindFirstChild("HubPortal")
@@ -1833,7 +1890,7 @@ function G.ClearAll()
 	return "cleared " .. n .. " generated sections"
 end
 
-local SECTIONS = { "Land", "Cliffs", "ArrivalDock", "Gateway", "MarketEntrance", "LowerMarket", "Waterfront", "UpperMarket", "OldBridge", "CollectorsRow", "Stairs", "Roads", "Barrier", "NpcSpots", "Booths", "TradeZone", "Dressing", "Lanterns" }
+local SECTIONS = { "Land", "Cliffs", "ArrivalDock", "Gateway", "MarketEntrance", "LowerMarket", "Waterfront", "UpperMarket", "OldBridge", "CollectorsRow", "Stairs", "Roads", "Barrier", "NpcSpots", "Booths", "CounterGuards", "TradeZone", "Dressing", "Lanterns" }
 function G.BuildAll(opts)
 	if opts and opts.detail ~= nil then G.DETAIL = opts.detail end
 	roofTone = 0
