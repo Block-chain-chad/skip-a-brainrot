@@ -3,6 +3,7 @@
 **For:** Balkan (walk-through and sign-off) · **By:** BEAST · **Branch:** `world2-overhaul` · **Date:** 2026-09-19
 **Status:** the greybox is **built in Studio**, in the shared Team Create place (place `78783087742939`). It is **not published**. Work stopped before art and polish, as instructed.
 **Plan:** [`WORLD2-MASTERPLAN.md`](WORLD2-MASTERPLAN.md) (updated with the as-built notes) · **Quest audit:** [`WORLD2-QUEST-AUDIT.md`](WORLD2-QUEST-AUDIT.md)
+**Update 2026-09-21:** the functional fixes and the art pass are in [`WORLD2-ART-PASS.md`](WORLD2-ART-PASS.md). The respawn blocker (item 2 below) is **fixed**: a death in World 2 now respawns at the Tundra arrival. The publish freeze still stands, and the rollback now covers the art pass too.
 
 Compass as in the masterplan: **N = +Z** (up-lake), **E = −X**, **W = +X**. Heights are absolute Y; the town/lake datum is **2002**.
 

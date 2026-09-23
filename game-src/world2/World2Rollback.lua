@@ -13,6 +13,12 @@ PlayerBases.Plot7-12, the Tundra terrain (clears everything the generator can wr
 saved TundraTerrain region back), and the script sources saved in
 ServerStorage.AuditBackups.PreWorld2Blockout_2026_09_19.
 
+Since the 2026-09-21 art pass it also puts back what that pass changed OUTSIDE FrozenTundra (the art
+itself lives under FrozenTundra, so the first step already removes it, and its terrain writes all sit
+inside what ClearAll clears): the sources saved in ServerStorage.AuditBackups.PreWorld2Pass_2026_09_21
+(TeleportService, TeleportFadeClient, TundraBirds, TundraAtmosphere) and Lighting.TundraGrade's tint.
+Those go back FIRST, so the blockout-era backups win for TeleportService, which both sets hold.
+
 CHECK FIRST: the scripts are restored to their 2026-09-19 sources. If anyone has edited TeleportService,
 IceFishingEvent, WheelBoard, LeaderboardBoards, TundraWeatherFX or SnowFootprints since, their edits
 would be overwritten -- restore those by hand instead.
@@ -73,6 +79,22 @@ function M.Restore()
 	table.insert(log, "Tundra terrain pasted back")
 
 	local ab = SS:FindFirstChild("AuditBackups")
+	local pass = ab and ab:FindFirstChild("PreWorld2Pass_2026_09_21")
+	if pass then
+		for _, s in ipairs(pass:GetChildren()) do
+			local live = s:IsA("LuaSourceContainer") and find(s:GetAttribute("OriginalPath") or "")
+			if live then
+				live.Source = s.Source
+				table.insert(log, "script restored (art pass): " .. live:GetFullName())
+			end
+		end
+		local tint = pass:GetAttribute("TundraGradeTint")
+		local grade = game:GetService("Lighting"):FindFirstChild("TundraGrade")
+		if tint and grade then
+			grade.TintColor = tint
+			table.insert(log, "TundraGrade tint restored")
+		end
+	end
 	local sb = ab and ab:FindFirstChild("PreWorld2Blockout_2026_09_19")
 	if sb then
 		for _, s in ipairs(sb:GetChildren()) do

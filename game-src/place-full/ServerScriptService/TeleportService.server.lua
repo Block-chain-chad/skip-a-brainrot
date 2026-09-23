@@ -110,7 +110,7 @@ local CURTAIN_IN = 0.22
 -- a black screen in front of routine movement.
 local CURTAIN_MIN_DIST = 400
 
-local function teleportCharacter(player, pos, lookDir)
+local function teleportCharacter(player, pos, lookDir, aimCamera)
 	local character = player.Character
 	if not character then return end
 	local hrp = character:FindFirstChild("HumanoidRootPart")
@@ -140,7 +140,11 @@ local function teleportCharacter(player, pos, lookDir)
 	-- falling arrives still moving and skids off the pad.
 	hrp.AssemblyLinearVelocity = Vector3.zero
 	hrp.AssemblyAngularVelocity = Vector3.zero
-	if far then fadeRemote:FireClient(player, { Phase = "In" }) end
+	-- aimCamera: ask the client to turn the camera to the arrival's look before the
+	-- curtain lifts. Without it the camera keeps whatever heading it had before the hop,
+	-- and World 2's arrival faces a tunnel mouth -- facing the other way meant facing the
+	-- portal home. Only arrivals that opt in (portalDests .aim) send it.
+	if far then fadeRemote:FireClient(player, { Phase = "In", Look = aimCamera and lookDir or nil }) end
 end
 
 -- Base-less player: drop them onto the first open plot. Touching it claims the base
@@ -235,7 +239,7 @@ end)
 local portalDests = {
 	Trade = { pos = TRADE_POS, look = FORWARD },
 	Hub = { pos = HUB_POS, look = TO_HUB },
-	Tundra = { pos = TUNDRA_POS, look = TUNDRA_LOOK },
+	Tundra = { pos = TUNDRA_POS, look = TUNDRA_LOOK, aim = true },
 	Dungeon = { pos = DUNGEON_POS, look = FORWARD },
 	-- facing -Z, up the gorge toward the hub
 	Gardens = { pos = GARDENS_POS, look = Vector3.new(0, 0, -1) },
@@ -468,7 +472,7 @@ travelToWorld = function(player, id)
 			:format(id, tostring(dest.Dest)))
 		return
 	end
-	teleportCharacter(player, target.pos, target.look)
+	teleportCharacter(player, target.pos, target.look, target.aim)
 	-- teleportCharacter yields until the character has actually moved, so by here the
 	-- player IS in the new world -- refresh rather than waiting out the sampler, or
 	-- reopening the board straight after arriving shows the world you just left as
@@ -507,7 +511,7 @@ local function setupPortal(touchPart)
 		if placeId and placeId > 0 then
 			sendToPlace(player, placeId, dest)
 		else
-			teleportCharacter(player, target.pos, target.look)
+			teleportCharacter(player, target.pos, target.look, target.aim)
 			-- a portal is how a world gets DISCOVERED, so the board has to hear about
 			-- this arrival as promptly as it hears about a fast travel
 			refreshTravelBoard(player)
@@ -538,14 +542,37 @@ end)
 -- is a closed copy here (see the population-split note above).
 local pendingArrival = {} -- [player] = portal dest name, consumed on first spawn
 
+-- RESPAWN IN WORLD 2 (2026-09-21). The place has ONE SpawnLocation, in the valley, so
+-- dying or resetting in the Frozen Tundra dropped the player back in World 1 -- the
+-- blocker Balkan ruled on 2026-09-19. The world a character DIES in is remembered, and
+-- the next character goes straight back to that world's arrival point: the same hop,
+-- curtain and camera as walking in. Deaths only -- a LoadCharacter some other system does
+-- on purpose is left alone -- and the Tundra only: the other worlds keep their behaviour
+-- until their owners decide theirs. A fresh JOIN still starts in the valley (nothing on
+-- the profile records the last world).
+local RESPAWN_DEST = { Tundra = "Tundra" }   -- BoundsGuard region -> portal dest
+local diedIn = {}                            -- [player] = region of the last death
+
+local function watchDeath(player, character)
+	local hum = character:WaitForChild("Humanoid", 10)
+	if not hum then return end
+	hum.Died:Connect(function()
+		diedIn[player] = PlayerDataManager.PlayerWorld(player)
+	end)
+end
+
 local function onCharacter(player)
 	local destName = pendingArrival[player]
 	pendingArrival[player] = nil
 	if not destName then destName = HERE_DEST end -- satellites: every spawn
+	-- a respawn after dying in a world that keeps its own players (RESPAWN_DEST)
+	local died = diedIn[player]
+	diedIn[player] = nil
+	if not destName and died then destName = RESPAWN_DEST[died] end
 	local target = destName and portalDests[destName]
 	if not target then return end -- main place, plain join: default spawn is right
 	task.wait(0.2) -- let the spawn settle before pivoting
-	teleportCharacter(player, target.pos, target.look)
+	teleportCharacter(player, target.pos, target.look, target.aim)
 	refreshTravelBoard(player)
 end
 
@@ -555,16 +582,21 @@ Players.PlayerAdded:Connect(function(player)
 	if typeof(td) == "table" and typeof(td.dest) == "string" and portalDests[td.dest] then
 		pendingArrival[player] = td.dest
 	end
-	player.CharacterAdded:Connect(function()
+	player.CharacterAdded:Connect(function(character)
+		task.spawn(watchDeath, player, character)
 		task.spawn(onCharacter, player)
 	end)
-	if player.Character then task.spawn(onCharacter, player) end
+	if player.Character then
+		task.spawn(watchDeath, player, player.Character)
+		task.spawn(onCharacter, player)
+	end
 end)
 
 Players.PlayerRemoving:Connect(function(player)
 	lastPortalUse[player] = nil
 	teleporting[player] = nil
 	pendingArrival[player] = nil
+	diedIn[player] = nil
 end)
 
 do
