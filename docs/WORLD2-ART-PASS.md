@@ -244,3 +244,34 @@ What the rollback covers:
 `game-src/world2/World2Blockout.lua` (the generator) is unchanged. All four mirrors are byte-exact from
 Studio via the bridge. `_MANIFEST.txt` is not regenerated on this branch (it lives on
 `source-sync-audit`).
+
+---
+
+## 12. QA tips (added 2026-09-23, after the ice-fishing re-run)
+
+Two things cost a full session each. Read this before QAing World 2 again.
+
+**Force the ice-fishing event with an attribute, not `ForceStart`.** `IceFishingEvent.Init()` listens for
+`ReplicatedStorage:SetAttribute("IceFishingForce", <seconds>)` and starts a freeze of that length
+(clamped to `Cfg.FREEZE_SECONDS`, cleared as it fires, so it is single-use). Use that:
+
+```lua
+game:GetService("ReplicatedStorage"):SetAttribute("IceFishingForce", 240)
+```
+
+Calling `IceFishingEvent.ForceStart()` from the MCP bridge or the command bar does nothing visible,
+because each of those gets its **own `require` cache** — you get a second, inert copy of the module
+while the live server keeps running the one it loaded. An attribute is an Instance, so it crosses that
+boundary. The event is NOT un-forceable; the 2026-09-21 note saying otherwise was wrong.
+
+**`RodService.IsEquipped()` lies to the bridge.** Same require-cache split: called from `execute_luau`
+it reads an empty `equipped` table and returns `false` even while the rod is visibly welded to the
+character. Don't chase it as a bug — check `character:FindFirstChild("FishingRod")` instead. The same
+caution applies to any module that keeps per-player state in a table rather than on an Instance.
+
+**Screenshots must be taken in Play, not Edit.** The L2 grade (`TundraGrade`) and the atmosphere are
+applied at runtime by client scripts, so Edit renders the tundra flat and blue and misrepresents the
+pass. Two Play-mode gotchas: `CameraWatchdog` reverts a Scriptable camera after ~6 s, so park the
+character (anchor the HumanoidRootPart) and shoot through the normal camera instead; and the
+`DayNightCycle` plus any live weather event will change the light between shots — pin `ClockTime` and
+hold the clear-weather Lighting values on `Heartbeat` for the duration of the shoot.

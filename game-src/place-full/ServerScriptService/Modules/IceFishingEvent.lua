@@ -1216,6 +1216,7 @@ function IceFishingEvent.Init()
 	Players.PlayerRemoving:Connect(function(p)
 		fishing[p] = nil
 		pendingBand[p] = nil
+		bannerOn[p] = nil
 		lastFishFullWarn[p.UserId] = nil
 	end)
 
