@@ -73,13 +73,16 @@ local NIGHT_HAZE = 0
 -- nothing to glow against. Two curves on Lighting.Daylight fix that, inside the tundra only:
 --   blue  -- the blue hour: a cold tint, a touch more contrast and saturation, so the warm
 --            lights (Warmhouse, huts, camps, hole lanterns) separate from the snow by hue;
---   night -- a slightly deeper tint and a small exposure cut, so it reads as night while the
+--   night -- a deeper moonlight tint and an exposure cut, so it reads as night while the
 --            dock, the door and the ice stay findable (their own lights carry them).
 -- Same rule as the rest of the file: the private TundraGrade and ExposureCompensation only,
 -- faded by `current`, so World 1, the Gardens and the HUD blur never see any of it.
+-- ITEM 9b: night pushed. At 198,214,255 / -0.22 the snow and the ice sheet stayed near daytime
+-- white and 21:30 read as dusk under a dark sky. 156,180,248 / -0.50 (tuned by shot) puts the
+-- snow into moonlight blue; the night saturation dip went with it, it greyed the warm windows.
 local DUSK_TINT  = Color3.fromRGB(208, 222, 255)
-local NIGHT_TINT = Color3.fromRGB(198, 214, 255)
-local NIGHT_EXPOSURE = -0.22
+local NIGHT_TINT = Color3.fromRGB(156, 180, 248)
+local NIGHT_EXPOSURE = -0.50
 local function ease(from, to, x)   -- 0 at `from`, 1 at `to`, smoothstepped (works either way round)
 	local t = math.clamp((x - from) / (to - from), 0, 1)
 	return t * t * (3 - 2 * t)
@@ -168,7 +171,7 @@ RunService.RenderStepped:Connect(function(dt)
 	local night = ease(0.30, 0.00, daylight)   -- 1 at full dark
 	grade.TintColor  = DAY_TINT:Lerp(DUSK_TINT, blue * current):Lerp(NIGHT_TINT, night * current)
 	grade.Contrast   = (0.12 + 0.05 * blue) * current
-	grade.Saturation = (-0.05 + 0.09 * blue - 0.03 * night) * current
+	grade.Saturation = (-0.05 + 0.09 * blue) * current
 	-- The exposure cut exists to tame a BLOWN-OUT white noon. After dark there is no
 	-- white-out left to tame, so it goes fully to zero rather than keeping a floor:
 	-- the old 0.25 floor was still pulling a quarter-stop out of an already night sky.
