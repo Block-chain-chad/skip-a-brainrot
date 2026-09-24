@@ -1887,4 +1887,675 @@ function M.RebuildTerrain()
 	return table.concat(out, "; ")
 end
 
+-- ============================================================== THE SKYLINE
+-- BuildWalls dresses the FACES, and it works: probe raycasts find relief on 49 of 74
+-- sample columns east and 109 of 154 west. What it never reaches is the massif TOP behind
+-- the lip, and that top is a dead plane -- 74 of 74 samples at exactly y2110 across 440
+-- studs. At any distance the face relief washes out and the only thing still reading is
+-- that ruler-straight line, which is the "extruded box" tell. This pass breaks the top
+-- itself: a wandering height line, notches taken clean through the lip, and a few crags
+-- standing above the rim. Terrain only, so it costs no parts.
+--
+-- Cuts reach ~34 studs BACK from the face line on purpose. Shaving only the front edge
+-- leaves the plateau behind it intact, and the silhouette is the plateau, not the edge.
+M.SKY_FACES = { SouthEast = true, SouthWest = true, OverWarm = true, EastGlacier = true, WestGlacier = true }
+
+function M.BuildSkyline()
+	stats.written, stats.skipped = 0, 0
+	local rng = Random.new(20260923)
+	local steps, notches, crags = 0, 0, 0
+
+	for _, f in ipairs(M.FACES) do
+		local o = f[7] or {}
+		if M.SKY_FACES[f[1]] and not o.carve then
+			local A = Vector3.new(f[2][1], 0, f[2][2])
+			local B = Vector3.new(f[3][1], 0, f[3][2])
+			local nrm = Vector3.new(f[4][1], 0, f[4][2]).Unit
+			local along = (B - A).Unit
+			local run = (B - A).Magnitude
+			local floorY, topY = f[5], f[6]
+			-- never take more than a third of a wall's height: it has to stay a wall
+			local maxDrop = math.min(25, (topY - floorY) * 0.33)
+			local minDrop = math.min(10, maxDrop * 0.5)
+
+			local function blocked(t)
+				for _, s in ipairs(o.skip or {}) do
+					if t >= s[1] - 0.03 and t <= s[2] + 0.03 then return true end
+				end
+				return false
+			end
+			-- an air box whose BOTTOM sits at bottomY, reaching 4 studs proud of the face
+			-- and the rest of its depth back into the massif
+			local function cutAt(centre, width, bottomY, depth)
+				local c = centre - nrm * (depth / 2 - 4) + Vector3.new(0, bottomY + 60, 0)
+				return tFill(CFrame.lookAt(c, c + nrm), Vector3.new(width, 120, depth), MAT.Air)
+			end
+
+			-- 1. THE WANDERING TOP. Irregular segments, each dropped its own amount, so the
+			-- ridge never repeats at a spacing the eye can lock onto.
+			local d = rng:NextNumber(0, 40)
+			while d < run - 30 do
+				local seg = rng:NextNumber(40, 120)
+				local t = (d + seg * 0.5) / run
+				if not blocked(t) then
+					if cutAt(A + along * (d + seg * 0.5), seg, topY - rng:NextNumber(minDrop, maxDrop), 38) then
+						steps += 1
+					end
+				end
+				d += seg
+			end
+
+			-- 2. NOTCHES. Narrower and deeper, and taken right through the lip, so the gap
+			-- shows sky instead of reading as a dip in one continuous ridge.
+			local want = (run > 300) and 5 or 3
+			for i = 1, want do
+				local t = (i - 0.5) / want + rng:NextNumber(-0.06, 0.06)
+				if t > 0.04 and t < 0.96 and not blocked(t) then
+					local deep = math.min(rng:NextNumber(26, 44), maxDrop * 1.8)
+					if cutAt(A + along * (t * run), rng:NextNumber(15, 30), topY - deep, 46) then
+						notches += 1
+					end
+				end
+			end
+
+			-- 3. CRAGS above the rim, set well back from the lip so no path below narrows.
+			local wantCrags = (run > 300) and 3 or 2
+			for i = 1, wantCrags do
+				local t = rng:NextNumber(0.08, 0.92)
+				if not blocked(t) then
+					local base = A + along * (t * run) - nrm * rng:NextNumber(10, 25)
+					local h = rng:NextNumber(20, 45)
+					local w = rng:NextNumber(10, 22)
+					local c = base + Vector3.new(0, topY - 6 + h / 2, 0)
+					local cf = CFrame.lookAt(c, c + nrm)
+						* CFrame.Angles(math.rad(rng:NextNumber(-7, 7)), 0, math.rad(rng:NextNumber(-9, 9)))
+					local mat = (rng:NextNumber() < 0.65) and MAT.Slate or MAT.Rock
+					if tFill(cf, Vector3.new(w, h, w * rng:NextNumber(0.7, 1.1)), mat) then
+						crags += 1
+						tBall(c + Vector3.new(0, h * 0.45, 0), w * rng:NextNumber(0.3, 0.45), mat)
+						tBall(c + Vector3.new(0, h * 0.55, 0), w * rng:NextNumber(0.22, 0.32), MAT.Snow)
+					end
+				end
+			end
+		end
+	end
+	return ("skyline: %d top steps, %d notches, %d crags (%d writes, %d skipped at the lake)")
+		:format(steps, notches, crags, stats.written, stats.skipped)
+end
+
+-- ============================================================== WARMHOUSE AS THE HERO
+-- The Warmhouse is already the biggest thing in the hub -- a 226x137 roof on 36-stud walls --
+-- and it still vanishes, because RoofSnow is a near-white Snow slab lying on near-white ground
+-- under a white sky. Size was never the problem, VALUE is. This pass gives the building a dark
+-- outline, one tall smoking vertical, and warm light spilled where players are meant to walk.
+--
+-- It also dresses the EAST wall. The portal arrival sits at (-8243, 2036, -8283), which is east
+-- of the building, so the face a player actually meets first is WallE -- and WallE had no door,
+-- no window and nothing lit on it at all.
+local WH_DOOR_X, WH_NORTH_Z = -8000, -8251
+local WH_EAST_X = -8111
+
+function M.BuildWarmhouseHero()
+	local f = freshFolder("WarmhouseHero")
+	local gb = Workspace.GameWorld.FrozenTundra:FindFirstChild("Greybox")
+	local wh = gb and gb:FindFirstChild("Warmhouse")
+	if not wh then return "Warmhouse greybox not found -- nothing done" end
+
+	local changed = {}
+	-- 1. VALUE. Darken the timber under the snow and pull the snow cap in, so a dark band of
+	-- roof edge shows all the way round instead of white meeting white.
+	local roof = wh:FindFirstChild("Roof")
+	if roof then
+		roof.Color = Color3.fromRGB(64, 45, 32)
+		roof.Material = MAT.WoodPlanks
+		changed[#changed + 1] = "roof darkened"
+	end
+	local snow = wh:FindFirstChild("RoofSnow")
+	if snow then
+		snow.Size = Vector3.new(snow.Size.X - 10, snow.Size.Y, snow.Size.Z - 10)
+		changed[#changed + 1] = "roof snow inset 5 studs"
+	end
+
+	-- 2. OUTLINE. Fascia boards round all four eaves and a spine along the ridge. This is what
+	-- actually separates the building from the snow at distance.
+	local ex, ez = 113, 68.5      -- roof half-extents
+	local cx, cz = -8000, -8317.5
+	local fy = 2038.2
+	local fascia = {
+		{ "FasciaN", Vector3.new(ex * 2 + 4, 3.0, 2.2), Vector3.new(cx, fy, cz + ez) },
+		{ "FasciaS", Vector3.new(ex * 2 + 4, 3.0, 2.2), Vector3.new(cx, fy, cz - ez) },
+		{ "FasciaE", Vector3.new(2.2, 3.0, ez * 2 + 4), Vector3.new(cx - ex, fy, cz) },
+		{ "FasciaW", Vector3.new(2.2, 3.0, ez * 2 + 4), Vector3.new(cx + ex, fy, cz) },
+	}
+	for _, b in ipairs(fascia) do
+		part(f, b[1], b[2], CFrame.new(b[3]), C.timberDark, MAT.WoodPlanks, { shadow = false })
+	end
+	part(f, "RidgeBeam", Vector3.new(ex * 2 - 6, 2.4, 3.4), CFrame.new(cx, 2041.6, cz),
+		C.timberDark, MAT.WoodPlanks, { shadow = false })
+
+	-- 3. THE VERTICAL. The chimneys were 14 studs of pale slate, shorter than the wall they sit
+	-- on. Raised and darkened, one of them smoking, they become the thing you pick out first.
+	local smoked = false
+	for _, n in ipairs({ "ChimneyW", "ChimneyE" }) do
+		local ch = wh:FindFirstChild(n)
+		if ch then
+			ch.Size = Vector3.new(13, 30, 13)
+			ch.Position = Vector3.new(ch.Position.X, 2054, ch.Position.Z)
+			ch.Color = Color3.fromRGB(74, 78, 86)
+			ch.Material = MAT.Slate
+			part(f, n .. "Cap", Vector3.new(15.5, 1.8, 15.5),
+				CFrame.new(ch.Position + Vector3.new(0, 15.4, 0)), C.timberDark, MAT.Slate, { shadow = false })
+			if not smoked then
+				smoked = true
+				local a = Instance.new("Attachment")
+				a.Position = Vector3.new(0, 15.5, 0)
+				a.Parent = ch
+				local e = Instance.new("ParticleEmitter")
+				e.Name = "Smoke"
+				e.Texture = "rbxasset://textures/particles/smoke_main.dds"
+				e.Rate = 5
+				e.Lifetime = NumberRange.new(5, 8)
+				e.Speed = NumberRange.new(5, 8)
+				e.SpreadAngle = Vector2.new(9, 9)
+				e.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(0.25, 0.72),
+					NumberSequenceKeypoint.new(1, 1),
+				})
+				e.Size = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 5),
+					NumberSequenceKeypoint.new(1, 24),
+				})
+				e.Color = ColorSequence.new(Color3.fromRGB(226, 232, 240))
+				e.LightEmission = 0.15
+				e.Parent = a
+			end
+			changed[#changed + 1] = n .. " raised to 30"
+		end
+	end
+
+	-- 4. WARM LIGHT WHERE THE PLAYER WALKS. Lanterns are the only warm thing in a blue-white
+	-- plaza, so they read as "go here" from a long way off. Lights are not parts.
+	local function lantern(name, pos, range)
+		part(f, name .. "Post", Vector3.new(1.3, 8, 1.3), CFrame.new(pos - Vector3.new(0, 4.6, 0)),
+			C.timberDark, MAT.WoodPlanks, { shadow = false })
+		local lamp = part(f, name, Vector3.new(2.6, 3.0, 2.6), CFrame.new(pos),
+			C.lamp, MAT.Neon, { shadow = false })
+		local l = Instance.new("PointLight")
+		l.Color = C.warm
+		l.Brightness = 1.5
+		l.Range = range or 34
+		l.Shadows = false
+		l.Parent = lamp
+		return lamp
+	end
+
+	-- the door on the north wall, one either side of the 28-stud opening
+	lantern("DoorLampE", Vector3.new(WH_DOOR_X - 17, 2012, WH_NORTH_Z + 2.4), 40)
+	lantern("DoorLampW", Vector3.new(WH_DOOR_X + 17, 2012, WH_NORTH_Z + 2.4), 40)
+
+	-- the EAST wall, the face the arrival looks at: two lanterns and a lit sign board, so the
+	-- first thing framed by the tunnel mouth has somewhere warm to aim at
+	lantern("ArrivalLampN", Vector3.new(WH_EAST_X - 2.6, 2012, -8285), 42)
+	lantern("ArrivalLampS", Vector3.new(WH_EAST_X - 2.6, 2012, -8350), 42)
+	part(f, "EastSignBoard", Vector3.new(1.0, 9, 26),
+		CFrame.new(WH_EAST_X - 1.6, 2021, -8317.5), C.timberDark, MAT.WoodPlanks, { shadow = false })
+	local glow = part(f, "EastSignGlow", Vector3.new(0.6, 6.5, 22),
+		CFrame.new(WH_EAST_X - 2.3, 2021, -8317.5), C.warm, MAT.Neon, { shadow = false })
+	local sl = Instance.new("PointLight")
+	sl.Color = C.warm
+	sl.Brightness = 1.2
+	sl.Range = 46
+	sl.Shadows = false
+	sl.Parent = glow
+
+	local n = 0
+	for _, d in ipairs(f:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
+	return ("warmhouse hero: %d parts added (%s)"):format(n, table.concat(changed, ", "))
+end
+
+-- ============================================================== THE ARRIVAL APPROACH
+-- Everything a player meets in the first ten seconds of World 2, and it was the weakest
+-- stretch in the world. Measured along the portal's own look direction
+-- (TUNDRA_LOOK = 0.386, 0, 0.922) from TUNDRA_POS:
+--
+--   d 0..25   inside CellarPass, floor 2030, ceiling ~2044
+--   d 25..76  OPEN SHELF, floor exactly 2030 the whole way -- 50 studs of blank
+--   d 76..80  the drop, 2028 -> 2002
+--   d 80+     the town flat at 2002
+--
+-- Two separate problems. First, all three existing RibLanterns sit at z -8334, -8313 and
+-- -8291, which is BEHIND the arrival at z -8283: the tunnel a player actually walks
+-- (z -8283 -> -8266) had no light in it at all, and the lanterns that exist are
+-- SmoothPlastic at brightness 0.6 / range 14, so they neither glow nor carry. Second, the
+-- shelf past the mouth is a flat plane with nothing on it, so there is no read on where to
+-- go -- which is what MASTER saw as "a blank slope".
+local AP_LOOK = Vector3.new(0.386, 0, 0.922).Unit
+local AP_FROM = Vector3.new(-8243, 2034, -8283)
+-- Lantern values are deliberately modest. The first pass ran 1.7-1.9 brightness at range
+-- 32-36 and the tunnel walls washed out to a bright mint green, so the WALL read as the
+-- light source instead of the lanterns. Warm pools on a cool wall, and the daylight at the
+-- mouth stays the brightest thing in frame, which is what should pull the player out.
+local AP_LAMP = Color3.fromRGB(255, 190, 120)
+local AP_BRIGHT, AP_RANGE = 1.0, 20
+
+function M.BuildArrivalApproach()
+	local f = freshFolder("ArrivalApproach")
+	local side = Vector3.new(AP_LOOK.Z, 0, -AP_LOOK.X)   -- perpendicular, in the ground plane
+	local rp = RaycastParams.new()
+	rp.IgnoreWater = true
+
+	local function groundAt(p, fromY)
+		local r = Workspace:Raycast(Vector3.new(p.X, fromY or 2046, p.Z), Vector3.new(0, -80, 0), rp)
+		return r and r.Position.Y or nil
+	end
+	local function at(d, off)
+		return AP_FROM + AP_LOOK * d + side * (off or 0)
+	end
+	local function lamp(name, pos)
+		local head = part(f, name, Vector3.new(1.7, 2.0, 1.7), CFrame.new(pos),
+			AP_LAMP, MAT.Neon, { shadow = false })
+		local l = Instance.new("PointLight")
+		l.Color = AP_LAMP
+		l.Brightness = AP_BRIGHT
+		l.Range = AP_RANGE
+		l.Shadows = false
+		l.Parent = head
+		return head
+	end
+
+	-- 1. LIGHT THE STRETCH THEY WALK. Three new lanterns hung off the tunnel ribs on the
+	-- leg from the arrival out to the gate, plus a lift on the three that already exist.
+	local relit = 0
+	local cp = Workspace.GameWorld.FrozenTundra:FindFirstChild("CellarPass", true)
+	if cp then
+		for _, d in ipairs(cp:GetDescendants()) do
+			if d.Name == "RibLantern" then
+				d.Material = MAT.Neon
+				d.Color = AP_LAMP
+				local l = d:FindFirstChildWhichIsA("Light", true)
+				if l then
+					l.Color = AP_LAMP
+					l.Brightness = AP_BRIGHT
+					l.Range = AP_RANGE
+					relit = relit + 1
+				end
+			end
+		end
+	end
+	for i, d in ipairs({ 7, 15, 23 }) do
+		local p = at(d, (i % 2 == 0) and 5.5 or -5.5)
+		lamp("TunnelLamp" .. i, Vector3.new(p.X, 2040.6, p.Z))
+	end
+
+	-- 2. THE SHELF. Rock set in two loose lines that CONVERGE on the descent, so the shelf
+	-- reads as a way through rather than an open plain. Nothing sits on the walking line.
+	--
+	-- These are TERRAIN lumps, not Parts (MASTER, chunk C review). A Part boulder always
+	-- shows flat faces and square corners however hard it is turned, which is the same tell
+	-- as the old slab cliffs; overlapping FillBalls read as rock, cost nothing against the
+	-- part budget, and use the same Slate the cliff faces already use.
+	local rng = Random.new(90232)
+	local boulders = 0
+	for _, spec in ipairs({
+		{ 34, -13 }, { 40, 12 }, { 47, -11.5 }, { 54, 10.5 },
+		{ 60, -9.5 }, { 66, 9 }, { 71, -8.5 },
+	}) do
+		local p = at(spec[1], spec[2])
+		local g = groundAt(p)
+		if g then
+			local r = rng:NextNumber(4.0, 6.5)
+			local c = Vector3.new(p.X, g + r * 0.10, p.Z)
+			local mat = (rng:NextNumber() < 0.6) and MAT.Slate or MAT.Rock
+			tBall(c, r, mat)
+			-- two or three smaller lobes off the main mass, so no lump is a clean sphere
+			for _ = 1, rng:NextInteger(2, 3) do
+				tBall(c + Vector3.new(rng:NextNumber(-r, r) * 0.75,
+					rng:NextNumber(-0.3, 0.5) * r, rng:NextNumber(-r, r) * 0.75),
+					r * rng:NextNumber(0.45, 0.8), mat)
+			end
+			-- snow caught on the crown
+			tBall(c + Vector3.new(0, r * 0.55, 0), r * rng:NextNumber(0.5, 0.75), MAT.Snow)
+			boulders = boulders + 1
+		end
+	end
+
+	-- 3. TWO LEANING MARKER POSTS, lit, one either side, at the point where the shelf
+	-- gives way to the drop. These are the actual signpost: from the tunnel mouth they
+	-- read as a gate you walk between.
+	for i, off in ipairs({ -10, 10 }) do
+		local p = at(69, off)
+		local g = groundAt(p)
+		if g then
+			local lean = (off < 0) and 7 or -7
+			local base = Vector3.new(p.X, g, p.Z)
+			part(f, "MarkerPost" .. i, Vector3.new(1.1, 11, 1.1),
+				CFrame.new(base + Vector3.new(0, 5.2, 0)) * CFrame.Angles(0, 0, math.rad(lean)),
+				C.timberDark, MAT.WoodPlanks, { shadow = false })
+			lamp("MarkerLamp" .. i, base + Vector3.new(math.sin(math.rad(lean)) * -10, 10.6, 0))
+		end
+	end
+
+	-- 4. DRIFTS. Two wedges of snow banked against the rock lines, so the shelf floor stops
+	-- being one flat plane at exactly 2030.
+	for _, spec in ipairs({ { 44, -15, 26 }, { 58, 14, 22 } }) do
+		local p = at(spec[1], spec[2])
+		local g = groundAt(p)
+		if g then
+			local w, h = spec[3], rng:NextNumber(2.4, 3.6)
+			local c = Vector3.new(p.X, g + h / 2 - 0.4, p.Z)
+			tWedge(CFrame.lookAt(c, c + (spec[2] < 0 and side or -side)),
+				Vector3.new(w, h, h * 2.6), MAT.Snow)
+		end
+	end
+
+	local n = 0
+	for _, d in ipairs(f:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
+	return ("arrival approach: %d parts, %d terrain rock lumps, %d existing lanterns relit"):format(n, boulders, relit)
+end
+
+-- ============================================================== THE LAKE SHORE
+-- Measured before touching it: on the x=-8000 line the land sits at 2002.4 right up to
+-- z -7792, and the very next sample is 1978.5. That is a 24-stud vertical cliff hidden
+-- under a water surface at y2000 -- there is no shore at all, and the dock simply bridges
+-- the drop.
+--
+-- APPROACH, and it differs from the one in the plan on purpose. Cutting a shelf INTO the
+-- bank would extend shallow water inland and move the waterline, which is exactly the
+-- lake outline MASTER asked to keep fixed. Raising the BED instead leaves the outline and
+-- the water surface untouched and still gives shallows you can read: the near-shore bed
+-- comes up from 1978 to about 1996, so the water over it is 4 studs deep and reads pale,
+-- then ramps back down to the original bed further out.
+--
+-- These writes go through Terrain:FillBlock DIRECTLY rather than the module's tFill. tFill
+-- refuses anything inside the lake zone, which is right for every other pass in this file
+-- and wrong here, because the lake bed IS the subject. Every write below is bounded to the
+-- near-shore box and stays under y1999, so it can never touch the surface or the outline.
+local SHORE_X0, SHORE_X1 = -8092, -7908      -- the stretch either side of the dock
+local SHORE_Z_WATERLINE = -7788              -- first water voxel on the x=-8000 line
+local SHORE_BED = 1978                       -- original bed
+local SHORE_SHALLOW_TOP = 1996               -- raised bed: leaves ~4 studs of water
+
+function M.BuildLakeShore()
+	local f = freshFolder("LakeShore")
+	local T = Workspace.Terrain
+	local rng = Random.new(77404)
+	local writes = 0
+
+	-- 1. THE SHALLOW SHELF. A raised bed hugging the shore, then a ramp back down to the
+	-- original depth so there is no step for a boat or a skipping stone to catch on.
+	local shelfDepth = 30            -- how far out from the waterline the shallows reach
+	local z0 = SHORE_Z_WATERLINE
+	for x = SHORE_X0, SHORE_X1, 16 do
+		-- the shelf wanders in and out so the shallows are not a drawn band
+		local reach = shelfDepth * rng:NextNumber(0.72, 1.25)
+		local top = SHORE_SHALLOW_TOP + rng:NextNumber(-1.2, 1.2)
+		local cz = z0 + reach / 2
+		T:FillBlock(
+			CFrame.new(x + 8, (SHORE_BED + top) / 2, cz),
+			Vector3.new(18, top - SHORE_BED, reach),
+			(rng:NextNumber() < 0.7) and Enum.Material.Sand or Enum.Material.Rock)
+		writes = writes + 1
+		-- the ramp: a wedge running from the shelf lip back down to the old bed
+		local rampLen = reach * rng:NextNumber(0.8, 1.3)
+		local rc = Vector3.new(x + 8, (SHORE_BED + top) / 2, cz + reach / 2 + rampLen / 2)
+		T:FillWedge(
+			CFrame.lookAt(rc, rc - Vector3.new(0, 0, 1)) * CFrame.Angles(0, math.rad(180), 0),
+			Vector3.new(18, top - SHORE_BED, rampLen),
+			Enum.Material.Rock)
+		writes = writes + 1
+	end
+
+	-- 2. THE ICE RIM. Broken Glacier lumps sitting ON the waterline, never a continuous
+	-- lip -- a drawn line round a lake is its own kind of tell.
+	local rim = 0
+	for x = SHORE_X0, SHORE_X1, 11 do
+		if rng:NextNumber() < 0.72 then
+			local r = rng:NextNumber(2.4, 4.6)
+			local z = z0 + rng:NextNumber(-2.5, 3.5)
+			T:FillBall(Vector3.new(x + rng:NextNumber(-3, 3), 2000 + rng:NextNumber(-1.2, 0.4), z),
+				r, Enum.Material.Glacier)
+			rim = rim + 1
+			writes = writes + 1
+		end
+	end
+
+	-- 3. FLOES. The only parts in this chunk, because anything built from terrain at the
+	-- waterline would displace water at the surface. Each floe is two or three thin DISCS
+	-- jostled together rather than one rectangular plate -- a clean square tile floating on
+	-- a lake reads as placed, the same way a square boulder does. Densest by the dock,
+	-- thinning north.
+	local floes = 0
+	for i = 1, 10 do
+		local t = (i - 1) / 9
+		local z = z0 + 10 + t * 150 * rng:NextNumber(0.8, 1.2)     -- thinning north
+		local x = rng:NextNumber(SHORE_X0 - 10, SHORE_X1 + 10)
+		local w = rng:NextNumber(7, 17) * (1 - t * 0.4)
+		for _ = 1, rng:NextInteger(2, 3) do
+			local d = w * rng:NextNumber(0.45, 0.8)
+			local off = Vector3.new(rng:NextNumber(-0.3, 0.3) * w, rng:NextNumber(-0.04, 0.08),
+				rng:NextNumber(-0.3, 0.3) * w)
+			-- a Cylinder's axis is its X; turned upright it lies flat as a disc
+			part(f, "Floe", Vector3.new(0.7, d, d),
+				CFrame.new(Vector3.new(x, 2000.1, z) + off) * CFrame.Angles(0, 0, math.rad(90)),
+				C.ice, MAT.Glacier, { shadow = false, transparency = 0.08, shape = Enum.PartType.Cylinder })
+		end
+		floes = floes + 1
+	end
+
+	-- 4. SHORE ROCKS, as TERRAIN (MASTER's chunk C call on boulders applies here too).
+	-- Each is placed from the MEASURED waterline at its own x, a few studs up the bank, so
+	-- none of them reaches the water: the waterline is not straight -- it sits at z -7788 on
+	-- the dock line but at -7800 a little either side.
+	local wet = RaycastParams.new()
+	wet.IgnoreWater = false
+	local function landEdgeAt(x)
+		for z = -7760, -7850, -1 do
+			local r = Workspace:Raycast(Vector3.new(x, 2060, z), Vector3.new(0, -90, 0), wet)
+			if r and r.Material ~= Enum.Material.Water then return z end
+		end
+		return nil
+	end
+	local rocks = 0
+	for i = 1, 4 do
+		local x = rng:NextNumber(SHORE_X0, SHORE_X1)
+		local r = rng:NextNumber(2.6, 4.2)
+		local edge = landEdgeAt(x)
+		if edge then
+			local c = Vector3.new(x, 2002 + r * 0.2, edge - r * 1.35 - 2)
+			T:FillBall(c, r, Enum.Material.Slate)
+			T:FillBall(c + Vector3.new(r * 0.6, -r * 0.2, -r * 0.3), r * 0.6, Enum.Material.Slate)
+			T:FillBall(c + Vector3.new(0, r * 0.6, 0), r * 0.55, Enum.Material.Snow)
+			writes = writes + 3
+			rocks = rocks + 1
+		end
+	end
+
+	local n = 0
+	for _, d in ipairs(f:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
+	return ("lake shore: %d terrain writes (%d rim lumps, %d terrain shore rocks), %d floes, %d parts total")
+		:format(writes, rim, rocks, floes, n)
+end
+
+-- ============================================================== C3: THE DOCK APPROACH
+-- The Avenue (x -8011..-7989) runs straight north to the dock foot at z -7804, and the
+-- Promenade crosses it at z -7832 (-7838..-7826). The plan put C3 AT (-8000, -7836), which
+-- is the middle of that crossing -- it would have blocked the main path to the skip dock.
+-- Measured instead: the apron between the Promenade edge and the water is only ~18 studs
+-- deep (water starts at z -7808 either side of the dock). So C3 is two small groups that
+-- FLANK the dock foot and funnel the Promenade into it: a beached sled on the west side, a
+-- fish-drying rack on the east, each with a terrain boulder or two.
+--
+-- Boulders here go through Terrain:FillBall directly, because the module's tBall keeps a
+-- 16-stud margin off the lake and the whole apron is inside it. Each one is placed from the
+-- measured waterline at its own x and kept at least 6 studs landward of it.
+local C3_Z = -7818
+local C3_AVENUE_HALF = 16          -- Avenue half-width 11, plus margin
+
+local function c3Ground(x, z)
+	local rp = RaycastParams.new()
+	rp.IgnoreWater = true
+	local r = Workspace:Raycast(Vector3.new(x, 2060, z), Vector3.new(0, -90, 0), rp)
+	return r and r.Position.Y or nil
+end
+local function c3WaterStart(x)
+	local wet = RaycastParams.new()
+	wet.IgnoreWater = false
+	for z = -7835, -7780, 1 do
+		local r = Workspace:Raycast(Vector3.new(x, 2060, z), Vector3.new(0, -90, 0), wet)
+		if r and r.Material == Enum.Material.Water then return z end
+	end
+	return nil
+end
+
+function M.BuildDockApproach()
+	local f = freshFolder("DockApproach")
+	local T = Workspace.Terrain
+	local rng = Random.new(38113)
+	local rocks = 0
+
+	local function boulder(x, r, mat)
+		local water = c3WaterStart(x)
+		local g = c3Ground(x, C3_Z)
+		if not g then return end
+		-- stay at least 6 studs landward of the water at this x
+		local z = C3_Z
+		if water and z + r > water - 6 then z = water - 6 - r end
+		local c = Vector3.new(x, g + r * 0.15, z)
+		T:FillBall(c, r, mat)
+		T:FillBall(c + Vector3.new(r * 0.55, -r * 0.15, -r * 0.2), r * 0.6, mat)
+		T:FillBall(c + Vector3.new(0, r * 0.55, 0), r * 0.5, Enum.Material.Snow)
+		rocks = rocks + 1
+	end
+
+	-- WEST: a beached sled, nose-up on the bank, one runner sunk
+	local sx = -8000 - C3_AVENUE_HALF - 18
+	local sg = c3Ground(sx, C3_Z) or 2002
+	local sled = CFrame.new(sx, sg + 0.9, C3_Z) * CFrame.Angles(math.rad(6), math.rad(-28), math.rad(-5))
+	part(f, "SledDeck", Vector3.new(4.4, 0.35, 9), sled, C.timber, MAT.WoodPlanks, { collide = true, shadow = false })
+	part(f, "SledRunnerL", Vector3.new(0.35, 0.9, 10.2), sled * CFrame.new(-1.9, -0.55, 0.3), C.timberDark, MAT.Wood, { shadow = false })
+	part(f, "SledRunnerR", Vector3.new(0.35, 0.9, 10.2), sled * CFrame.new(1.9, -0.55, 0.3), C.timberDark, MAT.Wood, { shadow = false })
+	part(f, "SledBack", Vector3.new(4.4, 2.2, 0.35), sled * CFrame.new(0, 1.1, 4.3) * CFrame.Angles(math.rad(-12), 0, 0), C.timber, MAT.WoodPlanks, { shadow = false })
+	part(f, "SledSnow", Vector3.new(3.6, 0.3, 5.5), sled * CFrame.new(0, 0.3, -1.2), C.snow, MAT.Snow, { shadow = false })
+	boulder(sx - 9, rng:NextNumber(3.2, 4.2), Enum.Material.Slate)
+	boulder(sx + 7, rng:NextNumber(2.4, 3.0), Enum.Material.Glacier)
+
+	-- EAST: a fish-drying rack, two A-frames and a pole, a catch hung to dry
+	local rx = -8000 + C3_AVENUE_HALF + 17
+	local rg = c3Ground(rx, C3_Z) or 2002
+	for _, dx in ipairs({ -4.5, 4.5 }) do
+		for _, lean in ipairs({ -14, 14 }) do
+			part(f, "RackLeg", Vector3.new(0.45, 7.2, 0.45),
+				CFrame.new(rx + dx, rg + 3.4, C3_Z) * CFrame.Angles(math.rad(lean), 0, 0),
+				C.timberGrey, MAT.Wood, { shadow = false })
+		end
+	end
+	part(f, "RackPole", Vector3.new(10.5, 0.4, 0.4), CFrame.new(rx, rg + 6.8, C3_Z), C.timberDark, MAT.Wood, { shadow = false })
+	for i = 1, 4 do
+		local fx = rx - 3.6 + (i - 1) * 2.4
+		part(f, "DryingFish", Vector3.new(2.0, 0.55, 0.55),
+			CFrame.new(fx, rg + 5.4 - (i % 2) * 0.3, C3_Z) * CFrame.Angles(0, 0, math.rad(90)),
+			(i % 2 == 0) and C.brass or C.rockLight, MAT.SmoothPlastic, { shadow = false, shape = Enum.PartType.Cylinder })
+	end
+	boulder(rx + 9, rng:NextNumber(3.0, 4.0), Enum.Material.Slate)
+
+	-- one lamp on the east side of the dock foot, same warm values as the arrival
+	local lx = -8000 + C3_AVENUE_HALF + 2
+	local lg = c3Ground(lx, C3_Z - 4) or 2002
+	part(f, "DockLampPost", Vector3.new(1.1, 9, 1.1), CFrame.new(lx, lg + 4.5, C3_Z - 4), C.timberDark, MAT.WoodPlanks, { shadow = false })
+	local head = part(f, "DockLamp", Vector3.new(1.7, 2.0, 1.7), CFrame.new(lx, lg + 9.6, C3_Z - 4),
+		Color3.fromRGB(255, 190, 120), MAT.Neon, { shadow = false })
+	local l = Instance.new("PointLight")
+	l.Color = Color3.fromRGB(255, 190, 120); l.Brightness = 1.0; l.Range = 20; l.Shadows = false
+	l.Parent = head
+
+	local n = 0
+	for _, d in ipairs(f:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
+	return ("dock approach (C3): %d parts, %d terrain boulders"):format(n, rocks)
+end
+
+-- ============================================================== C4: THE DIG CAMP
+-- The drill shelf is the one genuinely flat stretch on real ground: exactly y2022 for
+-- 400 studs. The HighLedge path runs up the middle of it at x -8290 (9 wide), then at its
+-- north end (z -7712) the DigTrail turns east to Tung's hut. The plan put C4 at
+-- (-8296, -7906), which is ON that path. So C4 flanks the path instead: spoil heaps either
+-- side, thickening toward the north end, and a small working camp -- winch, crates,
+-- two lanterns -- at the turn, so the eye is carried up the shelf to where you turn for
+-- the hut. Spoil heaps are terrain; only the man-made things are parts.
+local C4_PATH_X = -8290
+local C4_PATH_HALF = 9            -- path half-width 4.5, plus margin
+
+function M.BuildDigCamp()
+	local f = freshFolder("DigCamp")
+	local rng = Random.new(61207)
+	local heaps = 0
+	local rp = RaycastParams.new()
+	rp.IgnoreWater = true
+	local function ground(x, z)
+		local r = Workspace:Raycast(Vector3.new(x, 2060, z), Vector3.new(0, -90, 0), rp)
+		return r and r.Position.Y or nil
+	end
+
+	-- spoil heaps, alternating sides, closer together toward the turn
+	for _, s in ipairs({
+		{ -7980, 1 }, { -7910, -1 }, { -7850, 1 }, { -7805, -1 }, { -7770, 1 }, { -7745, -1 },
+	}) do
+		local z, sideSign = s[1], s[2]
+		local off = C4_PATH_HALF + rng:NextNumber(6, 13)
+		local x = C4_PATH_X + sideSign * off
+		local g = ground(x, z)
+		if g then
+			local r = rng:NextNumber(3.4, 5.6)
+			local c = Vector3.new(x, g + r * 0.05, z)
+			tBall(c, r, MAT.Rock)
+			tBall(c + Vector3.new(sideSign * r * 0.5, -r * 0.2, r * 0.4), r * 0.65, MAT.Ground)
+			tBall(c + Vector3.new(-sideSign * r * 0.3, -r * 0.25, -r * 0.5), r * 0.55, MAT.Slate)
+			tBall(c + Vector3.new(0, r * 0.5, 0), r * 0.45, MAT.Snow)
+			heaps = heaps + 1
+		end
+	end
+
+	-- THE CAMP AT THE TURN. West of the path, facing the way you turn.
+	local cx, cz = C4_PATH_X + C4_PATH_HALF + 8, -7728
+	local cg = ground(cx, cz) or 2022
+	-- winch: two posts, a drum, a crank
+	for _, dz in ipairs({ -2.2, 2.2 }) do
+		part(f, "WinchPost", Vector3.new(0.7, 5.2, 0.7), CFrame.new(cx, cg + 2.6, cz + dz),
+			C.timberDark, MAT.WoodPlanks, { collide = true, shadow = false })
+	end
+	part(f, "WinchDrum", Vector3.new(3.8, 1.9, 1.9),
+		CFrame.new(cx, cg + 4.3, cz) * CFrame.Angles(0, math.rad(90), 0),
+		C.timber, MAT.Wood, { shadow = false, shape = Enum.PartType.Cylinder })
+	part(f, "WinchCrank", Vector3.new(0.3, 0.3, 1.8), CFrame.new(cx - 1.1, cg + 4.3, cz + 3.1),
+		C.brass, MAT.Metal, { shadow = false })
+	part(f, "WinchRope", Vector3.new(0.18, 0.18, 9), CFrame.new(cx - 3.5, cg + 3.3, cz - 3) * CFrame.Angles(math.rad(12), math.rad(-38), 0),
+		C.rope, MAT.Fabric, { shadow = false })
+	-- a small stack of crates, the top one knocked askew
+	local crates = {
+		{ Vector3.new(cx + 5.2, cg + 1.5, cz - 3.4), 3.0, 8 },
+		{ Vector3.new(cx + 7.9, cg + 1.3, cz - 1.6), 2.6, -11 },
+		{ Vector3.new(cx + 6.3, cg + 4.2, cz - 2.7), 2.4, 23 },
+	}
+	for i, c in ipairs(crates) do
+		part(f, "Crate" .. i, Vector3.new(c[2], c[2], c[2]),
+			CFrame.new(c[1]) * CFrame.Angles(0, math.rad(c[3]), 0),
+			(i == 3) and C.timberGrey or C.timber, MAT.WoodPlanks, { collide = i < 3, shadow = false })
+	end
+	-- two lanterns either side of the turn onto the DigTrail
+	for i, spot in ipairs({ { C4_PATH_X + C4_PATH_HALF + 1, -7718 }, { C4_PATH_X - C4_PATH_HALF - 1, -7722 } }) do
+		local g = ground(spot[1], spot[2]) or 2022
+		part(f, "CampLampPost" .. i, Vector3.new(1.1, 9, 1.1), CFrame.new(spot[1], g + 4.5, spot[2]),
+			C.timberDark, MAT.WoodPlanks, { shadow = false })
+		local head = part(f, "CampLamp" .. i, Vector3.new(1.7, 2.0, 1.7), CFrame.new(spot[1], g + 9.6, spot[2]),
+			Color3.fromRGB(255, 190, 120), MAT.Neon, { shadow = false })
+		local l = Instance.new("PointLight")
+		l.Color = Color3.fromRGB(255, 190, 120); l.Brightness = 1.0; l.Range = 20; l.Shadows = false
+		l.Parent = head
+	end
+
+	local n = 0
+	for _, d in ipairs(f:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
+	return ("dig camp (C4): %d parts, %d terrain spoil heaps"):format(n, heaps)
+end
+
 return M

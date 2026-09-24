@@ -193,16 +193,26 @@ white plain and turned the rebuilt town to dusk.
 ```
 local G = loadstring(ServerStorage.World2Blockout.Generator.Source)()
 local A = loadstring(ServerStorage.World2Blockout.Art.Source)()
--- terrain: A.RebuildTerrain() does ClearAll + every greybox step + every art terrain step
---   (~60 s: run it in two calls, as done here, or it times out)
+-- terrain: NEVER call A.RebuildTerrain() on the live place -- see §12. Run the steps
+--   individually instead. (It starts with ClearAll and times out at ~60 s; a second call
+--   RESTARTS from ClearAll rather than resuming, so a timeout can wipe completed work.)
 -- parts: G.BuildParts(); then
 A.BuildPeak(); A.BuildNest(); A.BuildTown(); A.BuildFrostgate(); A.BuildWarmhouse()
 A.BuildWarmhouseInterior(); A.BuildDig(); A.BuildNico(); A.BuildSqueeze(); A.BuildHollow()
 A.BuildCrag(); A.TuneRuins(); A.RetireGreybox()
+-- identity pass (2026-09-23), in this order:
+A.BuildSkyline()          -- terrain only
+A.BuildWarmhouseHero()    -- edits Greybox.Warmhouse roof/chimneys + Art.WarmhouseHero
+A.BuildArrivalApproach()  -- relights CellarPass lanterns + Art.ArrivalApproach + terrain rock
+A.BuildLakeShore()        -- raises the near-shore bed; see §13 for the fingerprint
+A.BuildDockApproach()     -- C3
+A.BuildDigCamp()          -- C4
 ```
 
 Each step rebuilds its own folder. Terrain steps refuse any write that would reach the lake zone, and
-the fingerprint was compared after each.
+the fingerprint was compared after each. The exceptions are `BuildLakeShore` and the C3 boulders in
+`BuildDockApproach`, which write inside the lake margin on purpose (the lake bed is their subject);
+each bounds its own writes and was fingerprint-checked, see §13.
 
 ## 9. Found in other lanes (reported, not changed)
 
@@ -275,3 +285,65 @@ pass. Two Play-mode gotchas: `CameraWatchdog` reverts a Scriptable camera after 
 character (anchor the HumanoidRootPart) and shoot through the normal camera instead; and the
 `DayNightCycle` plus any live weather event will change the light between shots — pin `ClockTime` and
 hold the clear-weather Lighting values on `Heartbeat` for the duration of the shoot.
+
+**Never run `RebuildTerrain()` on the live place — only individual steps.** It opens with
+`ClearAll()`, and it times out at ~60 s. A second call does not resume: it starts again from
+`ClearAll()`, so a timeout can wipe everything the first call finished.
+
+**Aim arrival shots down `TUNDRA_LOOK`, not at the town.** The portal faces `(0.386, 0, 0.922)` —
+north down the CellarPass tunnel. Aiming "toward the town" (west) photographs a tunnel wall.
+
+**The Warmhouse encloses the hub.** It is a 222×133 lodge (x −8111…−7889, z −8384…−8251) with its
+roof at y2040. Any hub sample inside that box is roof, not ground — a "flat empty plaza" there is the
+roof snow. The real hub, the Warming Circle, is north of the door.
+
+**Raycasts that start inside solid terrain return nothing.** Mapping the arrival tunnel from y2048
+reported "void" through solid rock. Start just below the ceiling you expect, or you will read rock as
+an open shaft.
+
+**Pasting code into Studio through a long-bracket string:** Lua already drops the newline straight
+after `[==[`, so do not also trim the first character — that ate a `-` and turned a comment into a
+syntax error. Checksum Studio's `Source` against the repo file before running anything; that is how
+it was caught.
+
+**Dock-throw tests need a claimed plot.** `ThrowHandler` refuses with "Claim a base first!" when the
+profile owns none. Claims don't persist between Play sessions, and a CFrame teleport onto the pad
+doesn't fire `Touched` — walk onto `Platform` with `Humanoid:MoveTo`.
+
+**`Humanoid:MoveTo` gives up after 8 s.** A long walk that "stops short" is usually the timeout, not
+a blockage. Walk in short legs and read `MoveToFinished`.
+
+**Triggering weather for a test:** `WeatherHandler.ApplyByName("Thunderstorm", secs)` from the
+bridge reaches real clients, because it fires the shared `WeatherState` remote. Play-mode only.
+
+## 13. Identity pass (2026-09-23, ITEM 6)
+
+Terrain is used wherever the thing is natural (cliff tops, rock, spoil, shallows); Parts only for
+man-made objects and anything floating on the water. Parts in `FrozenTundra`: **2,664 → 2,739**
+(cap 4,500).
+
+| Chunk | What | Parts |
+|---|---|---|
+| A | `BuildSkyline`: the wall tops varied ±10–25, 18 notches, 12 crags. East top went from 74/74 samples at exactly y2110 to 2/74 | 0 |
+| B | `BuildWarmhouseHero`: darker roof, inset snow, fascia + ridge, chimneys 14→30 with smoke, lit east wall | 17 |
+| C | `BuildArrivalApproach`: 3 new tunnel lamps, 3 relit (1.0 / 20 / 255,190,120), 7 terrain rock lumps, 2 lit posts | 7 |
+| D | `BuildLakeShore`: near-shore bed raised 1978→~1996 with ramps, 13 glacier rim lumps, 10 disc floes, 4 terrain shore rocks | 23 |
+| E | `BuildDockApproach` (C3: sled, drying rack, lamp, 3 terrain boulders) and `BuildDigCamp` (C4: 6 terrain spoil heaps, winch, crates, 2 lamps) | 28 |
+
+**Lake fingerprint around chunk D** (box x −8200…−7800, y 1980…2012, z −7820…−6860, 4-stud voxels;
+checksum = Σ occupancy × (i + 3j + 7k); not the same box as the older 79,394 figure):
+
+| | before | after |
+|---|---|---|
+| water voxels | 76,368 | 75,337 |
+| weighted checksum | 68,402,202.8 | 68,237,658.1 |
+| water surface | 2000.00 | 2000.00 |
+| far north edge (x −8000) | z −6880 | z −6880 |
+| dock-to-far-shore | 924.0 | 924.0 |
+
+The count falls because raising the bed and the ice rim displace water; the outline, surface and
+throw reach are unchanged. It was still 75,337 after chunk E.
+
+Backups: `ServerStorage._BACKUP_BEAST_identity_pre` — TerrainRegions `EastWall_S/N`,
+`WestWall_S/M/N`, `SouthWall`, `LakeShore`, `LakeShore_Out`, `DrillShelf`, plus clones of
+`Greybox.Warmhouse` and `Art.Warmhouse`.
