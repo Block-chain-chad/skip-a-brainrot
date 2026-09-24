@@ -2030,8 +2030,8 @@ function M.BuildWarmhouseHero()
 	for _, b in ipairs(fascia) do
 		part(f, b[1], b[2], CFrame.new(b[3]), C.timberDark, MAT.WoodPlanks, { shadow = false })
 	end
-	part(f, "RidgeBeam", Vector3.new(ex * 2 - 6, 2.4, 3.4), CFrame.new(cx, 2041.6, cz),
-		C.timberDark, MAT.WoodPlanks, { shadow = false })
+	-- (the RidgeBeam that stood here was swallowed by the lean-to's snow wedge; BuildWarmhouseFront
+	-- puts a visible crest on the roof's real top edge instead)
 
 	-- 3. THE VERTICAL. The chimneys were 14 studs of pale slate, shorter than the wall they sit
 	-- on. Raised and darkened, one of them smoking, they become the thing you pick out first.
@@ -2138,31 +2138,44 @@ local AP_FROM = Vector3.new(-8243, 2034, -8283)
 -- mouth stays the brightest thing in frame, which is what should pull the player out.
 local AP_LAMP = Color3.fromRGB(255, 190, 120)
 local AP_BRIGHT, AP_RANGE = 1.0, 20
+-- Inside the bore the pools have to stay small, or the warm light floods the whole Slate wall
+-- and it reads as a sand cave (ITEM 8 checkpoint): tighter and dimmer in the tunnel only.
+local AP_TUNNEL_BRIGHT, AP_TUNNEL_RANGE = 0.85, 14
+-- The shelf past the mouth is measured dead flat at y2030 (d 25..72). Everything on it is set
+-- from that constant, NOT from a raycast: a raycast finds the rock the previous run left, so a
+-- rebuild stacked a new lump on the old one every time (ITEM 8: lumps reached y2052 and the
+-- lit posts floated 15 studs up). A fixed floor makes the step safe to re-run.
+local AP_SHELF_Y = 2030
 
 function M.BuildArrivalApproach()
 	local f = freshFolder("ArrivalApproach")
 	local side = Vector3.new(AP_LOOK.Z, 0, -AP_LOOK.X)   -- perpendicular, in the ground plane
-	local rp = RaycastParams.new()
-	rp.IgnoreWater = true
-
-	local function groundAt(p, fromY)
-		local r = Workspace:Raycast(Vector3.new(p.X, fromY or 2046, p.Z), Vector3.new(0, -80, 0), rp)
-		return r and r.Position.Y or nil
-	end
 	local function at(d, off)
 		return AP_FROM + AP_LOOK * d + side * (off or 0)
 	end
-	local function lamp(name, pos)
+	-- A lantern is a Glass body with a small Neon core, never an all-Neon block: an all-Neon
+	-- head blows out to a flat white square under the tundra grade (ITEM 7 audit, shot 1).
+	local function lamp(name, pos, bright, range)
 		local head = part(f, name, Vector3.new(1.7, 2.0, 1.7), CFrame.new(pos),
+			AP_LAMP, MAT.Glass, { shadow = false, transparency = 0.35 })
+		part(f, name .. "Core", Vector3.new(0.55, 0.75, 0.55), CFrame.new(pos),
 			AP_LAMP, MAT.Neon, { shadow = false })
 		local l = Instance.new("PointLight")
 		l.Color = AP_LAMP
-		l.Brightness = AP_BRIGHT
-		l.Range = AP_RANGE
+		l.Brightness = bright or AP_BRIGHT
+		l.Range = range or AP_RANGE
 		l.Shadows = false
 		l.Parent = head
 		return head
 	end
+
+	-- 0. THE BORE. The CellarPass walls are Glacier, and Glacier's GLOBAL terrain colour reads
+	-- as bright mint green under the tundra grade -- the tunnel looked like a moss tube (ITEM 7,
+	-- shot 1). Material colours are shared with World 1 and the Gardens, so the colour is NOT
+	-- changed; the bore's own voxels are switched to Slate instead, region-limited to the tunnel.
+	Workspace.Terrain:ReplaceMaterial(
+		Region3.new(Vector3.new(-8284, 2022, -8350), Vector3.new(-8218, 2054, -8252)):ExpandToGrid(4),
+		4, MAT.Glacier, MAT.Slate)
 
 	-- 1. LIGHT THE STRETCH THEY WALK. Three new lanterns hung off the tunnel ribs on the
 	-- leg from the arrival out to the gate, plus a lift on the three that already exist.
@@ -2171,13 +2184,16 @@ function M.BuildArrivalApproach()
 	if cp then
 		for _, d in ipairs(cp:GetDescendants()) do
 			if d.Name == "RibLantern" then
-				d.Material = MAT.Neon
+				d.Material = MAT.Glass
+				d.Transparency = 0.35
 				d.Color = AP_LAMP
+				part(f, "RibLanternCore", Vector3.new(0.45, 0.6, 0.45), CFrame.new(d.Position),
+					AP_LAMP, MAT.Neon, { shadow = false })
 				local l = d:FindFirstChildWhichIsA("Light", true)
 				if l then
 					l.Color = AP_LAMP
-					l.Brightness = AP_BRIGHT
-					l.Range = AP_RANGE
+					l.Brightness = AP_TUNNEL_BRIGHT
+					l.Range = AP_TUNNEL_RANGE
 					relit = relit + 1
 				end
 			end
@@ -2185,7 +2201,27 @@ function M.BuildArrivalApproach()
 	end
 	for i, d in ipairs({ 7, 15, 23 }) do
 		local p = at(d, (i % 2 == 0) and 5.5 or -5.5)
-		lamp("TunnelLamp" .. i, Vector3.new(p.X, 2040.6, p.Z))
+		lamp("TunnelLamp" .. i, Vector3.new(p.X, 2040.6, p.Z), AP_TUNNEL_BRIGHT, AP_TUNNEL_RANGE)
+	end
+
+	-- ICE IN THE BORE. The Slate reskin fixed the mint green but left no ice at all, and the brief
+	-- is "Slate and ice blue". Terrain colours are global, so the ice comes from a few faceted
+	-- crystal meshes growing out of the foot of the walls, catching the lamp pools.
+	local wallRp = RaycastParams.new()
+	wallRp.FilterType = Enum.RaycastFilterType.Exclude
+	wallRp.FilterDescendantsInstances = { f }
+	for i, spec in ipairs({ { 4, 1 }, { 9, -1 }, { 14, 1 }, { 18, -1 }, { 22, 1 }, { 26, -1 } }) do
+		local c = at(spec[1], 0)
+		local hit = Workspace:Raycast(Vector3.new(c.X, 2031.5, c.Z), side * spec[2] * 14, wallRp)
+		if hit then
+			local base = hit.Position - side * spec[2] * 0.9
+			local h = 2.6 + (i % 3) * 1.1
+			local cr = rock(f, "IceCrystal", "crystal", Vector3.new(h * 0.42, h, h * 0.42),
+				CFrame.new(base.X, 2030 + h * 0.42, base.Z)
+					* CFrame.Angles(0, math.rad(i * 47), math.rad(-spec[2] * 14)),
+				(i % 2 == 0) and C.ice or C.iceDeep, MAT.Glass)
+			cr.Transparency = 0.12
+		end
 	end
 
 	-- 2. THE SHELF. Rock set in two loose lines that CONVERGE on the descent, so the shelf
@@ -2202,7 +2238,7 @@ function M.BuildArrivalApproach()
 		{ 60, -9.5 }, { 66, 9 }, { 71, -8.5 },
 	}) do
 		local p = at(spec[1], spec[2])
-		local g = groundAt(p)
+		local g = AP_SHELF_Y
 		if g then
 			local r = rng:NextNumber(4.0, 6.5)
 			local c = Vector3.new(p.X, g + r * 0.10, p.Z)
@@ -2225,7 +2261,7 @@ function M.BuildArrivalApproach()
 	-- read as a gate you walk between.
 	for i, off in ipairs({ -10, 10 }) do
 		local p = at(69, off)
-		local g = groundAt(p)
+		local g = AP_SHELF_Y
 		if g then
 			local lean = (off < 0) and 7 or -7
 			local base = Vector3.new(p.X, g, p.Z)
@@ -2240,7 +2276,7 @@ function M.BuildArrivalApproach()
 	-- being one flat plane at exactly 2030.
 	for _, spec in ipairs({ { 44, -15, 26 }, { 58, 14, 22 } }) do
 		local p = at(spec[1], spec[2])
-		local g = groundAt(p)
+		local g = AP_SHELF_Y
 		if g then
 			local w, h = spec[3], rng:NextNumber(2.4, 3.6)
 			local c = Vector3.new(p.X, g + h / 2 - 0.4, p.Z)
@@ -2416,8 +2452,7 @@ function M.BuildDockApproach()
 
 	local function boulder(x, r, mat)
 		local water = c3WaterStart(x)
-		local g = c3Ground(x, C3_Z)
-		if not g then return end
+		local g = 2002   -- the apron is measured flat at 2002; a raycast would find last run's boulder
 		-- stay at least 6 studs landward of the water at this x
 		local z = C3_Z
 		if water and z + r > water - 6 then z = water - 6 - r end
@@ -2503,7 +2538,7 @@ function M.BuildDigCamp()
 		local z, sideSign = s[1], s[2]
 		local off = C4_PATH_HALF + rng:NextNumber(6, 13)
 		local x = C4_PATH_X + sideSign * off
-		local g = ground(x, z)
+		local g = 2022   -- the drill shelf is measured flat at 2022; a raycast would find last run's heap
 		if g then
 			local r = rng:NextNumber(3.4, 5.6)
 			local c = Vector3.new(x, g + r * 0.05, z)
@@ -2556,6 +2591,445 @@ function M.BuildDigCamp()
 	local n = 0
 	for _, d in ipairs(f:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
 	return ("dig camp (C4): %d parts, %d terrain spoil heaps"):format(n, heaps)
+end
+
+-- ============================================================== CAMP DRESSING
+-- The six Tundra camps are baked place content, not built by any script. Two things in them read
+-- as the "AI-built" tell (ITEM 7 audit): the CampSpire ice prisms -- square-section boxes that look
+-- like flat slabs from most angles -- and the pale pad grid. This step rebuilds the spires as
+-- faceted crystal clusters (the RockMeshes crystal, one part per crystal) from RECORDED positions,
+-- so it still works when re-run after the originals are gone, with a different number kept per
+-- camp so no two neighbouring camps match.
+--   { x, y, z, width, height } -- the centre and size each CampSpire had
+local CAMP_SPIRES = {
+	[7] = { { -8113.5, 2016.1, -8034.9, 3.0, 19.3 }, { -8153.0, 2019.6, -8083.3, 4.1, 26.3 }, { -8098.7, 2017.5, -8037.7, 3.5, 22.2 },
+		{ -8149.0, 2018.4, -8045.6, 3.8, 24.0 }, { -8118.8, 2019.8, -8100.8, 4.2, 26.7 } },
+	[8] = { { -8146.4, 2016.6, -8000.6, 3.2, 20.4 }, { -8098.7, 2017.7, -7947.7, 3.5, 22.5 }, { -8153.6, 2016.6, -7963.5, 3.2, 20.2 },
+		{ -8108.6, 2018.5, -8007.5, 3.8, 24.1 }, { -8122.8, 2018.2, -7942.9, 3.7, 23.5 } },
+	[9] = { { -8126.0, 2017.3, -7918.4, 3.3, 21.3 }, { -8109.8, 2016.1, -7850.3, 3.0, 19.0 }, { -8154.6, 2019.3, -7893.6, 4.0, 25.2 },
+		{ -8099.7, 2017.6, -7911.2, 3.5, 22.0 }, { -8143.1, 2017.7, -7858.4, 3.5, 22.1 } },
+	[10] = { { -7898.2, 2017.8, -7909.0, 3.5, 22.3 }, { -7850.5, 2018.5, -7864.2, 3.7, 23.8 }, { -7838.9, 2019.3, -7896.4, 4.0, 25.3 },
+		{ -7886.8, 2016.4, -7856.5, 3.1, 19.5 }, { -7886.8, 2020.3, -7919.4, 4.3, 27.3 } },
+	[11] = { { -7862.8, 2018.1, -8009.3, 3.6, 23.1 }, { -7896.4, 2020.4, -7952.8, 4.4, 27.8 }, { -7899.4, 2017.4, -7997.8, 3.4, 21.8 },
+		{ -7868.9, 2017.8, -7943.4, 3.6, 22.7 }, { -7839.6, 2019.0, -7961.4, 3.9, 24.9 } },
+	[12] = { { -7891.8, 2019.4, -8093.9, 4.0, 25.6 }, { -7853.4, 2019.3, -8094.3, 4.0, 25.3 }, { -7896.4, 2016.9, -8042.8, 3.2, 20.6 },
+		{ -7878.2, 2019.9, -8033.0, 4.2, 26.6 }, { -7845.1, 2016.9, -8041.7, 3.2, 20.5 } },
+}
+-- How many of each camp's five spots keep a cluster. Rows run 7-8-9 (east) and 12-11-10 (west),
+-- and 7/12, 8/11, 9/10 face each other: no neighbour in either direction has the same count.
+local CAMP_SPIRE_COUNT = { [7] = 5, [8] = 3, [9] = 4, [10] = 3, [11] = 5, [12] = 4 }
+-- The UNCLAIMED pad look only. PlayerDataManager.refreshSpotsOn repaints a camp's pads (material
+-- included) the moment it is owned, and that shared code is left exactly as it is.
+local CAMP_PAD_COLOUR = Color3.fromRGB(104, 120, 138)
+
+function M.BuildCampDressing()
+	local bases = Workspace:FindFirstChild("PlayerBases")
+	if not bases then return "no PlayerBases -- nothing done" end
+	local crystals, removed, repainted = 0, 0, 0
+	for plotN, spots in pairs(CAMP_SPIRES) do
+		local plot = bases:FindFirstChild("Plot" .. plotN)
+		local camp = plot and plot:FindFirstChild("TundraCamp")
+		if camp then
+			for _, d in ipairs(camp:GetDescendants()) do
+				if d.Name == "CampSpire" and d:IsA("BasePart") then d:Destroy(); removed += 1 end
+			end
+			local old = camp:FindFirstChild("Crystals")
+			if old then old:Destroy() end
+			local f = Instance.new("Folder")
+			f.Name = "Crystals"
+			f.Parent = camp
+			local rng = Random.new(5100 + plotN)
+			for i = 1, math.min(CAMP_SPIRE_COUNT[plotN] or #spots, #spots) do
+				local s = spots[i]
+				local foot = Vector3.new(s[1], s[2] - s[5] / 2, s[3])
+				local h = s[5] * rng:NextNumber(0.8, 0.95)
+				local main = rock(f, "Crystal", "crystal", Vector3.new(h * 0.26, h, h * 0.26),
+					CFrame.new(foot + Vector3.new(0, h * 0.46, 0))
+						* CFrame.Angles(math.rad(rng:NextNumber(-6, 6)), math.rad(rng:NextNumber(0, 360)), math.rad(rng:NextNumber(-6, 6))),
+					(i % 2 == 0) and C.ice or C.iceDeep, MAT.Ice)
+				main.Transparency = 0.08
+				crystals += 1
+				-- one or two smaller shards leaning out of the same foot
+				for _ = 1, (i % 2 == 0) and 1 or 2 do
+					local sh = h * rng:NextNumber(0.35, 0.55)
+					local a = math.rad(rng:NextNumber(0, 360))
+					local off = Vector3.new(math.cos(a), 0, math.sin(a)) * h * 0.14
+					local shard = rock(f, "Crystal", "crystal", Vector3.new(sh * 0.3, sh, sh * 0.3),
+						CFrame.new(foot + off + Vector3.new(0, sh * 0.42, 0))
+							* CFrame.Angles(0, a, 0) * CFrame.Angles(0, 0, math.rad(rng:NextNumber(18, 32))),
+						C.ice, MAT.Ice)
+					shard.Transparency = 0.08
+					crystals += 1
+				end
+			end
+			local pads = plot:FindFirstChild("Pads")
+			if pads and (plot:GetAttribute("OwnerUserId") or 0) == 0 then
+				for _, pad in ipairs(pads:GetChildren()) do
+					if pad:IsA("BasePart") and pad.Name:match("^Pad%d+$") then
+						pad.Material = MAT.Slate
+						pad.Color = CAMP_PAD_COLOUR
+						repainted += 1
+					end
+				end
+			end
+		end
+	end
+	return ("camp dressing: %d spire prisms removed, %d crystals placed, %d unclaimed pads recoloured")
+		:format(removed, crystals, repainted)
+end
+
+-- ============================================================== RUIN RUBBLE
+-- Ruins.BrokenWatchtower carried 26 Slate cubes for rubble (1-2.5 studs), and they FLOATED about
+-- 6.7 studs above the gallery floor (y ~2054.7 over ground at 2048). From the default camera on the
+-- gallery -- the Tundra's highest walkable point -- they hung right in front of the lens and read as
+-- big grey boxes (ITEM 7 audit, shot 8). They become six terrain rock piles on the actual ground.
+local RUBBLE_PILES = {
+	{ -7714.0, -8003.0, 3.0 }, { -7707.6, -8007.3, 3.0 }, { -7704.0, -7999.3, 2.4 },
+	{ -7697.5, -8011.4, 2.6 }, { -7702.0, -8022.6, 3.2 }, { -7693.4, -8023.1, 3.0 },
+}
+local RUBBLE_GROUND = 2048   -- the gallery floor, measured; a fixed floor so a re-run cannot stack
+
+function M.BuildRuinRubble()
+	local ruins = Workspace.GameWorld.FrozenTundra:FindFirstChild("Ruins")
+	local tower = ruins and ruins:FindFirstChild("BrokenWatchtower")
+	local removed = 0
+	if tower then
+		for _, d in ipairs(tower:GetChildren()) do
+			if d.Name == "Rubble" and d:IsA("BasePart") then d:Destroy(); removed += 1 end
+		end
+	end
+	for i, p in ipairs(RUBBLE_PILES) do
+		local c = Vector3.new(p[1], RUBBLE_GROUND + p[3] * 0.2, p[2])
+		tBall(c, p[3], (i % 2 == 0) and MAT.Rock or MAT.Slate)
+		tBall(c + Vector3.new(p[3] * 0.6, -p[3] * 0.25, p[3] * 0.3), p[3] * 0.6, MAT.Slate)
+		tBall(c + Vector3.new(0, p[3] * 0.45, 0), p[3] * 0.5, MAT.Snow)
+	end
+	return ("ruin rubble: %d floating cube parts removed, %d terrain piles on the ground")
+		:format(removed, #RUBBLE_PILES)
+end
+
+-- ============================================================== DOCK SNOW
+-- The deck carried three flat Snow tiles -- a 56x7 strip across the dock foot and two small patches
+-- -- that read as square white tiles laid on the planks (ITEM 7 audit, shot 4). They become a few
+-- low terrain drifts. Every drift's lowest point stays above y2000.5, so no water voxel is touched
+-- (the lake surface is 2000). The thin snow strips along the two rails stay: they read as snow
+-- caught on the rail, not as tiles. Written with Terrain:FillBall directly, because the deck is
+-- inside the lake margin that tBall refuses on purpose.
+local DOCK_DRIFTS = {
+	{ -8021, -7815, 2.4 }, { -8009, -7816, 1.8 }, { -7994, -7815, 2.0 }, { -7980, -7816, 2.4 },
+	{ -8025, -7809, 1.8 }, { -7977, -7807, 1.6 },
+}
+
+function M.BuildDockSnow()
+	local sa = Workspace.GameWorld.FrozenTundra:FindFirstChild("SkipArea")
+	local dock = sa and sa:FindFirstChild("Dock")
+	local removed = 0
+	if dock then
+		for _, d in ipairs(dock:GetDescendants()) do
+			if d.Name == "Dust" and d:IsA("BasePart") and d.Size.X > 5 then d:Destroy(); removed += 1 end
+		end
+	end
+	for _, p in ipairs(DOCK_DRIFTS) do
+		Workspace.Terrain:FillBall(Vector3.new(p[1], 2000.6 + p[3], p[2]), p[3], MAT.Snow)
+	end
+	return ("dock snow: %d flat snow tiles removed, %d terrain drifts"):format(removed, #DOCK_DRIFTS)
+end
+
+-- ============================================================== CAMP VARIATION
+-- ITEM 7 found the six camps identical side by side. Each camp now differs in tent canvas (no two
+-- neighbours in a row or across the Avenue share a colour), in crystal count (CAMP_SPIRE_COUNT,
+-- above) and in how its hearth is laid. The fire itself does NOT move: the functional Campfire part
+-- sits at the camp centre, and CampfireBankClient's collect ring (r 5.6, which "EXACTLY matches
+-- CAMPFIRE_RADIUS") and the tutorial both key off it. So the decorative hearth -- logs, stones,
+-- embers, ash bed -- is turned about that same centre instead, by a different angle per camp.
+local CAMP_TENT = {
+	[7] = Color3.fromRGB(150, 70, 58), [8] = Color3.fromRGB(62, 84, 120), [9] = Color3.fromRGB(168, 128, 70),
+	[10] = Color3.fromRGB(84, 98, 70), [11] = Color3.fromRGB(196, 182, 150), [12] = Color3.fromRGB(70, 68, 72),
+}
+local CAMP_FIRE_YAW = { [7] = 0, [8] = 40, [9] = 95, [10] = 150, [11] = 210, [12] = 275 }
+local HEARTH = { FireBedAsh = true, FireLog = true, FireLogCharred = true, HearthStone = true, Ember = true }
+
+function M.BuildCampVariation()
+	local bases = Workspace:FindFirstChild("PlayerBases")
+	if not bases then return "no PlayerBases -- nothing done" end
+	local tents, turned = 0, 0
+	for plotN, col in pairs(CAMP_TENT) do
+		local plot = bases:FindFirstChild("Plot" .. plotN)
+		local camp = plot and plot:FindFirstChild("TundraCamp")
+		local fire = plot and plot:FindFirstChild("Campfire")
+		if camp and fire then
+			local tent = camp:FindFirstChild("Tent")
+			if tent then
+				for _, d in ipairs(tent:GetChildren()) do
+					if d.Name == "Canvas" and d:IsA("BasePart") then
+						d.Color = col
+						tents += 1
+					elseif d.Name == "Flap" and d:IsA("BasePart") then
+						d.Color = col:Lerp(Color3.new(0, 0, 0), 0.18)
+					end
+				end
+			end
+			-- turn by the DIFFERENCE from what is already applied, so a re-run is a no-op
+			local want = CAMP_FIRE_YAW[plotN] or 0
+			local have = camp:GetAttribute("HearthYaw") or 0
+			local delta = math.rad(want - have)
+			if delta ~= 0 then
+				local pivot = CFrame.new(fire.Position.X, 0, fire.Position.Z)
+				local turn = pivot * CFrame.Angles(0, delta, 0) * pivot:Inverse()
+				for _, d in ipairs(camp:GetChildren()) do
+					if d:IsA("BasePart") and HEARTH[d.Name] then
+						d.CFrame = turn * d.CFrame
+						turned += 1
+					end
+				end
+			end
+			camp:SetAttribute("HearthYaw", want)
+		end
+	end
+	return ("camp variation: %d tent canvases recoloured, %d hearth parts turned"):format(tents, turned)
+end
+
+-- ============================================================== SPUR DRIFTS
+-- The ~90-stud strip between the Avenue and each camp row was one flat snow plane (ITEM 7, shots 6
+-- and 7). Low drifts now run alongside each spur path and between them, so the ground breaks up and
+-- the paths read as trodden lines through it. Every mound stays clear of the paths: its centre line
+-- is 11-14 studs off a spur's (spurs are 8 wide) and it stops short of the Avenue (x -8016..-7984).
+-- Set on the measured apron height 2002 -- a fixed floor, so a re-run never stacks.
+local SPUR_Z = { -8065, -7975, -7885 }
+local SPUR_MID_Z = { -8020, -7930 }
+
+function M.BuildSpurDrifts()
+	local rng = Random.new(66021)
+	local ridges = 0
+	local function ridge(x0, x1, z)
+		local n = math.max(3, math.floor(math.abs(x1 - x0) / 6))
+		for k = 0, n do
+			local x = x0 + (x1 - x0) * (k / n)
+			local r = rng:NextNumber(2.6, 4.2)
+			tBall(Vector3.new(x + rng:NextNumber(-1.5, 1.5), 2002 - r * 0.35, z + rng:NextNumber(-1.2, 1.2)), r, MAT.Snow)
+		end
+		ridges += 1
+	end
+	for _, side in ipairs({ { -8030, -8082 }, { -7970, -7918 } }) do
+		for _, z in ipairs(SPUR_Z) do
+			ridge(side[1], side[2], z - rng:NextNumber(11, 14))
+			ridge(side[1], side[2], z + rng:NextNumber(11, 14))
+		end
+		for _, z in ipairs(SPUR_MID_Z) do
+			ridge(side[1] + (side[2] - side[1]) * 0.15, side[2], z + rng:NextNumber(-3, 3))
+		end
+	end
+	return ("spur drifts: %d low snow ridges"):format(ridges)
+end
+
+-- ============================================================== ICE CAMP
+-- Two fishing huts on the lake banks at the dock end of the ice field, so the field reads as a
+-- place people fish from rather than a blank sheet (ITEM 7 audit, shot 5). On land, 19-24 studs
+-- clear of the shore paths and clear of the ledges behind them, each facing the lake. Floor
+-- heights come from the probe, fixed, so a re-run never stacks.
+--   { x, z, ground y, facing (+1 = door toward +X) }
+local ICE_HUTS = {
+	{ -8218, -7735, 2002.0, 1 },    -- east bank
+	{ -7782, -7705, 2001.5, -1 },   -- west bank
+}
+
+function M.BuildIceCamp()
+	local f = freshFolder("IceCamp")
+	for i, h in ipairs(ICE_HUTS) do
+		-- local frame: +X points out through the door, toward the lake
+		local base = CFrame.new(h[1], h[3], h[2]) * CFrame.Angles(0, h[4] > 0 and 0 or math.pi, 0)
+		local W, D, H = 8, 7, 6.5
+		local function p(name, size, off, col, mat, opts)
+			return part(f, name .. i, size, base * off, col, mat, opts)
+		end
+		p("HutFloor", Vector3.new(D + 1, 0.6, W + 1), CFrame.new(0, 0.3, 0), C.timberDark, MAT.WoodPlanks, { collide = true })
+		p("HutBack", Vector3.new(0.5, H, W), CFrame.new(-D / 2, H / 2 + 0.6, 0), C.timber, MAT.WoodPlanks, { collide = true })
+		p("HutSideN", Vector3.new(D, H, 0.5), CFrame.new(0, H / 2 + 0.6, W / 2), C.timber, MAT.WoodPlanks, { collide = true })
+		p("HutSideS", Vector3.new(D, H, 0.5), CFrame.new(0, H / 2 + 0.6, -W / 2), C.timber, MAT.WoodPlanks, { collide = true })
+		-- the door wall: two jambs and a lintel, leaving a dark doorway facing the ice
+		p("HutFrontN", Vector3.new(0.5, H, 2.5), CFrame.new(D / 2, H / 2 + 0.6, W / 2 - 1.25), C.timber, MAT.WoodPlanks, { collide = true })
+		p("HutFrontS", Vector3.new(0.5, H, 2.5), CFrame.new(D / 2, H / 2 + 0.6, -W / 2 + 1.25), C.timber, MAT.WoodPlanks, { collide = true })
+		p("HutLintel", Vector3.new(0.5, 1.6, 3.0), CFrame.new(D / 2, H - 0.2, 0), C.timber, MAT.WoodPlanks, {})
+		-- a pitched roof in two planes, dark timber, with snow lying on one side
+		for _, s in ipairs({ 1, -1 }) do
+			p("HutRoof", Vector3.new(D + 1.6, 0.5, W / 2 + 1.4),
+				CFrame.new(0, H + 1.9, s * (W / 4 + 0.3)) * CFrame.Angles(math.rad(s * 28), 0, 0),
+				C.timberDark, MAT.WoodPlanks, {})
+		end
+		p("HutRoofSnow", Vector3.new(D + 1.2, 0.35, W / 2 + 1.0),
+			CFrame.new(0, H + 2.35, W / 4 + 0.3) * CFrame.Angles(math.rad(28), 0, 0), C.snow, MAT.Snow, {})
+		p("HutPipe", Vector3.new(3.2, 0.7, 0.7),
+			CFrame.new(-D / 4, H + 3.2, -W / 4) * CFrame.Angles(0, 0, math.rad(90)),
+			Color3.fromRGB(70, 74, 82), MAT.Metal, { shape = Enum.PartType.Cylinder })
+		local win = p("HutWindow", Vector3.new(0.3, 1.4, 1.8),
+			CFrame.new(0, H * 0.62, W / 2 + 0.05) * CFrame.Angles(0, math.rad(90), 0),
+			C.warm, MAT.Glass, { transparency = 0.25 })
+		local l = Instance.new("PointLight")
+		l.Color = C.warm
+		l.Brightness = 0.8
+		l.Range = 12
+		l.Shadows = false
+		l.Parent = win
+	end
+	local n = 0
+	for _, d in ipairs(f:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
+	return ("ice camp: %d fishing huts, %d parts"):format(#ICE_HUTS, n)
+end
+
+-- ============================================================== WARMHOUSE FRONT
+-- From the plaza the facade was one 224-stud flat plank wall under a dead-level roof line, with
+-- four flat Neon panes stuck on it (ITEM 7 audit, shot 3). This step gives the front a shape:
+--   * a cross GABLE over the door, 56 wide, so the roof line peaks over the entrance;
+--   * two canted BAY windows flanking the porch, on the two inner windows;
+--   * ridge caps -- on the gable, and a dark crest along the lean-to roof's top edge (this
+--     replaces WarmhouseHero's RidgeBeam, which the lean-to roof had swallowed whole);
+--   * Glass fronts on the two outer windows, the warm pane glowing behind them.
+-- The door (x -8014..-7986), the porch, the name board, the door lamps and the signpost are
+-- not touched. Everything is set from fixed numbers, so a re-run is identical.
+-- Run AFTER BuildWarmhouse and BuildWarmhouseHero: it removes the flat frames BuildWarmhouse
+-- put on the two bay windows, and WarmhouseHero's hidden RidgeBeam.
+local WF_GABLE = { x = -8000, w = 56, base = 2039.0, rise = 16, zFront = -8245.6, zBack = -8280 }
+local WF_BAYS = { -8045, -7955 }
+local WF_GLASS = { -8080, -7920 }
+local WF_FRAME = { WindowHead = true, WindowSill = true, WindowJamb = true, Mullion = true, Transom = true, SillSnow = true }
+local WF_GLASS_COL = Color3.fromRGB(206, 220, 230)
+-- the lit room behind the glass: warm, but NOT Neon -- a Neon pane behind Glass still read as a
+-- flat orange sticker (and Neon blows out under Bloom); a SurfaceLight gives it the glow instead
+local WF_PANE = Color3.fromRGB(200, 132, 66)
+
+function M.BuildWarmhouseFront()
+	local f = freshFolder("WarmhouseFront")
+	local ft = Workspace.GameWorld.FrozenTundra
+	local wh = ft.Greybox:FindFirstChild("Warmhouse")
+	if not wh then return "Warmhouse greybox not found -- nothing done" end
+	local removed = 0
+
+	-- 1. THE GABLE. A triangle of plank wall in front of the lean-to's eave, two pitched roof
+	-- planes running back into the lean-to, a closed back triangle, dark barge boards on the
+	-- rake so the peak reads against the snow and sky.
+	local G = WF_GABLE
+	local half = G.w / 2
+	local a = math.atan2(G.rise, half)
+	local slopeLen = math.sqrt(half * half + G.rise * G.rise) + 2.5
+	local zEave = G.zFront + 2.5                      -- the roof overhangs the gable face by 2.5
+	local depth = zEave - G.zBack
+	local zMid = (zEave + G.zBack) / 2
+	for _, z in ipairs({ G.zFront, G.zBack + 0.5 }) do
+		for _, s in ipairs({ -1, 1 }) do
+			-- a WedgePart rises toward its local +Z: yaw it so it rises toward the apex
+			part(f, "GableWall", Vector3.new(1.0, G.rise, half),
+				CFrame.new(G.x + s * half / 2, G.base + G.rise / 2, z) * CFrame.Angles(0, math.rad(-s * 90), 0),
+				LOGWALL, MAT.WoodPlanks, { class = "WedgePart", shadow = true })
+		end
+	end
+	part(f, "GableTie", Vector3.new(G.w + 3, 1.8, 1.8), CFrame.new(G.x, G.base + 0.2, G.zFront + 0.4), C.timberDark, MAT.Wood, { shadow = false })
+	for _, s in ipairs({ -1, 1 }) do
+		local mid = Vector3.new(G.x + s * half / 2, G.base + G.rise / 2, zMid)
+		local plane = CFrame.new(mid) * CFrame.Angles(0, 0, -s * a) * CFrame.new(s * 1.25, 0.4, 0)
+		part(f, "GableRoof", Vector3.new(slopeLen, 0.8, depth), plane, C.timberDark, MAT.WoodPlanks, { shadow = true })
+		part(f, "GableRoofSnow", Vector3.new(slopeLen - 3.2, 0.5, depth - 3.5), plane * CFrame.new(-s * 0.4, 0.6, -1.2),
+			C.snow, MAT.Snow, { shadow = false })
+		part(f, "BargeBoard", Vector3.new(slopeLen + 0.4, 1.7, 0.9),
+			CFrame.new(G.x + s * half / 2, G.base + G.rise / 2, zEave + 0.3) * CFrame.Angles(0, 0, -s * a) * CFrame.new(s * 1.25, 0.25, 0),
+			C.timberDark, MAT.Wood, { shadow = false })
+	end
+	-- the gable's ridge cap: a square beam turned on its edge, so the peak has a crisp dark line
+	part(f, "RidgeCap", Vector3.new(1.9, 1.9, depth + 0.8),
+		CFrame.new(G.x, G.base + G.rise + 0.9, zMid + 0.3) * CFrame.Angles(0, 0, math.rad(45)), C.timberDark, MAT.Wood, { shadow = false })
+	-- a small diamond window in the gable, lit from behind, framed and crossed
+	local wc = CFrame.new(G.x, G.base + 6.6, G.zFront) * CFrame.Angles(0, 0, math.rad(45))
+	part(f, "GableGlow", Vector3.new(4.4, 4.4, 0.2), wc * CFrame.new(0, 0, 0.55), WF_PANE:Lerp(Color3.new(1, 1, 1), 0.15), MAT.SmoothPlastic, { shadow = false })
+	part(f, "GableGlass", Vector3.new(4.4, 4.4, 0.2), wc * CFrame.new(0, 0, 0.75), WF_GLASS_COL, MAT.Glass, { shadow = false, transparency = 0.4 })
+	for _, e in ipairs({ { 0, 2.55, 5.8, 0.7 }, { 0, -2.55, 5.8, 0.7 }, { 2.55, 0, 0.7, 5.8 }, { -2.55, 0, 0.7, 5.8 } }) do
+		part(f, "GableWindowFrame", Vector3.new(e[3], e[4], 0.6), wc * CFrame.new(e[1], e[2], 0.8), C.timberDark, MAT.Wood, { shadow = false })
+	end
+	part(f, "GableMuntin", Vector3.new(4.4, 0.3, 0.3), wc * CFrame.new(0, 0, 0.9), C.timberDark, MAT.Wood, { shadow = false })
+	part(f, "GableMuntin", Vector3.new(0.3, 4.4, 0.3), wc * CFrame.new(0, 0, 0.9), C.timberDark, MAT.Wood, { shadow = false })
+
+	-- 2. RIDGE CAP ON THE LEAN-TO. Its high edge is against the cliff (y 2052.5 at z -8346); a
+	-- dark crest there gives the roof a top line from the plaza. WarmhouseHero's RidgeBeam sat
+	-- at y2041.6 INSIDE the lean-to's snow wedge, invisible, so it goes.
+	part(f, "CrestCap", Vector3.new(230, 2.0, 2.6), CFrame.new(-8000, 2052.9, -8345.4), C.timberDark, MAT.WoodPlanks, { shadow = false })
+	local hero = ft.Art:FindFirstChild("WarmhouseHero")
+	local rb = hero and hero:FindFirstChild("RidgeBeam")
+	if rb then rb:Destroy(); removed += 1 end
+
+	-- 3. THE BAYS. Canted: a 12-wide front and two 45-degree sides, 5 out from the wall, on a
+	-- stone base, Glass all round, under a snow-covered hood. The warm pane on the wall behind
+	-- is enlarged to fill the bay, so it reads as the lit room inside.
+	local art = ft.Art:FindFirstChild("Warmhouse")
+	local FW, P = 12, 5
+	local z0 = -8249.9                                -- just proud of the wall face (-8250)
+	local sideLen = P * math.sqrt(2)
+	for _, bx in ipairs(WF_BAYS) do
+		if art then
+			for _, d in ipairs(art:GetChildren()) do
+				if d:IsA("BasePart") and WF_FRAME[d.Name] and math.abs(d.Position.X - bx) < 9 then d:Destroy(); removed += 1 end
+			end
+		end
+		for _, q in ipairs(wh:GetChildren()) do
+			if q.Name == "WarmWindow" and math.abs(q.Position.X - bx) < 1 then
+				q.Size = Vector3.new(19, 7.6, 0.6)
+				q.Position = Vector3.new(bx, 2014.7, q.Position.Z)
+			end
+		end
+		-- the three faces of the bay in plan: front, then the two canted sides
+		local faces = {
+			{ CFrame.new(bx, 0, z0 + P), FW },
+		}
+		for _, s in ipairs({ -1, 1 }) do
+			faces[#faces + 1] = { CFrame.new(bx + s * (FW / 2 + P / 2), 0, z0 + P / 2) * CFrame.Angles(0, math.rad(s * 45), 0), sideLen }   -- local +Z faces outward
+		end
+		for _, fc in ipairs(faces) do
+			local cf, w = fc[1], fc[2]
+			local at = function(y, out) return cf * CFrame.new(0, y, out or 0) end
+			part(f, "BayBase", Vector3.new(w + 0.3, 9, 1.2), at(2005.5, -0.6), STONE, MAT.Slate, { collide = true, shadow = false })
+			part(f, "BaySill", Vector3.new(w + 0.6, 0.6, 1.8), at(2010.3, -0.3), C.timberDark, MAT.Wood, { shadow = false })
+			part(f, "BayGlass", Vector3.new(w, 8, 0.3), at(2014.6, -0.3), WF_GLASS_COL, MAT.Glass, { shadow = false, transparency = 0.45 })
+			part(f, "BayHead", Vector3.new(w + 0.6, 1.0, 1.2), at(2019.1, -0.4), C.timberDark, MAT.Wood, { shadow = false })
+			part(f, "BayTransom", Vector3.new(w, 0.4, 0.5), at(2016.6, -0.2), C.timberDark, MAT.Wood, { shadow = false })
+		end
+		part(f, "BayMullion", Vector3.new(0.45, 8, 0.5), CFrame.new(bx, 2014.6, z0 + P - 0.2), C.timberDark, MAT.Wood, { shadow = false })
+		for _, s in ipairs({ -1, 1 }) do
+			part(f, "BayPost", Vector3.new(1.0, 8.2, 1.0), CFrame.new(bx + s * FW / 2, 2014.6, z0 + P - 0.3), C.timberDark, MAT.Wood, { shadow = false })
+			part(f, "BayPost", Vector3.new(1.0, 8.2, 1.0), CFrame.new(bx + s * (FW / 2 + P), 2014.6, z0 + 0.4), C.timberDark, MAT.Wood, { shadow = false })
+		end
+		local floor = part(f, "BayFloor", Vector3.new(FW, 0.5, P), CFrame.new(bx, 2010.2, z0 + P / 2), C.timberDark, MAT.WoodPlanks, { shadow = false })
+		light(floor, C.warm, 12, 0.6)   -- a little warm spill on the snow below the bay
+		-- the hood: one pitched slab over the whole bay, dropping outward, snow on it
+		local run = P + 1.6
+		local b = math.atan2(3.2, run)
+		local hood = CFrame.new(bx, 2019.6 + 1.6 + 0.3, z0 + run / 2) * CFrame.Angles(b, 0, 0)
+		part(f, "BayRoof", Vector3.new(FW + 2 * P + 1.6, 0.6, run / math.cos(b)), hood, C.timberDark, MAT.WoodPlanks, { shadow = true })
+		part(f, "BayRoofSnow", Vector3.new(FW + 2 * P + 0.6, 0.45, run / math.cos(b) - 1.0), hood * CFrame.new(0, 0.5, -0.3), C.snow, MAT.Snow, { shadow = false })
+	end
+
+	-- 4. GLASS ON THE WINDOWS. All four warm panes become a lit room (SmoothPlastic + a SurfaceLight,
+	-- no longer Neon), and the two outer ones get a Glass pane in front that takes the sky's
+	-- reflection, so each reads as a window rather than a sticker.
+	for _, q in ipairs(wh:GetChildren()) do
+		if q.Name == "WarmWindow" and q:IsA("BasePart") then
+			q.Material = MAT.SmoothPlastic
+			q.Color = WF_PANE
+			local sl = q:FindFirstChild("PaneLight") or Instance.new("SurfaceLight")
+			sl.Name = "PaneLight"
+			sl.Face = Enum.NormalId.Back   -- +Z, out through the facade
+			sl.Color = C.warm
+			sl.Brightness = 1.2
+			sl.Range = 12
+			sl.Angle = 110
+			sl.Shadows = false
+			sl.Parent = q
+		end
+	end
+	for _, x in ipairs(WF_GLASS) do
+		part(f, "WindowGlass", Vector3.new(14, 6, 0.25), CFrame.new(x, 2015, -8249.45), WF_GLASS_COL, MAT.Glass, { shadow = false, transparency = 0.4 })
+	end
+
+	local n = 0
+	for _, d in ipairs(f:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
+	return ("warmhouse front: gable, %d bays, crest cap, %d glass windows -- %d parts, %d old parts removed")
+		:format(#WF_BAYS, #WF_GLASS, n, removed)
 end
 
 return M

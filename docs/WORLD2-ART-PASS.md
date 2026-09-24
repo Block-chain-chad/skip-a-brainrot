@@ -207,6 +207,16 @@ A.BuildArrivalApproach()  -- relights CellarPass lanterns + Art.ArrivalApproach 
 A.BuildLakeShore()        -- raises the near-shore bed; see §13 for the fingerprint
 A.BuildDockApproach()     -- C3
 A.BuildDigCamp()          -- C4
+-- visual pass (2026-09-24, ITEM 8), in this order:
+A.BuildArrivalApproach()  -- (re-run) tunnel reskin Glacier->Slate, Glass+Neon-core lamps, crystals
+A.BuildCampDressing()     -- CampSpire prisms -> crystal meshes; unclaimed pads -> frosted Slate
+A.BuildRuinRubble()       -- floating rubble cubes -> terrain piles on the gallery floor
+A.BuildDockSnow()         -- dock snow tiles -> low terrain drifts (above y2000.5, no water touched)
+A.BuildCampVariation()    -- tent colours + hearth turn per camp (Campfire/CampStand NOT moved)
+A.BuildSpurDrifts()       -- terrain drift ridges between the spur paths
+A.BuildIceCamp()          -- two fishing huts on the lake banks
+A.BuildWarmhouseFront()   -- AFTER BuildWarmhouse + BuildWarmhouseHero: gable, bays, crest, glass
+-- (the ice-field markers live in IceFishingEvent.buildHole and only exist during a freeze)
 ```
 
 Each step rebuilds its own folder. Terrain steps refuse any write that would reach the lake zone, and
@@ -313,6 +323,27 @@ doesn't fire `Touched` — walk onto `Platform` with `Humanoid:MoveTo`.
 **`Humanoid:MoveTo` gives up after 8 s.** A long walk that "stops short" is usually the timeout, not
 a blockage. Walk in short legs and read `MoveToFinished`.
 
+**Never place terrain on a raycast that can hit your own earlier terrain.** A re-run of
+`BuildArrivalApproach` raycast onto the rock the previous run had left and stacked new lumps on top
+(to y2052, with the lit posts floating 15 studs up). Every ITEM 8 step places on a MEASURED floor
+constant instead: arrival shelf 2030, town apron 2002, drill shelf 2022, lookout gallery 2048. Run a
+new terrain step twice and compare heights before calling it done.
+
+**Re-probe terrain in a new call.** A raycast in the same `execute_luau` call right after a terrain
+write reads the OLD collision. Measure in a separate call.
+
+**A blurry Play capture is the HUD panel, not the lens.** An open panel (the Daily panel opens on
+join) adds `Lighting.HUDPanelBlur`. Hide `PlayerGui.GameHUD…PanelHost`, then destroy the blur and
+disable the ScreenGuis. Don't force the Atmosphere for a shot: the real Tundra haze (~1.05–1.09) is
+what players see. Check `ReplicatedStorage:GetAttribute("WeatherName") == "Clear"` first.
+
+**Camera for Play shots:** re-assert a Scriptable camera every frame with
+`RunService:BindToRenderStep(..., Camera + 1, ...)` at `head − look × 12.5 + (0, 3.4, 0)` (the default
+camera's offset). That outlasts `CameraWatchdog`, which only reverts a camera set once.
+
+**Neon behind Glass still reads as a sticker.** A lit window is SmoothPlastic in a warm colour plus a
+`SurfaceLight`, with a Glass pane in front (see `BuildWarmhouseFront`).
+
 **Triggering weather for a test:** `WeatherHandler.ApplyByName("Thunderstorm", secs)` from the
 bridge reaches real clients, because it fires the shared `WeatherState` remote. Play-mode only.
 
@@ -347,3 +378,22 @@ throw reach are unchanged. It was still 75,337 after chunk E.
 Backups: `ServerStorage._BACKUP_BEAST_identity_pre` — TerrainRegions `EastWall_S/N`,
 `WestWall_S/M/N`, `SouthWall`, `LakeShore`, `LakeShore_Out`, `DrillShelf`, plus clones of
 `Greybox.Warmhouse` and `Art.Warmhouse`.
+
+## 14. Visual pass (2026-09-24, ITEM 8)
+
+Parts in `FrozenTundra`: **2,739 → 2,802** (budget ~2,900). `PlayerBases.Plot7–12`: 630 → 662.
+Lake water is still exactly 75,337 voxels, surface 2000.00.
+
+| Step | What | Parts |
+|---|---|---|
+| 1 | Tunnel: CellarPass bore reskinned Glacier→Slate with a region-limited `ReplaceMaterial` (no `SetMaterialColor`); every lamp is a Glass body with a small Neon core; tunnel pools 0.85 / r14; 6 ice-blue Glass crystal meshes. Also fixed the re-run stacking bug (§12) | +14 |
+| 2 | Hard edges: 30 `CampSpire` prisms → 62 `crystal`-mesh clusters (rebuilt from recorded positions); 26 floating rubble cubes → 6 terrain piles; 3 dock snow tiles → 6 terrain drifts; 96 unclaimed pads → frosted Slate (claimed pads keep `PlayerDataManager`'s repaint) | −29 (camps +32) |
+| 3 | Camps: per-camp tent colour, crystal count (5/3/4 east, 4/5/3 west) and hearth angle; 16 terrain drift ridges along the spurs. The functional `Campfire` and `CampStand` are NOT moved (collect ring r5.6 keys off them); the hearth turn is stored in the `HearthYaw` attribute so a re-run turns 0 parts | 0 |
+| 4 | Ice field: 2 fishing huts with lit windows on the banks (`BuildIceCamp`). In `IceFishingEvent.buildHole`, each hole also gets a `TipUpPole` with an orange `TipUpFlag` and a two-block snow `Windbreak`: +40 parts and no lights, during a freeze only, all cleaned up on thaw | +24 |
+| 5 | Warmhouse front (`BuildWarmhouseFront`): a 56-wide cross gable over the door (barge boards, ridge cap, diamond window), two canted Glass bays flanking the porch, a crest cap on the lean-to's top edge, the four warm panes turned from Neon to SmoothPlastic + SurfaceLight, Glass on the outer two. It removes WarmhouseHero's hidden `RidgeBeam` and the flat frames on the two bay windows. Door, porch, name board, lamps and signpost are untouched | +54 |
+
+Backups: `ServerStorage._BACKUP_BEAST_item8_pre` — TerrainRegions `Tunnel`, `CampsEast`,
+`CampsWest`, `Watchtower`, `DockDeck`; clones of `Greybox.CellarPass`, `Art.ArrivalApproach`,
+`Ruins.BrokenWatchtower`, `SkipArea.Dock`, `Greybox.Warmhouse`, `Art.Warmhouse`,
+`Art.WarmhouseHero`, and `Plot7–12` `TundraCamp` + `Pads`; the pre-change `IceFishingEvent` source
+as a StringValue.

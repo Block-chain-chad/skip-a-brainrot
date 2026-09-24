@@ -460,6 +460,25 @@ local function buildHole(folder, cx, cz, rng)
 		CFrame.new(px, TOP + 0.65, pz), Cfg.ROD_METAL_COLOR, Enum.Material.Metal)
 	Instance.new("CylinderMesh").Parent = bucket
 
+	-- A TIP-UP FLAG. From the dock the holes could not be seen until you were nearly on one
+	-- (ITEM 8 / the ITEM 7 audit): the lantern above only reads once the light drops. A tall
+	-- pole with a bright pennant -- what a real tip-up carries -- reads in daylight from across
+	-- the lake, and it stands on the same upwind side as the rest of the gear.
+	px, pz = at(camp + 1.05, R + 4.2)
+	block(folder, "TipUpPole", Vector3.new(0.28, 12, 0.28), CFrame.new(px, TOP + 6, pz),
+		Cfg.WOOD_DARK, Enum.Material.Wood)
+	block(folder, "TipUpFlag", Vector3.new(0.12, 1.7, 2.6),
+		CFrame.new(px, TOP + 11.1, pz + 1.35) * CFrame.Angles(0, 0, math.rad(rng:NextNumber(-6, 6))),
+		Color3.fromRGB(232, 92, 48), Enum.Material.Fabric)
+	-- a low windbreak of cut snow blocks behind the gear, facing into the lake's wind
+	for k = -1, 1, 2 do
+		local b = camp + k * 0.35
+		local wx, wz = at(b, R + 7.6)
+		block(folder, "Windbreak", Vector3.new(4.2, 1.8, 1.6),
+			CFrame.new(wx, TOP + 0.9, wz) * CFrame.Angles(0, -b + math.pi / 2, math.rad(rng:NextNumber(-4, 4))),
+			Cfg.SNOW_COLOR, Enum.Material.Snow)
+	end
+
 	-- BUBBLES frozen INTO THE SURFACE near the rim: the detail that says this is a sheet
 	-- with a lake under it rather than a white floor with a hole cut in it.
 	--
