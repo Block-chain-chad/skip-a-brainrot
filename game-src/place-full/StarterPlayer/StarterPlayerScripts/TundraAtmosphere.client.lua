@@ -39,6 +39,7 @@ local FADE = 1.6                   -- seconds to ease across
 
 local grade = Lighting:WaitForChild("TundraGrade", 20)
 if not grade then return end
+local DAY_TINT = grade.TintColor   -- the daytime tint set on the effect itself
 
 local baseExposure = Lighting.ExposureCompensation
 -- FOG IS WORLD 2 ONLY. The Atmosphere object is global, and at Density 0.28 its haze was
@@ -62,9 +63,46 @@ local ATMO_TUNDRA = { Density = 0.20, Haze = 1.1, Glare = 0.10, Offset = 0.20 }
 -- world 2 read as pitch black while the valley at the same clock stayed navigable.
 -- The haze is a DAYLIGHT effect (it is what gives the white snowfield its distance),
 -- so it now fades out with the sun instead of riding on top of the night.
-local NIGHT_HAZE = 0.25
+-- ITEM 9: all the way out. At full dark the tundra's Haze is the valley's own 0.30 and no more
+-- (MASTER's night cap); 0.25 of the mix had left it at ~0.50 after dark.
+local NIGHT_HAZE = 0
+
+-- DUSK AND NIGHT (ITEM 9). Before this the grade had one look, scaled by daylight, so the
+-- tundra at 21:30 was the tundra at 17:45 under a darker sky: OutdoorAmbient is held constant
+-- after dark on purpose (DayNightCycle), the snow stays near white, and the warm windows had
+-- nothing to glow against. Two curves on Lighting.Daylight fix that, inside the tundra only:
+--   blue  -- the blue hour: a cold tint, a touch more contrast and saturation, so the warm
+--            lights (Warmhouse, huts, camps, hole lanterns) separate from the snow by hue;
+--   night -- a slightly deeper tint and a small exposure cut, so it reads as night while the
+--            dock, the door and the ice stay findable (their own lights carry them).
+-- Same rule as the rest of the file: the private TundraGrade and ExposureCompensation only,
+-- faded by `current`, so World 1, the Gardens and the HUD blur never see any of it.
+local DUSK_TINT  = Color3.fromRGB(208, 222, 255)
+local NIGHT_TINT = Color3.fromRGB(198, 214, 255)
+local NIGHT_EXPOSURE = -0.22
+local function ease(from, to, x)   -- 0 at `from`, 1 at `to`, smoothstepped (works either way round)
+	local t = math.clamp((x - from) / (to - from), 0, 1)
+	return t * t * (3 - 2 * t)
+end
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local target, current = 0, 0
+
+-- WEATHER-EVENT HAZE CAP (MASTER, 2026-09-23). During an event WeatherClient tweens the
+-- global Atmosphere to its kit (Thunderstorm is Density 0.42 / Haze 2.7), which greys out
+-- everything past ~150 studs and hides the peak and the glacier walls. Inside the tundra
+-- only, and faded by the same region blend, the event look is capped at these values.
+-- WeatherClient is not touched: we remember the last value IT set (anything that is not
+-- what we wrote last frame) and put exactly that back when the player leaves mid-event.
+-- Fog is exempt, because fog is the whole point of that event.
+local EVENT_CAP = { Density = 0.32, Haze = 1.2 }
+local CAP_EXEMPT = { Fog = true }
+local evKit, evWrote = nil, nil
+local function trackEventAtmo()
+	if not evWrote or math.abs(atmo.Haze - evWrote.Haze) > 1e-3
+		or math.abs(atmo.Density - evWrote.Density) > 1e-3 then
+		evKit = { Haze = atmo.Haze, Density = atmo.Density }
+	end
+end
 
 local function inside(pos)
 	return pos.X >= MIN.X and pos.X <= MAX.X
@@ -84,6 +122,11 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 
 	if current <= 0.001 then
+		-- left the tundra mid-event: hand WeatherClient's own values back, once
+		if atmo and evWrote and evKit then
+			atmo.Haze, atmo.Density = evKit.Haze, evKit.Density
+		end
+		evWrote, evKit = nil, nil
 		if grade.Enabled then grade.Enabled = false end
 		if Lighting.ExposureCompensation ~= baseExposure then
 			Lighting.ExposureCompensation = baseExposure
@@ -114,8 +157,6 @@ RunService.RenderStepped:Connect(function(dt)
 	-- the frame, and at 0.26 contrast / +0.10 saturation they went hard and orange. The
 	-- grade's tint (TundraGrade.TintColor) was eased from 214,230,255 to 238,244,255 with it.
 	grade.Brightness =  0
-	grade.Contrast   =  0.12 * current
-	grade.Saturation = -0.05 * current
 	-- Scale the cut by time of day. At -1.95 on top of a night sky the tundra would be
 	-- black; DayNightCycle publishes Lighting.Daylight (0 at night, 1 at noon) so the
 	-- grade relaxes after dark instead of compounding with it. Defaults to 1 when no
@@ -123,13 +164,20 @@ RunService.RenderStepped:Connect(function(dt)
 	local daylight = Lighting:GetAttribute("Daylight")
 	if type(daylight) ~= "number" then daylight = 1 end
 	daylight = math.clamp(daylight, 0, 1)
+	local blue  = ease(0.62, 0.30, daylight)   -- 0 in daylight, 1 from the blue hour on
+	local night = ease(0.30, 0.00, daylight)   -- 1 at full dark
+	grade.TintColor  = DAY_TINT:Lerp(DUSK_TINT, blue * current):Lerp(NIGHT_TINT, night * current)
+	grade.Contrast   = (0.12 + 0.05 * blue) * current
+	grade.Saturation = (-0.05 + 0.09 * blue - 0.03 * night) * current
 	-- The exposure cut exists to tame a BLOWN-OUT white noon. After dark there is no
 	-- white-out left to tame, so it goes fully to zero rather than keeping a floor:
 	-- the old 0.25 floor was still pulling a quarter-stop out of an already night sky.
-	Lighting.ExposureCompensation = baseExposure + EXPOSURE_IN * current * daylight
+	-- (NIGHT_EXPOSURE is a separate, smaller cut for the night LOOK, not for white-out.)
+	Lighting.ExposureCompensation = baseExposure + (EXPOSURE_IN * daylight + NIGHT_EXPOSURE * night) * current
 	if atmo and ATMO_BASE then
 		local weather = ReplicatedStorage:GetAttribute("WeatherName")
 		if weather == nil or weather == "Clear" then
+			evWrote, evKit = nil, nil
 			-- same region fade, then scaled again by time of day so the cold haze is a
 			-- daytime look and never a blackout at night
 			local mix = current * (NIGHT_HAZE + (1 - NIGHT_HAZE) * daylight)
@@ -137,6 +185,14 @@ RunService.RenderStepped:Connect(function(dt)
 			atmo.Haze    = ATMO_BASE.Haze    + (ATMO_TUNDRA.Haze    - ATMO_BASE.Haze)    * mix
 			atmo.Glare   = ATMO_BASE.Glare   + (ATMO_TUNDRA.Glare   - ATMO_BASE.Glare)   * mix
 			atmo.Offset  = ATMO_BASE.Offset  + (ATMO_TUNDRA.Offset  - ATMO_BASE.Offset)  * mix
+		elseif not CAP_EXEMPT[weather] then
+			trackEventAtmo()
+			local h = evKit.Haze    + (math.min(evKit.Haze,    EVENT_CAP.Haze)    - evKit.Haze)    * current
+			local d = evKit.Density + (math.min(evKit.Density, EVENT_CAP.Density) - evKit.Density) * current
+			atmo.Haze, atmo.Density = h, d
+			evWrote = { Haze = atmo.Haze, Density = atmo.Density }
+		else
+			evWrote, evKit = nil, nil
 		end
 	end
 end)

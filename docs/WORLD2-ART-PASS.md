@@ -216,6 +216,8 @@ A.BuildCampVariation()    -- tent colours + hearth turn per camp (Campfire/CampS
 A.BuildSpurDrifts()       -- terrain drift ridges between the spur paths
 A.BuildIceCamp()          -- two fishing huts on the lake banks
 A.BuildWarmhouseFront()   -- AFTER BuildWarmhouse + BuildWarmhouseHero: gable, bays, crest, glass
+-- dusk/night pass (2026-09-24, ITEM 9): re-run A.BuildArrivalApproach() for the cool tunnel
+-- lamps and crystal fills; the rest is runtime (TundraAtmosphere) or IceFishingEvent.buildHole
 -- (the ice-field markers live in IceFishingEvent.buildHole and only exist during a freeze)
 ```
 
@@ -397,3 +399,26 @@ Backups: `ServerStorage._BACKUP_BEAST_item8_pre` — TerrainRegions `Tunnel`, `C
 `Ruins.BrokenWatchtower`, `SkipArea.Dock`, `Greybox.Warmhouse`, `Art.Warmhouse`,
 `Art.WarmhouseHero`, and `Plot7–12` `TundraCamp` + `Pads`; the pre-change `IceFishingEvent` source
 as a StringValue.
+
+## 15. Dusk and night (2026-09-24, ITEM 9)
+
+Shot clocks: dusk = 17:48 (the Sunny Day sky is already dark by 18:00), night = 21:30.
+
+| Area | Change | Where |
+|---|---|---|
+| Tunnel | The 10 bore lamps went warm 255,190,120 → cool 206,212,222, with Neon cores dimmed to 150,162,180. A bright cool core blew out white. 6 new `CrystalFill` PointLights (180,196,218, 0.3 / r14) sit inside the existing wall crystals. The Slate (blue-grey 110,122,128) now reads as rock, not tan. No material change, 0 parts | `BuildArrivalApproach` |
+| Dusk/night grade | Two curves on `Lighting.Daylight`: *blue* (0 at daylight ≥ 0.62, 1 at ≤ 0.30) and *night* (1 at 0). Tint 238,244,255 → 208,222,255 → 198,214,255. Contrast 0.12 → 0.17. Saturation −0.05 → +0.04 at the blue hour. Extra exposure cut −0.22 at full night. Night haze mix 0.25 → 0, so Tundra Haze at night = 0.30, the valley base (MASTER's cap) | `TundraAtmosphere` |
+| Hole lanterns | Existing light 1.1 / r15 → 1.8 / r26. After the night grade the pool vanished into the ice and a hole read only as a flag; now each hole sits in a warm pool | `IceFishingEvent.buildHole` |
+
+Scope: `TundraAtmosphere` writes only the private `TundraGrade`, `ExposureCompensation` and (while Clear)
+`Atmosphere`, all faded by the Tundra region blend. Checked in the valley at 21:30: TundraGrade off,
+exposure 0.14 (base), Atmosphere 0.22 / 0.30 (base). Brightness, Ambient, OutdoorAmbient, ClockTime,
+Lighting.ColorCorrection, Bloom, WeatherCC, HUDPanelBlur and NightLights are not touched.
+
+NightLights registers every light's brightness when it first sees it, as its base (outdoor names → 45 % at noon,
+others → 55 %). So a light's night value is what the builder sets, and a Play-mode preview has to
+*replace* the light, not set Brightness on it.
+
+Backups: `ServerStorage._BACKUP_BEAST_item9_pre` holds the TundraAtmosphere, IceFishingEvent and World2Art sources,
+clones of `Greybox.CellarPass`, `Art.ArrivalApproach` and `SkipArea.Dock`, and copies of `TundraGrade`
+and `Atmosphere`.

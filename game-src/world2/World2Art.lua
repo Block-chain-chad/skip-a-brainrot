@@ -2141,6 +2141,14 @@ local AP_BRIGHT, AP_RANGE = 1.0, 20
 -- Inside the bore the pools have to stay small, or the warm light floods the whole Slate wall
 -- and it reads as a sand cave (ITEM 8 checkpoint): tighter and dimmer in the tunnel only.
 local AP_TUNNEL_BRIGHT, AP_TUNNEL_RANGE = 0.85, 14
+-- ITEM 9: those warm 255,190,120 pools turned the blue-grey Slate (110,122,128) tan -- "brown
+-- dirt" at eye level. Inside the bore the lamps are a cool white so the rock reads as rock; the
+-- warm AP_LAMP stays on the shelf posts outside, where it is the cue to walk out.
+local AP_TUNNEL_LAMP = Color3.fromRGB(206, 212, 222)
+local AP_TUNNEL_CORE = Color3.fromRGB(150, 162, 180)   -- a dim core: a bright cool Neon blew out white
+-- and the far half of the bore went black between pools: each wall crystal carries a dim cold
+-- fill (a light inside an existing mesh -- no new part, no new Neon head)
+local AP_FILL, AP_FILL_BRIGHT, AP_FILL_RANGE = Color3.fromRGB(180, 196, 218), 0.3, 14
 -- The shelf past the mouth is measured dead flat at y2030 (d 25..72). Everything on it is set
 -- from that constant, NOT from a raycast: a raycast finds the rock the previous run left, so a
 -- rebuild stacked a new lump on the old one every time (ITEM 8: lumps reached y2052 and the
@@ -2155,13 +2163,14 @@ function M.BuildArrivalApproach()
 	end
 	-- A lantern is a Glass body with a small Neon core, never an all-Neon block: an all-Neon
 	-- head blows out to a flat white square under the tundra grade (ITEM 7 audit, shot 1).
-	local function lamp(name, pos, bright, range)
+	local function lamp(name, pos, bright, range, col, coreCol)
+		col = col or AP_LAMP
 		local head = part(f, name, Vector3.new(1.7, 2.0, 1.7), CFrame.new(pos),
-			AP_LAMP, MAT.Glass, { shadow = false, transparency = 0.35 })
+			col, MAT.Glass, { shadow = false, transparency = 0.35 })
 		part(f, name .. "Core", Vector3.new(0.55, 0.75, 0.55), CFrame.new(pos),
-			AP_LAMP, MAT.Neon, { shadow = false })
+			coreCol or col, MAT.Neon, { shadow = false })
 		local l = Instance.new("PointLight")
-		l.Color = AP_LAMP
+		l.Color = col
 		l.Brightness = bright or AP_BRIGHT
 		l.Range = range or AP_RANGE
 		l.Shadows = false
@@ -2186,12 +2195,12 @@ function M.BuildArrivalApproach()
 			if d.Name == "RibLantern" then
 				d.Material = MAT.Glass
 				d.Transparency = 0.35
-				d.Color = AP_LAMP
+				d.Color = AP_TUNNEL_LAMP
 				part(f, "RibLanternCore", Vector3.new(0.45, 0.6, 0.45), CFrame.new(d.Position),
-					AP_LAMP, MAT.Neon, { shadow = false })
+					AP_TUNNEL_CORE, MAT.Neon, { shadow = false })
 				local l = d:FindFirstChildWhichIsA("Light", true)
 				if l then
-					l.Color = AP_LAMP
+					l.Color = AP_TUNNEL_LAMP
 					l.Brightness = AP_TUNNEL_BRIGHT
 					l.Range = AP_TUNNEL_RANGE
 					relit = relit + 1
@@ -2201,7 +2210,8 @@ function M.BuildArrivalApproach()
 	end
 	for i, d in ipairs({ 7, 15, 23 }) do
 		local p = at(d, (i % 2 == 0) and 5.5 or -5.5)
-		lamp("TunnelLamp" .. i, Vector3.new(p.X, 2040.6, p.Z), AP_TUNNEL_BRIGHT, AP_TUNNEL_RANGE)
+		lamp("TunnelLamp" .. i, Vector3.new(p.X, 2040.6, p.Z), AP_TUNNEL_BRIGHT, AP_TUNNEL_RANGE,
+			AP_TUNNEL_LAMP, AP_TUNNEL_CORE)
 	end
 
 	-- ICE IN THE BORE. The Slate reskin fixed the mint green but left no ice at all, and the brief
@@ -2221,6 +2231,13 @@ function M.BuildArrivalApproach()
 					* CFrame.Angles(0, math.rad(i * 47), math.rad(-spec[2] * 14)),
 				(i % 2 == 0) and C.ice or C.iceDeep, MAT.Glass)
 			cr.Transparency = 0.12
+			local fill = Instance.new("PointLight")
+			fill.Name = "CrystalFill"
+			fill.Color = AP_FILL
+			fill.Brightness = AP_FILL_BRIGHT
+			fill.Range = AP_FILL_RANGE
+			fill.Shadows = false
+			fill.Parent = cr
 		end
 	end
 

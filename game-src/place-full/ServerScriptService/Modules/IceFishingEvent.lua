@@ -445,8 +445,11 @@ local function buildHole(folder, cx, cz, rng)
 		CFrame.new(px + 1.25, TOP + 6.2, pz), Cfg.LANTERN_COLOR, Enum.Material.Neon)
 	local light = Instance.new("PointLight")
 	light.Color = Cfg.LANTERN_COLOR
-	light.Brightness = 1.1        -- a lamp, not a floodlight: the ice is already bright
-	light.Range = 15
+	-- ITEM 9: brighter and wider. At 1.1 / r15 the pool vanished into the ice once the tundra's
+	-- night grade went in, and a hole read only as a flag; at 1.8 / r26 each hole sits in a warm
+	-- pool you can pick out across the ice after dark. NightLights still drops it to 45% by day.
+	light.Brightness = 1.8
+	light.Range = 26
 	light.Shadows = false
 	light.Parent = lamp
 
