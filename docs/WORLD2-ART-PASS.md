@@ -423,3 +423,62 @@ others → 55 %). So a light's night value is what the builder sets, and a Play-
 Backups: `ServerStorage._BACKUP_BEAST_item9_pre` holds the TundraAtmosphere, IceFishingEvent and World2Art sources,
 clones of `Greybox.CellarPass`, `Art.ArrivalApproach` and `SkipArea.Dock`, and copies of `TundraGrade`
 and `Atmosphere`.
+
+## 16. Sign-off tour (2026-09-24, ITEM 10)
+
+The new-player route was shot at noon, dusk (17:48) and night (21:30) at twelve stops:
+- arrival (the spawn view), the Cellar Pass looking toward the portal, the shelf / Frostgate
+- the hub, the Warmhouse front and inside, a camp on each side of the Avenue
+- the dock, the ice field mid-freeze, Elder's Dig and the High Ledge
+
+The hub and the ice field were then shot in every weather state (Clear plus the eight events).
+All shots were taken in Play with the rig in §12. A 14 px marker in the viewport corner tells an
+external PrintWindow watcher which shot is framed and settled, so a whole set runs unattended, and
+the client's Lighting, TundraGrade, WeatherCC and Atmosphere values are logged per frame.
+
+**Route walk.** `Humanoid:MoveTo` in legs of 40 studs or less. The loop runs arrival → Frostgate
+→ descent → Circle → Warmhouse (in and out) → Avenue → Plot 7 and Plot 11 terraces → dock →
+promenade → east shore → Dig ramp → Tung's porch → High Ledge → ledge ramp → Frostgate east →
+arrival. Result: 34 legs, 0 blocks, 284 s. The only fault was the shelf (below).
+
+| Fix | What was wrong | Change | Where |
+|---|---|---|---|
+| Frostgate path | Two of the ITEM 6 shelf lumps and one drift sat ON the painted path from the tunnel mouth to the descent. They were laid either side of `AP_LOOK`, but the walked line runs east of it. The route climbed an 8.5-stud rock pile, and the walk peaked at y 2041.5 | Lumps 4 and 6 and the (58, 14) drift are skipped; their random draws are kept, so every other lump rebuilds identically. New step 5 empties the terrain from 2028 up along the path (7-stud half-width) and over their footprints, then repaints the 2024 cell: Sandstone on the path, Snow beside it. The path is now 2030.0 Sandstone end to end. 5 lumps remain | `BuildArrivalApproach` |
+| Snow indoors | The camera-following snow hosts ride 50–82 studs above the player, and particles don't collide, so snow fell through the Warmhouse roof | One upward ray every 0.25 s. Under a roof, the fall and the ground drift switch off and the flakes in the air are cleared | `TundraWeatherFX` |
+| Dig lamps | The two camp lamps were solid Neon blocks, glaring right beside the camera even at noon | Glass body with a small Neon core, like the shelf and tunnel lamps (+2 parts) | `BuildDigCamp` |
+| Floating icicles | Tung's stash hut: five icicles hung in the air, 0.5 studs out from the eave | After `placeStash`, each icicle is walked in under the eave and hung from it (upward ray against Roof/RoofSnow) | `BuildDig` |
+| Floating fish | The four drying fish hung 0.2–0.5 studs under the rack pole with nothing holding them | A short `FishLine` for each fish (+4 parts) | `BuildDockApproach` |
+| Weather × grade | `TundraGrade` took its time of day from the server's `Daylight`, which follows the SERVER clock (frozen during an event), while every weather kit sets its own client `ClockTime`. Night kits that started by day got the −0.40 white-out cut. Day kits that started at night got the night tint (156,180,248) and −0.50 on top of their own blue: navy/violet, the double blue. The tint also stacked on the blue kits by day | The phase is read from the client's own clock, on DayNightCycle's curve (dawn 5, dusk 20). While an event runs, the tint, contrast, saturation and night cut ease out over `FADE`, leaving `WeatherCC` the colour; only the daylight snow cut stays. Clear weather is unchanged (checked: Clear night before and after are the same frame) | `TundraAtmosphere` |
+
+All builder steps were re-run twice: parts identical, voxels identical. The lake is still exactly
+75,337 water voxels. A floating-prop scan checks every visible part in FrozenTundra and Plots
+7–12 (3,280): AABB contact with another part, or terrain or water within the cell below. It
+found 0 floating parts after the fixes (5 before). FrozenTundra went from 2,802 to 2,808 parts.
+
+**Measured, not built (listed for MASTER):**
+- `TundraAtmosphere` overwrites `Lighting.ExposureCompensation` every frame, inside the Tundra and
+  OUTSIDE it too (outside it pins the join-time 0.14). So no weather kit's exposure has ever applied,
+  in the valley either. Golden Hour in the valley reads 0.140 (the kit wants 0.30); Blizzard's +0.24,
+  Shooting Star's +0.22 and Thunderstorm's −0.10 are all lost. Fixing it changes World 1's weather
+  looks.
+- The aurora ribbons (z 1250–2100) and the Blood Moon (0, 1500, 2200) are built at valley
+  coordinates. In the Tundra those two events have no centrepiece. `WeatherClient` is not BEAST's.
+- Blizzard in the Tundra is capped by `EVENT_CAP` (Haze 1.2): a sunny blue sky with big flakes, not
+  a white-out. Aurora at +0.5 saturation on white snow reads royal blue.
+- `NightLights` scales lamps by the server's `Daylight`, so during a night kit started by day the
+  lamps stay at their daytime level.
+
+**Gotchas learned:**
+- `require` in an Edit-mode `execute_luau` is cached for the session, and `UpdateSourceAsync` does
+  not reset it. Re-running a builder after a source push silently runs the OLD code. Require a fresh
+  clone (`art:Clone()`, parented beside it) and destroy it afterwards.
+- Terrain floors on this shelf are a full cell under an EMPTY cell, which renders a surface 2 studs
+  above the cell boundary (2030 from a full 2024–2028 cell). A half-full cell above rides 2 studs
+  higher.
+- PowerShell variables are case-insensitive (`$Names`/`$names`, `$H`/`$h` are one variable), and
+  Python on Windows writes CRLF in text mode. Both broke the shot pipeline once.
+
+Backups: `ServerStorage._BACKUP_BEAST_item10_pre` holds:
+- the `TundraWeatherFX`, `TundraAtmosphere` and World2Art sources
+- clones of `Art.DigCamp`, `Art.EldersDig`, `Art.DockApproach` and `Art.ArrivalApproach`
+- TerrainRegion `Terrain_Shelf`, restored with `Terrain:PasteRegion(tr, Vector3int16.new(-2060, 505, -2066), true)`

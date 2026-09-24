@@ -1491,7 +1491,34 @@ function M.BuildDig()
 	local f = freshFolder("EldersDig")
 	-- its six "Drift" parts were flat snow slabs for the old ground (two landed on the porch):
 	-- BuildSiteTerrain banks real snow round it instead
-	placeStash(f, "ElderHut", -8374, -7700, -45, "Plinth", 2022, { Drift = true })
+	local hut = placeStash(f, "ElderHut", -8374, -7700, -45, "Plinth", 2022, { Drift = true })
+	-- ITEM 10: the stash hut's icicles hung in the air half a stud out from its eave (the roof
+	-- sits differently on the re-seated hut). Each one is walked in under the eave and hung
+	-- from it: step toward the hut until a ray up from below the icicle meets the roof.
+	if hut then
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Include
+		local roof = {}
+		for _, d in ipairs(hut:GetDescendants()) do
+			if d:IsA("BasePart") and (d.Name == "Roof" or d.Name == "RoofSnow") then table.insert(roof, d) end
+		end
+		rp.FilterDescendantsInstances = roof
+		local centre = hut:GetBoundingBox().Position
+		for _, ic in ipairs(hut:GetDescendants()) do
+			if ic:IsA("BasePart") and ic.Name == "Icicle" then
+				local top = ic.Position + Vector3.new(0, ic.Size.Y / 2, 0)
+				local inward = Vector3.new(centre.X - top.X, 0, centre.Z - top.Z).Unit
+				for step = 0, 16 do
+					local probe = top + inward * (step * 0.2)
+					local hit = Workspace:Raycast(probe - Vector3.new(0, 4, 0), Vector3.new(0, 8, 0), rp)
+					if hit then
+						ic.CFrame = ic.CFrame + (Vector3.new(probe.X, hit.Position.Y + 0.1, probe.Z) - top)
+						break
+					end
+				end
+			end
+		end
+	end
 
 	-- the listening horn: a timber stand, a brass horn stepping out to a bell, aimed down at the Crack
 	local hornAt = onGround(-8370, -7741, 2022)
@@ -2248,28 +2275,35 @@ function M.BuildArrivalApproach()
 	-- shows flat faces and square corners however hard it is turned, which is the same tell
 	-- as the old slab cliffs; overlapping FillBalls read as rock, cost nothing against the
 	-- part budget, and use the same Slate the cliff faces already use.
+	-- ITEM 10: lumps 4 and 6 (and the second drift below) sat ON the painted Frostgate path. The
+	-- lines were laid either side of AP_LOOK, but the walked line runs from the mouth to the
+	-- descent at (-8196, -8222), well east of it, so the route climbed an 8.5-stud rock pile.
+	-- They are skipped rather than deleted, so the random draws -- and every other lump -- stay
+	-- exactly as they were; step 5 takes their old terrain off the path.
 	local rng = Random.new(90232)
 	local boulders = 0
+	local function noFill() return false end
 	for _, spec in ipairs({
-		{ 34, -13 }, { 40, 12 }, { 47, -11.5 }, { 54, 10.5 },
-		{ 60, -9.5 }, { 66, 9 }, { 71, -8.5 },
+		{ 34, -13 }, { 40, 12 }, { 47, -11.5 }, { 54, 10.5, skip = true },
+		{ 60, -9.5 }, { 66, 9, skip = true }, { 71, -8.5 },
 	}) do
 		local p = at(spec[1], spec[2])
 		local g = AP_SHELF_Y
+		local ball = spec.skip and noFill or tBall
 		if g then
 			local r = rng:NextNumber(4.0, 6.5)
 			local c = Vector3.new(p.X, g + r * 0.10, p.Z)
 			local mat = (rng:NextNumber() < 0.6) and MAT.Slate or MAT.Rock
-			tBall(c, r, mat)
+			ball(c, r, mat)
 			-- two or three smaller lobes off the main mass, so no lump is a clean sphere
 			for _ = 1, rng:NextInteger(2, 3) do
-				tBall(c + Vector3.new(rng:NextNumber(-r, r) * 0.75,
+				ball(c + Vector3.new(rng:NextNumber(-r, r) * 0.75,
 					rng:NextNumber(-0.3, 0.5) * r, rng:NextNumber(-r, r) * 0.75),
 					r * rng:NextNumber(0.45, 0.8), mat)
 			end
 			-- snow caught on the crown
-			tBall(c + Vector3.new(0, r * 0.55, 0), r * rng:NextNumber(0.5, 0.75), MAT.Snow)
-			boulders = boulders + 1
+			ball(c + Vector3.new(0, r * 0.55, 0), r * rng:NextNumber(0.5, 0.75), MAT.Snow)
+			if not spec.skip then boulders = boulders + 1 end
 		end
 	end
 
@@ -2291,15 +2325,71 @@ function M.BuildArrivalApproach()
 
 	-- 4. DRIFTS. Two wedges of snow banked against the rock lines, so the shelf floor stops
 	-- being one flat plane at exactly 2030.
-	for _, spec in ipairs({ { 44, -15, 26 }, { 58, 14, 22 } }) do
+	for _, spec in ipairs({ { 44, -15, 26 }, { 58, 14, 22, skip = true } }) do
 		local p = at(spec[1], spec[2])
 		local g = AP_SHELF_Y
 		if g then
 			local w, h = spec[3], rng:NextNumber(2.4, 3.6)
 			local c = Vector3.new(p.X, g + h / 2 - 0.4, p.Z)
-			tWedge(CFrame.lookAt(c, c + (spec[2] < 0 and side or -side)),
-				Vector3.new(w, h, h * 2.6), MAT.Snow)
+			if not spec.skip then
+				tWedge(CFrame.lookAt(c, c + (spec[2] < 0 and side or -side)),
+					Vector3.new(w, h, h * 2.6), MAT.Snow)
+			end
 		end
+	end
+
+	-- 5. KEEP THE WALKING LINE CLEAR (ITEM 10). Wherever terrain stands on the painted Frostgate
+	-- path, or on the footprints of the two skipped lumps and the skipped drift, it is taken back
+	-- to the shelf floor. Only the band 2024-2044 of the open shelf east of the mouth is read and
+	-- written, so the tunnel roof, the drop and the descent are never touched. The shelf's own
+	-- columns (measured) are a full 2024-2028 cell under an EMPTY 2028-2032 cell, which renders a
+	-- surface at exactly 2030; a half-full 2028 cell rides two studs higher. So everything from
+	-- 2028 up is emptied (cells are only ever lowered) and the 2024 cell is repainted, Sandstone on
+	-- the path and Snow beside it. Idempotent: a re-run writes the same voxels.
+	do
+		local PATH = { Vector2.new(-8240, -8262), Vector2.new(-8218, -8238), Vector2.new(-8196, -8222) }
+		local CLEAR_R, PAINT_R = 7, 5
+		local gone = {}
+		for _, s in ipairs({ { 54, 10.5, 11 }, { 66, 9, 11 }, { 58, 14, 12 } }) do
+			local p = at(s[1], s[2])
+			table.insert(gone, { Vector2.new(p.X, p.Z), s[3] })
+		end
+		local function pathDist(q)
+			local best = math.huge
+			for i = 1, #PATH - 1 do
+				local a, b = PATH[i], PATH[i + 1]
+				local ab = b - a
+				local t = math.clamp((q - a):Dot(ab) / ab:Dot(ab), 0, 1)
+				best = math.min(best, (q - (a + ab * t)).Magnitude)
+			end
+			return best
+		end
+		local region = Region3.new(Vector3.new(-8232, 2024, -8256), Vector3.new(-8192, 2044, -8216)):ExpandToGrid(4)
+		local mats, occ = Workspace.Terrain:ReadVoxels(region, 4)
+		local size = mats.Size
+		local lo = region.CFrame.Position - region.Size / 2
+		for ix = 1, size.X do
+			for iz = 1, size.Z do
+				local q = Vector2.new(lo.X + (ix - 0.5) * 4, lo.Z + (iz - 0.5) * 4)
+				local d = pathDist(q)
+				local clear = d <= CLEAR_R
+				for _, gz in ipairs(gone) do
+					if (q - gz[1]).Magnitude <= gz[2] then clear = true end
+				end
+				if clear then
+					for iy = 1, size.Y do
+						local yBottom = lo.Y + (iy - 1) * 4
+						if yBottom >= 2028 then
+							mats[ix][iy][iz] = Enum.Material.Air
+							occ[ix][iy][iz] = 0
+						elseif occ[ix][iy][iz] > 0 then
+							mats[ix][iy][iz] = (d <= PAINT_R) and MAT.Sandstone or MAT.Snow
+						end
+					end
+				end
+			end
+		end
+		Workspace.Terrain:WriteVoxels(region, 4, mats, occ)
 	end
 
 	local n = 0
@@ -2505,9 +2595,15 @@ function M.BuildDockApproach()
 	part(f, "RackPole", Vector3.new(10.5, 0.4, 0.4), CFrame.new(rx, rg + 6.8, C3_Z), C.timberDark, MAT.Wood, { shadow = false })
 	for i = 1, 4 do
 		local fx = rx - 3.6 + (i - 1) * 2.4
+		local fy = rg + 5.4 - (i % 2) * 0.3
 		part(f, "DryingFish", Vector3.new(2.0, 0.55, 0.55),
-			CFrame.new(fx, rg + 5.4 - (i % 2) * 0.3, C3_Z) * CFrame.Angles(0, 0, math.rad(90)),
+			CFrame.new(fx, fy, C3_Z) * CFrame.Angles(0, 0, math.rad(90)),
 			(i % 2 == 0) and C.brass or C.rockLight, MAT.SmoothPlastic, { shadow = false, shape = Enum.PartType.Cylinder })
+		-- ITEM 10: the fish hung 0.2-0.5 studs under the pole with nothing holding them; each
+		-- one now hangs on a short line, which keeps the staggered drop
+		local top, poleBottom = fy + 1.0, rg + 6.8 - 0.2
+		part(f, "FishLine", Vector3.new(0.07, poleBottom - top + 0.15, 0.07),
+			CFrame.new(fx, (top + poleBottom) / 2, C3_Z), C.rope, MAT.Fabric, { shadow = false })
 	end
 	boulder(rx + 9, rng:NextNumber(3.0, 4.0), Enum.Material.Slate)
 
@@ -2594,11 +2690,16 @@ function M.BuildDigCamp()
 			(i == 3) and C.timberGrey or C.timber, MAT.WoodPlanks, { collide = i < 3, shadow = false })
 	end
 	-- two lanterns either side of the turn onto the DigTrail
+	-- ITEM 10: the heads were solid Neon and bloomed into a glaring block even at noon, right
+	-- beside the camera on the turn. Now the house lamp: a Glass body round a small Neon core,
+	-- the same as the shelf and tunnel lamps (BuildArrivalApproach's lamp()).
 	for i, spot in ipairs({ { C4_PATH_X + C4_PATH_HALF + 1, -7718 }, { C4_PATH_X - C4_PATH_HALF - 1, -7722 } }) do
 		local g = ground(spot[1], spot[2]) or 2022
 		part(f, "CampLampPost" .. i, Vector3.new(1.1, 9, 1.1), CFrame.new(spot[1], g + 4.5, spot[2]),
 			C.timberDark, MAT.WoodPlanks, { shadow = false })
 		local head = part(f, "CampLamp" .. i, Vector3.new(1.7, 2.0, 1.7), CFrame.new(spot[1], g + 9.6, spot[2]),
+			Color3.fromRGB(255, 190, 120), MAT.Glass, { shadow = false, transparency = 0.35 })
+		part(f, "CampLamp" .. i .. "Core", Vector3.new(0.55, 0.75, 0.55), CFrame.new(spot[1], g + 9.6, spot[2]),
 			Color3.fromRGB(255, 190, 120), MAT.Neon, { shadow = false })
 		local l = Instance.new("PointLight")
 		l.Color = Color3.fromRGB(255, 190, 120); l.Brightness = 1.0; l.Range = 20; l.Shadows = false

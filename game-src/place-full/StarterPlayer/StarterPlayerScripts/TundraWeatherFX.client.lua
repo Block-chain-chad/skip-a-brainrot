@@ -147,22 +147,47 @@ local function inTundra(p)
 		and p.Z >= TMIN.Z and p.Z <= TMAX.Z
 end
 
+-- UNDER A ROOF (ITEM 10): the hosts ride 50-82 studs above the player and particles do not
+-- collide, so snow fell straight through the Warmhouse roof onto the hearth. One upward ray every
+-- 0.25 s; with anything solid overhead (the Warmhouse, the Cellar Pass bore) the fall and the
+-- ground drift switch off and the flakes already in the air are cleared.
+local ROOF_CHECK, ROOF_REACH = 0.25, 60
+local roofParams = RaycastParams.new()
+roofParams.FilterType = Enum.RaycastFilterType.Exclude
+roofParams.IgnoreWater = true
+local roofClock, covered = 0, false
+
 local active = false
 local breathClock = 0
 local function setActive(on)
 	if on == active then return end
 	active = on
-	for _, h in ipairs(ALL) do h.emitter.Enabled = on end
+	for _, h in ipairs(ALL) do h.emitter.Enabled = on and not covered end
 end
 setActive(false)
 
-RunService.RenderStepped:Connect(function()
+local function setCovered(on)
+	if on == covered then return end
+	covered = on
+	for _, h in ipairs(ALL) do
+		h.emitter.Enabled = active and not on
+		if on then h.emitter:Clear() end
+	end
+end
+
+RunService.RenderStepped:Connect(function(dt)
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
 	if not root then setActive(false); return end
 	local here = root.Position
 	setActive(inTundra(here))
 	if not active then return end
+	roofClock += dt
+	if roofClock >= ROOF_CHECK then
+		roofClock = 0
+		roofParams.FilterDescendantsInstances = { char, folder }
+		setCovered(workspace:Raycast(here, Vector3.new(0, ROOF_REACH, 0), roofParams) ~= nil)
+	end
 	breathClock += 1
 	if breathClock >= 150 then         -- roughly every 2.5s at 60fps
 		breathClock = 0

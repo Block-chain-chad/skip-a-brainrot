@@ -83,6 +83,9 @@ local NIGHT_HAZE = 0
 local DUSK_TINT  = Color3.fromRGB(208, 222, 255)
 local NIGHT_TINT = Color3.fromRGB(156, 180, 248)
 local NIGHT_EXPOSURE = -0.50
+local WHITE = Color3.new(1, 1, 1)
+local DAWN, DUSK = 5, 20   -- DayNightCycle's daylight window; keep the two in step
+local evMix = 0            -- 0 = the tundra's own look, 1 = a weather event owns the colour
 local function ease(from, to, x)   -- 0 at `from`, 1 at `to`, smoothstepped (works either way round)
 	local t = math.clamp((x - from) / (to - from), 0, 1)
 	return t * t * (3 - 2 * t)
@@ -161,22 +164,34 @@ RunService.RenderStepped:Connect(function(dt)
 	-- grade's tint (TundraGrade.TintColor) was eased from 214,230,255 to 238,244,255 with it.
 	grade.Brightness =  0
 	-- Scale the cut by time of day. At -1.95 on top of a night sky the tundra would be
-	-- black; DayNightCycle publishes Lighting.Daylight (0 at night, 1 at noon) so the
-	-- grade relaxes after dark instead of compounding with it. Defaults to 1 when no
-	-- cycle is running, which is exactly the old behaviour.
-	local daylight = Lighting:GetAttribute("Daylight")
-	if type(daylight) ~= "number" then daylight = 1 end
-	daylight = math.clamp(daylight, 0, 1)
+	-- black, so the grade relaxes after dark instead of compounding with it.
+	-- ITEM 10: the phase is read from THIS client's clock, on DayNightCycle's own curve, not
+	-- from its Daylight attribute. Daylight follows the SERVER clock, which is frozen while a
+	-- weather event runs -- but every event kit sets its own ClockTime on the client. A night
+	-- kit (Aurora, Shooting Star, Blood Moon) that began at noon was graded as noon, the -0.40
+	-- white-out cut on a moonlit sky; a storm that began at night got the night tint and cut on
+	-- top of its daytime look. In Clear weather the clock replicates, so nothing changes.
+	local x = (Lighting.ClockTime - DAWN) / (DUSK - DAWN)
+	local daylight = math.clamp(math.sin(math.clamp(x, 0, 1) * math.pi), 0, 1)
 	local blue  = ease(0.62, 0.30, daylight)   -- 0 in daylight, 1 from the blue hour on
 	local night = ease(0.30, 0.00, daylight)   -- 1 at full dark
-	grade.TintColor  = DAY_TINT:Lerp(DUSK_TINT, blue * current):Lerp(NIGHT_TINT, night * current)
-	grade.Contrast   = (0.12 + 0.05 * blue) * current
-	grade.Saturation = (-0.05 + 0.09 * blue) * current
+	-- ITEM 10: while an event runs, WeatherClient's WeatherCC owns the colour. The tundra's cold
+	-- tint, contrast and saturation stacked on the blue kits (Thunderstorm, Blizzard, Shooting
+	-- Star) read as double blue, so the look eases out over FADE and only the daylight snow cut
+	-- (below) stays in. Clear weather: evMix is 0 and every line is what it was.
+	local weather = ReplicatedStorage:GetAttribute("WeatherName")
+	local eventOn = not (weather == nil or weather == "Clear")
+	evMix = eventOn and math.min(evMix + dt / FADE, 1) or math.max(evMix - dt / FADE, 0)
+	local look = 1 - evMix
+	grade.TintColor  = WHITE:Lerp(DAY_TINT:Lerp(DUSK_TINT, blue * current):Lerp(NIGHT_TINT, night * current), look)
+	grade.Contrast   = (0.12 + 0.05 * blue) * current * look
+	grade.Saturation = (-0.05 + 0.09 * blue) * current * look
 	-- The exposure cut exists to tame a BLOWN-OUT white noon. After dark there is no
 	-- white-out left to tame, so it goes fully to zero rather than keeping a floor:
 	-- the old 0.25 floor was still pulling a quarter-stop out of an already night sky.
-	-- (NIGHT_EXPOSURE is a separate, smaller cut for the night LOOK, not for white-out.)
-	Lighting.ExposureCompensation = baseExposure + (EXPOSURE_IN * daylight + NIGHT_EXPOSURE * night) * current
+	-- (NIGHT_EXPOSURE is a separate, smaller cut for the night LOOK, not for white-out, so it
+	-- is part of the look and eases out during an event with the tint.)
+	Lighting.ExposureCompensation = baseExposure + (EXPOSURE_IN * daylight + NIGHT_EXPOSURE * night * look) * current
 	if atmo and ATMO_BASE then
 		local weather = ReplicatedStorage:GetAttribute("WeatherName")
 		if weather == nil or weather == "Clear" then
