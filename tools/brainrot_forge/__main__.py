@@ -60,7 +60,25 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--max-tris", type=int, default=12000, help="triangle gate per body (sanity, not a budget — geometry is never dropped)")
     c.add_argument("--max-tris-role", type=int, default=4000, help="triangle gate per role mesh")
     c.add_argument("--move", action="append", default=[], metavar="NAME=BATCH", help="put a body into another batch (a re-do)")
+    pt = sub.add_parser("pets", help="pet mode: fine voxel pets and eggs, one mesh per anatomy group")
+    pt.add_argument("--out", default="out/pets")
+    pt.add_argument("--before", default="out/pets/item5_dump.json", help="Item 5 prototypes dumped by studio/dump_pets.lua")
+    pt.add_argument("--no-previews", action="store_true")
     a = p.parse_args(argv)
+    if a.cmd == "pets":
+        from .pets import build_pets
+        try:
+            baked = build_pets(Path(a.out), Path(a.before), previews=not a.no_previews)
+        except BudgetError as e:
+            print(str(e) if str(e).startswith("REFUSED") else f"REFUSED {e}")
+            return 1
+        print(f"{'name':<20} {'kind':<4} {'voxels':>6} {'colours':>7} {'meshes':>6} {'triangles':>9}  size studs (w,h,d)")
+        for bp in baked:
+            tris = sum(m.triangles for m in bp.meshes.values())
+            print(f"{bp.name:<20} {bp.kind:<4} {bp.voxels:>6} {bp.colours:>7} {len(bp.meshes):>6} {tris:>9}  {bp.size_studs()}")
+            print("    " + ", ".join(f"{g} {m.triangles}" for g, m in bp.meshes.items()))
+        print(f"wrote {a.out}/pets_batch.glb, manifest.json" + ("" if a.no_previews else ", previews/contact_sheet.png"))
+        return 0
     if a.cmd == "convert":
         from .convert import convert_all
         try:
