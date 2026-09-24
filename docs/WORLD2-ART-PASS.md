@@ -482,3 +482,37 @@ Backups: `ServerStorage._BACKUP_BEAST_item10_pre` holds:
 - the `TundraWeatherFX`, `TundraAtmosphere` and World2Art sources
 - clones of `Art.DigCamp`, `Art.EldersDig`, `Art.DockApproach` and `Art.ArrivalApproach`
 - TerrainRegion `Terrain_Shelf`, restored with `Terrain:PasteRegion(tr, Vector3int16.new(-2060, 505, -2066), true)`
+
+### 16b. Valley exposure hand-back (ITEM 10b)
+
+`TundraAtmosphere` pinned `Lighting.ExposureCompensation` to its join-time value (0.14) every
+frame while the player was outside the Tundra. So no weather kit's exposure ever applied, in the
+valley either. Now:
+- The script writes exposure only while the Tundra blend is above 0.
+- Anything written in between (a kit's tween, its restore) is kept as the weather's own value.
+- The fade out runs from the Tundra value to that value.
+- At blend 0 the value is handed back once, and the script stops writing.
+- Inside the Tundra nothing changes, because at full blend the value is the same as before.
+
+| Valley dock (server noon) | Before | After |
+|---|---|---|
+| Clear | 0.140 | 0.140 |
+| Golden Hour | 0.140 | 0.300 (kit) |
+| Blizzard | 0.140 | 0.240 (kit) |
+| Shooting Star | 0.140 | 0.220 (kit) |
+| Thunderstorm | 0.140 | −0.100 (kit) |
+
+- **EVENT_CAP in a Thunderstorm, inside the Tundra:** Haze 1.20 / Density 0.32, against the kit's
+  2.70 / 0.42 measured at the valley dock. Tundra exposure was −0.206 both before and after.
+- **Tundra → valley in Golden Hour, traced every frame:** once by teleport to the valley dock, and
+  once by walking through `TundraReturnPortal`, which lands in the valley cellar at (−146, −19, 62).
+  Exposure fades from −0.056 and lands exactly on the kit's 0.300 over 1.6 s of frame time, with no
+  step at the hand-back. Before the fix the same trip ended on 0.140.
+  - Every fade frame's change equals the linear rate × that frame's time (ratio 1.00 on all 9 frames).
+    The big-looking steps are long frames while the valley streams in (up to 0.78 s).
+  - Roblox fires signal connections newest-first, so a logger connected after this script reads the
+    value it wrote the frame BEFORE. Score the trace against the previous frame's dt.
+  - Through the portal the whole fade happens under TeleportFadeClient's "TRAVELING" screen. The fade
+    ends at 3.7 s and the screen lifts at about 5 s, so the player never sees it.
+
+Backup: `ServerStorage._BACKUP_BEAST_item10b_pre.TundraAtmosphere` (the ITEM 10 version).

@@ -12,7 +12,8 @@
 --
 -- What it is safe to touch:
 --   * Lighting.Brightness            -- NO. WeatherClient owns it; we would fight.
---   * Lighting.ExposureCompensation  -- yes. Nothing else in the game writes it.
+--   * Lighting.ExposureCompensation  -- yes, but SHARED: the weather kits write it too, so this
+--     script only writes it inside the tundra blend (see ITEM 10b below).
 --   * a PRIVATE ColorCorrectionEffect -- yes. Effects stack, so ours does not
 --     clobber the existing Lighting.ColorCorrection.
 --
@@ -42,6 +43,15 @@ if not grade then return end
 local DAY_TINT = grade.TintColor   -- the daytime tint set on the effect itself
 
 local baseExposure = Lighting.ExposureCompensation
+-- EXPOSURE IS SHARED WITH THE WEATHER (ITEM 10b). Every WeatherClient kit tweens
+-- ExposureCompensation too (Golden Hour 0.30, Blizzard 0.24, Thunderstorm -0.10 ...). This
+-- script used to pin it to baseExposure every frame OUTSIDE the tundra as well, so no kit's
+-- exposure ever showed anywhere, the valley included. Now it only writes while the tundra
+-- blend is above 0. Whatever someone else writes in between (a kit's tween, its restore) is
+-- the weather's own value; the fade out ends on that value, and at blend 0 it is handed back
+-- once and the script stops writing, so the kits own exposure outside the tundra.
+local weatherExposure = baseExposure   -- the last value the weather set (the base in Clear)
+local wroteExposure = nil              -- what this script wrote last frame; nil = hands off
 -- FOG IS WORLD 2 ONLY. The Atmosphere object is global, and at Density 0.28 its haze was
 -- showing up in the valley too. The base is now the valley's (near-clear); the tundra
 -- raises it, scaled by the same region fade as the grade, and puts it back on the way out.
@@ -134,8 +144,10 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 		evWrote, evKit = nil, nil
 		if grade.Enabled then grade.Enabled = false end
-		if Lighting.ExposureCompensation ~= baseExposure then
-			Lighting.ExposureCompensation = baseExposure
+		-- hand exposure back ONCE, then leave it alone (the fade already ended on this value)
+		if wroteExposure ~= nil then
+			Lighting.ExposureCompensation = weatherExposure
+			wroteExposure = nil
 		end
 		-- Fully outside the tundra: hand the atmosphere back to the valley baseline --
 		-- UNLESS another world has claimed it. World 3 (the Lush Gardens) runs its own
@@ -191,7 +203,16 @@ RunService.RenderStepped:Connect(function(dt)
 	-- the old 0.25 floor was still pulling a quarter-stop out of an already night sky.
 	-- (NIGHT_EXPOSURE is a separate, smaller cut for the night LOOK, not for white-out, so it
 	-- is part of the look and eases out during an event with the tint.)
-	Lighting.ExposureCompensation = baseExposure + (EXPOSURE_IN * daylight + NIGHT_EXPOSURE * night * look) * current
+	-- ITEM 10b: anything that changed exposure since our last write is the weather's own value
+	-- (on the first frame back in, whatever is there is). The blend runs from that value to the
+	-- tundra's, so at full blend nothing changes, and the fade out lands on the weather's value
+	-- with no pop. In Clear weather the weather's value is baseExposure: identical to before.
+	if wroteExposure == nil or math.abs(Lighting.ExposureCompensation - wroteExposure) > 1e-4 then
+		weatherExposure = Lighting.ExposureCompensation
+	end
+	local tundraExposure = baseExposure + EXPOSURE_IN * daylight + NIGHT_EXPOSURE * night * look
+	wroteExposure = weatherExposure + (tundraExposure - weatherExposure) * current
+	Lighting.ExposureCompensation = wroteExposure
 	if atmo and ATMO_BASE then
 		local weather = ReplicatedStorage:GetAttribute("WeatherName")
 		if weather == nil or weather == "Clear" then
