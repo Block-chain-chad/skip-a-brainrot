@@ -23,6 +23,21 @@ local OUTDOOR = {
 	MarkerGlow = true, GateGlow = true, FloorLight = true, PoolLight = true,
 }
 
+-- WEATHER EVENTS (ITEM 11b, Terra approved). During an event every client's sky is the event
+-- kit's ClockTime, while DayNightCycle freezes the SERVER clock at whatever time the event began,
+-- so lamps sat dark under a night kit that started at noon and burned full under a daytime storm
+-- that started at night. During an event they follow the kit's sky instead, on DayNightCycle's own
+-- daylight curve. Clear weather is unchanged. Keep in step with WeatherClient's KITS (light.ClockTime).
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local EVENT_CLOCK = {
+	Fog = 11.2, Sandstorm = 13.4, Thunderstorm = 15.0, Blizzard = 10.4,
+	Aurora = 23.6, ["Shooting Star"] = 23.4, ["Blood Moon"] = 23.9, ["Golden Hour"] = 17.55,
+}
+local function daylightAt(hour)   -- DayNightCycle's curve: dawn 5, dusk 20
+	local x = (hour - 5) / (20 - 5)
+	return math.clamp(math.sin(math.clamp(x, 0, 1) * math.pi), 0, 1)
+end
+
 local OUTDOOR_FLOOR = 0.45      -- how much an outdoor light keeps at noon. 0.15 made the valley DIMMER by day than
 -- before the cycle existed, because these lamps were previously part of the fill light.
 local INDOOR_FLOOR  = 0.55      -- interiors must stay readable in daylight
@@ -54,6 +69,8 @@ RunService.Heartbeat:Connect(function(dt)
 
 	local daylight = Lighting:GetAttribute("Daylight")
 	if type(daylight) ~= "number" then daylight = 1 end
+	local kitClock = EVENT_CLOCK[ReplicatedStorage:GetAttribute("WeatherName")]
+	if kitClock then daylight = daylightAt(kitClock) end
 	local night = 1 - math.clamp(daylight, 0, 1)
 
 	for light, info in pairs(tracked) do

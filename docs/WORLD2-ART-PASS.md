@@ -516,3 +516,121 @@ valley either. Now:
     ends at 3.7 s and the screen lifts at about 5 s, so the player never sees it.
 
 Backup: `ServerStorage._BACKUP_BEAST_item10b_pre.TundraAtmosphere` (the ITEM 10 version).
+
+## 17. Weather events in the Tundra (2026-09-24, ITEM 11b)
+
+Every weather event runs in every world. Their odds, schedule, durations and mutations are
+untouched. This item only changes how the events look inside the Tundra, plus one shared fix
+(`NightLights`). The events as they exist (`WeatherHandler` L20–28; each lasts 240–420 s):
+
+| Event | Weight (of 112.4) | Share | In the Tundra now |
+|---|---|---|---|
+| Fog | 30 | 26.7% | unchanged (the kit's own fog; exempt from the cap) |
+| Sandstorm | 25 | 22.2% | spindrift: grey-white grade, snow-white haze, storm-strength drift |
+| Thunderstorm | 21 | 18.7% | unchanged (common cap 1.2 / 0.32) |
+| Blizzard | 15 | 13.3% | the kit's full white-out (cap 4.8 / 0.58), overcast clouds, storm snow |
+| Aurora | 11 | 9.8% | two aurora curtains flanking the peak; the hue wash at about half strength |
+| Shooting Star | 6.9 | 6.1% | unchanged (common cap) |
+| Blood Moon | 2.5 | 2.2% | a Tundra blood moon |
+| Golden Hour | 1 | 0.9% | unchanged (common cap) |
+
+Where it lives:
+- `TundraAtmosphere`: a per-event "Tundra row" of grade, cap, Atmosphere colour and clouds.
+- `TundraWeatherFX`: storm snow and the two centrepieces.
+- `NightLights`: shared, about 10 lines.
+
+Everything in the two Tundra scripts is gated by the Tundra box and scaled by the region blend.
+Anything global a row borrows is handed back on the way out, as `EVENT_CAP` already did. The
+centrepieces are built on the client: 0 world parts, and FrozenTundra is still 2,808 parts.
+
+**Aurora curtains.** Two curtains of vertical rays, one Beam per ray (134 in all, 64 segments
+each). Each ray is bright at the foot and fades upward. Spacing, width and height vary ray to
+ray, and a slow brightness wave runs along each row (updated at 15 Hz). Colours are fixed, and
+the kit's own hue cycle on `WeatherCC` walks them with everything else.
+- The curtains are built only while the event runs and the player is in the Tundra. They fade in
+  and out over 4 s.
+- **Placement.** The peak fills the sky ahead to about 35° from the dock (28° from the hub), and
+  the canyon walls hide the sides below about 20°. So the curtains hang over the drop beyond each
+  wall (x ≈ −7110 and −8900, feet at y 2430–2520) and run up the valley toward the peak
+  (z −8650 → −5950), framing it from the dock, the hub and the ice.
+- **Why not copies of the valley's ribbons.** Measured in a beam test at the dock: Roblox draws a
+  distant beam with fewer segments than it was given. So a transparency profile that is 1 at both
+  ends collapses to 1 all the way along, and the beam vanishes. At 1,000 studs:
+  - the same profile with 10 segments was invisible, and with 100 segments it showed;
+  - constant transparency always showed;
+  - the smoke texture never showed at range.
+  The valley's ribbons use exactly that profile and texture (see findings).
+
+**Aurora grade.** The kit tweens `WeatherCC` through mint, blue, violet and green every 3 s at
++0.5 saturation. On snow the blue step read royal blue. The first fix, a fixed teal pull
+(214,255,236), turned the timber lime on the green step. The row now has `soften = 0.45`: a
+partial inverse of the kit's live tint (its inverse to the power 0.45, scaled to a peak of 1), so
+every step keeps its hue at about half strength. Measured combined tints:
+
+| Step | Before (kit tint) | After (kit × Tundra) |
+|---|---|---|
+| green | 152,249,174 | 152,200,164 |
+| violet | 192,143,255 | 169,143,197 |
+| blue | 121,212,253 | 121,165,181 |
+
+It is about 20% darker, which suits a night kit. Saturation stays at −0.35.
+
+**Blizzard.** MASTER's floor: the dock, the Warmhouse door and a hole must stay readable at 55 studs.
+- At the first cap (2.4 / 0.45) the peak still stood clear from the dock.
+- At the kit's own full white-out (4.8 / 0.58) all three are still readable at 55 studs: the door
+  lamps, the dock lamps and brazier, and the hole's dark water with its flag pole.
+- So the cap is the kit's own values. It holds there if the kit ever gets heavier.
+
+Clouds go overcast (Cover 0.95, Density 0.9). The Tundra's fall runs ×5 at ×2.4 speed with a wind
+slant, and the drift runs ×3.
+
+**Sandstorm → spindrift.** The row desaturates (−0.85) and tints cool, and the Atmosphere colour and
+decay go snow-white.
+- Measured, desaturating alone was not enough. The kit's tan `WeatherCC` tint (236,176,104) lands
+  on top of the desaturation, and the frame stayed tan.
+- The row now also has `soften = 0.9` to take the tan out, and `exposure = +1` stop inside the
+  Tundra, because a tint can only darken.
+- Drift runs ×5, and fall runs ×1.5 at a hard slant.
+
+**Blood Moon.** The valley's moon is 650 studs across at about 2,800: 13° of sky. The Tundra moon
+is the same size in the sky: 513 studs at (−9100, 2813, −5895). It sits low over the drop beyond
+the right-hand wall, clear of the peak from the hub, the dock and the ice. It has the valley's glow
+shell (880:650) and its 3.8 s pulse.
+
+**NightLights.** During an event, `daylight` comes from the kit's `ClockTime` on DayNightCycle's
+curve: a table of the eight kit clocks plus `daylightAt`. Clear weather is unchanged. Measured at
+server noon (the first four outdoor lights in each world, by name):
+
+| | Tundra `Lantern` ×2, `TentGlow` ×2 | Valley `Flame` ×4 |
+|---|---|---|
+| Clear | 0.41, 0.36, 0.19, 0.19 | 0.41 each |
+| Aurora (before: as Clear) | 0.90, 0.80, 0.41, 0.41 | 0.90 each |
+
+The ratio is 2.2, which is 1 / `OUTDOOR_FLOOR`: full night strength under the night sky.
+
+**Found in other lanes (reported, not changed):**
+- **Snow indoors.** `WeatherClient`'s `WeatherRig` follows the camera and ignores roofs. So in a
+  Blizzard (and any kit with a rig) its flakes fall inside the Warmhouse, and inside any valley
+  building too. The Tundra's own snow stops under a roof (ITEM 10). A fix belongs in
+  `WeatherClient`, for example honouring a player attribute that `TundraWeatherFX` could publish
+  from its roof ray.
+- **The valley's aurora.** Its ribbons carry the profile and texture that vanish at range (above).
+- **Lightning.** Thunderstorm bolts raycast down from y 600 (`WeatherClient` L679), so in the
+  Tundra (ground about 2,000) they never find the ground. Blood Moon bolts leave from the valley
+  moon at (0, 1500, 2200).
+
+**Gotchas learned:**
+- **QualityLevel.** Automatic culls distant objects (the peak, the curtains) when Studio is in the
+  background. Pin `Enum.QualityLevel.Level21` for captures, in Edit and in the Play client
+  separately, and set it back to Automatic afterwards.
+- **Streaming.** Straight after a long teleport, the lake's bed streams in before its water, and
+  the lake looks drained for about 10 s. Wait 15 s before shooting water.
+- **Forcing weather.** `WeatherHandler` required from `execute_luau` is a separate copy, so
+  patching it does not stop the live roll (the first roll comes 5 min after start). Hold the
+  weather by re-applying it when `WeatherName` changes.
+- **Colour grading.** Stacked `ColorCorrectionEffect`s do not undo each other's tint: a tint lands
+  on top of any saturation. Counter a tint with a tint.
+
+Backups:
+- `ServerStorage._BACKUP_BEAST_item11_NightLights_pre`: `NightLights`.
+- `ServerStorage._BACKUP_BEAST_item11b_pre`: `TundraAtmosphere` and `TundraWeatherFX` before 11b.

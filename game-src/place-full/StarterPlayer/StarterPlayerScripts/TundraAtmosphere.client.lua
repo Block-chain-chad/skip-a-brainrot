@@ -112,11 +112,72 @@ local target, current = 0, 0
 -- Fog is exempt, because fog is the whole point of that event.
 local EVENT_CAP = { Density = 0.32, Haze = 1.2 }
 local CAP_EXEMPT = { Fog = true }
+
+-- WEATHER EVENTS IN THE TUNDRA (ITEM 11b). On top of the handover and the cap, a few events get
+-- a Tundra row: how they should read on snow. All of it is inside the tundra blend, so World 1
+-- never sees it, and anything global a row borrows is handed back on the way out.
+--   look   -- the grade while the event runs (the handover's neutral grade otherwise);
+--             look.soften answers the kit's own screen wash (WeatherCC) instead of a fixed tint,
+--             look.exposure (stops) is added to the tundra's exposure while the row is in
+--   cap    -- the event's own EVENT_CAP
+--   atmo   -- Atmosphere Color / Decay (the kit's own are remembered and handed back)
+--   clouds -- Terrain.Clouds (nothing else writes them; the sky's own are put back)
+local EVENT_ROWS = {
+	-- the kit walks WeatherCC through mint, blue, violet and green at +0.5 saturation. On white
+	-- snow the blue step read royal blue, and the fixed teal pull first tried here (214,255,236)
+	-- turned the timber lime on the green step. soften takes about half of whichever step is
+	-- showing back out, so the cycle keeps its hues at half strength.
+	Aurora = { look = { soften = 0.45, saturation = -0.35 } },
+	-- the kit is a desert: tan light, tan haze, tan grit, and on snow it read green-tan. Stripped
+	-- to grey-white under a snow-white haze it reads as wind-driven spindrift. Desaturating alone
+	-- did not do it: measured, the kit's tan WeatherCC tint (236,176,104) lands on top of the -0.85
+	-- and the frame stayed tan. soften 0.9 takes the tan out; a tint can only darken, so the row
+	-- lifts exposure 1 stop (inside the tundra only, like the rest of the grade).
+	Sandstorm = {
+		look = { tint = Color3.fromRGB(232, 240, 255), soften = 0.9, saturation = -0.85, brightness = 0.02,
+			exposure = 1.0 },
+		atmo = { Color = Color3.fromRGB(226, 232, 240), Decay = Color3.fromRGB(196, 206, 220) },
+	},
+	-- under the common cap it was a sunny day with big flakes. Its own cap, set by MASTER's floor:
+	-- the dock, the Warmhouse door and a hole at 55 studs stay findable. Measured by shot: at 2.4 /
+	-- 0.45 the peak still stood clear from the dock; the kit's own full whiteout (4.8 / 0.58) keeps
+	-- all three readable at 55, so the cap is the kit's own and holds it there if the kit grows.
+	Blizzard = {
+		cap = { Haze = 4.8, Density = 0.58 },
+		clouds = { Cover = 0.95, Density = 0.9, Color = Color3.fromRGB(205, 210, 220) },
+	},
+}
+local lastEvent = nil      -- the event whose row is easing in or out
+local weatherCC = nil      -- WeatherClient's screen wash, found once it exists (read, never written)
+local ATMO_KEYS = { "Haze", "Density", "Color", "Decay" }
+local function same(a, b)
+	if typeof(a) == "Color3" then
+		return math.abs(a.R - b.R) < 0.002 and math.abs(a.G - b.G) < 0.002 and math.abs(a.B - b.B) < 0.002
+	end
+	return math.abs(a - b) < 1e-3
+end
 local evKit, evWrote = nil, nil
 local function trackEventAtmo()
-	if not evWrote or math.abs(atmo.Haze - evWrote.Haze) > 1e-3
-		or math.abs(atmo.Density - evWrote.Density) > 1e-3 then
-		evKit = { Haze = atmo.Haze, Density = atmo.Density }
+	-- per property: anything that is not what we wrote last frame is the kit's own value
+	evKit = evKit or {}
+	for _, k in ipairs(ATMO_KEYS) do
+		if evKit[k] == nil or not (evWrote and evWrote[k] ~= nil and same(atmo[k], evWrote[k])) then
+			evKit[k] = atmo[k]
+		end
+	end
+end
+local clouds = workspace:WaitForChild("Terrain"):FindFirstChildOfClass("Clouds")
+local cloudsBase, cloudMix, cloudRow = nil, 0, nil
+local function applyClouds(w)
+	if not clouds then return end
+	if w > 0.001 and cloudRow then
+		cloudsBase = cloudsBase or { Cover = clouds.Cover, Density = clouds.Density, Color = clouds.Color }
+		clouds.Cover = cloudsBase.Cover + (cloudRow.Cover - cloudsBase.Cover) * w
+		clouds.Density = cloudsBase.Density + (cloudRow.Density - cloudsBase.Density) * w
+		clouds.Color = cloudsBase.Color:Lerp(cloudRow.Color, w)
+	elseif cloudsBase then
+		clouds.Cover, clouds.Density, clouds.Color = cloudsBase.Cover, cloudsBase.Density, cloudsBase.Color
+		cloudsBase = nil
 	end
 end
 
@@ -141,8 +202,10 @@ RunService.RenderStepped:Connect(function(dt)
 		-- left the tundra mid-event: hand WeatherClient's own values back, once
 		if atmo and evWrote and evKit then
 			atmo.Haze, atmo.Density = evKit.Haze, evKit.Density
+			atmo.Color, atmo.Decay = evKit.Color, evKit.Decay
 		end
 		evWrote, evKit = nil, nil
+		applyClouds(0)
 		if grade.Enabled then grade.Enabled = false end
 		-- hand exposure back ONCE, then leave it alone (the fade already ended on this value)
 		if wroteExposure ~= nil then
@@ -174,7 +237,6 @@ RunService.RenderStepped:Connect(function(dt)
 	-- and down again with the art pass: timber, painted paths and warm windows now sit in
 	-- the frame, and at 0.26 contrast / +0.10 saturation they went hard and orange. The
 	-- grade's tint (TundraGrade.TintColor) was eased from 214,230,255 to 238,244,255 with it.
-	grade.Brightness =  0
 	-- Scale the cut by time of day. At -1.95 on top of a night sky the tundra would be
 	-- black, so the grade relaxes after dark instead of compounding with it.
 	-- ITEM 10: the phase is read from THIS client's clock, on DayNightCycle's own curve, not
@@ -195,9 +257,26 @@ RunService.RenderStepped:Connect(function(dt)
 	local eventOn = not (weather == nil or weather == "Clear")
 	evMix = eventOn and math.min(evMix + dt / FADE, 1) or math.max(evMix - dt / FADE, 0)
 	local look = 1 - evMix
-	grade.TintColor  = WHITE:Lerp(DAY_TINT:Lerp(DUSK_TINT, blue * current):Lerp(NIGHT_TINT, night * current), look)
-	grade.Contrast   = (0.12 + 0.05 * blue) * current * look
-	grade.Saturation = (-0.05 + 0.09 * blue) * current * look
+	-- ITEM 11b: an event with a Tundra row eases to that row's grade instead of to neutral. With
+	-- no row the result is the ITEM 10 handover exactly; in Clear weather, the tundra's own look.
+	if eventOn then lastEvent = weather end
+	local row = lastEvent and EVENT_ROWS[lastEvent]
+	local rowLook = row and row.look or {}
+	local ownTint = DAY_TINT:Lerp(DUSK_TINT, blue * current):Lerp(NIGHT_TINT, night * current)
+	local rowTint = rowLook.tint or WHITE
+	weatherCC = weatherCC or Lighting:FindFirstChild("WeatherCC")
+	if rowLook.soften and weatherCC and weatherCC.Enabled then
+		-- a tint can only take light away, so the channels the wash cut are lifted by dimming the
+		-- one it kept: the wash's inverse to the power `soften`, scaled to a peak of 1
+		local c, k = weatherCC.TintColor, -rowLook.soften
+		local r, g, b = math.max(c.R, 0.05) ^ k, math.max(c.G, 0.05) ^ k, math.max(c.B, 0.05) ^ k
+		local peak = math.max(r, g, b)
+		rowTint = Color3.new(rowTint.R * r / peak, rowTint.G * g / peak, rowTint.B * b / peak)
+	end
+	grade.TintColor  = ownTint:Lerp(WHITE:Lerp(rowTint, current), evMix)
+	grade.Contrast   = (0.12 + 0.05 * blue) * current * look + (rowLook.contrast or 0) * current * evMix
+	grade.Saturation = (-0.05 + 0.09 * blue) * current * look + (rowLook.saturation or 0) * current * evMix
+	grade.Brightness = (rowLook.brightness or 0) * current * evMix
 	-- The exposure cut exists to tame a BLOWN-OUT white noon. After dark there is no
 	-- white-out left to tame, so it goes fully to zero rather than keeping a floor:
 	-- the old 0.25 floor was still pulling a quarter-stop out of an already night sky.
@@ -211,6 +290,7 @@ RunService.RenderStepped:Connect(function(dt)
 		weatherExposure = Lighting.ExposureCompensation
 	end
 	local tundraExposure = baseExposure + EXPOSURE_IN * daylight + NIGHT_EXPOSURE * night * look
+		+ (rowLook.exposure or 0) * evMix
 	wroteExposure = weatherExposure + (tundraExposure - weatherExposure) * current
 	Lighting.ExposureCompensation = wroteExposure
 	if atmo and ATMO_BASE then
@@ -226,12 +306,23 @@ RunService.RenderStepped:Connect(function(dt)
 			atmo.Offset  = ATMO_BASE.Offset  + (ATMO_TUNDRA.Offset  - ATMO_BASE.Offset)  * mix
 		elseif not CAP_EXEMPT[weather] then
 			trackEventAtmo()
-			local h = evKit.Haze    + (math.min(evKit.Haze,    EVENT_CAP.Haze)    - evKit.Haze)    * current
-			local d = evKit.Density + (math.min(evKit.Density, EVENT_CAP.Density) - evKit.Density) * current
-			atmo.Haze, atmo.Density = h, d
-			evWrote = { Haze = atmo.Haze, Density = atmo.Density }
+			local evRow = EVENT_ROWS[weather]
+			local cap = (evRow and evRow.cap) or EVENT_CAP
+			atmo.Haze    = evKit.Haze    + (math.min(evKit.Haze,    cap.Haze)    - evKit.Haze)    * current
+			atmo.Density = evKit.Density + (math.min(evKit.Density, cap.Density) - evKit.Density) * current
+			if evRow and evRow.atmo then
+				atmo.Color = evKit.Color:Lerp(evRow.atmo.Color, current)
+				atmo.Decay = evKit.Decay:Lerp(evRow.atmo.Decay, current)
+			end
+			evWrote = evWrote or {}
+			for _, k in ipairs(ATMO_KEYS) do evWrote[k] = atmo[k] end
 		else
 			evWrote, evKit = nil, nil
 		end
 	end
+	-- ITEM 11b: a row's clouds ease in and out with the event, and with the region blend
+	local rowClouds = eventOn and EVENT_ROWS[weather] and EVENT_ROWS[weather].clouds
+	if rowClouds then cloudRow = rowClouds end
+	cloudMix = rowClouds and math.min(cloudMix + dt / FADE, 1) or math.max(cloudMix - dt / FADE, 0)
+	applyClouds(cloudMix * current)
 end)

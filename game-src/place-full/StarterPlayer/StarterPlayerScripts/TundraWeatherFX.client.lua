@@ -175,13 +175,224 @@ local function setCovered(on)
 	end
 end
 
+-- ===== WEATHER EVENTS IN THE TUNDRA (ITEM 11b) =====
+-- The weather kits are WeatherClient's and run in every world. Two things they cannot do here,
+-- so this script does them, inside the Tundra only:
+--   * STORM SNOW: during Blizzard and Sandstorm the Tundra's own fall and ground drift run at
+--     storm strength. A Tundra sandstorm reads as spindrift: little new snow falling, a lot of
+--     driven ground snow.
+--   * CENTREPIECES: the valley builds its aurora ribbons and its blood moon at valley
+--     coordinates, 11,000 studs from here. These are Tundra ones (aurora curtains; the valley's
+--     Neon disc in a glow shell), built only while that event runs and the player is in the
+--     Tundra, faded in and out, and removed when either stops. Client-side: 0 world parts.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local STORM = {
+	Blizzard  = { fall = 5,   fallSpeed = 2.4, wind = Vector3.new(30, -16, 10), drift = 3, driftSpeed = 1.6 },
+	Sandstorm = { fall = 1.5, fallSpeed = 1.8, wind = Vector3.new(40, -6, 14),  drift = 5, driftSpeed = 2.2 },
+}
+local base = {}   -- [emitter] = its calm values, to put back when the storm ends
+for _, h in ipairs(ALL) do
+	base[h.emitter] = { Rate = h.emitter.Rate, Speed = h.emitter.Speed, Acceleration = h.emitter.Acceleration }
+end
+local stormNow = nil
+local function setStorm(name)
+	if name == stormNow then return end
+	stormNow = name
+	local s = name and STORM[name]
+	for _, h in ipairs(FALL) do
+		local b = base[h.emitter]
+		h.emitter.Rate = b.Rate * (s and s.fall or 1)
+		h.emitter.Speed = s and NumberRange.new(b.Speed.Min * s.fallSpeed, b.Speed.Max * s.fallSpeed) or b.Speed
+		h.emitter.Acceleration = s and s.wind or b.Acceleration
+	end
+	for _, h in ipairs(DRIFT) do
+		local b = base[h.emitter]
+		h.emitter.Rate = b.Rate * (s and s.drift or 1)
+		h.emitter.Speed = s and NumberRange.new(b.Speed.Min * s.driftSpeed, b.Speed.Max * s.driftSpeed) or b.Speed
+	end
+end
+
+-- THE AURORA: two curtains of light flanking the Sundered Peak. Placed by shot. The peak fills
+-- the sky ahead to ~35 degrees from the dock (28 from the hub) and the canyon walls hide the
+-- sides below ~20, so the curtains hang over the drop beyond each wall and run up the valley
+-- toward the peak, where the eye already goes. Each is a row of vertical rays, one Beam per ray,
+-- bright at the foot and fading upward, irregularly spaced and sized, with a slow wave of
+-- brightness running along the row. The colours are fixed: WeatherClient's hue cycle on the
+-- screen tint (WeatherCC) walks them through the valley's four hues along with everything else.
+-- NOT THE VALLEY'S RIBBONS: measured in the Tundra, a distant beam is drawn with fewer segments
+-- than it was given, so a transparency profile that is 1 at both ends collapses to 1 all the way
+-- along and the ribbon vanishes (the valley's smoke texture never showed at range either). Rays
+-- here carry 64 segments and a foot of 0.92: visible out past 1,200 studs.
+local CURTAINS = {
+	-- left of the peak from the dock: the long, tall one
+	{ seed = 7, height = 470, gain = 2.0, hills = 3.2, path = {
+		Vector3.new(-7110, 2440, -8650), Vector3.new(-7060, 2450, -8100), Vector3.new(-7150, 2465, -7550),
+		Vector3.new(-7070, 2480, -7000), Vector3.new(-7170, 2500, -6450), Vector3.new(-7110, 2520, -5950) } },
+	-- right of it: shorter and fainter, so the pair is not a mirror image
+	{ seed = 19, height = 360, gain = 1.6, hills = 4.1, path = {
+		Vector3.new(-8870, 2430, -8400), Vector3.new(-8930, 2445, -7900), Vector3.new(-8850, 2460, -7400),
+		Vector3.new(-8920, 2475, -6900), Vector3.new(-8860, 2490, -6400) } },
+}
+local RAY_GAP, RAY_WIDTH = { 20, 50 }, { 40, 125 }   -- studs, each ray picks in the range
+local RAY_FADE = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.92), NumberSequenceKeypoint.new(0.03, 0.36),
+	NumberSequenceKeypoint.new(0.12, 0.42), NumberSequenceKeypoint.new(0.45, 0.76),
+	NumberSequenceKeypoint.new(1, 1),
+})
+local RAY_COLOUR = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(165, 255, 205)),
+	ColorSequenceKeypoint.new(0.45, Color3.fromRGB(105, 235, 200)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(170, 130, 255)),
+})
+-- THE BLOOD MOON: the valley's is 650 studs across at ~2,800, about 13 degrees of sky. Same size
+-- here, low over the drop beyond the right-hand wall, clear of the peak from the hub, dock and ice.
+local MOON_AT, MOON_SIZE = Vector3.new(-9100, 2813, -5895), 513
+local FX_FADE = 4            -- seconds for a centrepiece to fade in or out
+local fxFolder, fxKind, fxRibbons, fxDisc, fxGlow = nil, nil, {}, nil, nil
+local fxClock, fxLevel, fxTick = 0, 0, 0
+local function clearFx()
+	if fxFolder then fxFolder:Destroy() end
+	fxFolder, fxKind, fxRibbons, fxDisc, fxGlow = nil, nil, {}, nil, nil
+	fxLevel = 0
+end
+local function fxPart(name, size, cf)
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch = true, false, false, false
+	p.CastShadow = false
+	p.Size = size
+	p.CFrame = cf
+	p.Parent = fxFolder
+	return p
+end
+local function catmull(p0, p1, p2, p3, t)
+	local t2, t3 = t * t, t * t * t
+	return 0.5 * ((2 * p1) + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (3 * p1 - p0 - 3 * p2 + p3) * t3)
+end
+-- where the rays stand: along a smooth curve through the path, one every RAY_GAP studs
+local function rayFeet(path, rng)
+	local line = {}
+	for i = 1, #path - 1 do
+		local p0, p1, p2, p3 = path[math.max(i - 1, 1)], path[i], path[i + 1], path[math.min(i + 2, #path)]
+		for k = 0, 47 do table.insert(line, catmull(p0, p1, p2, p3, k / 48)) end
+	end
+	table.insert(line, path[#path])
+	local feet, need, run = { line[1] }, rng:NextNumber(RAY_GAP[1], RAY_GAP[2]), 0
+	for i = 2, #line do
+		local a, b = line[i - 1], line[i]
+		local len, pos = (b - a).Magnitude, 0
+		while run + (len - pos) >= need do
+			pos += need - run
+			table.insert(feet, a:Lerp(b, pos / len))
+			run, need = 0, rng:NextNumber(RAY_GAP[1], RAY_GAP[2])
+		end
+		run += len - pos
+	end
+	return feet
+end
+local function smoothstep(e0, e1, x)
+	local t = math.clamp((x - e0) / (e1 - e0), 0, 1)
+	return t * t * (3 - 2 * t)
+end
+local function buildAurora()
+	for _, c in ipairs(CURTAINS) do
+		local rng = Random.new(c.seed)
+		local host = fxPart("TundraAuroraCurtain", Vector3.new(0.2, 0.2, 0.2), CFrame.new(c.path[1]))
+		host.Transparency = 1
+		local feet = rayFeet(c.path, rng)
+		for i, foot in ipairs(feet) do
+			local u = (i - 1) / math.max(#feet - 1, 1)
+			local taper = smoothstep(0, 0.12, u) * smoothstep(1, 0.88, u)   -- thins out at both ends
+			local hills = math.noise(u * c.hills, c.seed * 0.37, 0.5) + 0.5  -- the top edge rises and falls
+			local h = c.height * (0.5 + 0.8 * hills) * (0.4 + 0.6 * taper) * rng:NextNumber(0.8, 1.2)
+			local base = foot + Vector3.new(0, math.noise(u * 11, 3.3, c.seed) * 16, 0)
+			local a0 = Instance.new("Attachment")
+			a0.Parent = host
+			a0.WorldPosition = base
+			local a1 = Instance.new("Attachment")
+			a1.Parent = host
+			a1.WorldPosition = base + Vector3.new(0, h, 0)
+			local b = Instance.new("Beam")
+			b.Attachment0, b.Attachment1 = a0, a1
+			local w = RAY_WIDTH[1] + (RAY_WIDTH[2] - RAY_WIDTH[1]) * rng:NextNumber() ^ 1.6
+			b.Width0, b.Width1 = w, w * rng:NextNumber(0.25, 0.8)
+			b.LightEmission, b.LightInfluence = 1, 0
+			b.FaceCamera = true
+			b.Segments = 64
+			b.Transparency = RAY_FADE
+			b.Color = RAY_COLOUR
+			b.Brightness = 0
+			b.Parent = host
+			-- each ray's own strength: the curtain's, thinned at its ends, varied ray to ray and in
+			-- broad patches along the row
+			local gain = c.gain * (0.3 + 0.7 * taper) * (0.45 + 0.8 * rng:NextNumber())
+				* (0.6 + 0.6 * (math.noise(u * 4, c.seed, 2.2) + 0.5))
+			table.insert(fxRibbons, { beam = b, u = u, gain = gain })
+		end
+	end
+end
+local function buildMoon()
+	local disc = fxPart("TundraBloodMoon", Vector3.new(MOON_SIZE, MOON_SIZE, MOON_SIZE), CFrame.new(MOON_AT))
+	disc.Shape = Enum.PartType.Ball
+	disc.Material = Enum.Material.Neon
+	disc.Color = Color3.fromRGB(196, 30, 26)
+	disc.Transparency = 1
+	-- the valley's glow shell, at the valley's proportion (880 around 650)
+	local glow = disc:Clone()
+	glow.Name = "TundraBloodMoonGlow"
+	glow.Size = Vector3.new(MOON_SIZE, MOON_SIZE, MOON_SIZE) * (880 / 650)
+	glow.Color = Color3.fromRGB(150, 16, 14)
+	glow.Parent = fxFolder
+	fxDisc, fxGlow = disc, glow
+end
+local function updateFx(dt, wanted)
+	if wanted ~= fxKind then
+		if fxKind and fxLevel > 0 then
+			-- fade the old one out before it goes
+			fxLevel = math.max(fxLevel - dt / FX_FADE, 0)
+		else
+			clearFx()
+			if wanted then
+				fxFolder = Instance.new("Folder")
+				fxFolder.Name = "TundraSkyFX"
+				fxFolder.Parent = workspace
+				fxKind, fxClock, fxTick = wanted, 0, 1
+				if wanted == "Aurora" then buildAurora() else buildMoon() end
+			end
+		end
+	elseif fxKind then
+		fxLevel = math.min(fxLevel + dt / FX_FADE, 1)
+	end
+	if not fxKind then return end
+	fxClock += dt
+	if fxKind == "Aurora" then
+		-- 15 Hz is plenty for a wave this slow, and it keeps ~120 beams off the per-frame bill
+		fxTick += dt
+		if fxTick < 1 / 15 then return end
+		fxTick = 0
+		for _, r in ipairs(fxRibbons) do
+			local wave = 0.5 + 0.5 * math.sin(r.u * 17 - fxClock * 0.8)   -- runs along the row
+			local swell = math.sin(r.u * 6 + fxClock * 0.3)               -- slower, the other way
+			r.beam.Brightness = r.gain * fxLevel * (0.6 + 0.4 * wave + 0.15 * swell)
+		end
+	elseif fxGlow then
+		-- a slow breath in the glow shell, in step with the valley's 3.8 s red pulse
+		local glow = 0.62 + 0.08 * math.sin(fxClock * (2 * math.pi / 3.8))
+		fxGlow.Transparency = 1 - (1 - glow) * fxLevel
+		fxDisc.Transparency = 1 - fxLevel
+	end
+end
+
 RunService.RenderStepped:Connect(function(dt)
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
-	if not root then setActive(false); return end
+	if not root then setActive(false); setStorm(nil); updateFx(dt, nil); return end
 	local here = root.Position
 	setActive(inTundra(here))
-	if not active then return end
+	if not active then setStorm(nil); updateFx(dt, nil); return end
+	local weather = ReplicatedStorage:GetAttribute("WeatherName")
+	setStorm(STORM[weather] and weather or nil)
+	updateFx(dt, (weather == "Aurora" or weather == "Blood Moon") and weather or nil)
 	roofClock += dt
 	if roofClock >= ROOF_CHECK then
 		roofClock = 0
