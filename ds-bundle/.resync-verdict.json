@@ -1,0 +1,89 @@
+{
+  "version": 2,
+  "ok": true,
+  "shape": "package",
+  "anchor": "not_provided",
+  "learningsUnmerged": [],
+  "stages": {
+    "build": {
+      "ok": true,
+      "exit": 0,
+      "skipped": null
+    },
+    "diff": {
+      "ok": true,
+      "exit": 0,
+      "skipped": null
+    },
+    "validate": {
+      "ok": true,
+      "exit": 0,
+      "skipped": null
+    },
+    "capture": {
+      "ok": true,
+      "exit": 0,
+      "skipped": null
+    }
+  },
+  "verification": {
+    "unchanged": [],
+    "changed": [],
+    "added": [
+      "AccentCard",
+      "ArtSlot",
+      "Badge",
+      "Button",
+      "CloseButton",
+      "CurrencyPill",
+      "Icon",
+      "Label",
+      "Medallion",
+      "NavRail",
+      "NavRailItem",
+      "Panel",
+      "PanelHeader",
+      "ProgressTrack",
+      "QuestRow",
+      "RarityTile",
+      "RewardCard",
+      "Ribbon",
+      "Surface",
+      "TabBar",
+      "Toast"
+    ],
+    "removed": [],
+    "pendingGrade": [],
+    "canary": null
+  },
+  "upload": {
+    "any": true,
+    "components": [
+      "AccentCard",
+      "ArtSlot",
+      "Badge",
+      "Button",
+      "CloseButton",
+      "CurrencyPill",
+      "Icon",
+      "Label",
+      "Medallion",
+      "NavRail",
+      "NavRailItem",
+      "Panel",
+      "PanelHeader",
+      "ProgressTrack",
+      "QuestRow",
+      "RarityTile",
+      "RewardCard",
+      "Ribbon",
+      "Surface",
+      "TabBar",
+      "Toast"
+    ],
+    "deletePaths": [],
+    "bundle": true,
+    "styling": true,
+    "aux": true
+  }
+}

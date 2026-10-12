@@ -3,6 +3,14 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
 local BrainrotSpawner = require(script.Parent.BrainrotSpawner)
+-- Only for RegionName: it is a pure position lookup and BoundsGuard requires nothing but
+-- Players, so there is no cycle. Using it keeps ONE definition of where each world is --
+-- a second copy of those numbers here would drift the first time either moves.
+local BoundsGuard = require(script.Parent.BoundsGuard)
+-- Profile ownership. World 2 is its own Place in this universe, so a player crosses
+-- servers mid-session and two servers can hold the same profile at once. SessionLock
+-- makes the read and the claim one transaction. No cycle: it requires nothing from here.
+local SessionLock = require(script.Parent.SessionLock)
 
 local dataStore = DataStoreService:GetDataStore("BrainrotSkip_PlayerData_v1")
 
@@ -267,6 +275,10 @@ local function defaultData()
 		-- InventoryHandler.SyncBackpack rebuilds that list from data.Brainrots and would
 		-- destroy any non-brainrot Tool on the next sync.
 		Keys = 0,
+		-- One of those Keys is SPENT walking into Elder Tung's cellar, alongside his own
+		-- Cellar Key -- see ServerScriptService.CellarDoor. Stamped once and the way down
+		-- is free for that player forever after.
+		CellarUnlocked = false,
 		-- prestige
 		Rebirths = 0,
 		-- Maxwell the cat's secret questline (see MaxwellQuest):
@@ -337,15 +349,67 @@ function PlayerDataManager.Get(player)
 	return PlayerDataManager.cache[player.UserId]
 end
 
-function PlayerDataManager.GetPlot(player)
+--============================ ONE CAMP PER WORLD ==========================--
+-- Plots 1-6 are in the valley, 7-12 in the Frozen Tundra, and a player claims one in
+-- EACH -- so "your camp" is a question that only has an answer once you say which world.
+--
+-- This does NOT double anyone's income. Cash accrues per brainrot into data.Brainrots
+-- (see IncomeLoop), which is player data, not plot data; the camps are two renderings of
+-- one collection, and the campfire you happen to be standing at is just where you
+-- collect it. That is why the mirroring below is only ever about pad MODELS.
+local function worldOf(pos)
+	return BoundsGuard.RegionName(pos) or "Valley"
+end
+PlayerDataManager.WorldOf = worldOf
+
+-- The world a player is currently standing in; nil while they have no character.
+function PlayerDataManager.PlayerWorld(player)
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	return hrp and worldOf(hrp.Position) or nil
+end
+
+-- Every plot this player owns, in folder order.
+function PlayerDataManager.GetPlots(player)
+	local owned = {}
 	local plotsFolder = Workspace:FindFirstChild("PlayerBases")
-	if not plotsFolder then return nil end
+	if not plotsFolder then return owned end
 	for _, plot in ipairs(plotsFolder:GetChildren()) do
 		if plot:GetAttribute("OwnerUserId") == player.UserId then
-			return plot
+			table.insert(owned, plot)
 		end
 	end
-	return nil
+	return owned
+end
+
+-- The camp for one world. Passing no world means "the one where the player is standing",
+-- falling back to any camp they own -- which is what every pre-existing caller wants:
+-- proximity checks (fuse, offer, campfire bank) and the income billboards all mean the
+-- camp in front of you.
+function PlayerDataManager.GetPlot(player, world)
+	local owned = PlayerDataManager.GetPlots(player)
+	if #owned == 0 then return nil end
+	local want = world or PlayerDataManager.PlayerWorld(player)
+	if want then
+		for _, plot in ipairs(owned) do
+			if plot:GetAttribute("World") == want then return plot end
+		end
+	end
+	if world then return nil end   -- an explicit world was asked for and they have none there
+	return owned[1]
+end
+
+-- Tagged once at startup from the plot's own position, so adding a camp to a third world
+-- is a build-time job: drop the model in PlayerBases inside that world's bounds.
+do
+	local plotsFolder = Workspace:FindFirstChild("PlayerBases")
+	if plotsFolder then
+		for _, plot in ipairs(plotsFolder:GetChildren()) do
+			if plot:IsA("Model") then
+				plot:SetAttribute("World", worldOf(plot:GetPivot().Position))
+			end
+		end
+	end
 end
 
 function PlayerDataManager.TakeUid(data)
@@ -371,11 +435,20 @@ function PlayerDataManager.FindFreePad(data)
 	return nil
 end
 
--- Show/refresh which plot spots are open vs locked (with buy prompts) for the owner
+-- Show/refresh which plot spots are open vs locked (with buy prompts) for the owner.
+-- Runs over EVERY camp they own: the spot you bought has to be unlocked in both worlds,
+-- or walking through the portal would appear to have taken it back off you.
+local refreshSpotsOn   -- defined just below; forward-declared so it stays a local
+
 function PlayerDataManager.RefreshPlotSpots(player)
 	local data = PlayerDataManager.cache[player.UserId]
-	local plot = PlayerDataManager.GetPlot(player)
-	if not data or not plot then return end
+	if not data then return end
+	for _, plot in ipairs(PlayerDataManager.GetPlots(player)) do
+		refreshSpotsOn(player, data, plot)
+	end
+end
+
+function refreshSpotsOn(player, data, plot)
 	local pads = plot:FindFirstChild("Pads")
 	if not pads then return end
 	local unlocked = data.UnlockedSpots or BASE_SPOTS
@@ -482,9 +555,18 @@ local function refreshPlotBoard(plot, player)
 	plot:SetAttribute("PlotLikes", math.floor((d and d.PlotLikes) or 0))
 end
 
+-- EVERY camp, not just the one they are standing in: a player leaving from the tundra
+-- would otherwise leave their valley plot claimed and un-reclaimable for the life of the
+-- server, which with six of them per world empties the map fast.
+local releaseOnePlot   -- defined just below; forward-declared so it stays a local
+
 local function releasePlot(player)
-	local plot = PlayerDataManager.GetPlot(player)
-	if not plot then return end
+	for _, plot in ipairs(PlayerDataManager.GetPlots(player)) do
+		releaseOnePlot(plot)
+	end
+end
+
+function releaseOnePlot(plot)
 	local pads = plot:FindFirstChild("Pads")
 	if pads then
 		for _, child in ipairs(pads:GetChildren()) do
@@ -525,6 +607,14 @@ function PlayerDataManager.Snapshot(player)
 		PlotLikes = data.PlotLikes,
 		LikedPlayers = data.LikedPlayers,
 		Keys = data.Keys,
+		-- What those keys have already bought. The Bag's Keys tab renders a key as
+		-- SPENT-AND-PERMANENT rather than just counting them, so it needs the unlock
+		-- flags too. CellarUnlocked is CellarDoor's own flag, set when the Gianluca key
+		-- is spent on the hatch; TungPortalUnlocked is TungQuestConfig.RewardFlag, the
+		-- cellar key itself. (Add a locked portal with a new UnlockFlag and add it here
+		-- as well -- TeleportService.passesLock still supports them, nothing uses it now.)
+		TungPortalUnlocked = data.TungPortalUnlocked,
+		CellarUnlocked = data.CellarUnlocked,
 		-- Pets/PetSlots are what the bag's Pets tab renders from. Without them in the
 		-- snapshot the client cannot see a pet it owns at all, so hatching would write to
 		-- data.Pets and appear to do nothing.
@@ -539,9 +629,16 @@ end
 
 function PlayerDataManager.Load(player)
 	local data
-	local ok, result = pcall(function()
-		return dataStore:GetAsync("Player_" .. player.UserId)
-	end)
+	-- Claim rather than GetAsync. A plain read cannot tell "nobody else has this" from
+	-- "another server loaded it a moment ago", and that gap is exactly where a
+	-- cross-place teleport duplicates items.
+	local claimed, status = SessionLock.Claim(player.UserId)
+	local ok = (status == "ok" or status == "new")
+	local result = (status == "ok") and claimed or nil
+	if status == "locked" then
+		warn(("[PlayerDataManager] %s: profile held by another live server -- read-only session")
+			:format(player.Name))
+	end
 	if ok and result then
 		data = result
 		if not data.OwnedRocks then data.OwnedRocks = { Pebble = true } end
@@ -553,6 +650,7 @@ function PlayerDataManager.Load(player)
 		if not data.Quests then data.Quests = {} end
 		if data.ChimQuest == nil then data.ChimQuest = 0 end
 		if type(data.Keys) ~= "number" then data.Keys = 0 end
+		if data.CellarUnlocked == nil then data.CellarUnlocked = false end
 		if not data.QuestDay then data.QuestDay = 0 end
 		if not data.Rebirths then data.Rebirths = 0 end
 		if data.MaxwellQuest == nil then data.MaxwellQuest = 0 end
@@ -729,33 +827,26 @@ function PlayerDataManager.Save(player)
 	if data.__noSave then return false end  -- load failed; writing would wipe the real profile
 	data.LastSeen = os.time()
 	local key = "Player_" .. player.UserId
-	for attempt = 1, 3 do
-		-- UpdateAsync over SetAsync: it is transactional per key and retries on conflict
-		local ok, err = pcall(function()
-			dataStore:UpdateAsync(key, function()
-				return data
-			end)
-		end)
-		if ok then return true end
-		if attempt == 3 then
-			warn(("[PlayerDataManager] save FAILED for %s after 3 attempts: %s"):format(player.Name, tostring(err)))
-		else
-			task.wait(0.4 * attempt)
-		end
-	end
-	return false
+	-- Routed through SessionLock: it re-checks ownership inside the transaction and
+	-- refuses if another server has taken the profile, because at that point WE are the
+	-- stale session and writing would roll their progress back.
+	return SessionLock.Save(player.UserId, data)
 end
 
 function PlayerDataManager.Remove(player)
 	releasePlot(player)                 -- stop accepting likes BEFORE the SetAsync yield
-	PlayerDataManager.Save(player)
+	-- Release = final write + drop the lock. Leaving is also how a teleport looks from
+	-- this server, so the destination must find the profile unlocked and current.
+	SessionLock.Release(player.UserId, PlayerDataManager.cache[player.UserId])
 	PlayerDataManager.cache[player.UserId] = nil
 end
 
 -- === Tycoon-style claiming: walk onto a free plot to claim it ===
 function PlayerDataManager.ClaimPlotFor(player, plot)
 	if not plot or plot:GetAttribute("Claimed") then return false end
-	if PlayerDataManager.GetPlot(player) then return false end
+	-- One per WORLD, not one per player: owning a valley camp must not stop you taking a
+	-- tundra one, but it does stop you taking a second valley one.
+	if PlayerDataManager.GetPlot(player, plot:GetAttribute("World")) then return false end
 	plot:SetAttribute("OwnerUserId", player.UserId)
 	refreshPlotBoard(plot, player)
 	plot:SetAttribute("Claimed", true)
@@ -781,7 +872,7 @@ local function tryClaimByTouch(plot, hit)
 	local player = Players:GetPlayerFromCharacter(character)
 	if not player then return end
 	if plot:GetAttribute("Claimed") then return end
-	if PlayerDataManager.GetPlot(player) then return end
+	if PlayerDataManager.GetPlot(player, plot:GetAttribute("World")) then return end
 	if claimCooldown[player.UserId] then return end
 	claimCooldown[player.UserId] = true
 	task.delay(1, function() claimCooldown[player.UserId] = nil end)
@@ -801,5 +892,18 @@ do
 		end
 	end
 end
+
+-- Refresh our locks every 30s; they go stale after 90, so a crashed server's lock is
+-- reclaimable instead of permanent.
+-- Release locks when the server goes down, so the next server (or the next Studio play
+-- session) can claim these profiles immediately instead of waiting out the stale window.
+game:BindToClose(function()
+	local n = SessionLock.ReleaseAll(function(userId) return PlayerDataManager.cache[userId] end)
+	if n > 0 then
+		print(("[PlayerDataManager] released %d session lock(s) on shutdown"):format(n))
+	end
+end)
+
+SessionLock.StartHeartbeat(function(userId) return PlayerDataManager.cache[userId] end)
 
 return PlayerDataManager

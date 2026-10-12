@@ -42,11 +42,21 @@ function M.Get(player)
 end
 
 function M.Award(player, n, reason)
-	local data = PDM.Get(player); if not data then return end
-	n = math.floor(n); if n <= 0 or n ~= n then return end
+	local data = PDM.Get(player); if not data then return false end
+	if type(n) ~= "number" then return false end
+	n = math.floor(n); if n < 1 or n ~= n or n == math.huge then return false end
 	data.Darrels += n
-	print(("[Darrels] +%d -> %d %s (%s)"):format(n, data.Darrels, player.Name, reason))
-	push(player, data); PDM.PushUpdate(player)
+	-- MONEY INVARIANT (Robux receipts): nothing after the mutation above may throw.
+	-- A throw here would skip ProductRegistry's ReceiptLog insert while the
+	-- leave-save still banks the darrels -- Roblox's retry then grants AGAIN.
+	-- The UI pushes are best-effort; tostring() the balance because %d throws on
+	-- non-integer-representable values and a corrupted save can put one here.
+	local ok, err = pcall(function()
+		print(("[Darrels] +%d -> %s %s (%s)"):format(n, tostring(data.Darrels), player.Name, reason))
+		push(player, data); PDM.PushUpdate(player)
+	end)
+	if not ok then warn("[Darrels] post-award notify failed: " .. tostring(err)) end
+	return true
 end
 
 function M.TrySpend(player, n, reason)  -- NO YIELDS between check and deduct

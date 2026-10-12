@@ -1,0 +1,788 @@
+/**
+ * Skip a Brainrot — HUD stylesheet.
+ *
+ * A web port of the four effects `UIKit/Builders.lua` composes everything from:
+ *   1. a thick outer stroke              (Roblox UIStroke, ApplyStrokeMode.Border)
+ *   2. a hard offset shadow              (a copy of the shape, outline-coloured, pushed +Y)
+ *   3. a vertical gradient, top -> bottom (UIGradient at Rotation 90)
+ *   4. a top gloss strip + bottom shade  (two absolutely-placed Frames)
+ * plus stroked display text (UIStroke on a TextLabel), rendered here with
+ * -webkit-text-stroke + paint-order, the same idiom the design handoff kit uses.
+ *
+ * Every value traces to src/tokens.ts, which is a one-for-one port of
+ * ReplicatedStorage/Modules/UIKit/Tokens.lua.
+ */
+
+/* No @font-face here on purpose: fonts.css is a separate entry so the design-sync
+   converter can place it itself (it emits fonts/ and imports it from the root
+   styles.css). Direct consumers of this package import ./index.css, which pulls
+   in both. */
+
+:root {
+  --sb-outline: #202020;
+  --sb-keyline: #ffffff;
+
+  --sb-panel-top: #d6d6d6;
+  --sb-panel-bottom: #a9a9a9;
+  --sb-sub-panel-top: #c4c4c4;
+  --sb-sub-panel-bottom: #9c9c9c;
+  --sb-row-top: #4a4a4a;
+  --sb-row-bottom: #363636;
+  --sb-tab-top: #bebebe;
+  --sb-tab-bottom: #9c9c9c;
+  --sb-track-top: #2e2e2e;
+  --sb-track-bottom: #3a3a3a;
+  --sb-slot-top: #4a4a4a;
+  --sb-slot-bottom: #363636;
+  --sb-header-top: #f96b57;
+  --sb-header-bottom: #c84535;
+
+  --sb-white: #ffffff;
+  --sb-text-muted: #d8d8d8;
+  --sb-text-accent: #ffd84d;
+  --sb-text-on-window: #2a2a2a;
+  --sb-text-on-gold-card: #3a2a05;
+  --sb-text-disabled: #b8c4a4;
+  --sb-text-claimed: #9fae8b;
+
+  --sb-claim-ring: #7ce04a;
+  --sb-active-ring: #ffd84d;
+  --sb-active-glow: #ffe87a;
+
+  --sb-rarity-common: #c9ccc2;
+  --sb-rarity-rare: #3fa9f5;
+  --sb-rarity-epic: #a855f7;
+  --sb-rarity-legend: #ffb200;
+
+  --sb-scrim: rgba(10, 14, 6, 0.5);
+
+  /* gradients — top -> bottom, three-stop families break at 52-55% */
+  --sb-grad-gold: linear-gradient(180deg, #ffe87a 0%, #ffc531 55%, #e08a0c 100%);
+  --sb-grad-gold-small: linear-gradient(180deg, #ffe066 0%, #ffc531 52%, #e8930f 100%);
+  --sb-grad-green: linear-gradient(180deg, #83e34a, #4fb42e);
+  --sb-grad-purple: linear-gradient(180deg, #de93ff 0%, #b04cec 52%, #7c1cc0 100%);
+  --sb-grad-red: linear-gradient(180deg, #ff6b6b, #d83e3e);
+  --sb-grad-blue: linear-gradient(180deg, #56b7ff, #2e81d8);
+  --sb-grad-gem: linear-gradient(180deg, #d98bff 0%, #a93fe6 52%, #7a1cb8 100%);
+  --sb-grad-panel: linear-gradient(180deg, #d6d6d6, #a9a9a9);
+  --sb-grad-sub-panel: linear-gradient(180deg, #c4c4c4, #9c9c9c);
+  --sb-grad-row: linear-gradient(180deg, #4a4a4a, #363636);
+  --sb-grad-tab: linear-gradient(180deg, #bebebe, #9c9c9c);
+  --sb-grad-track: linear-gradient(180deg, #2e2e2e, #3a3a3a);
+  --sb-grad-slot: linear-gradient(180deg, #4a4a4a, #363636);
+  --sb-grad-header: linear-gradient(180deg, #f96b57, #c84535);
+  --sb-grad-window: linear-gradient(180deg, #d6d6d6, #a9a9a9);
+  --sb-grad-free-card: linear-gradient(180deg, #f7f7f1 0%, #deded4 55%, #b2b4a8 100%);
+  --sb-grad-cream: linear-gradient(180deg, #d6d6d6, #a9a9a9);
+  --sb-grad-pass-card: linear-gradient(180deg, #ffe066 0%, #f7b62c 55%, #d8860e 100%);
+  --sb-grad-lock-badge: linear-gradient(180deg, #f2f2ec, #c2c4b8);
+  --sb-grad-knob: linear-gradient(180deg, #fff0a8, #ffc531);
+  --sb-grad-disabled: linear-gradient(180deg, #6a7757, #454f33);
+  --sb-grad-owned-cta: linear-gradient(180deg, #8fa378, #54643c);
+  --sb-grad-free-label: linear-gradient(180deg, #7a8a66, #55643f);
+  --sb-grad-pass-label: linear-gradient(180deg, #ffd84d, #e0912a);
+
+  --sb-stroke-panel: 4px;
+  --sb-stroke-control: 3px;
+  --sb-stroke-chip: 3px;
+  --sb-stroke-inner: 2px;
+
+  --sb-radius-panel: 8px;
+  --sb-radius-control: 12px;
+  --sb-radius-inner: 10px;
+  --sb-radius-chip: 10px;
+  --sb-radius-slot: 8px;
+  --sb-radius-art: 8px;
+  --sb-radius-pill: 999px;
+
+  --sb-shadow-panel: 6px;
+  --sb-shadow-control: 5px;
+  --sb-shadow-chip: 4px;
+
+  --sb-pad-panel: 16px;
+  --sb-gap: 12px;
+  --sb-gap-tight: 8px;
+  --sb-grid-gap: 11px;
+  --sb-row-gap: 10px;
+
+  /* Roblox renders GothamBold for both of these engine-side — it has no access to
+     Fredoka One or Nunito. Naming Gotham in the web stack would only ever resolve
+     on a machine that happens to have it licensed locally, so it is left out. */
+  --sb-font-display: 'Fredoka One', system-ui, sans-serif;
+  --sb-font-ui: 'Nunito', system-ui, sans-serif;
+
+  --sb-ease-hover: 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --sb-ease-press: 80ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ── the shared surface recipe ──────────────────────────────────────────────
+   Outer stroke and hard shadow are one box-shadow stack: the first ring is the
+   stroke, the second is the same silhouette (spread to match) pushed down Y.
+   Roblox draws the stroke outside the shape, which is what a 0-blur spread does. */
+.sb-surface {
+  position: relative;
+  box-sizing: border-box;
+  border-radius: var(--sb-radius-panel);
+  background-image: var(--sb-grad-panel);
+  box-shadow: 0 0 0 var(--sb-stroke-panel) var(--sb-outline);
+}
+
+.sb-surface--shadowed {
+  box-shadow:
+    0 0 0 var(--sb-stroke-panel) var(--sb-outline),
+    0 var(--sb-shadow-panel) 0 var(--sb-stroke-panel) var(--sb-outline);
+}
+
+/* The guide's 1-2px white inner keyline, inset just under the outer stroke. */
+.sb-surface--keyline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 var(--sb-stroke-inner) rgba(255, 255, 255, 0.55);
+}
+
+.sb-surface--panel { background-image: var(--sb-grad-panel); }
+.sb-surface--subPanel { background-image: var(--sb-grad-sub-panel); }
+.sb-surface--row { background-image: var(--sb-grad-row); }
+.sb-surface--slot { background-image: var(--sb-grad-slot); border-radius: var(--sb-radius-slot); }
+.sb-surface--tab { background-image: var(--sb-grad-tab); }
+.sb-surface--track { background-image: var(--sb-grad-track); }
+
+/* ── gloss + shade ──────────────────────────────────────────────────────────
+   Top 5px white strip at 45%, bottom 6px black at 18% (Roblox stores that one
+   as BackgroundTransparency 0.82). Both clip to the parent's radius. */
+.sb-gloss {
+  position: relative;
+  overflow: hidden;
+}
+
+.sb-gloss > .sb-gloss__top,
+.sb-gloss > .sb-gloss__shade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.sb-gloss > .sb-gloss__top {
+  top: 0;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.sb-gloss > .sb-gloss__shade {
+  bottom: 0;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* ── stroked display text ───────────────────────────────────────────────────
+   paint-order puts the stroke behind the fill so the glyph keeps its weight;
+   without it -webkit-text-stroke paints centred and eats the letterforms. */
+.sb-text {
+  font-family: var(--sb-font-display);
+  color: var(--sb-white);
+  margin: 0;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0 var(--sb-outline);
+}
+
+.sb-text--panelTitle { font-size: 32px; -webkit-text-stroke-width: 3px; }
+.sb-text--buttonL { font-size: 24px; -webkit-text-stroke-width: 2.5px; }
+.sb-text--buttonM { font-size: 20px; -webkit-text-stroke-width: 2px; }
+.sb-text--value { font-size: 22px; -webkit-text-stroke-width: 2px; }
+.sb-text--cardLabel { font-size: 17px; -webkit-text-stroke-width: 2px; }
+.sb-text--chip { font-size: 14px; -webkit-text-stroke-width: 1.5px; }
+.sb-text--railLabel { font-size: 20px; -webkit-text-stroke-width: 4px; }
+.sb-text--meta {
+  font-family: var(--sb-font-ui);
+  font-size: 14px;
+  font-weight: 700;
+  -webkit-text-stroke-width: 0;
+}
+
+/* On the light window the stroke is dropped, not recoloured: it is near-black,
+   so around near-black ink it merges with the fill and closes up the glyphs. */
+.sb-text--on-light {
+  color: var(--sb-text-on-window);
+  -webkit-text-stroke-width: 0;
+}
+
+/* ── panel ──────────────────────────────────────────────────────────────── */
+.sb-panel {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sb-pad-panel);
+  color: var(--sb-text-on-window);
+  font-family: var(--sb-font-ui);
+}
+
+.sb-panel--headed {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sb-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sb-gap);
+  padding: var(--sb-pad-panel);
+}
+
+/* ── panel header ───────────────────────────────────────────────────────── */
+.sb-panel-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sb-gap);
+  height: 92px;
+  flex: 0 0 92px;
+  padding: 0 var(--sb-pad-panel);
+  background-image: var(--sb-grad-header);
+  box-shadow: inset 0 -4px 0 0 var(--sb-outline);
+}
+
+.sb-panel-header__icon {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.sb-panel-header__title { flex: 1; min-width: 0; }
+
+/* ── close button ───────────────────────────────────────────────────────── */
+.sb-close {
+  width: 74px;
+  height: 66px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  border-radius: var(--sb-radius-control);
+  background-image: var(--sb-grad-red);
+  font: inherit;
+  box-shadow:
+    0 0 0 var(--sb-stroke-control) var(--sb-outline),
+    0 var(--sb-shadow-control) 0 var(--sb-stroke-control) var(--sb-outline);
+  transition: transform var(--sb-ease-hover);
+}
+
+.sb-close:hover { transform: translateY(-2px); }
+.sb-close:active { transform: translateY(2px); }
+
+/* ── button ─────────────────────────────────────────────────────────────── */
+.sb-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 0;
+  padding: 0 18px;
+  cursor: pointer;
+  font-family: var(--sb-font-display);
+  color: var(--sb-white);
+  border-radius: var(--sb-radius-control);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 var(--sb-stroke-control) var(--sb-outline),
+    0 var(--sb-shadow-control) 0 var(--sb-stroke-control) var(--sb-outline);
+  transition: transform var(--sb-ease-hover);
+}
+
+.sb-button:not(:disabled):hover { transform: translateY(-2px); }
+.sb-button:not(:disabled):active { transform: translateY(2px); transition-duration: 80ms; }
+
+.sb-button__label {
+  position: relative;
+  z-index: 3;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2px var(--sb-outline);
+}
+
+.sb-button--gold { background-image: var(--sb-grad-gold); }
+.sb-button--goldSmall { background-image: var(--sb-grad-gold-small); }
+.sb-button--green { background-image: var(--sb-grad-green); }
+.sb-button--purple { background-image: var(--sb-grad-purple); }
+.sb-button--red { background-image: var(--sb-grad-red); }
+.sb-button--blue { background-image: var(--sb-grad-blue); }
+.sb-button--tab { background-image: var(--sb-grad-tab); }
+
+/* A dead control keeps the stroke but drops the shadow and gloss — it must not
+   read as pressable. Matches UI.button, which skips gloss+shadow when disabled. */
+.sb-button--disabled,
+.sb-button:disabled {
+  background-image: var(--sb-grad-disabled);
+  color: var(--sb-text-disabled);
+  cursor: default;
+  box-shadow: 0 0 0 var(--sb-stroke-control) var(--sb-outline);
+}
+
+.sb-button--sm { height: 44px; font-size: 20px; }
+.sb-button--md { height: 60px; font-size: 20px; }
+.sb-button--lg { height: 72px; font-size: 24px; padding: 0 26px; }
+.sb-button--lg .sb-button__label { -webkit-text-stroke-width: 2.5px; }
+
+/* ── progress track ─────────────────────────────────────────────────────── */
+.sb-track {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--sb-radius-inner);
+  background-image: var(--sb-grad-track);
+  box-shadow: 0 0 0 var(--sb-stroke-control) var(--sb-outline);
+}
+
+/* the inner top shadow UI.track insets over the fill */
+.sb-track::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.sb-track__fill {
+  height: 100%;
+  border-radius: var(--sb-radius-inner);
+  background-image: var(--sb-grad-gold);
+  transition: width 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ── badge / ribbon ─────────────────────────────────────────────────────── */
+.sb-badge {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--sb-radius-pill);
+  background-image: var(--sb-grad-red);
+  color: var(--sb-white);
+  font-family: var(--sb-font-ui);
+  font-weight: 900;
+  font-size: 16px;
+  line-height: 1;
+  box-shadow: 0 0 0 3.5px var(--sb-outline);
+}
+
+.sb-ribbon {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--sb-radius-chip);
+  color: var(--sb-white);
+  font-family: var(--sb-font-ui);
+  font-weight: 900;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 1.5px var(--sb-outline);
+  box-shadow: 0 0 0 var(--sb-stroke-chip) var(--sb-outline);
+}
+
+.sb-ribbon--EQUIPPED { background-image: var(--sb-grad-green); }
+.sb-ribbon--GRAND { background-image: var(--sb-grad-purple); }
+.sb-ribbon--NEW { background-image: var(--sb-grad-red); }
+
+/* ── art slot + rarity ──────────────────────────────────────────────────── */
+.sb-art-slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: var(--sb-radius-art);
+  background: var(--sb-slot-top);
+  overflow: hidden;
+}
+
+.sb-art-slot--empty { background: rgba(74, 74, 74, 0.85); }
+.sb-art-slot > img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.sb-rarity-tile {
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border-radius: var(--sb-radius-slot);
+  background-image: var(--sb-grad-slot);
+  box-shadow: 0 0 0 var(--sb-stroke-control) var(--sb-outline);
+}
+
+/* the 4px inner rarity frame UI.rarityFrame lays over the slot */
+.sb-rarity-tile__frame {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 4px currentColor;
+}
+
+.sb-rarity-tile--common { color: var(--sb-rarity-common); }
+.sb-rarity-tile--rare { color: var(--sb-rarity-rare); }
+.sb-rarity-tile--epic { color: var(--sb-rarity-epic); }
+.sb-rarity-tile--legend { color: var(--sb-rarity-legend); }
+
+/* claimable ring: inset -4, pulsing 1.6s */
+.sb-claim-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: calc(var(--sb-radius-control) + 3px);
+  pointer-events: none;
+  box-shadow: 0 0 0 5px var(--sb-claim-ring);
+  animation: sb-claim-pulse 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes sb-claim-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.55; }
+}
+
+/* On a tile the ring follows the slot radius (8), not the card radius (12) it
+   was written against, or it reads as a rounder shape floating over a squarer one. */
+.sb-rarity-tile > .sb-claim-ring {
+  border-radius: calc(var(--sb-radius-slot) + 4px);
+}
+
+/* rainbow ring: the UI.rainbowRing fallback, sweeping 0 -> 360 over 6s.
+   The Luau version animates UIGradient.Rotation — the GRADIENT turns while the
+   ring stays put. Animating the element's transform instead would spin the
+   rounded square itself and throw its corners off-axis, so the angle is a
+   registered custom property and the geometry never moves. */
+@property --sb-ring-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.sb-rainbow-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: calc(var(--sb-radius-slot) + 5px);
+  padding: 5px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--sb-ring-angle),
+    #ff5252,
+    #ffb200,
+    #7ce04a,
+    #3fa9f5,
+    #a855f7,
+    #ff5252
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: sb-ring-spin 6s linear infinite;
+}
+
+@keyframes sb-ring-spin {
+  to { --sb-ring-angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-claim-ring,
+  .sb-rainbow-ring { animation: none; }
+}
+
+/* ── currency pill ──────────────────────────────────────────────────────── */
+.sb-currency {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 54px;
+  padding: 0 16px 0 6px;
+  border-radius: var(--sb-radius-pill);
+  background-image: var(--sb-grad-row);
+  box-shadow:
+    0 0 0 var(--sb-stroke-control) var(--sb-outline),
+    0 var(--sb-shadow-chip) 0 var(--sb-stroke-control) var(--sb-outline);
+}
+
+.sb-currency__icon {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.sb-currency__value {
+  font-family: var(--sb-font-display);
+  font-size: 22px;
+  color: var(--sb-white);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2px var(--sb-outline);
+}
+
+/* ── nav rail ───────────────────────────────────────────────────────────── */
+.sb-rail {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 6px;
+  padding: 10px;
+}
+
+.sb-rail__column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sb-rail-item {
+  position: relative;
+  width: 106px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* v2 rail floats a bare 66px icon — no button plate under it */
+.sb-rail-item__icon {
+  position: relative;
+  z-index: 2;
+  width: 66px;
+  height: 66px;
+  display: grid;
+  place-items: center;
+  transition: transform var(--sb-ease-hover);
+}
+
+.sb-rail-item:hover .sb-rail-item__icon { transform: translateY(-2px); }
+
+/* active state is an 88px radial gold glow behind the icon, not a ring */
+.sb-rail-item__glow {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 88px;
+  height: 88px;
+  margin-left: -44px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 232, 122, 0.75) 0%, rgba(255, 232, 122, 0) 70%);
+}
+
+.sb-rail-item__label {
+  position: relative;
+  z-index: 2;
+  font-family: var(--sb-font-display);
+  font-size: 20px;
+  color: var(--sb-white);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 4px var(--sb-outline);
+}
+
+.sb-rail-item__badge {
+  position: absolute;
+  top: 0;
+  right: 12px;
+  z-index: 3;
+}
+
+/* ── tab bar ────────────────────────────────────────────────────────────── */
+.sb-tabs {
+  display: inline-flex;
+  gap: var(--sb-gap-tight);
+}
+
+.sb-tab {
+  box-sizing: border-box;
+  height: 52px;
+  padding: 0 22px;
+  border: 0;
+  cursor: pointer;
+  border-radius: var(--sb-radius-control);
+  background-image: var(--sb-grad-tab);
+  color: var(--sb-text-on-window);
+  font-family: var(--sb-font-display);
+  font-size: 20px;
+  box-shadow: 0 0 0 var(--sb-stroke-control) var(--sb-outline);
+}
+
+.sb-tab--active {
+  background-image: var(--sb-grad-gold-small);
+  color: var(--sb-white);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2px var(--sb-outline);
+  box-shadow:
+    0 0 0 var(--sb-stroke-control) var(--sb-outline),
+    0 0 0 calc(var(--sb-stroke-control) + 3px) var(--sb-active-ring);
+}
+
+/* ── reward card (season pass ladder) ───────────────────────────────────── */
+.sb-reward-card {
+  position: relative;
+  box-sizing: border-box;
+  width: 178px;
+  height: 186px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--sb-radius-control);
+  background-image: var(--sb-grad-free-card);
+  box-shadow:
+    0 0 0 var(--sb-stroke-control) var(--sb-outline),
+    0 var(--sb-shadow-control) 0 var(--sb-stroke-control) var(--sb-outline);
+}
+
+.sb-reward-card--pass { background-image: var(--sb-grad-pass-card); }
+.sb-reward-card--claimed { filter: saturate(0.35) brightness(0.92); }
+
+.sb-reward-card__tier {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  margin-left: -29px;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background-image: var(--sb-grad-gold-small);
+  color: var(--sb-white);
+  font-family: var(--sb-font-display);
+  font-size: 22px;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2px var(--sb-outline);
+  box-shadow: 0 0 0 3px var(--sb-outline);
+}
+
+.sb-reward-card__art { width: 92px; height: 92px; margin-top: 30px; }
+
+.sb-reward-card__label {
+  font-family: var(--sb-font-ui);
+  font-weight: 900;
+  font-size: 17px;
+  color: var(--sb-text-on-gold-card);
+  text-align: center;
+}
+
+.sb-reward-card__lock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: rgba(10, 14, 6, 0.45);
+}
+
+/* ── quest row ──────────────────────────────────────────────────────────── */
+.sb-quest-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sb-gap);
+  box-sizing: border-box;
+  height: 88px;
+  padding: 0 14px;
+  border-radius: var(--sb-radius-inner);
+  background-image: var(--sb-grad-row);
+  box-shadow: 0 0 0 var(--sb-stroke-control) var(--sb-outline);
+}
+
+.sb-quest-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.sb-quest-row__title {
+  font-family: var(--sb-font-display);
+  font-size: 17px;
+  color: var(--sb-white);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2px var(--sb-outline);
+}
+
+/* ── toast ──────────────────────────────────────────────────────────────── */
+.sb-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sb-gap-tight);
+  box-sizing: border-box;
+  padding: 12px 18px;
+  border-radius: var(--sb-radius-control);
+  background-image: var(--sb-grad-row);
+  color: var(--sb-white);
+  font-family: var(--sb-font-display);
+  font-size: 20px;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2px var(--sb-outline);
+  box-shadow:
+    0 0 0 var(--sb-stroke-control) var(--sb-outline),
+    0 var(--sb-shadow-control) 0 var(--sb-stroke-control) var(--sb-outline);
+}
+
+.sb-toast--success { background-image: var(--sb-grad-green); }
+.sb-toast--warn { background-image: var(--sb-grad-gold-small); }
+.sb-toast--error { background-image: var(--sb-grad-red); }
+
+/* ── accent card + medallion (UITheme accent pack) ──────────────────────── */
+/* Accent neat on the border, a pale tint of the same hue inside — the
+   "one accent per card" read. The 3px reveal is UITheme.accentCard's inset. */
+.sb-accent-card {
+  box-sizing: border-box;
+  padding: 3px;
+  box-shadow: 0 0 0 3px var(--sb-outline);
+}
+
+.sb-accent-card__content {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sb-gap-tight);
+  padding: 12px;
+  color: var(--sb-text-on-window);
+  font-family: var(--sb-font-ui);
+}
+
+.sb-medallion {
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  overflow: hidden;
+  background-image: var(--sb-grad-gold-small);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.5);
+}
+
+.sb-medallion__value {
+  position: relative;
+  z-index: 2;
+  font-family: var(--sb-font-display);
+  font-size: 22px;
+  color: var(--sb-white);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2px var(--sb-outline);
+}
+
+/* ── icon ───────────────────────────────────────────────────────────────── */
+.sb-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── scrim ──────────────────────────────────────────────────────────────── */
+.sb-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--sb-scrim);
+}

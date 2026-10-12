@@ -14,8 +14,10 @@ end
 
 local function grant(player, data, def)
 	if def.Type == "Darrels" then
-		DarrelService.Award(player, def.Amount, "robux:" .. def.Amount)
-		return true
+		-- Award returns false (never throws post-mutation) on invalid amounts. A
+		-- false must NOT reach the ReceiptLog: once a PurchaseId is logged, the
+		-- dedupe branch answers PurchaseGranted forever with nothing credited.
+		return DarrelService.Award(player, def.Amount, "robux:" .. tostring(def.Amount)) == true
 	end
 	return false
 end
@@ -46,7 +48,15 @@ function M.ProcessReceipt(info)
 		warn("[ProductRegistry] unknown product id " .. tostring(info.ProductId))
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if not grant(player, data, def) then return Enum.ProductPurchaseDecision.NotProcessedYet end
+	-- pcall is defense-in-depth only: grant implementations must never throw
+	-- AFTER mutating data, because a caught failure returns NotProcessedYet on
+	-- the assumption nothing was granted. DarrelService.Award upholds this by
+	-- pcall'ing its own post-mutation notify path.
+	local ok, granted = pcall(grant, player, data, def)
+	if not ok then
+		warn("[ProductRegistry] grant threw for product " .. tostring(info.ProductId) .. ": " .. tostring(granted))
+	end
+	if not ok or granted ~= true then return Enum.ProductPurchaseDecision.NotProcessedYet end
 	table.insert(data.ReceiptLog, key)
 	if #data.ReceiptLog > 50 then table.remove(data.ReceiptLog, 1) end
 	local saved = PDM.Save(player)

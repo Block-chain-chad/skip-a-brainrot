@@ -1,0 +1,33 @@
+[
+  {
+    "sheet": 1,
+    "components": [
+      "AccentCard",
+      "ArtSlot",
+      "Badge",
+      "Button",
+      "CloseButton",
+      "CurrencyPill",
+      "Icon",
+      "Label",
+      "Medallion",
+      "NavRail",
+      "NavRailItem",
+      "Panel",
+      "PanelHeader",
+      "ProgressTrack",
+      "QuestRow",
+      "RarityTile"
+    ]
+  },
+  {
+    "sheet": 2,
+    "components": [
+      "RewardCard",
+      "Ribbon",
+      "Surface",
+      "TabBar",
+      "Toast"
+    ]
+  }
+]

@@ -187,6 +187,27 @@ local function applyHideOwnBanners(on)
 	end
 end
 
+----------------------------------------------------------- REAL SEAM 2b/2c: cinematic prefs -> CatchCinematic (Sequencer/Config)
+-- Same bridge shape as REAL SEAM 1/2 above: a client-local Instance Attribute,
+-- read at the moment it matters rather than pushed through a bespoke remote.
+-- CatchCinematic.Sequencer reads CinematicReducedMotion at the START of every
+-- run (mid-run changes take effect on the NEXT catch, same "read at time of
+-- use" contract skipReveal already keeps); Config.qualityFor reads
+-- CinematicLowQuality on every run too. Task 8 brief: one Reduced Motion row
+-- plus a second Low Quality Cinematics row (cheap while already in here -- the
+-- plan's quality tier needed a non-touch opt-in).
+local function applyCinematicReducedMotion(on)
+	if player then
+		player:SetAttribute("CinematicReducedMotion", on == true)
+	end
+end
+
+local function applyCinematicLowQuality(on)
+	if player then
+		player:SetAttribute("CinematicLowQuality", on == true)
+	end
+end
+
 ----------------------------------------------------------- REAL SEAM 3: skipReveal -> CatchRevealClient / ClientMain
 -- Per-rarity catch-animation skip (user request 2026-08-04, v2 -- "just
 -- skip the actual catch animation... for whatever rarity they desire"):
@@ -210,7 +231,7 @@ end
 -- visit Settings. `applied` also seeds the panel's own controls on first
 -- Build (see below), and `onAppliedChanged` (assigned inside Build once the
 -- widgets exist) keeps them in sync if a payload lands again afterward.
-local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, skipReveal = {} }
+local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, cinematicReducedMotion = false, cinematicLowQuality = false, skipReveal = {} }
 local onAppliedChanged = nil
 
 local function applySettings(s)
@@ -236,6 +257,14 @@ local function applySettings(s)
 	if typeof(s.hideOwnBanners) == "boolean" then
 		applied.hideOwnBanners = s.hideOwnBanners
 		applyHideOwnBanners(applied.hideOwnBanners)
+	end
+	if typeof(s.cinematicReducedMotion) == "boolean" then
+		applied.cinematicReducedMotion = s.cinematicReducedMotion
+		applyCinematicReducedMotion(applied.cinematicReducedMotion)
+	end
+	if typeof(s.cinematicLowQuality) == "boolean" then
+		applied.cinematicLowQuality = s.cinematicLowQuality
+		applyCinematicLowQuality(applied.cinematicLowQuality)
 	end
 	if typeof(s.skipReveal) == "table" then
 		applied.skipReveal = s.skipReveal
@@ -294,10 +323,10 @@ function SettingsPanel.Build(ctx)
 	local SKIPREV_ROW_H = 86 -- label line + 8 rarity chips (no kit spec; two-line row)
 	local FOOTER_H = 58 -- kit "Redeem Code... height 58"
 	local GAP = T.pad.gapTight -- 8, kit "Body padding 16, gap 8"
-	local ITEM_COUNT = 10 -- 3 section headers + 2 sliders + 1 segmented + 2 toggles + 1 rarity row + 1 footer
+	local ITEM_COUNT = 12 -- 3 section headers + 2 sliders + 1 segmented + 4 toggles + 1 rarity row + 1 footer
 	local BODY_CONTENT_H = (SECTION_HEADER_H + SLIDER_ROW_H * 2) -- AUDIO
 		+ (SECTION_HEADER_H + SEGMENT_ROW_H) -- GRAPHICS
-		+ (SECTION_HEADER_H + TOGGLE_ROW_H * 2 + SKIPREV_ROW_H) -- GAMEPLAY
+		+ (SECTION_HEADER_H + TOGGLE_ROW_H * 4 + SKIPREV_ROW_H) -- GAMEPLAY
 		+ FOOTER_H
 		+ GAP * (ITEM_COUNT - 1)
 	local BODY_H = T.pad.panel * 2 + BODY_CONTENT_H
@@ -1096,6 +1125,16 @@ function SettingsPanel.Build(ctx)
 		applyHideOwnBanners(on)
 		fireSave({ hideOwnBanners = on })
 	end)
+	local reducedMotionCtl = buildToggleRow("Reduced Motion (Cinematics)", applied.cinematicReducedMotion, function(on)
+		applied.cinematicReducedMotion = on
+		applyCinematicReducedMotion(on)
+		fireSave({ cinematicReducedMotion = on })
+	end)
+	local lowQualityCtl = buildToggleRow("Low Quality Cinematics", applied.cinematicLowQuality, function(on)
+		applied.cinematicLowQuality = on
+		applyCinematicLowQuality(on)
+		fireSave({ cinematicLowQuality = on })
+	end)
 	local skipRevealCtl = buildSkipRevealRow()
 
 	buildFooter()
@@ -1109,6 +1148,8 @@ function SettingsPanel.Build(ctx)
 			ctx.state.settings.toggles = ctx.state.settings.toggles or {}
 			ctx.state.settings.toggles.fastSpin = applied.fastSpin
 			ctx.state.settings.toggles.hideOwnBanners = applied.hideOwnBanners
+			ctx.state.settings.toggles.cinematicReducedMotion = applied.cinematicReducedMotion
+			ctx.state.settings.toggles.cinematicLowQuality = applied.cinematicLowQuality
 			ctx.state.settings.toggles.skipReveal = applied.skipReveal
 		end
 	end
@@ -1121,6 +1162,8 @@ function SettingsPanel.Build(ctx)
 		qualityCtl.setValue(applied.quality)
 		fastSpinCtl.setValue(applied.fastSpin)
 		hideBannersCtl.setValue(applied.hideOwnBanners)
+		reducedMotionCtl.setValue(applied.cinematicReducedMotion)
+		lowQualityCtl.setValue(applied.cinematicLowQuality)
 		skipRevealCtl.setValue()
 		syncState()
 	end

@@ -1,0 +1,9 @@
+{
+  "namespace": "SkipABrainrotUI",
+  "source": "@skip-a-brainrot/ui@1.0.0",
+  "shape": "package",
+  "provider": null,
+  "componentCount": 21,
+  "skippedStoryIds": [],
+  "runtimeFontPrefixes": []
+}

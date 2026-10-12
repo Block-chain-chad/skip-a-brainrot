@@ -1,0 +1,202 @@
+{
+  "global": "SkipABrainrotUI",
+  "pkg": "@skip-a-brainrot/ui",
+  "pkgDir": "C:\\Users\\m\\Coding\\skip-a-brainrot\\ui-web",
+  "extraEntries": [],
+  "exported": [
+    "AccentCard",
+    "ArtSlot",
+    "Badge",
+    "Button",
+    "CloseButton",
+    "CurrencyPill",
+    "Icon",
+    "Label",
+    "Medallion",
+    "NavRail",
+    "NavRailItem",
+    "Panel",
+    "PanelHeader",
+    "ProgressTrack",
+    "QuestRow",
+    "RarityTile",
+    "RewardCard",
+    "Ribbon",
+    "Surface",
+    "TabBar",
+    "Toast"
+  ],
+  "storybookStatic": null,
+  "keyRecipe": 7,
+  "cfgSliceGlobal": "a139d95ad8ab0a8ba08b44a258c54602e36090304087f48fe923c61aa5a8ae08",
+  "components": [
+    {
+      "name": "AccentCard",
+      "group": "surfaces",
+      "srcSha": null,
+      "sourceKey": "feb711f24db13224",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "ArtSlot",
+      "group": "content",
+      "srcSha": null,
+      "sourceKey": "a7ee0a09d417a2cd",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Badge",
+      "group": "status",
+      "srcSha": null,
+      "sourceKey": "fdcf3749ed6f1564",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Button",
+      "group": "controls",
+      "srcSha": null,
+      "sourceKey": "06064ca72e5bd602",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "CloseButton",
+      "group": "controls",
+      "srcSha": null,
+      "sourceKey": "4695b5cf71249894",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "CurrencyPill",
+      "group": "content",
+      "srcSha": null,
+      "sourceKey": "44f27788540dbfc3",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Icon",
+      "group": "content",
+      "srcSha": null,
+      "sourceKey": "52116e2ef0a4d16e",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Label",
+      "group": "content",
+      "srcSha": null,
+      "sourceKey": "4f5b4722328c544f",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Medallion",
+      "group": "content",
+      "srcSha": null,
+      "sourceKey": "616a2174f91ea1e2",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "NavRail",
+      "group": "navigation",
+      "srcSha": null,
+      "sourceKey": "2fc6af115dd01139",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "NavRailItem",
+      "group": "navigation",
+      "srcSha": null,
+      "sourceKey": "3f1888f9b38c2271",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Panel",
+      "group": "surfaces",
+      "srcSha": null,
+      "sourceKey": "cbe38d58320df869",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "PanelHeader",
+      "group": "surfaces",
+      "srcSha": null,
+      "sourceKey": "e06dcaf5223e2c98",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "ProgressTrack",
+      "group": "status",
+      "srcSha": null,
+      "sourceKey": "96a9b4e3f306a87b",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "QuestRow",
+      "group": "content",
+      "srcSha": null,
+      "sourceKey": "3c95f3dc9f117c67",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "RarityTile",
+      "group": "content",
+      "srcSha": null,
+      "sourceKey": "7619158b1d824f88",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "RewardCard",
+      "group": "content",
+      "srcSha": null,
+      "sourceKey": "669d7e9c74f0d6ba",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Ribbon",
+      "group": "status",
+      "srcSha": null,
+      "sourceKey": "bf912b4ee7fb90ad",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Surface",
+      "group": "surfaces",
+      "srcSha": null,
+      "sourceKey": "c9a6b33f109efd7f",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "TabBar",
+      "group": "controls",
+      "srcSha": null,
+      "sourceKey": "143631f496fbb5aa",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    },
+    {
+      "name": "Toast",
+      "group": "status",
+      "srcSha": null,
+      "sourceKey": "af13006b67d5fce2",
+      "cfgSlice": "5ff899b099eb6923833804cda955efdd69101524bec86f67dac5537cd81802e8",
+      "stories": []
+    }
+  ]
+}
