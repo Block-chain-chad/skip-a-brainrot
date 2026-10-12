@@ -30,6 +30,15 @@ local SoundService = game:GetService("SoundService")
 local Workspace = game:GetService("Workspace")
 
 local SoundKit = require(ReplicatedStorage.Modules.SoundKit)
+-- THE MUSIC IS NOT IN THE AMBIENT SET any more (2026-09-21). MusicClient is the single
+-- writer of the soundtrack's Volume and multiplies MusicDuck.level() into every write,
+-- so this bus ducks/silences/restores the music THROUGH MusicDuck (one request id per
+-- bus) and hand-lerps only the true ambience -- weather beds, lake, other people's
+-- sounds. Two writers on one Sound was how a cut that started mid-fade left the music
+-- parked at the wrong level.
+local MusicDuck = require(ReplicatedStorage.Modules.MusicDuck)
+local MUSIC_ID = "cinematic"
+local MUSIC_RELEASE_SECONDS = 0.8   -- how the music comes back on cleanup: a ramp, never a snap
 
 export type AudioBusCfg = { [string]: any }
 
@@ -63,6 +72,8 @@ export type Bus = typeof(setmetatable(
 		_silenced: boolean,
 		_gen: number,
 		_destroyed: boolean,
+		_musicLevel: number,      -- the last duck level asked of the music (1 = none)
+		_musicPreSilence: number?, -- what to put back on unsilence()
 	},
 	AudioBus
 ))
@@ -76,8 +87,16 @@ function AudioBus.new(cfg: AudioBusCfg): Bus
 		_silenced = false,
 		_gen = 0,
 		_destroyed = false,
+		_musicLevel = 1,
+		_musicPreSilence = nil,
 	}, AudioBus)
 	return (self :: any) :: Bus
+end
+
+-- Is this Sound part of the soundtrack (MusicClient's SoundService.Music folder)?
+local function isMusic(s: Instance): boolean
+	local folder = SoundService:FindFirstChild("Music")
+	return folder ~= nil and s:IsDescendantOf(folder)
 end
 
 -- Resolves "kit:<name>" -> SoundKit.play(name, ...) or "rbxassetid://..." ->
@@ -90,6 +109,11 @@ function AudioBus:play(slot: string, opts: PlayOpts?): Sound?
 	local assetRef = self._cfg[slot]
 	if type(assetRef) ~= "string" then
 		warn("[AudioBus] unknown slot: " .. tostring(slot))
+		return nil
+	end
+	-- An EMPTY ref is a slot that is deliberately silent until the owner supplies an
+	-- asset (Config.ASSETS comments say which): the beat plays as a rest, no warning.
+	if assetRef == "" then
 		return nil
 	end
 
@@ -123,14 +147,11 @@ function AudioBus:play(slot: string, opts: PlayOpts?): Sound?
 		local entry: OursEntry = { sound = sound, volume = volume, preSilence = nil }
 		table.insert(self._ours, entry)
 		self._oursSet[sound] = true
-		if self._silenced then
-			-- Snapshot the sound's REAL current .Volume, not the requested `volume` --
-			-- SoundKit.play/playId already scale the requested volume by the player's
-			-- global SFX slider (M.SfxScale()), so a player with SFX turned down would
-			-- otherwise get unsilenced back to a too-loud, unscaled level.
-			entry.preSilence = sound.Volume
-			sound.Volume = 0
-		end
+		-- A sound played AFTER silence() is the sound OF the silent beat (God's rumble at
+		-- 0.3s, under the world's dead air) and is heard. This used to mute it until
+		-- unsilence(), which left God's first 1.3s completely silent and dumped rumble,
+		-- beam and choir on the player at once. silence() still hard-cuts everything
+		-- that was already playing, ours included.
 	end
 	return sound
 end
@@ -146,7 +167,7 @@ function AudioBus:_snapshotAmbient()
 	end
 	for _, root in ipairs(roots) do
 		for _, d in ipairs(root:GetDescendants()) do
-			if d:IsA("Sound") and d.Playing and not self._oursSet[d] and not self._snapshots[d] then
+			if d:IsA("Sound") and d.Playing and not self._oursSet[d] and not self._snapshots[d] and not isMusic(d) then
 				self._snapshots[d] = { original = d.Volume, preSilence = nil }
 			end
 		end
@@ -157,13 +178,20 @@ end
 -- sound's own original volume -- ambient sounds have wildly different authored
 -- levels, so a single absolute target would blow some out and mute others) over
 -- `seconds`. Supersedes any in-flight duck/restore.
-function AudioBus:duckAmbient(toLevel: number, seconds: number)
+-- musicLevel (optional): a separate target for the soundtrack -- God's choir wants the
+-- ambience back to a whisper and the music to NOTHING. Defaults to toLevel.
+function AudioBus:duckAmbient(toLevel: number, seconds: number, musicLevel: number?)
 	if self._destroyed then
 		return
 	end
 	toLevel = math.clamp(toLevel, 0, 1)
 	seconds = math.max(seconds, 0.02)
 	self:_snapshotAmbient()
+	local m = math.clamp(tonumber(musicLevel) or toLevel, 0, 1)
+	self._musicLevel = m
+	self._musicPreSilence = nil
+	self._silenced = false
+	MusicDuck.set(MUSIC_ID, m, seconds)
 
 	self._gen += 1
 	local myGen = self._gen
@@ -199,8 +227,14 @@ function AudioBus:silence()
 	if self._destroyed then
 		return
 	end
+	-- Snapshot FIRST. This used to iterate whatever duckAmbient had already collected,
+	-- so a cut that opened with silence() (God's bonk) silenced nothing but its own
+	-- sounds -- the "world goes quiet" beat never happened.
+	self:_snapshotAmbient()
 	self._gen += 1
 	self._silenced = true
+	self._musicPreSilence = self._musicLevel
+	MusicDuck.set(MUSIC_ID, 0, 0)   -- the hard cut is the beat
 	for sound, snap in pairs(self._snapshots) do
 		if sound.Parent then
 			snap.preSilence = sound.Volume
@@ -223,6 +257,11 @@ function AudioBus:unsilence()
 		return
 	end
 	self._silenced = false
+	-- the music comes back to whatever duck it had before the cut -- over a short ramp
+	-- rather than the hard step the ambience takes, since a step UP in music reads as a
+	-- glitch where a step down reads as a beat
+	MusicDuck.set(MUSIC_ID, self._musicPreSilence or self._musicLevel, 0.15)
+	self._musicPreSilence = nil
 	for sound, snap in pairs(self._snapshots) do
 		if sound.Parent and snap.preSilence then
 			sound.Volume = snap.preSilence
@@ -244,6 +283,10 @@ function AudioBus:restoreAmbient(seconds: number)
 		return
 	end
 	seconds = math.max(seconds, 0.02)
+	self._musicLevel = 1
+	self._musicPreSilence = nil
+	self._silenced = false
+	MusicDuck.clear(MUSIC_ID, seconds)
 	self._gen += 1
 	local myGen = self._gen
 	local snapshots = self._snapshots
@@ -278,6 +321,10 @@ function AudioBus:cleanup()
 	end
 	self._destroyed = true
 	self._gen += 1
+	-- The music's return is a RAMP even on the safety net: MusicDuck owns the ramp, so
+	-- it finishes after this bus is gone. (restoreAmbient in the handoff beat normally
+	-- got there first; this catches the cancel/kill paths.)
+	MusicDuck.clear(MUSIC_ID, MUSIC_RELEASE_SECONDS)
 	for _, entry in ipairs(self._ours) do
 		if entry.sound.Parent then
 			pcall(function()

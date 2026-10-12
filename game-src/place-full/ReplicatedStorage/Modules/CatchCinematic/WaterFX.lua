@@ -198,29 +198,253 @@ end
 
 -- THE THING THE ROCK HITS (owner 2026-08-09: "I don't see the rock visibly hitting
 -- something"). A dark back barely breaking the waterline at the strike point: it
--- A single expanding neon ring in an arbitrary colour -- the tier-coloured energy
--- ring of the Mythic eruption, the gold shockwave of God's arrival. Same recipe as
--- _ring (which stays the water-coloured one).
+-- A RING OF PARTICLES bursting outward from a circle on the water: one :Emit from the
+-- rim of a disc-shaped emitter, drifting out and fading. This is what shockRing() and
+-- erupt()'s splash rings draw with now (2026-09-21): a Neon cylinder is a FILLED disc,
+-- and at 6x the creature's width the "ring" was a glowing coin covering the water
+-- under the reward -- the flat-disc look the reveal pass bans. No geometry at all here;
+-- the particles ARE the ring. Counts scale by the quality mult.
+function WaterFX:particleRing(pos: Vector3, startRadius: number, travel: number, life: number, color: Color3, count: number, size: number?)
+	if self._destroyed then
+		return
+	end
+	local r = math.max(startRadius, 0.5)
+	local host = Instance.new("Part")
+	host.Name = "ParticleRing"
+	host.Size = Vector3.new(r * 2, 0.2, r * 2)
+	host.Transparency = 1
+	host.CFrame = CFrame.new(pos.X, pos.Y + 0.25, pos.Z)
+	decorPart(host)
+	host.Parent = self._stage
+	table.insert(self._parts, host)
+
+	local e = Instance.new("ParticleEmitter")
+	e.Name = "RingBurst"
+	e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	e.Shape = Enum.ParticleEmitterShape.Disc
+	e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+	e.ShapeInOut = Enum.ParticleEmitterShapeInOut.Outward
+	e.EmissionDirection = Enum.NormalId.Top
+	e.Rate = 0
+	e.Lifetime = NumberRange.new(life * 0.75, life)
+	-- speed so the ring travels `travel` studs over its life
+	local v = math.max(travel, 1) / math.max(life, 0.05)
+	e.Speed = NumberRange.new(v * 0.8, v * 1.1)
+	e.SpreadAngle = Vector2.new(5, 5)
+	e.Acceleration = Vector3.new(0, 1.5, 0)
+	e.Drag = 1.5
+	e.Rotation = NumberRange.new(0, 360)
+	e.RotSpeed = NumberRange.new(-60, 60)
+	e.LightEmission = 0.85
+	e.Color = ColorSequence.new(color)
+	local sz = size or 1.0
+	e.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, sz),
+		NumberSequenceKeypoint.new(0.6, sz * 0.7),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	e.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(0.7, 0.45),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	e.Parent = host
+	local n = math.max(math.floor(count * self._mult), 6)
+	e:Emit(n)
+	self._particleEstimate += n
+end
+
+-- The tier-coloured energy ring of the Mythic burst, the gold shockwave of God's
+-- arrival: a particle ring now (see particleRing). Signature unchanged for callers.
 function WaterFX:shockRing(color: Color3, maxRadius: number, life: number)
 	if self._destroyed then
 		return
 	end
-	local ring = Instance.new("Part")
-	ring.Name = "ShockRing"
-	ring.Shape = Enum.PartType.Cylinder
-	ring.Material = Enum.Material.Neon
-	ring.Color = color
-	ring.Transparency = 0.2
-	ring.Size = Vector3.new(0.14, 1.5, 1.5)
-	ring.CFrame = CFrame.new(self._surfacePos + Vector3.new(0, 0.08, 0)) * CFrame.Angles(0, 0, math.rad(90))
-	decorPart(ring)
-	ring.Parent = self._stage
-	table.insert(self._parts, ring)
-	local tw = TweenService:Create(ring, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = Vector3.new(0.14, maxRadius * 2, maxRadius * 2), Transparency = 1,
+	local start = math.max(maxRadius * 0.12, 1)
+	self:particleRing(self._surfacePos, start, maxRadius - start, life, color, 48 + math.floor(maxRadius * 1.2), 1.1)
+	-- a brief light where the ring left, so the water under the creature answers it
+	local host = Instance.new("Part")
+	host.Name = "ShockLight"
+	host.Size = Vector3.new(0.2, 0.2, 0.2)
+	host.Transparency = 1
+	host.CFrame = CFrame.new(self._surfacePos + Vector3.new(0, 1, 0))
+	decorPart(host)
+	host.Parent = self._stage
+	table.insert(self._parts, host)
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Brightness = 3
+	light.Range = math.clamp(maxRadius * 1.5, 12, 60)
+	light.Shadows = false
+	light.Parent = host
+	task.spawn(function()
+		local t0 = os.clock()
+		while not self._destroyed and light.Parent do
+			local a = math.clamp((os.clock() - t0) / math.max(life, 0.05), 0, 1)
+			light.Brightness = 3 * (1 - a)
+			if a >= 1 then
+				break
+			end
+			task.wait()
+		end
+	end)
+end
+
+-- A CONCENTRATED POINT OF ENERGY forming at the surface (Mythic's gather beat):
+-- sparkles converging on the point from a sphere around it, a light that brightens
+-- with them, and a faint glow under the water. `seconds` is how long the gather runs
+-- before the pulse; the emitter stops itself.
+function WaterFX:energyPoint(color: Color3, radius: number, seconds: number)
+	if self._destroyed then
+		return
+	end
+	local host = Instance.new("Part")
+	host.Name = "EnergyPoint"
+	host.Shape = Enum.PartType.Ball
+	host.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+	host.Transparency = 1
+	host.CFrame = CFrame.new(self._surfacePos + Vector3.new(0, 0.8, 0))
+	decorPart(host)
+	host.Parent = self._stage
+	table.insert(self._parts, host)
+
+	local e = Instance.new("ParticleEmitter")
+	e.Name = "Gather"
+	e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	e.Shape = Enum.ParticleEmitterShape.Sphere
+	e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+	e.ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward
+	e.Rate = 90 * self._mult
+	e.Lifetime = NumberRange.new(0.28, 0.42)
+	e.Speed = NumberRange.new(radius / 0.4, radius / 0.3)
+	e.SpreadAngle = Vector2.new(3, 3)
+	e.LightEmission = 1
+	e.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, color),
+		ColorSequenceKeypoint.new(1, Color3.new(1, 1, 1):Lerp(color, 0.4)),
 	})
-	table.insert(self._tweens, tw)
-	tw:Play()
+	e.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.35),
+		NumberSequenceKeypoint.new(1, 0.9),
+	})
+	e.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.6),
+		NumberSequenceKeypoint.new(1, 0.1),
+	})
+	e.Parent = host
+	self._particleEstimate += e.Rate * 0.35
+
+	local core = Instance.new("Part")
+	core.Name = "EnergyCore"
+	core.Shape = Enum.PartType.Ball
+	core.Material = Enum.Material.Neon
+	core.Color = Color3.new(1, 1, 1):Lerp(color, 0.3)
+	core.Transparency = 1
+	core.Size = Vector3.new(0.6, 0.6, 0.6)
+	core.CFrame = host.CFrame
+	decorPart(core)
+	core.Parent = self._stage
+	table.insert(self._parts, core)
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Brightness = 0
+	light.Range = 24
+	light.Shadows = false
+	light.Parent = core
+
+	task.spawn(function()
+		local t0 = os.clock()
+		while not self._destroyed and core.Parent do
+			local a = math.clamp((os.clock() - t0) / math.max(seconds, 0.05), 0, 1)
+			local e2 = a * a
+			core.Transparency = 1 - 0.9 * e2
+			local d = 0.6 + 1.6 * e2
+			core.Size = Vector3.new(d, d, d)
+			light.Brightness = 5 * e2
+			if a >= 1 then
+				break
+			end
+			task.wait()
+		end
+		if e.Parent then
+			e.Enabled = false
+		end
+	end)
+	self:glowBelow(color, seconds)
+end
+
+-- THE UPWARD PULSE (Mythic's burst): a fast column of sparks and foam going straight
+-- up through the creature's rise, a ring on the water, and the energy core let go.
+-- Frames the creature -- it is a fountain of particles, not a tube around it.
+function WaterFX:pulseUp(color: Color3, modelExtents: Vector3)
+	if self._destroyed then
+		return
+	end
+	local surf = self._surfacePos
+	local width = math.max(math.max(modelExtents.X, modelExtents.Z), 2)
+	local height = math.max(modelExtents.Y, 4)
+	local host = Instance.new("Part")
+	host.Name = "PulseHost"
+	host.Size = Vector3.new(width * 0.5, 0.2, width * 0.5)
+	host.Transparency = 1
+	host.CFrame = CFrame.new(surf + Vector3.new(0, 0.3, 0))
+	decorPart(host)
+	host.Parent = self._stage
+	table.insert(self._parts, host)
+
+	local sparks = Instance.new("ParticleEmitter")
+	sparks.Name = "PulseSparks"
+	sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	sparks.Shape = Enum.ParticleEmitterShape.Disc
+	sparks.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	sparks.EmissionDirection = Enum.NormalId.Top
+	sparks.Rate = 0
+	sparks.Lifetime = NumberRange.new(0.45, 0.8)
+	sparks.Speed = NumberRange.new(height * 1.6, height * 2.4)
+	sparks.SpreadAngle = Vector2.new(9, 9)
+	sparks.Acceleration = Vector3.new(0, -height * 1.2, 0)
+	sparks.Drag = 0.8
+	sparks.LightEmission = 1
+	sparks.Color = ColorSequence.new(color)
+	sparks.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.2),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	sparks.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	sparks.Parent = host
+
+	local foam = Instance.new("ParticleEmitter")
+	foam.Name = "PulseFoam"
+	foam.Texture = FOAM_TEX
+	foam.Shape = Enum.ParticleEmitterShape.Disc
+	foam.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	foam.EmissionDirection = Enum.NormalId.Top
+	foam.Rate = 0
+	foam.Lifetime = NumberRange.new(0.5, 0.9)
+	foam.Speed = NumberRange.new(height * 1.0, height * 1.8)
+	foam.SpreadAngle = Vector2.new(30, 30)
+	foam.Acceleration = Vector3.new(0, -70, 0)
+	foam.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.0),
+		NumberSequenceKeypoint.new(1, 0.15),
+	})
+	foam.Color = ColorSequence.new(Color3.fromRGB(236, 250, 255))
+	foam.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.25),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	foam.Parent = host
+
+	local n1 = math.max(math.floor(70 * self._mult), 10)
+	local n2 = math.max(math.floor(50 * self._mult), 8)
+	sparks:Emit(n1)
+	foam:Emit(n2)
+	self._particleEstimate += n1 + n2
+
+	self:particleRing(surf, width * 0.5, width * 1.6, 0.55, color, 40, 0.9)
 end
 
 -- JOLTS down on impact, holds a beat, then slides back under during the travel.
@@ -526,6 +750,50 @@ function WaterFX:erupt(modelExtents: Vector3)
 	local crossD = math.max(math.max(modelExtents.X, modelExtents.Z) * COLUMN_CROSS_D_MULT, 1)
 	local surf = self._surfacePos
 
+	-- A SPOUT, NOT A TUBE (2026-09-21). The column used to be 2.6x the creature's
+	-- height and over half its width at 0.25 transparency -- a glass cylinder the
+	-- reward rose up inside, and on a Massive a 120-stud tube. Now: a slim, short,
+	-- mostly-transparent core (the wet "spine" of the splash) plus a spray of foam
+	-- particles that does the visual work. The creature is never inside it.
+	columnHeight = columnHeight * 0.55
+	crossD = crossD * 0.5
+	columnSeconds = columnSeconds * 0.7
+	do
+		local spout = Instance.new("ParticleEmitter")
+		spout.Name = "EruptionSpout"
+		spout.Texture = FOAM_TEX
+		spout.Shape = Enum.ParticleEmitterShape.Disc
+		spout.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+		spout.EmissionDirection = Enum.NormalId.Top
+		spout.Rate = 0
+		spout.Lifetime = NumberRange.new(0.5, 0.95)
+		spout.Speed = NumberRange.new(columnHeight * 1.4, columnHeight * 2.2)
+		spout.SpreadAngle = Vector2.new(14, 14)
+		spout.Acceleration = Vector3.new(0, -columnHeight * 2.0, 0)
+		spout.Drag = 0.6
+		spout.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, math.clamp(crossD * 0.35, 0.8, 4)),
+			NumberSequenceKeypoint.new(1, 0.2),
+		})
+		spout.Color = ColorSequence.new(Color3.fromRGB(230, 246, 255))
+		spout.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.2),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		local spoutHost = Instance.new("Part")
+		spoutHost.Name = "EruptionSpoutHost"
+		spoutHost.Size = Vector3.new(crossD, 0.2, crossD)
+		spoutHost.Transparency = 1
+		spoutHost.CFrame = CFrame.new(surf.X, surf.Y + 0.2, surf.Z)
+		decorPart(spoutHost)
+		spoutHost.Parent = self._stage
+		table.insert(self._parts, spoutHost)
+		spout.Parent = spoutHost
+		local n = math.max(math.floor(90 * self._mult), 12)
+		spout:Emit(n)
+		self._particleEstimate += n
+	end
+
 	-- Vertical column: same flat-cylinder rotation ThrowHandler's ripple() uses,
 	-- just applied to a TALL cylinder (Size.X is the length axis pre-rotation;
 	-- CFrame.Angles(0,0,90) always maps it to world Y, regardless of magnitude).
@@ -534,7 +802,7 @@ function WaterFX:erupt(modelExtents: Vector3)
 	column.Shape = Enum.PartType.Cylinder
 	column.Material = Enum.Material.Glass
 	column.Color = COLUMN_COLOR
-	column.Transparency = 0.25
+	column.Transparency = 0.55
 	column.Size = Vector3.new(0.4, crossD, crossD)
 	column.CFrame = CFrame.new(surf.X, surf.Y + 0.2, surf.Z) * CFrame.Angles(0, 0, math.rad(90))
 	decorPart(column)
@@ -592,18 +860,20 @@ function WaterFX:erupt(modelExtents: Vector3)
 		end
 	end)
 
-	-- Radial splash: three cascading rings, ThrowHandler's "big" splash recipe
-	-- scaled to the model's own footprint.
+	-- Radial splash: three cascading PARTICLE rings (2026-09-21 -- these were three
+	-- filled Neon discs up to 3.2x the creature's footprint), ThrowHandler's "big"
+	-- splash cadence scaled to the model's own footprint.
 	local ringBase = math.max(modelExtents.X, modelExtents.Z) * 1.4
-	self:_ring(surf, ringBase * 0.5, ringBase * 1.6, 0.85, 0.45)
+	local ringColor = Color3.fromRGB(226, 244, 255)
+	self:particleRing(surf, ringBase * 0.5, ringBase * 1.1, 0.85, ringColor, 40, 1.0)
 	task.delay(0.10, function()
 		if not self._destroyed then
-			self:_ring(surf, ringBase * 0.4, ringBase * 2.4, 1.1, 0.55)
+			self:particleRing(surf, ringBase * 0.4, ringBase * 2.0, 1.1, ringColor, 48, 0.9)
 		end
 	end)
 	task.delay(0.22, function()
 		if not self._destroyed then
-			self:_ring(surf, ringBase * 0.3, ringBase * 3.2, 1.45, 0.68)
+			self:particleRing(surf, ringBase * 0.3, ringBase * 2.9, 1.45, ringColor, 56, 0.8)
 		end
 	end)
 

@@ -17,7 +17,10 @@ local function decor(p: BasePart)
 	p.Locked = true
 end
 
-function AuraFX.new(stage: Folder, pos: Vector3, color: Color3, radius: number, quality: string, rng: Random): Aura
+-- opts.disc = false (2026-09-21): orbiting sparkles only -- no rift plane, no ring. The
+-- Mythic cut frames its creature with this; the flat planes stay for Secret's rift and
+-- God's descent glow, where "behind the creature" is the design.
+function AuraFX.new(stage: Folder, pos: Vector3, color: Color3, radius: number, quality: string, rng: Random, opts: { disc: boolean? }?): Aura
 	local self = setmetatable({}, AuraFX)
 	self._pos = pos
 	self._radius = radius
@@ -25,30 +28,35 @@ function AuraFX.new(stage: Folder, pos: Vector3, color: Color3, radius: number, 
 	self._parts = {}
 	self._emitters = {}
 	self._alpha = 0
+	local withDisc = not (opts and opts.disc == false)
 
+	-- the emitters need a host part either way; with no disc it is an invisible one
 	local disc = Instance.new("Part")
-	disc.Name = "AuraRift"
+	disc.Name = withDisc and "AuraRift" or "AuraHost"
 	disc.Shape = Enum.PartType.Cylinder
 	disc.Material = Enum.Material.Neon
 	disc.Color = color
 	disc.Transparency = 1
-	disc.Size = Vector3.new(0.2, radius * 2, radius * 2)
+	disc.Size = withDisc and Vector3.new(0.2, radius * 2, radius * 2) or Vector3.new(0.2, 0.2, 0.2)
 	decor(disc)
 	disc.Parent = stage
 	self._disc = disc
+	self._withDisc = withDisc
 	table.insert(self._parts, disc)
 
-	local ring = Instance.new("Part")
-	ring.Name = "AuraRing"
-	ring.Shape = Enum.PartType.Cylinder
-	ring.Material = Enum.Material.Neon
-	ring.Color = Color3.new(1, 1, 1):Lerp(color, 0.5)
-	ring.Transparency = 1
-	ring.Size = Vector3.new(0.25, radius * 2.3, radius * 2.3)
-	decor(ring)
-	ring.Parent = stage
-	self._ring = ring
-	table.insert(self._parts, ring)
+	if withDisc then
+		local ring = Instance.new("Part")
+		ring.Name = "AuraRing"
+		ring.Shape = Enum.PartType.Cylinder
+		ring.Material = Enum.Material.Neon
+		ring.Color = Color3.new(1, 1, 1):Lerp(color, 0.5)
+		ring.Transparency = 1
+		ring.Size = Vector3.new(0.25, radius * 2.3, radius * 2.3)
+		decor(ring)
+		ring.Parent = stage
+		self._ring = ring
+		table.insert(self._parts, ring)
+	end
 
 	local count = (quality == "low") and 1 or 3
 	for i = 1, count do
@@ -77,7 +85,9 @@ function AuraFX:_place(t: number)
 	-- cylinder axis is X: rotate so the flat face looks at the camera, then spin
 	local base = CFrame.lookAt(self._pos, self._pos + look) * CFrame.Angles(0, math.rad(90), 0)
 	self._disc.CFrame = base * CFrame.Angles(t * 0.6, 0, 0)
-	self._ring.CFrame = base * CFrame.Angles(-t * 0.9, 0, 0)
+	if self._ring then
+		self._ring.CFrame = base * CFrame.Angles(-t * 0.9, 0, 0)
+	end
 	for _, rec in ipairs(self._emitters) do
 		local ang = rec[3] + t * 1.4
 		rec[1].Position = Vector3.new(0, math.cos(ang) * self._radius * 0.8, math.sin(ang) * self._radius * 0.8)
@@ -86,6 +96,8 @@ end
 
 -- alpha 0..1: how present the aura is. Hand-set (Transparency is on the allow-list,
 -- but the aura tracks the clock, so it is written per frame rather than tweened).
+-- The planes never go past 0.45 / 0.4 opaque (the ring was 0.7): they are a glow
+-- behind the creature, not a shape in front of the water.
 function AuraFX:update(t: number, alpha: number?)
 	if self._destroyed then
 		return
@@ -93,8 +105,12 @@ function AuraFX:update(t: number, alpha: number?)
 	if alpha then
 		self._alpha = math.clamp(alpha, 0, 1)
 	end
-	self._disc.Transparency = 1 - 0.45 * self._alpha
-	self._ring.Transparency = 1 - 0.7 * self._alpha
+	if self._withDisc then
+		self._disc.Transparency = 1 - 0.45 * self._alpha
+		if self._ring then
+			self._ring.Transparency = 1 - 0.4 * self._alpha
+		end
+	end
 	for _, rec in ipairs(self._emitters) do
 		rec[2].Enabled = self._alpha > 0.2
 	end
@@ -115,8 +131,12 @@ function AuraFX:fade(seconds: number)
 		while not self._destroyed do
 			local a = math.clamp((os.clock() - t0) / math.max(seconds, 0.05), 0, 1)
 			self._alpha = a0 * (1 - a)
-			self._disc.Transparency = 1 - 0.45 * self._alpha
-			self._ring.Transparency = 1 - 0.7 * self._alpha
+			if self._withDisc then
+				self._disc.Transparency = 1 - 0.45 * self._alpha
+				if self._ring then
+					self._ring.Transparency = 1 - 0.4 * self._alpha
+				end
+			end
 			if a >= 1 then
 				for _, rec in ipairs(self._emitters) do
 					rec[2].Enabled = false

@@ -26,6 +26,12 @@ local okIconArt, IconArt = pcall(function()
 	return require(ReplicatedStorage.Modules.UIKit.IconArt)
 end)
 if not okIconArt then IconArt = nil end
+-- Throw pacing (2026-09-21): the shared arc clock (server + ghost + skip counter + camera
+-- all read one module) and the stone-tracking camera, which moved out of this file onto
+-- CatchCinematic.CameraRig. Both fail-soft: a missing module costs the chase camera /
+-- the accelerated cadence, never the throw itself. One local each, on purpose.
+local SkipArc = (function() local ok, m = pcall(require, ReplicatedStorage.Modules:WaitForChild("SkipArc", 5)) return ok and m or nil end)()
+local ThrowCam = (function() local ok, m = pcall(require, ReplicatedStorage.Modules:WaitForChild("ThrowCam", 5)) return ok and m or nil end)()
 
 
 local tierByName = {}
@@ -316,6 +322,14 @@ celebrateSound.SoundId = "rbxasset://sounds/electronicpingshort.wav"
 celebrateSound.Parent = gui
 
 local function celebrateCatch(rarityName, mutation)
+	-- RETIRED (2026-09-21 reward-pacing pass). This predates the reveal system and was
+	-- still firing on top of it: a 34-stud Neon pillar around the character, a camera
+	-- shake and a FOV punch on the frame ThrowResult lands -- i.e. while the stone
+	-- camera is still out over the water (the pillar off-screen, the FOV write fighting
+	-- the camera rig) and, on a Mythic, during the cut's own FOV tighten. The reward's
+	-- own accents live in CatchPop (screen-space) and CatchFX (the burst around you,
+	-- particles only) now. Kept one-block-revertible, like the result card below.
+	if true then return end
 	local idx = rarityIndexByName[rarityName] or 1
 	-- Band 4 locks the camera onto a world model, so the pillar spawned around
 	-- the character would be off-screen and a shake would fight the lock.
@@ -1460,8 +1474,13 @@ local function releaseThrow(isAuto)
 	charging = false
 	stopChargeLoop()
 	-- release is a COMMITMENT with no cancel, so it gets its own voice rather than
-	-- the incidental uiClick that was leaking from the button style
-	SoundKit.play("wheelWind", nil, { volume = RELEASE_VOL })
+	-- the incidental uiClick that was leaking from the button style. Pitched by the
+	-- power behind it (a full-bar release whooshes higher and harder than a tap) with
+	-- a hair of random variation, so ten throws in a row are not ten identical samples.
+	SoundKit.play("wheelWind", nil, {
+		volume = RELEASE_VOL * (0.85 + 0.15 * power),
+		speed = 0.92 + 0.16 * power + (math.random() - 0.5) * 0.06,
+	})
 	local finalPower = power
 	local _char = player.Character
 	local _hrp = _char and _char:FindFirstChild("HumanoidRootPart")
@@ -2740,9 +2759,9 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- === Stone tracking camera (far throws) ===
-local camera = Workspace.CurrentCamera
-local TRACK_MIN_DISTANCE = 60
-local tracking = false
+-- Lives in ReplicatedStorage.Modules.ThrowCam since 2026-09-21 (chase -> glide ->
+-- dwell -> eased return, quick-throw setting, cut handoff); the block at the bottom of
+-- this file is the wiring. TRACK_MIN_DISTANCE is ThrowCam.CFG.minDistance now.
 local stoneThrownRemote = remotes:WaitForChild("StoneThrown")
 
 -- === Skip counter =========================================================
@@ -2783,7 +2802,7 @@ local function hideSkipCounter()
 end
 clearSkipCounter = hideSkipCounter   -- startCharge calls this (forward-declared above)
 
-local function runSkipCounter(nContacts, segTime)
+local function runSkipCounter(nContacts, segTime, totalTime, distance)
 	local label = skipCounterLabel()
 	if not label then return end
 	if type(nContacts) ~= "number" or type(segTime) ~= "number" then return end
@@ -2797,10 +2816,15 @@ local function runSkipCounter(nContacts, segTime)
 	label.Text = "0"
 	label.Visible = true
 
+	-- Hop k ends at starts[k + 1] (SkipArc, 2026-09-21: the hops accelerate, so the
+	-- ticks are no longer k * segTime). Falls back to the uniform cadence without it.
+	local starts = (SkipArc and type(totalTime) == "number" and totalTime > 0)
+		and SkipArc.HopStarts(nContacts, totalTime, distance) or nil
+
 	task.spawn(function()
 		local t0 = os.clock()
 		for k = 1, nContacts do
-			local due = k * segTime - SKIP_TICK_LEAD
+			local due = (starts and starts[k + 1] or (k * segTime)) - SKIP_TICK_LEAD
 			local waitFor = due - (os.clock() - t0)
 			if waitFor > 0 then task.wait(waitFor) end
 			if token ~= skipToken then return end     -- superseded by a new throw / charge
@@ -2820,8 +2844,8 @@ local function runSkipCounter(nContacts, segTime)
 	end)
 end
 
-stoneThrownRemote.OnClientEvent:Connect(function(_, _, _, _, nContacts, segTime)
-	runSkipCounter(nContacts, segTime)
+stoneThrownRemote.OnClientEvent:Connect(function(_, _, totalTime, distance, nContacts, segTime)
+	runSkipCounter(nContacts, segTime, totalTime, distance)
 end)
 
 -- === Client-smoothed stone =================================================
@@ -2839,7 +2863,7 @@ end)
 --   startFlat = landing - (0,0,distance); points[i] = startFlat + (0,0,d*i/n)
 --   apex k=1: clamp(hopLen*0.4, 3, 11); k>1: max(2.5, clamp(hopLen*0.42, 3, 8)*0.82^(k-2))
 -- Change one side and the ghost parts company with the splashes.
-stoneThrownRemote.OnClientEvent:Connect(function(origin, landing, totalTime, distance, nContacts, segTime, isCinematic)
+stoneThrownRemote.OnClientEvent:Connect(function(origin, landing, totalTime, distance, nContacts, segTime, isCinematic, startFlatFromServer)
 	if typeof(origin) ~= "Vector3" or typeof(landing) ~= "Vector3" then return end
 	if type(totalTime) ~= "number" or type(distance) ~= "number"
 		or type(nContacts) ~= "number" or type(segTime) ~= "number" then return end
@@ -2863,9 +2887,17 @@ stoneThrownRemote.OnClientEvent:Connect(function(origin, landing, totalTime, dis
 		if not stone then return end -- old behaviour: the server stone stays visible
 		stone:SetAttribute("ClientSmoothed", true) -- client-local; never replicates
 
-		-- hide the stepping original for me only
+		-- hide the stepping original for me only. Its Trail / motes / glow keep
+		-- drawing through a LocalTransparencyModifier (they are not BaseParts), and the
+		-- server-stepped Trail at replication rate was a second, jagged wake laid over
+		-- the ghost's own -- half of the "laser beam" read. Disabled locally; the
+		-- properties never replicate back.
 		local function hidePart(d)
-			if d:IsA("BasePart") then d.LocalTransparencyModifier = 1 end
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 1
+			elseif d:IsA("Trail") or d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Light") then
+				d.Enabled = false
+			end
 		end
 		for _, d in ipairs(stone:GetDescendants()) do hidePart(d) end
 		local hideConn = stone.DescendantAdded:Connect(hidePart)
@@ -2878,16 +2910,33 @@ stoneThrownRemote.OnClientEvent:Connect(function(origin, landing, totalTime, dis
 				d.CanCollide = false
 				d.CanQuery = false
 				d.CanTouch = false
+			elseif d:IsA("Trail") or d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Light") then
+				-- the clone was taken AFTER hidePart switched these off on the original,
+				-- and Enabled does clone: the ghost is the one that gets to glow
+				d.Enabled = true
 			end
 		end
 		ghost.Parent = Workspace
 
-		local startFlat = landing - Vector3.new(0, 0, distance)
+		-- The lane: the server's own startFlat when it ships one (2026-09-21 -- the Lush
+		-- Gardens bridge skips along +/-X, and the old +Z-only reconstruction flew the
+		-- ghost down a diagonal there), else the +Z reconstruction both hub docks use.
+		local startFlat, lane
+		if typeof(startFlatFromServer) == "Vector3" then
+			startFlat = startFlatFromServer
+			local flat = Vector3.new(landing.X - startFlat.X, 0, landing.Z - startFlat.Z)
+			lane = flat.Magnitude > 1e-3 and flat.Unit or Vector3.new(0, 0, 1)
+		else
+			startFlat = landing - Vector3.new(0, 0, distance)
+			lane = Vector3.new(0, 0, 1)
+		end
 		local points = { origin }
 		for i = 1, nContacts do
-			points[i + 1] = startFlat + Vector3.new(0, 0, distance * (i / nContacts))
+			points[i + 1] = startFlat + lane * (distance * (i / nContacts))
 		end
 		local hopLen = distance / nContacts
+		-- the accelerating hop schedule (SkipArc, 2026-09-21); uniform without it
+		local starts = SkipArc and SkipArc.HopStarts(nContacts, totalTime, distance) or nil
 
 		local spin = 0
 		local flightT0 = os.clock()
@@ -2919,20 +2968,25 @@ stoneThrownRemote.OnClientEvent:Connect(function(origin, landing, totalTime, dis
 				cleanup()
 				return
 			end
-			local k = math.clamp(math.floor(t / segTime) + 1, 1, nContacts)
-			local alpha = math.clamp(t / segTime - (k - 1), 0, 1)
-			local a, b = points[k], points[k + 1]
-			local apex
-			if k == 1 then
-				apex = math.clamp(hopLen * 0.4, 3, 11)
+			local pos
+			if starts then
+				pos = SkipArc.Sample(points, starts, hopLen, t)
 			else
-				apex = math.max(2.5, math.clamp(hopLen * 0.42, 3, 8) * (0.82 ^ (k - 2)))
+				local k = math.clamp(math.floor(t / segTime) + 1, 1, nContacts)
+				local alpha = math.clamp(t / segTime - (k - 1), 0, 1)
+				local a, b = points[k], points[k + 1]
+				local apex
+				if k == 1 then
+					apex = math.clamp(hopLen * 0.4, 3, 11)
+				else
+					apex = math.max(2.5, math.clamp(hopLen * 0.42, 3, 8) * (0.82 ^ (k - 2)))
+				end
+				local flat = a:Lerp(b, alpha)
+				pos = Vector3.new(flat.X, flat.Y + math.sin(alpha * math.pi) * apex, flat.Z)
 			end
-			local pos = a:Lerp(b, alpha)
-			local h = math.sin(alpha * math.pi) * apex
 			-- the server steps 1 rad per ~60Hz heartbeat; 60 rad/s matches it
 			spin += 60 * dt
-			ghost:PivotTo(CFrame.new(pos.X, pos.Y + h, pos.Z)
+			ghost:PivotTo(CFrame.new(pos)
 				* CFrame.Angles(0, spin, 0)
 				* CFrame.Angles(math.rad(12), 0, 0))
 		end)
@@ -2941,87 +2995,37 @@ stoneThrownRemote.OnClientEvent:Connect(function(origin, landing, totalTime, dis
 	end)
 end)
 
--- How early (seconds before the final contact) the tracking camera hands the camera
--- back when a Massive-catch cinematic is inbound. See releaseCam() below.
-local CINEMATIC_CAM_LEAD = 0.10
-
-stoneThrownRemote.OnClientEvent:Connect(function(startPos, landingPos, flightTime, distance)
-	if tracking then return end
-	if (distance or 0) < TRACK_MIN_DISTANCE then return end
-	if not startPos or not landingPos then return end
-	tracking = true
-	cameraTracking = true    -- holds the throw bar at "SKIPPING..." until the flyback ends
-	flightTime = flightTime or 1.5
-	local prevType = camera.CameraType
-	-- Never save Scriptable as the restore target: if some other system (the Massive
-	-- catch cinematic) owns the camera right now, restoring Scriptable later hands back
-	-- a camera with no writer -- frozen until rejoin. The throw bar unlocks at bonk+1.4s
-	-- while a cut runs to ~10.7s, so a throw STARTED mid-cinematic really does land here
-	-- with the camera already Scriptable. Custom is the only recoverable terminal state.
-	-- Same coercion as CameraRig/MassiveEmergence/CatchReveal.
-	if prevType == Enum.CameraType.Scriptable then prevType = Enum.CameraType.Custom end
-	camera.CameraType = Enum.CameraType.Scriptable
-	local t0 = os.clock()
-	local conn
-
-	-- Idempotent: the camera half of the teardown, split out from the throw-lock half
-	-- so the cinematic can reclaim the camera early WITHOUT changing when the throw
-	-- bar unlocks (that stays on the original flightTime + 1.4 schedule below).
-	local camReleased = false
-	local respawnConn
-	local function releaseCam()
-		if camReleased then return end
-		camReleased = true
-		if conn then conn:Disconnect() conn = nil end
-		if respawnConn then respawnConn:Disconnect() respawnConn = nil end
-
-		-- CUSTOM WITH A DEAD SUBJECT IS STILL A DEAD CAMERA.
-		-- Restoring CameraType alone is not enough. If the character died or respawned
-		-- during the flight, CameraSubject still points at the DESTROYED Humanoid, so
-		-- handing back Custom leaves the camera frozen exactly where the tracking loop
-		-- left it -- parked out at the rock's landing point, for good. That is the
-		-- "camera stuck on the skip" bug. CameraRig:takeover() already guards this on its
-		-- own restore path ("a Scriptable owner may also have left CameraSubject nil, and
-		-- Custom with no subject is still a dead camera"); this path never did.
-		local char = player.Character
-		local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-		local subj = camera.CameraSubject
-		if hum and (subj == nil or not subj:IsDescendantOf(Workspace)) then
-			camera.CameraSubject = hum
-		end
-		camera.CameraType = prevType
+-- The thrower's camera for a far throw. ThrowCam owns the whole round trip (takeover,
+-- chase, glide, dwell, eased return, cut handoff, kill switches); this side only
+-- holds the throw bar at "SKIPPING..." until the camera is genuinely home, and never
+-- for longer than the module's own backstop. A nil handle means the camera never left
+-- (short throw, Quick Throw setting, module unavailable) and the bar follows
+-- ThrowResult / StoneThrown as it always did.
+stoneThrownRemote.OnClientEvent:Connect(function(startPos, landingPos, flightTime, distance, nContacts, _segTime, isCinematic, startFlat)
+	if not ThrowCam then return end
+	if typeof(startPos) ~= "Vector3" or typeof(landingPos) ~= "Vector3" then return end
+	if type(flightTime) ~= "number" or flightTime ~= flightTime or flightTime <= 0 then return end
+	local myToken = throwToken
+	-- set BEFORE start(): onHome may run on the very frame the rig resolves, and a flag
+	-- raised after it fired would hold the bar until the last-resort timer
+	cameraTracking = true    -- holds the throw bar until the flyback ends
+	local handle = ThrowCam.start({
+		origin = startPos,
+		landing = landingPos,
+		totalTime = flightTime,
+		distance = distance or 0,
+		nContacts = nContacts or 2,
+		cinematic = isCinematic == true,
+		startFlat = (typeof(startFlat) == "Vector3") and startFlat or nil,
+		onHome = function()
+			-- camera is back on the player: this is the real end of the throw
+			cameraTracking = false
+			unlockThrow(myToken)
+		end,
+	})
+	if not handle then
+		cameraTracking = false   -- the camera never left
 	end
-
-	-- A respawn mid-flight hands the camera back AT ONCE rather than after the full
-	-- flight + 1.4s dwell: otherwise the player is steering a fresh character while the
-	-- camera is still out watching where the last rock landed.
-	respawnConn = player.CharacterAdded:Connect(releaseCam)
-
-	conn = RunService.RenderStepped:Connect(function()
-		-- A Massive catch's cinematic takes the camera AT the final contact
-		-- (CameraRig:takeover(), which snapshots CameraType/CFrame to restore later).
-		-- If this tracking camera is still holding Scriptable at that instant, the
-		-- cinematic snapshots THAT -- and "restores" the player to a Scriptable camera
-		-- parked 900 studs away at the landing point, permanently. So hand the camera
-		-- back a beat EARLY, in an earlier frame, leaving nothing to race.
-		-- CinematicCameraInbound is set by CinematicClient the moment it decides this
-		-- client is the thrower and will run the cut.
-		if player:GetAttribute("CinematicCameraInbound")
-			and (os.clock() - t0) >= (flightTime - CINEMATIC_CAM_LEAD) then
-			releaseCam()
-			return
-		end
-		local alpha = math.clamp((os.clock() - t0) / flightTime, 0, 1)
-		local target = startPos:Lerp(landingPos, alpha)
-		camera.CFrame = CFrame.new(target + Vector3.new(6, 14, -24), target + Vector3.new(0, 1, 6))
-	end)
-	task.delay(flightTime + 1.4, function()
-		releaseCam()
-		tracking = false
-		-- camera is back on the player: this is the real end of the throw
-		cameraTracking = false
-		unlockThrow()
-	end)
 end)
 
 -- === Releasing the throw lock ===

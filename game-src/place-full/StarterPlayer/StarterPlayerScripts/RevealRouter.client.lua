@@ -72,6 +72,20 @@ local function playPop(g)
 	pcall(CatchPop.play, ceremonyPayload(g, tierCuePlayed)) -- BLOCKS for the pop's length
 end
 
+-- The stone camera's round trip is over when this clears (ThrowCam). A pop that opens
+-- while the camera is still out over the water -- which is exactly when ThrowResult
+-- lands -- reads as "abrupt result, then a snap"; waiting for the camera to be home
+-- gives the spec's order: camera settles, short anticipation, the brainrot appears.
+-- Bounded: the module has its own backstop, and a reveal must never be lost to a
+-- flag that failed to clear.
+local CAMERA_WAIT_MAX = 2.5
+local function waitForCamera()
+	local t0 = os.clock()
+	while player:GetAttribute("ThrowCamBusy") == true and os.clock() - t0 < CAMERA_WAIT_MAX do
+		task.wait(0.03)
+	end
+end
+
 local function drainQueue()
 	if draining then return end
 	draining = true
@@ -79,6 +93,7 @@ local function drainQueue()
 		while #queue > 0 do
 			-- never over a takeover (spec S11): wait for it, bounded by its own watchdog
 			while Takeover and Takeover.isActive() do task.wait(0.1) end
+			waitForCamera()
 			local g = table.remove(queue, 1)
 			local ok, err = pcall(playPop, g)
 			if not ok then warn("[RevealRouter] pop failed: " .. tostring(err)) end

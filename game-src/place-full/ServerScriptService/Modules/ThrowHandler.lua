@@ -36,6 +36,9 @@ local LimitedStock = require(ServerScriptService.Modules.LimitedStock)
 local Waves = require(ReplicatedStorage.Modules.BrainrotWaves)
 local BrainrotConfig = require(ReplicatedStorage.Modules.BrainrotConfig)
 local RockDesign = require(ReplicatedStorage.Modules.RockDesign)
+-- The shared arc clock (2026-09-21): contacts, flight time, the accelerating hop
+-- schedule and hop heights, read by the client's ghost / skip counter / camera too.
+local SkipArc = require(ReplicatedStorage.Modules.SkipArc)
 local EmeraldService = require(ServerScriptService.Modules.EmeraldService)
 local PetHandler = require(ServerScriptService.Modules.PetHandler)
 -- How much the player can still CARRY. The catch path is where brainrots enter
@@ -312,7 +315,11 @@ local SPLASH_BIG_SOUND = SoundKit.Ids.splashBig -- 3.51s, the landing only
 --   index/total: 1-based contact number, used to raise the pitch across the sequence
 --                the way a real stone gets lighter and quicker as it loses energy.
 --   big:         the final landing -- lower, fuller, and allowed to ring longer.
-local function playSplashSound(pos, big, index, total, surfaceY)
+-- Extra args (2026-09-21 audio pass):
+--   speed:    studs/s of the hop that just ended -- a faster, flatter skip is a lighter,
+--             brighter tap; the landing gets heavier with the distance behind it
+--   distance: the throw's total distance, for the landing's weight
+local function playSplashSound(pos, big, index, total, surfaceY, speed, distance)
 	local host = Instance.new("Part")
 	host.Name = "SplashAudio"
 	host.Size = Vector3.new(0.2, 0.2, 0.2)
@@ -326,22 +333,40 @@ local function playSplashSound(pos, big, index, total, surfaceY)
 
 	local sound = Instance.new("Sound")
 	sound.SoundId = big and SPLASH_BIG_SOUND or SPLASH_SOUND
-	-- Still restrained -- this fires up to 8 times per throw and several players share
-	-- the dock -- but 0.22 was under the music bed and the skips were getting lost.
-	-- Raised to 0.32; the rolloff below is what keeps other people's throws in check,
-	-- not the raw level.
-	sound.Volume = big and 0.68 or 0.32
-	-- The skip asset is 0.39s (an earlier comment here claimed 2.4s -- it was wrong).
-	-- Pitching it UP brightens the transient and shortens the tail further, which is
-	-- what makes a skip read as a skip rather than a belly-flop.
 	local progress = (total and total > 1) and ((index - 1) / (total - 1)) or 0
-	local jitter = (math.random() - 0.5) * 0.08   -- so repeated skips are not identical
-	-- The landing only eases DOWN to 0.95 -- its sample is already a heavy wash, and
-	-- pitching a 3.51s file much lower just turns the tail to mud.
-	sound.PlaybackSpeed = (big and 0.95 or (1.45 + progress * 0.35)) + jitter
+	-- NOT eight identical samples at one level (2026-09-21 audio pass). Each skip tap is
+	-- shaped three ways: it DECAYS along the sequence (a stone sheds energy -- the last
+	-- tap is a little over half the first), it reads its own hop SPEED (the accelerating
+	-- late hops are lighter, brighter taps; the slow opening skips are the heavy ones)
+	-- and it wears a random +/-6% pitch and +/-8% level so two throws never rhyme.
+	-- The landing is weighted by the distance behind it: a 900-stud throw lands deeper
+	-- and louder than a 60-stud lob.
+	local reach = math.clamp((tonumber(distance) or 0) / 900, 0, 1)
+	local hop = math.clamp((tonumber(speed) or 220) / 220, 0.6, 1.8)
+	local levelJitter = 1 + (math.random() - 0.5) * 0.16
+	local pitchJitter = (math.random() - 0.5) * 0.12
+	if big then
+		sound.Volume = (0.52 + 0.22 * reach) * levelJitter
+		-- The landing only eases DOWN to ~0.9 -- its sample is already a heavy wash, and
+		-- pitching a 3.51s file much lower just turns the tail to mud.
+		sound.PlaybackSpeed = (0.99 - 0.09 * reach) + pitchJitter * 0.5
+	else
+		-- 0.32 at the first tap, ~0.19 by the last; a fast hop takes a further ~15% off
+		local decay = 1 - 0.42 * progress
+		sound.Volume = 0.32 * decay * math.clamp(1.12 - 0.12 * hop, 0.8, 1.05) * levelJitter
+		-- The skip asset is 0.39s. Pitching it UP brightens the transient and shortens
+		-- the tail further, which is what makes a skip read as a skip rather than a
+		-- belly-flop; faster hops go a touch higher still.
+		sound.PlaybackSpeed = 1.38 + progress * 0.32 + (hop - 1) * 0.12 + pitchJitter
+	end
 	sound.RollOffMode = Enum.RollOffMode.InverseTapered
 	sound.RollOffMinDistance = 14
-	sound.RollOffMaxDistance = 240
+	-- DISTANCE ATTENUATION IS THE POINT: the thrower's camera no longer rides the stone
+	-- all the way out (ThrowCam parks after the opening skips), so the far skips are
+	-- heard as far -- faint, then gone -- and the landing is the one thing that has to
+	-- carry back across the lake. (Skips used to cut off dead at 240 studs, which with
+	-- a parked camera would have silenced the whole second half of a long throw.)
+	sound.RollOffMaxDistance = big and 900 or 460
 	sound.Parent = host
 	sound:Play()
 
@@ -558,7 +583,7 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone, cinemati
 		startFlat = Vector3.new(origin.X, surfaceY, math.max(origin.Z, skipStartZOf(zone)))
 	end
 	-- fewer, clearer skips: aim for ~one skip every ~18 studs, 2..8 contacts
-	local nContacts = math.clamp(math.floor(distance / 18) + 1, 2, 8)
+	local nContacts = SkipArc.Contacts(distance)
 	local points = { origin }
 	for i = 1, nContacts do
 		local d = distance * (i / nContacts)
@@ -566,8 +591,29 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone, cinemati
 	end
 	local hopLen = distance / nContacts
 
-	local totalTime = math.clamp(0.9 + distance / 360, 1.15, 4.2)
+	-- THE CLOCK (SkipArc, 2026-09-21). Shorter overall than the old 0.9 + d/360 (a
+	-- 900-stud throw takes 2.7s, not 3.4s) and no longer uniform: hop k lasts
+	-- HOP_RATIO of hop k-1, so the opening skips play at a readable pace and the
+	-- distant ones accelerate away. Presentation only -- distance, rarity, the grant
+	-- at landing and every splash POSITION are exactly what they were. segTime stays
+	-- on the payload as the mean hop for older readers; the client rebuilds the real
+	-- schedule from (nContacts, totalTime) through the same module.
+	local totalTime = SkipArc.TotalTime(distance)
+	local hopStarts = SkipArc.HopStarts(nContacts, totalTime, distance)
 	local segTime = totalTime / (#points - 1)
+
+	-- The wake (RockDesign's Trail on kits that have one) is sized by SPEED, not by a
+	-- fixed lifetime: ~40 studs of ribbon behind the stone whatever the throw, never
+	-- the 150-300 stud laser a 1.1s lifetime drew at 300 studs/s. Set before the
+	-- payload fires, so the thrower's ghost clone inherits it.
+	do
+		local avgSpeed = math.max(distance / totalTime, 1)
+		for _, d in ipairs(stone:GetDescendants()) do
+			if d:IsA("Trail") and d.Name == "Wake" then
+				d.Lifetime = math.clamp(math.min(d.Lifetime, 40 / avgSpeed), 0.06, 0.3)
+			end
+		end
+	end
 
 	-- nContacts + segTime ride the EXISTING payload rather than a new remote or one
 	-- event per bounce: the arc is fully deterministic, so the client ticks its own
@@ -579,7 +625,11 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone, cinemati
 	-- stone to mirror the cinematic handoff below: the server stone is
 	-- DESTROYED at the final contact instead of settling, and the clone has
 	-- to do the same or a ghost rock floats through the emergence.
-	remotes.StoneThrown:FireClient(player, origin, points[#points], totalTime, distance, nContacts, segTime, cinematic ~= nil)
+	-- (2026-09-21) startFlat rides along as the 8th argument: the ghost and the camera
+	-- rebuild the lane from it, which is the only way a DIRECTIONAL zone (the Lush
+	-- Gardens bridge skips along +/-X from 26 studs out) gets the same line the server
+	-- splashes on. Older readers ignore extra arguments.
+	remotes.StoneThrown:FireClient(player, origin, points[#points], totalTime, distance, nContacts, segTime, cinematic ~= nil, startFlat)
 
 	-- The SAME moment, but to EVERYONE. Only this function knows the arc's timing and
 	-- where it ends, so the fields the client cannot derive are appended here rather
@@ -598,20 +648,19 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone, cinemati
 
 	task.spawn(function()
 		local spin = 0
+		local flightT0 = os.clock()
 		for k = 1, #points - 1 do
 			local a = points[k]
 			local b = points[k + 1]
 			-- clear, bouncy hop heights (flat-ish so it reads as skipping, not lobbing)
-			local apex
-			if k == 1 then
-				apex = math.clamp(hopLen * 0.4, 3, 11)
-			else
-				apex = math.max(2.5, math.clamp(hopLen * 0.42, 3, 8) * (0.82 ^ (k - 2)))
-			end
-			local t0 = os.clock()
+			local apex = SkipArc.Apex(k, hopLen)
+			-- this hop's own window on the shared clock, so a slow frame never pushes
+			-- the later hops (and the landing) off the time the clients are ticking to
+			local hopT0, hopT1 = hopStarts[k], hopStarts[k + 1]
+			local hopDur = math.max(hopT1 - hopT0, 1e-3)
 			while true do
-				local dt = os.clock() - t0
-				local alpha = math.clamp(dt / segTime, 0, 1)
+				local dt = os.clock() - flightT0 - hopT0
+				local alpha = math.clamp(dt / hopDur, 0, 1)
 				local pos = a:Lerp(b, alpha)
 				local h = math.sin(alpha * math.pi) * apex
 				spin = spin + 1.0
@@ -628,7 +677,7 @@ local function spawnSkippingStone(player, distance, rock, onLand, zone, cinemati
 			-- and hands the stone off by destroying its copy at the contact.
 			if not (isLast and cinematic) then
 				spawnSplash(b, isLast, surfaceY)
-				playSplashSound(b, isLast, k, #points - 1, surfaceY)
+				playSplashSound(b, isLast, k, #points - 1, surfaceY, hopLen / hopDur, distance)
 			end
 		end
 		local last = points[#points]
@@ -677,7 +726,7 @@ local lastThrow = {}          -- [userId] = os.clock()
 local inFlight = {}           -- [userId] = true while that player's stone is skipping
 local flightToken = {}        -- [userId] = id of the current throw, so a stale
                               -- watchdog can never unlock a newer throw
-local MAX_FLIGHT = 4.2        -- the upper clamp in spawnSkippingStone
+local MAX_FLIGHT = 4.2        -- watchdog ceiling; the real clamp is SkipArc.TIME_MAX (2.7s)
 
 Players.PlayerRemoving:Connect(function(player)
 	lastThrow[player.UserId] = nil

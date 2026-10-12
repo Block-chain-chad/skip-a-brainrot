@@ -83,9 +83,15 @@ local function enterHandoff(run: Run)
 		run.audio:play("cardWhoosh", run.spectator and { where = run.surface } or nil)
 		run.audio:restoreAmbient(0.6 * run.stretch)
 	end
-	local seconds = CutKit.beatSeconds(run) * 0.42
+	local beatSecs = CutKit.beatSeconds(run)
+	local seconds = beatSecs * 0.42
 	if run.spectator then
 		return
+	end
+	-- THE HUD COMES BACK NOW, under the camera's motion, not on the static frame after
+	-- the cut (Takeover.run.restoreHud; the trove still guarantees it on every exit).
+	if run.restoreHud then
+		pcall(run.restoreHud)
 	end
 	if run.brain then
 		local target = Vector2.new(0.86, 0.92)
@@ -104,7 +110,13 @@ local function enterHandoff(run: Run)
 		end)
 	end
 	if run.cam then
-		run.cam:returnToPlayer((Config.CAMERA.returnBlendSeconds or 0.8) * run.stretch, nil)
+		-- The blend must FINISH inside this beat: the run ends at the beat's t1 and the
+		-- trove then hard-restores the camera, so a blend longer than the beat used to be
+		-- cut short by a snap (Mythic's 0.2s handoff vs the 0.8s blend was exactly the
+		-- "abrupt return"). Never shorter than 0.25s -- a beat that short is a bug in
+		-- the cut's table, and a snap is still worse than an overrun.
+		local blend = math.min((Config.CAMERA.returnBlendSeconds or 0.8) * run.stretch, beatSecs * 0.92)
+		run.cam:returnToPlayer(math.max(blend, 0.25 * run.stretch), nil)
 	end
 end
 

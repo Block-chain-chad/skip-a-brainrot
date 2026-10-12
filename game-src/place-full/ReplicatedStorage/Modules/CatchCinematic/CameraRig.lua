@@ -20,12 +20,32 @@
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
--- A FIXED string, unlike the Sequencer's per-run salted bind name, and deliberately so.
--- A shared BindToRenderStep name is only dangerous when two bindings can be live at
--- once, and two live rigs are impossible here: Sequencer.play refuses to start while a
--- run is active (the `active` debounce), each run builds exactly one CameraRig, and
--- takeover() returns false on an already-active rig instance. One rig, one binding.
+-- PER-INSTANCE bind names since 2026-09-21. This used to be one fixed string on the
+-- reasoning that two live rigs were impossible (one Takeover run at a time, one rig per
+-- run). ThrowCam now drives the thrower's stone-tracking camera through this same
+-- module, and a cut's rig takes over from it at the final skip contact -- so for one
+-- frame two rigs really can be live, and a shared bind name would have the second
+-- BindToRenderStep silently replace the first. A counter suffix keeps them apart.
 local RENDER_BIND_NAME = "CatchCinematicCamera"
+local bindCounter = 0
+
+-- ================================ HANDOFF ================================
+-- ThrowCam parks the camera out over the water; when a cut is inbound it OFFERS its
+-- rig here instead of restoring (which would snap the player home for one frame and
+-- have the cut fly all the way back out). The cut's rig takeover() CLAIMS the offer:
+-- it adopts the offering rig's saved pre-throw camera state as its own restore target
+-- and starts its motion from wherever the camera is right now, and the offering rig
+-- stands down without writing anything. If nothing claims the offer, the offerer
+-- withdraws it and returns home itself -- the camera is never left in anyone's hands
+-- by accident.
+local pendingOffer: { rig: any, at: number }? = nil
+local OFFER_TTL = 2.0
+-- Every rig that currently owns the camera. A takeover() that finds another rig live
+-- adopts it even without an explicit offer: an active rig at that moment is, by
+-- definition, the stale owner about to lose the camera, and its saved state is the
+-- only correct restore target. Closes the ordering race where the cut's broadcast
+-- lands a beat before the stone camera got round to offering.
+local activeRigs: { [any]: boolean } = {}
 
 export type CameraRigCfg = {
 	fovBase: number?,
@@ -53,7 +73,8 @@ type SavedCameraState = {
 -- Each branch in _computeBaseCFrame casts the fields it needs (::) — safe because the
 -- fields are always populated together by the constructor for that kind.
 type Motion = {
-	kind: string, -- "none" | "hold" | "flyTo" | "hover" | "orbit" | "returning"
+	kind: string, -- "none" | "hold" | "flyTo" | "hover" | "orbit" | "follow" | "returning"
+	fn: ((number, number) -> CFrame)?, -- follow: (dt, elapsed) -> base CFrame
 	cf: CFrame?,
 	startCF: CFrame?,
 	targetCF: CFrame?,
@@ -103,6 +124,9 @@ export type Rig = typeof(setmetatable(
 		_elapsedTime: number,
 		_pendingDone: (() -> ())?,
 		_pendingFinishSoft: boolean,
+		_bindName: string,
+		_touchedFov: boolean,
+		_abandoned: boolean,
 	},
 	CameraRig
 ))
@@ -129,6 +153,7 @@ local function easeReturnBlend(t: number): number
 end
 
 function CameraRig.new(cfg: CameraRigCfg): Rig
+	bindCounter += 1
 	local self = setmetatable({
 		_cfg = cfg,
 		_camera = nil,
@@ -143,8 +168,55 @@ function CameraRig.new(cfg: CameraRigCfg): Rig
 		_elapsedTime = 0,
 		_pendingDone = nil,
 		_pendingFinishSoft = false,
+		_bindName = RENDER_BIND_NAME .. "_" .. tostring(bindCounter),
+		_touchedFov = false,
+		_abandoned = false,
 	}, CameraRig)
 	return self
+end
+
+-- ================================ handoff API ================================
+-- Called by a rig that is active and about to be superseded by a cut (ThrowCam).
+function CameraRig.offerHandoff(rig: Rig)
+	if not rig._active or rig._abandoned then
+		return
+	end
+	pendingOffer = { rig = rig, at = os.clock() }
+end
+
+-- Withdraw an offer nobody claimed. No-op if a different rig's offer is pending.
+function CameraRig.withdrawHandoff(rig: Rig)
+	if pendingOffer and pendingOffer.rig == rig then
+		pendingOffer = nil
+	end
+end
+
+function CameraRig.hasPendingHandoff(): boolean
+	return pendingOffer ~= nil and (os.clock() - pendingOffer.at) < OFFER_TTL
+end
+
+-- Stand down WITHOUT writing the camera: the claiming rig now owns the restore. Every
+-- later restore()/returnToPlayer() on this rig is a no-op (its `done`, if any, still
+-- fires exactly once so a caller's teardown chain is never left hanging).
+function CameraRig:_abandon()
+	local done = self._pendingDone
+	self._pendingDone = nil
+	self._pendingFinishSoft = false
+	pcall(function()
+		if self._bound then
+			RunService:UnbindFromRenderStep(self._bindName)
+			self._bound = false
+		end
+	end)
+	self._active = false
+	self._abandoned = true
+	activeRigs[self] = nil
+	self._shakeSource = nil
+	self._motion = { kind = "none" } :: Motion
+	self._fovPunch = nil
+	if done then
+		pcall(done)
+	end
 end
 
 -- True once returnToPlayer() has started a real blend. See the wind-down contract
@@ -159,9 +231,28 @@ function CameraRig:_applyRestore(includeCFrame: boolean)
 	if not cam or not saved then
 		return
 	end
+	-- CUSTOM WITH A DEAD SUBJECT IS STILL A DEAD CAMERA (the old stone camera's own
+	-- lesson): after a respawn mid-run the saved subject is the DESTROYED Humanoid, so
+	-- hand back the live character's instead when the saved one has left the world.
+	local subject = saved.CameraSubject
+	if subject == nil or not subject:IsDescendantOf(workspace) then
+		local plr = Players.LocalPlayer
+		local char = plr and plr.Character
+		local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+		if hum then
+			subject = hum
+		end
+	end
 	cam.CameraType = saved.CameraType
-	cam.CameraSubject = saved.CameraSubject
-	cam.FieldOfView = saved.FieldOfView
+	cam.CameraSubject = subject
+	-- FOV is handed back only when this rig wrote it (punchFOV). A rig that never
+	-- touched it (ThrowCam) must not restore a value it sampled mid-way through
+	-- somebody else's FOV tween -- ClientMain's perfect-throw punch lands on the same
+	-- frames the stone camera takes over, and restoring that sample left the player a
+	-- degree or two narrower after every perfect throw.
+	if self._touchedFov then
+		cam.FieldOfView = saved.FieldOfView
+	end
 	if includeCFrame then
 		-- One-time bookend write (restore/hard-restore only) — not a per-frame writer.
 		cam.CFrame = saved.CFrame
@@ -183,45 +274,84 @@ function CameraRig:takeover(): boolean
 	end
 
 	self._camera = cam
-	-- NEVER save Scriptable as the thing to hand back. Scriptable means some OTHER
-	-- script had the camera when we took over (ClientMain's stone-tracking camera is
-	-- the one that really does this -- see the CinematicCameraInbound handshake in
-	-- CinematicClient, which stops it happening on the real throw path). Whoever it
-	-- was, they are not getting it back after a 10.7s cutscene: their render loop is
-	-- long gone and their own restore already fired mid-cut. Restoring Scriptable
-	-- would leave the player with a frozen camera and no way to recover it short of
-	-- rejoining. Custom is the correct terminal state for a cinematic that always
-	-- ends by giving the player their camera back, so coerce it here as a last-resort
-	-- backstop that no future camera-owning feature can defeat.
-	local savedType = cam.CameraType
-	local savedSubject: Instance? = cam.CameraSubject
-	if savedType == Enum.CameraType.Scriptable then
-		warn("[CameraRig] camera was already Scriptable at takeover -- restoring to Custom instead")
-		savedType = Enum.CameraType.Custom
-		-- A Scriptable owner may also have left CameraSubject nil, and Custom with no
-		-- subject is still a dead camera. Only ever done alongside the type coercion --
-		-- on the normal path the player's real subject is whatever we found.
-		if not savedSubject then
-			local plr = Players.LocalPlayer
-			local char = plr and plr.Character
-			local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-			if hum then savedSubject = hum end
+
+	-- A pending handoff (ThrowCam parked out over the water with a cut inbound): adopt
+	-- ITS saved home state -- the player's real pre-throw camera -- and let it stand
+	-- down. The motion below then starts from the camera's current pose, so the cut
+	-- flies from where the stone landed, not from the dock.
+	local offer = pendingOffer
+	pendingOffer = nil
+	local adopted: any = nil
+	if offer and offer.rig ~= self and offer.rig._active and not offer.rig._abandoned
+		and (os.clock() - offer.at) < OFFER_TTL and offer.rig._saved then
+		adopted = offer.rig
+	end
+	if not adopted then
+		-- no offer, but is some other rig live? (see activeRigs)
+		for other in pairs(activeRigs) do
+			if other ~= self and other._active and not other._abandoned and other._saved then
+				adopted = other
+				break
+			end
 		end
 	end
-	self._saved = {
-		CameraType = savedType,
-		CameraSubject = savedSubject,
-		FieldOfView = cam.FieldOfView,
-		CFrame = cam.CFrame,
-	}
 
-	local player = Players.LocalPlayer
-	local character = player and player.Character
-	local hrp = (character and character:FindFirstChild("HumanoidRootPart")) :: BasePart?
-	if hrp then
-		self._savedOffset = hrp.CFrame:ToObjectSpace(cam.CFrame)
+	if adopted then
+		local src = adopted._saved :: SavedCameraState
+		self._saved = {
+			CameraType = src.CameraType,
+			CameraSubject = src.CameraSubject,
+			-- a source that never wrote FOV may have sampled it mid-tween at ITS takeover;
+			-- the live value now (any such tween long finished) is the true base
+			FieldOfView = adopted._touchedFov and src.FieldOfView or cam.FieldOfView,
+			CFrame = src.CFrame,
+		}
+		self._savedOffset = adopted._savedOffset
+		-- the throw camera never punches FOV; the cut's own punch flags it below
+		self._touchedFov = adopted._touchedFov == true
+		adopted:_abandon()
 	else
-		self._savedOffset = nil
+		-- NEVER save Scriptable as the thing to hand back. Scriptable means some OTHER
+		-- script had the camera when we took over (ClientMain's stone-tracking camera is
+		-- the one that really does this -- see the CinematicCameraInbound handshake in
+		-- CinematicClient, which stops it happening on the real throw path). Whoever it
+		-- was, they are not getting it back after a 10.7s cutscene: their render loop is
+		-- long gone and their own restore already fired mid-cut. Restoring Scriptable
+		-- would leave the player with a frozen camera and no way to recover it short of
+		-- rejoining. Custom is the correct terminal state for a cinematic that always
+		-- ends by giving the player their camera back, so coerce it here as a last-resort
+		-- backstop that no future camera-owning feature can defeat.
+		local savedType = cam.CameraType
+		local savedSubject: Instance? = cam.CameraSubject
+		if savedType == Enum.CameraType.Scriptable then
+			warn("[CameraRig] camera was already Scriptable at takeover -- restoring to Custom instead")
+			savedType = Enum.CameraType.Custom
+			-- A Scriptable owner may also have left CameraSubject nil, and Custom with no
+			-- subject is still a dead camera. Only ever done alongside the type coercion --
+			-- on the normal path the player's real subject is whatever we found.
+			if not savedSubject then
+				local plr = Players.LocalPlayer
+				local char = plr and plr.Character
+				local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+				if hum then savedSubject = hum end
+			end
+		end
+		self._saved = {
+			CameraType = savedType,
+			CameraSubject = savedSubject,
+			FieldOfView = cam.FieldOfView,
+			CFrame = cam.CFrame,
+		}
+
+		local player = Players.LocalPlayer
+		local character = player and player.Character
+		local hrp = (character and character:FindFirstChild("HumanoidRootPart")) :: BasePart?
+		if hrp then
+			self._savedOffset = hrp.CFrame:ToObjectSpace(cam.CFrame)
+		else
+			self._savedOffset = nil
+		end
+		self._touchedFov = false
 	end
 
 	self._lastBaseCF = cam.CFrame
@@ -231,6 +361,7 @@ function CameraRig:takeover(): boolean
 	self._elapsedTime = 0
 	self._pendingDone = nil
 	self._pendingFinishSoft = false
+	self._abandoned = false
 
 	local typeOk = pcall(function()
 		cam.CameraType = Enum.CameraType.Scriptable
@@ -242,7 +373,7 @@ function CameraRig:takeover(): boolean
 	end
 
 	local bindOk = pcall(function()
-		RunService:BindToRenderStep(RENDER_BIND_NAME, Enum.RenderPriority.Camera.Value + 1, function(dt: number)
+		RunService:BindToRenderStep(self._bindName, Enum.RenderPriority.Camera.Value + 1, function(dt: number)
 			local stepOk, stepErr = pcall(function()
 				self:_onRenderStep(dt)
 			end)
@@ -262,7 +393,31 @@ function CameraRig:takeover(): boolean
 
 	self._bound = true
 	self._active = true
+	activeRigs[self] = true
 	return true
+end
+
+-- Per-frame follow: fn(dt, elapsed) -> base CFrame. Used by ThrowCam to chase the
+-- stone; a cut never needs it. An fn that errors or returns a non-CFrame holds the
+-- last base pose rather than throwing inside the render step.
+function CameraRig:follow(fn: (number, number) -> CFrame)
+	if not self._active or not self._camera or self:_isWindingDown() then
+		return
+	end
+	self._motion = {
+		kind = "follow",
+		fn = fn,
+		elapsed = 0,
+	} :: Motion
+end
+
+-- The pose the rig is currently holding/lerping (the last base CFrame it wrote).
+function CameraRig:currentCFrame(): CFrame?
+	return self._lastBaseCF
+end
+
+function CameraRig:isActive(): boolean
+	return self._active
 end
 
 function CameraRig:flyTo(targetCF: CFrame, seconds: number, easeOutHard: boolean)
@@ -321,6 +476,7 @@ function CameraRig:punchFOV(hi: number, settle: number, seconds: number)
 	if not self._active or not self._camera or self:_isWindingDown() then
 		return
 	end
+	self._touchedFov = true
 	self._fovPunch = {
 		startFOV = self._camera.FieldOfView,
 		hi = hi,
@@ -343,7 +499,7 @@ function CameraRig:returnToPlayer(seconds: number, done: (() -> ())?)
 		return
 	end
 
-	if not self._active or not self._camera then
+	if not self._active or not self._camera or self._abandoned then
 		if done then
 			pcall(done)
 		end
@@ -385,12 +541,13 @@ function CameraRig:_finishReturn(hard: boolean)
 	else
 		pcall(function()
 			if self._bound then
-				RunService:UnbindFromRenderStep(RENDER_BIND_NAME)
+				RunService:UnbindFromRenderStep(self._bindName)
 				self._bound = false
 			end
 			self:_applyRestore(false)
 		end)
 		self._active = false
+		activeRigs[self] = nil
 		self._shakeSource = nil
 		self._motion = { kind = "none" } :: Motion
 		self._fovPunch = nil
@@ -412,9 +569,21 @@ function CameraRig:restore()
 	self._pendingDone = nil
 	self._pendingFinishSoft = false
 
+	-- Abandoned (a cut claimed this rig's handoff): the claimant owns the restore now.
+	-- Writing the camera here would yank it out from under the running cut.
+	if self._abandoned then
+		self._active = false
+		activeRigs[self] = nil
+		self._motion = { kind = "none" } :: Motion
+		if done then
+			pcall(done)
+		end
+		return
+	end
+
 	pcall(function()
 		if self._bound then
-			RunService:UnbindFromRenderStep(RENDER_BIND_NAME)
+			RunService:UnbindFromRenderStep(self._bindName)
 			self._bound = false
 		end
 		if self._active then
@@ -422,6 +591,7 @@ function CameraRig:restore()
 		end
 	end)
 	self._active = false
+	activeRigs[self] = nil
 	self._shakeSource = nil
 	self._motion = { kind = "none" } :: Motion
 	self._fovPunch = nil
@@ -500,6 +670,20 @@ function CameraRig:_computeBaseCFrame(dt: number): CFrame
 		local angle = startAngle + math.rad(degrees) * t
 		local pos = focus + Vector3.new(math.cos(angle) * dist, height, math.sin(angle) * dist)
 		baseCF = CFrame.lookAt(pos, focus)
+
+	elseif motion.kind == "follow" then
+		local elapsed = (motion.elapsed :: number) + dt
+		motion.elapsed = elapsed
+		local fn = motion.fn :: (number, number) -> CFrame
+		local ok, cf = pcall(fn, dt, elapsed)
+		if ok and typeof(cf) == "CFrame" then
+			baseCF = cf
+		else
+			if not ok then
+				warn("[CameraRig] follow fn errored: " .. tostring(cf))
+			end
+			baseCF = self._lastBaseCF or (self._camera :: Camera).CFrame
+		end
 
 	elseif motion.kind == "returning" then
 		local elapsed = (motion.elapsed :: number) + dt

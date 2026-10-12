@@ -9,50 +9,17 @@ local rareCatch = remotes:WaitForChild("RareCatch")
 local SoundKit = require(game:GetService("ReplicatedStorage").Modules.SoundKit)
 local Mutations = require(game:GetService("ReplicatedStorage").Modules.MutationConfig)
 
--- How triumphant the catch sounds, by tier. Each rung is a LIST OF LAYERS.
---
--- Rarity reads as rarer three ways at once: the samples get longer, the level
--- climbs, and the top three rungs STACK. The stacking is the important part --
--- length and volume alone have run out of headroom by the time you reach Secret,
--- so density has to carry the last stretch. A God is an impact, then a choir over
--- it, then a shimmer on top: three events in 0.32s that read as one huge one.
---
--- ON LAYERING, because this file used to forbid it: the old rule came from layering
--- the TIER sound and the MUTATION sound, both at full level, 0.12s apart -- two
--- unrelated stings that just read as one long ring. These layers are different in
--- kind: they are chosen to compose, the supporting layers sit well under the lead,
--- and the offsets are short enough to fuse into a single hit. The mutation rule is
--- unchanged below -- a big mutation still REPLACES the tier sound, never stacks.
-local TIER_SFX = {
-	Common    = { { sound = "catchCommon",   volume = 0.13 } },
-	Uncommon  = { { sound = "catchUncommon", volume = 0.17 } },
-	Rare      = { { sound = "catchRare",     volume = 0.21 } },
-	Epic      = { { sound = "catchEpic",     volume = 0.25 } },
-	Legendary = { { sound = "catchLegend",   volume = 0.30 } },
-	Mythic    = { { sound = "catchMythic",   volume = 0.34 },
-	              { sound = "catchSparkle",  volume = 0.18, delay = 0.06 } },
-	-- catchDrama (curse01) dropped from Secret with the pass-4 reshuffle: it was from
-	-- the same rejected corner as bless/abyss. God keeps it -- God was not complained
-	-- about, and the choir is what carries that stack anyway.
-	Secret    = { { sound = "catchSecret",   volume = 0.40 },
-	              { sound = "catchBigHit",   volume = 0.24, delay = 0.06 } },
-	God       = { { sound = "catchBigHit",   volume = 0.44 },
-	              { sound = "catchGod",      volume = 0.54, delay = 0.10 },
-	              { sound = "catchDrama",    volume = 0.30, delay = 0.10 },
-	              { sound = "catchSparkle",  volume = 0.30, delay = 0.34 } },
-}
-local TIER_FALLBACK = { { sound = "catchRare", volume = 0.21 } }
+-- How triumphant the catch sounds, by tier: ONE ladder, CatchCue.TIER_SFX, shared with
+-- the catcher's own cue and the pops (2026-09-21 -- this file used to carry its own
+-- copy of the eight rungs, which is how a ladder drifts). See CatchCue for the family
+-- recipe (the shared shimmer/impact spine and the per-play pitch variation).
+local CatchCue = require(game:GetService("ReplicatedStorage").Modules.CatchCue)
 
 -- scale: 1 for your own catch, lower for somebody else's -- see the call sites.
 local function playCatch(tierName, scale)
-	for _, layer in ipairs(TIER_SFX[tierName] or TIER_FALLBACK) do
-		local vol = layer.volume * scale
-		if (layer.delay or 0) <= 0 then
-			SoundKit.play(layer.sound, nil, { volume = vol })
-		else
-			task.delay(layer.delay, function()
-				SoundKit.play(layer.sound, nil, { volume = vol })
-			end)
+	if not CatchCue.PlayTier(tierName, scale) then
+		for _, layer in ipairs(CatchCue.TIER_FALLBACK) do
+			SoundKit.play(layer.sound, nil, { volume = layer.volume * scale })
 		end
 	end
 end
@@ -184,7 +151,32 @@ local function showNext()
 	local mine = (item.playerName == Players.LocalPlayer.Name)
 	local r = (item.mutation and item.mutation ~= "" and item.mutation ~= "None")
 		and Mutations.Rarity(item.mutation) or 0
-	if not mine then
+	-- YOUR OWN find waits its turn (2026-09-21). This broadcast lands at grant time --
+	-- the exact frame a Secret/God cut opens on its "nothing" beat -- so the sting
+	-- here spoiled the reveal a full second before the cut's own signature, and the
+	-- banner's 4.5s clock ran out behind the hidden HUD. Now: while the stone camera
+	-- is still out (ThrowCamBusy), a cut is running (RevealActive) or a pop is on
+	-- screen (RevealPopActive), hold -- bounded, so a stuck flag can never eat the
+	-- banner -- and skip the sting entirely when a cut voices this catch itself.
+	local cutVoices = false
+	if mine then
+		if (item.tierName == "Secret" or item.tierName == "God")
+			and player:GetAttribute("SkipReveal" .. item.tierName) ~= true then
+			cutVoices = true
+		end
+		-- at least half a second regardless: the cut's RevealActive / the pop's
+		-- RevealPopActive are raised a few frames AFTER this broadcast lands
+		local t0 = os.clock()
+		repeat
+			task.wait(0.1)
+			local busy = player:GetAttribute("ThrowCamBusy") == true
+				or player:GetAttribute("RevealActive") == true
+				or player:GetAttribute("RevealPopActive") == true
+		until (os.clock() - t0 >= 0.5 and not busy) or os.clock() - t0 > 20
+	end
+	if cutVoices then
+		-- the cut already played the signature; the banner is the only thing left to do
+	elseif not mine then
 		-- someone else's find: same layers, a third of the level, so the ladder is
 		-- still legible across the server without anyone else's luck talking over you
 		playCatch(item.tierName, 0.30)

@@ -45,7 +45,7 @@ local function enterBonk(run: Run)
 	if run.audio then
 		run.audio:play("finalSkip", { where = run.surface })
 		if not run.spectator then
-			run.audio:duckAmbient(0.35, 0.25 * run.stretch)
+			run.audio:duckAmbient(Config.MUSIC_DUCK.Massive or 0.35, 0.25 * run.stretch)
 		end
 	end
 	if run.shake then

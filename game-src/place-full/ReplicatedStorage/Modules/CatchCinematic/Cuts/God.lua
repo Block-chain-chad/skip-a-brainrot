@@ -23,9 +23,9 @@ God.BEATS = {
 	{ name = "beam",    t0 = 1.00, t1 = 1.30 },  -- beam water->sky; environment gold
 	{ name = "choir",   t0 = 1.30, t1 = 2.00 },  -- the exclusive choir; beam holds
 	{ name = "descent", t0 = 2.00, t1 = 3.50 },  -- REVEAL: creature descends inside the beam
-	{ name = "arrival", t0 = 3.50, t1 = 3.80 },  -- flash, GOD, gold shockwave
-	{ name = "linger",  t0 = 3.80, t1 = 4.80 },  -- float; beam fades; choir tails
-	{ name = "handoff", t0 = 4.80, t1 = 5.00 },
+	{ name = "arrival", t0 = 3.50, t1 = 3.80 },  -- flash, GOD, gold shockwave (AFTER the creature is visible)
+	{ name = "linger",  t0 = 3.80, t1 = 4.55 },  -- float; beam fades; choir tails
+	{ name = "handoff", t0 = 4.55, t1 = 5.00 },  -- 0.45s: the camera's blend home fits inside it (was 0.2s -> a snap)
 }
 God.GOLD = Color3.fromRGB(255, 226, 120)
 God.WHITE_GOLD = Color3.fromRGB(255, 245, 210)
@@ -47,6 +47,11 @@ local function enterBonk(run: Run)
 	if run.audio then
 		run.audio:play("finalSkip", { where = run.surface })
 		if not run.spectator then
+			-- THE MUSIC FULLY YIELDS (Config.MUSIC_DUCK.God = 0): the duck is registered
+			-- first so unsilence() at the choir brings the ambience back to a whisper and
+			-- the music to NOTHING -- the choir owns the room until the handoff restores.
+			run.audio:duckAmbient(Config.MUSIC_DUCK.God or 0, 0.05)
+			-- world goes quiet: a hard cut, the beat itself (silence is a tool)
 			run.audio:silence()
 		end
 	end
@@ -112,6 +117,10 @@ local function enterChoir(run: Run)
 	-- THE EXCLUSIVE SLOT. Only Cuts.God and Cuts.MassiveGod may play godChoir.
 	if run.audio then
 		run.audio:unsilence()
+		if not run.spectator then
+			-- the world comes back as a whisper under the choir; the music stays gone
+			run.audio:duckAmbient(0.25, 0.3 * run.stretch, 0)
+		end
 		run.audio:play("godChoir")
 	end
 end

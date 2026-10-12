@@ -7,7 +7,7 @@
 --
 -- WHITELIST DISCIPLINE: the keys the kit's Settings panel writes (music, sfx,
 -- quality, fastSpin, hideOwnBanners, cinematicReducedMotion, cinematicLowQuality,
--- skipReveal), plus the two HUD collapses
+-- quickThrow, skipReveal), plus the two HUD collapses
 -- (navHidden, questsHidden) documented at their branch below. Anything else in the
 -- payload is silently dropped (warn + skip that ONE key -- a malformed or
 -- hostile client sending {Cash=999} alongside a legit {music=0.5} must not
@@ -125,7 +125,12 @@ function SettingsService._Validate(tbl)
 			-- Cinematic): SettingsPanel's two new toggle rows, same shape as
 			-- fastSpin/hideOwnBanners -- a live player Attribute write plus this
 			-- validated round trip so the preference survives a rejoin.
-			or key == "cinematicReducedMotion" or key == "cinematicLowQuality" then
+			or key == "cinematicReducedMotion" or key == "cinematicLowQuality"
+			-- quickThrow (2026-09-21, throw-pacing pass): Settings > Gameplay "Quick
+			-- Throw" -- no stone-tracking camera, the reward lands the moment the server
+			-- confirms it. Same shape as the two cinematic toggles above; ThrowCam reads
+			-- the live player attribute the panel writes.
+			or key == "quickThrow" then
 			if type(value) == "boolean" then
 				out[key] = value
 			else

@@ -519,6 +519,10 @@ local function buildRun(run: Run): boolean
 			end)
 			-- HIDE THE GAME HUD. Re-enabled by the trove on EVERY exit path; our own
 			-- guis are never touched; a gui that vanishes mid-cut is skipped by the pcall.
+			-- run.restoreHud is the same step made callable EARLY (idempotent): the
+			-- handoff beat brings the HUD back while the camera is still gliding home,
+			-- so it returns under motion instead of popping onto a static frame after
+			-- the cut -- and the streak-into-bag has a bag to streak into.
 			local pg = player and player:FindFirstChildOfClass("PlayerGui")
 			if pg then
 				local hidden = {}
@@ -528,13 +532,20 @@ local function buildRun(run: Run): boolean
 						table.insert(hidden, g)
 					end
 				end
-				track(run, function()
+				local restored = false
+				local function restoreHud()
+					if restored then
+						return
+					end
+					restored = true
 					for _, g in ipairs(hidden) do
 						pcall(function()
 							g.Enabled = true
 						end)
 					end
-				end)
+				end
+				run.restoreHud = restoreHud
+				track(run, restoreHud)
 			end
 			local shake = ScreenShake.new(CutKit.shallowMerge(Config.SHAKE, {
 				shakeMult = run.reducedMotion and (Config.REDUCED_MOTION.shakeMult or 0.25) or 1,

@@ -208,6 +208,19 @@ local function applyCinematicLowQuality(on)
 	end
 end
 
+----------------------------------------------------------- REAL SEAM 2d: quickThrow -> ThrowCam
+-- Same bridge shape again (2026-09-21, throw-pacing pass). ReplicatedStorage.Modules.
+-- ThrowCam reads the QuickThrow attribute on every StoneThrown: true = no stone-
+-- tracking camera at all -- the player keeps their own camera, sees the stone leave
+-- the dock, and the reward pop lands the moment the server confirms the catch.
+-- Built for grinding and for phones; off by default so the chase stays the first-
+-- time experience.
+local function applyQuickThrow(on)
+	if player then
+		player:SetAttribute("QuickThrow", on == true)
+	end
+end
+
 ----------------------------------------------------------- REAL SEAM 3: skipReveal -> CatchRevealClient / ClientMain
 -- Per-rarity catch-animation skip (user request 2026-08-04, v2 -- "just
 -- skip the actual catch animation... for whatever rarity they desire"):
@@ -231,7 +244,7 @@ end
 -- visit Settings. `applied` also seeds the panel's own controls on first
 -- Build (see below), and `onAppliedChanged` (assigned inside Build once the
 -- widgets exist) keeps them in sync if a payload lands again afterward.
-local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, cinematicReducedMotion = false, cinematicLowQuality = false, skipReveal = {} }
+local applied = { music = 0.7, sfx = 1, quality = "Medium", fastSpin = false, hideOwnBanners = false, cinematicReducedMotion = false, cinematicLowQuality = false, quickThrow = false, skipReveal = {} }
 local onAppliedChanged = nil
 
 local function applySettings(s)
@@ -265,6 +278,10 @@ local function applySettings(s)
 	if typeof(s.cinematicLowQuality) == "boolean" then
 		applied.cinematicLowQuality = s.cinematicLowQuality
 		applyCinematicLowQuality(applied.cinematicLowQuality)
+	end
+	if typeof(s.quickThrow) == "boolean" then
+		applied.quickThrow = s.quickThrow
+		applyQuickThrow(applied.quickThrow)
 	end
 	if typeof(s.skipReveal) == "table" then
 		applied.skipReveal = s.skipReveal
@@ -784,6 +801,11 @@ function SettingsPanel.Build(ctx)
 		applyCinematicLowQuality(on)
 		fireSave({ cinematicLowQuality = on })
 	end)
+	local quickThrowCtl = buildToggleRow("Quick Throw (no rock camera)", applied.quickThrow, function(on)
+		applied.quickThrow = on
+		applyQuickThrow(on)
+		fireSave({ quickThrow = on })
+	end)
 	local skipRevealCtl = buildSkipRevealRow()
 
 	buildFooter()
@@ -799,6 +821,7 @@ function SettingsPanel.Build(ctx)
 			ctx.state.settings.toggles.hideOwnBanners = applied.hideOwnBanners
 			ctx.state.settings.toggles.cinematicReducedMotion = applied.cinematicReducedMotion
 			ctx.state.settings.toggles.cinematicLowQuality = applied.cinematicLowQuality
+			ctx.state.settings.toggles.quickThrow = applied.quickThrow
 			ctx.state.settings.toggles.skipReveal = applied.skipReveal
 		end
 	end
@@ -813,6 +836,7 @@ function SettingsPanel.Build(ctx)
 		hideBannersCtl.setValue(applied.hideOwnBanners)
 		reducedMotionCtl.setValue(applied.cinematicReducedMotion)
 		lowQualityCtl.setValue(applied.cinematicLowQuality)
+		quickThrowCtl.setValue(applied.quickThrow)
 		skipRevealCtl.setValue()
 		syncState()
 	end

@@ -79,6 +79,19 @@ Config.POSTFX = {
 }
 Config.REDUCED_MOTION = { shakeMult = 0.25, allowFlash = false }
 Config.HYPE = { bannerScalePop = 1.35 }
+-- MUSIC DUCKING under a cut (2026-09-21): the multiplier the soundtrack drops to while
+-- the cut plays, through MusicDuck (MusicClient is the only writer of the track).
+-- Common..Legendary are pops and carry their own ladder in CatchPop's presets
+-- (1 / 1 / 0.88 / 0.72 / 0.45). Restored by the handoff's restoreAmbient ramp, and by
+-- AudioBus.cleanup on every other exit -- as a ramp, never a snap.
+Config.MUSIC_DUCK = {
+	Mythic = 0.25,
+	Secret = 0.03,     -- almost gone: the dead air is the beat
+	God = 0.0,         -- fully yields to the reveal audio (silence() at the bonk)
+	Huge = 0.35,
+	Massive = 0.35,
+	MassiveGod = 0.0,
+}
 -- Sound slots. "kit:<name>" resolves through SoundKit.play; raw ids through SoundKit.playId.
 Config.ASSETS = {
 	finalSkip      = "kit:splashBig",      -- the last skip contact: same cue as every other throw's landing
@@ -90,9 +103,16 @@ Config.ASSETS = {
 	massiveRoar    = "kit:catchGod",      -- TODO: replace -- creature roar, ~2-3s
 	bannerHit      = "kit:catchBigHit",
 	cardWhoosh     = "kit:catchSparkle",
-	mythicBass     = "kit:catchBigHit",   -- Mythic's deep bass at the ripple
-	secretHum      = "kit:catchSparkle",  -- TODO: replace -- low eerie hum under the fake-out, ~0.5s
-	secretLaunch   = "kit:splashBig",
+	mythicBass     = "kit:catchBigHit",   -- Mythic's deep bass as the energy point forms; TODO: a real sub hit
+	-- "" = DELIBERATELY SILENT until the owner supplies an asset (AudioBus plays a rest,
+	-- no warning). The placeholder here was the Twinkling shimmer, which broke the
+	-- fake-out: silence under the glow is the tension the beat wants (spec: "silence
+	-- is a tool"). TODO owner: low eerie hum, ~0.5s.
+	secretHum      = "",
+	-- The Secret SIGNATURE: the tier's own ice-shatter (the ear-picked catchSecret) at
+	-- the launch, with the water hit under it (secretSplash). One sound the player learns.
+	secretLaunch   = "kit:catchSecret",
+	secretSplash   = "kit:splashBig",
 	-- ===== GOD-ONLY SLOTS. godChoir is EXCLUSIVE: only Cuts.God and Cuts.MassiveGod may
 	-- play it (spec S10) so players learn the sound means God. Do not reuse elsewhere.
 	godRumble      = "rbxassetid://1837834264", -- same clip as massiveRumble; TODO: replace with a low sub-rumble
@@ -102,7 +122,7 @@ Config.ASSETS = {
 	VOLUMES = {
 		finalSkip = 0.68, rumbleLoop = 0.8, massiveRumble = 0.8, bassDrop = 0.9, waterExplosion = 0.8,
 		roar = 0.7, massiveRoar = 0.7, bannerHit = 0.6, cardWhoosh = 0.4, mythicBass = 0.9,
-		secretHum = 0.35, secretLaunch = 0.9,
+		secretHum = 0.35, secretLaunch = 0.55, secretSplash = 0.75,
 		godRumble = 0.8, beamRise = 0.5, godChoir = 0.9, goldShockwave = 0.9,
 	},
 }

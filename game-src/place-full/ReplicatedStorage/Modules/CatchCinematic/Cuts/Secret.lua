@@ -13,14 +13,20 @@ type Run = Types.Run
 local Secret = {}
 
 -- ===== TUNABLES (spec S6.2) =====
+-- AUDIO (2026-09-21): the music is all but gone by the end of `nothing` (MusicDuck
+-- through the bus, Config.MUSIC_DUCK.Secret), the fake-out plays under SILENCE (the
+-- old Twinkling placeholder is a rest until the owner supplies a hum), and the
+-- launch carries the Secret SIGNATURE -- the tier's own ice-shatter over the water
+-- hit -- so the only Secret sound the player ever hears is the one that means Secret.
+-- RareCatchClient no longer plays the tier sting at grant time for your own catch.
 Secret.BEATS = {
 	{ name = "bonk",    t0 = 0.00, t1 = 0.10 },
 	{ name = "nothing", t0 = 0.10, t1 = 0.60 },  -- no creature, no card; ripples; near-silence
-	{ name = "fakeout", t0 = 0.60, t1 = 1.00 },  -- ripples die; pink glow UNDER the water
-	{ name = "launch",  t0 = 1.00, t1 = 1.20 },  -- REVEAL: splash, pink column, creature launches
+	{ name = "fakeout", t0 = 0.60, t1 = 1.00 },  -- ripples die; pink glow UNDER the water; silence
+	{ name = "launch",  t0 = 1.00, t1 = 1.20 },  -- REVEAL: signature hit, spout, creature launches
 	{ name = "spiral",  t0 = 1.20, t1 = 1.50 },  -- stops in front of the camera; pink spirals
-	{ name = "banner",  t0 = 1.50, t1 = 2.50 },  -- SECRET; giant pink rift; slow rotation
-	{ name = "handoff", t0 = 2.50, t1 = 3.00 },
+	{ name = "banner",  t0 = 1.50, t1 = 2.50 },  -- SECRET; pink rift; slow rotation
+	{ name = "handoff", t0 = 2.50, t1 = 3.00 },  -- HUD back, streak, camera home (blend fits the beat)
 }
 Secret.PINK = Color3.fromRGB(255, 90, 220)
 Secret.VIOLET = Color3.fromRGB(150, 60, 255)
@@ -43,7 +49,10 @@ end
 
 local function enterNothing(run: Run)
 	if run.audio and not run.spectator then
-		run.audio:duckAmbient(Secret.HUSH_LEVEL, 0.4 * run.stretch)
+		-- ambience to a whisper; the music goes with it (Config.MUSIC_DUCK.Secret) --
+		-- the bus routes the music through MusicDuck at the same level, so pass the
+		-- lower of the two and let the fake-out's silence() finish the job
+		run.audio:duckAmbient(math.min(Secret.HUSH_LEVEL, Config.MUSIC_DUCK.Secret or 0.05), 0.4 * run.stretch)
 	end
 end
 
@@ -58,6 +67,11 @@ local function enterFakeout(run: Run)
 		run.water:glowBelow(Secret.VIOLET, CutKit.beatSeconds(run))
 	end
 	if run.audio then
+		-- SILENCE IS THE TOOL: the hard cut under the glow is the tension beat. The hum
+		-- slot is a rest until the owner fills it (Config.ASSETS.secretHum).
+		if not run.spectator then
+			run.audio:silence()
+		end
 		run.audio:play("secretHum", { where = run.surface })
 	end
 end
@@ -75,9 +89,12 @@ local function enterLaunch(run: Run)
 	end
 	if run.audio then
 		run.audio:unsilence()
-		run.audio:play("secretLaunch", { where = run.surface })
+		-- the signature over the water hit: one sound that means Secret
+		run.audio:play("secretLaunch")
+		run.audio:play("secretSplash", { where = run.surface })
 		if not run.spectator then
-			run.audio:restoreAmbient(0.3 * run.stretch)
+			-- the music stays low through the banner; the handoff brings it back
+			run.audio:duckAmbient(0.35, 0.3 * run.stretch, 0.15)
 		end
 	end
 	if run.shake then

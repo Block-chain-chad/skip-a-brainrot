@@ -276,8 +276,14 @@ local panelHostOpen = false   -- last read of GameHUD.Canvas.PanelHost.Visible
 local function syncPanelYield()
 	-- Phone only. On desktop and console a panel is a window over a HUD that
 	-- stays put, and this chip has always been part of that HUD.
-	chip.Visible = not (Platform.IsPhone and panelHostOpen)
+	-- A reward pop is the second thing it yields to (2026-09-21): on the iPhone 16 sim
+	-- the chip's top-centre slot (true y 130-174) sits exactly under CatchPop's
+	-- creature, so the chip steps aside for the ~1-2s a pop is on screen
+	-- (RevealPopActive, published by CatchPop) and comes straight back.
+	local popActive = player:GetAttribute("RevealPopActive") == true
+	chip.Visible = not (Platform.IsPhone and (panelHostOpen or popActive))
 end
+player:GetAttributeChangedSignal("RevealPopActive"):Connect(syncPanelYield)
 
 task.spawn(function()
 	local hud = player:WaitForChild("PlayerGui"):WaitForChild("GameHUD", 30)

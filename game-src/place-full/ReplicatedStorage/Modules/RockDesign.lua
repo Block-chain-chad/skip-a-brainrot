@@ -486,23 +486,38 @@ function RockDesign.Build(id, colour)
 	if kit.Trail then
 		-- Attachments ride the Core, and ThrowHandler flies the rock with PivotTo, so
 		-- the trail draws itself along the skip arc for free.
+		--
+		-- A WAKE, NOT A LASER (2026-09-21). At 0.55-1.1s of lifetime and ~1.8 studs of
+		-- width, a stone crossing the lake at 300 studs/s dragged a 150-300 stud neon
+		-- ribbon from the dock to wherever it was -- the trail was bigger than the throw.
+		-- Now: a third of the width, a fifth of the life (ThrowHandler clamps it further
+		-- by the throw's actual speed to ~40 studs of ribbon), softer at the root, camera-
+		-- facing so it never disappears edge-on, and it thins to nothing behind the stone
+		-- instead of holding its width. kit.Trail still ranks the kits against each other
+		-- (a Comet's tail is longer than a Meteor's), just on a sane scale.
 		local a0 = Instance.new("Attachment"); a0.Name = "TrailTop"
-		a0.Position = V(0, size.Y * 0.42, 0); a0.Parent = core
+		a0.Position = V(0, size.Y * 0.16, 0); a0.Parent = core
 		local a1 = Instance.new("Attachment"); a1.Name = "TrailBottom"
-		a1.Position = V(0, -size.Y * 0.42, 0); a1.Parent = core
+		a1.Position = V(0, -size.Y * 0.16, 0); a1.Parent = core
 		local tr = Instance.new("Trail")
 		tr.Name = "Wake"
 		tr.Attachment0, tr.Attachment1 = a0, a1
-		tr.Lifetime = 0.55 * kit.Trail
-		tr.MinLength = 0
-		tr.LightEmission = 0.85
-		tr.Color = ColorSequence.new(accent)
+		tr.Lifetime = 0.11 * kit.Trail
+		tr.MinLength = 0.1
+		tr.FaceCamera = true
+		tr.LightEmission = 0.6
+		tr.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1):Lerp(accent, 0.55)),
+			ColorSequenceKeypoint.new(1, accent),
+		})
 		tr.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.25),
+			NumberSequenceKeypoint.new(0, 0.45),
+			NumberSequenceKeypoint.new(0.5, 0.75),
 			NumberSequenceKeypoint.new(1, 1),
 		})
 		tr.WidthScale = NumberSequence.new({
 			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.35, 0.55),
 			NumberSequenceKeypoint.new(1, 0),
 		})
 		tr.Parent = core

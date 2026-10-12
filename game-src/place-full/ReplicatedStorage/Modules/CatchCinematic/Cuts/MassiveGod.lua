@@ -77,6 +77,11 @@ end
 
 local function enterHush(run: Run)
 	if run.audio then
+		if not run.spectator then
+			-- the music goes to nothing for the heaven half (Config.MUSIC_DUCK.MassiveGod);
+			-- registered before the hard cut so the choir's unsilence keeps it there
+			run.audio:duckAmbient(Config.MUSIC_DUCK.MassiveGod or 0, 0.05)
+		end
 		run.audio:silence()
 	end
 	if run.shake then

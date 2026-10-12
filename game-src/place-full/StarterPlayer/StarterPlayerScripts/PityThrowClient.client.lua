@@ -49,6 +49,29 @@ cap.Parent = label
 UITheme.inkText(label, 3.5)   -- chunky dark outline, matching the game's text
 
 local token = 0
+
+-- POPUP BUDGET (2026-09-21). This banner sits in the upper third for 2.6s from the
+-- THROW, and a short flight lands its reward pop inside that window -- two headline
+-- popups fighting for the same band. The reveal wins: the moment a pop opens
+-- (RevealPopActive) or a cut takes the screen (RevealActive), this retracts early.
+-- The information is not lost -- the catch it announced is the one being revealed.
+local function retractNow()
+	if not holder.Visible then return end
+	token += 1
+	local mine = token
+	local tw = TweenService:Create(scale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.55 })
+	tw:Play()
+	tw.Completed:Once(function()
+		if token == mine then holder.Visible = false end
+	end)
+end
+player:GetAttributeChangedSignal("RevealPopActive"):Connect(function()
+	if player:GetAttribute("RevealPopActive") == true then retractNow() end
+end)
+player:GetAttributeChangedSignal("RevealActive"):Connect(function()
+	if player:GetAttribute("RevealActive") == true then retractNow() end
+end)
+
 pityRemote.OnClientEvent:Connect(function(tierName, tierColor)
 	if typeof(tierName) ~= "string" then return end
 	token += 1
